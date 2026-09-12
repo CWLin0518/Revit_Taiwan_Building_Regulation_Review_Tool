@@ -8,6 +8,7 @@ namespace BuildingRegulationReview
     {
         public static readonly DockablePaneId ReviewPaneId = new DockablePaneId(new Guid("AE47CF0C-CFE8-4803-A97C-381AF4F1E760"));
         private ExternalEvent _article164Event;
+        private ExternalEvent _article164DrawingEvent;
 
         public Result OnStartup(UIControlledApplication application)
         {
@@ -20,7 +21,9 @@ namespace BuildingRegulationReview
             button.ToolTip = "以 RhinoCommon 計算 3.6:1 道路陰影，並在目前平面視圖建立 FilledRegion。";
 
             _article164Event = ExternalEvent.Create(new Article164ExternalEventHandler());
-            application.RegisterDockablePane(ReviewPaneId, "建築技術規則檢討", new ReviewPaneProvider(_article164Event));
+            _article164DrawingEvent = ExternalEvent.Create(new Article164DrawingExternalEventHandler());
+            application.RegisterDockablePane(ReviewPaneId, "建築技術規則檢討",
+                new ReviewPaneProvider(_article164Event, _article164DrawingEvent));
             return Result.Succeeded;
         }
 
@@ -28,6 +31,8 @@ namespace BuildingRegulationReview
         {
             _article164Event?.Dispose();
             _article164Event = null;
+            _article164DrawingEvent?.Dispose();
+            _article164DrawingEvent = null;
             return Result.Succeeded;
         }
     }

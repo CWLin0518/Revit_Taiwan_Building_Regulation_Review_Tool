@@ -1,5 +1,7 @@
 param(
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+    [switch]$WaitForRevit,
+    [int]$WaitTimeoutSeconds = 1200
 )
 
 $ErrorActionPreference = 'Stop'
@@ -11,7 +13,20 @@ $manifestPath = Join-Path (Split-Path -Parent $installDirectory) 'BuildingRegula
 
 $runningRevit = Get-Process -Name Revit -ErrorAction SilentlyContinue
 if ($runningRevit) {
-    throw 'Revit is running and has locked BuildingRegulationReview.dll. Save the model, close every Revit window, then run this installer again.'
+    if (-not $WaitForRevit) {
+        throw 'Revit is running and has locked BuildingRegulationReview.dll. Save the model, close every Revit window, then run this installer again.'
+    }
+    Write-Host 'Revit is running. Save your model and close every Revit window - deployment will start automatically once it exits.'
+    $elapsed = 0
+    while (Get-Process -Name Revit -ErrorAction SilentlyContinue) {
+        if ($elapsed -ge $WaitTimeoutSeconds) {
+            throw "Gave up waiting for Revit to close after $WaitTimeoutSeconds seconds."
+        }
+        Start-Sleep -Seconds 5
+        $elapsed += 5
+        Write-Host "Still waiting for Revit to close... (${elapsed}s)"
+    }
+    Write-Host 'Revit closed. Continuing deployment.'
 }
 
 if (-not $SkipBuild) {

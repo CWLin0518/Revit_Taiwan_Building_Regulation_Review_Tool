@@ -20,7 +20,7 @@
                 <StackPanel>
                     <TextBlock Text="第164條操作說明" FontWeight="SemiBold" Foreground="#1F5EA8" />
                     <TextBlock Margin="0,5,0,0" TextWrapping="Wrap" LineHeight="18"
-                               Text="前置設定：在外牆的 Type Parameters → Identity Data，將 Exterior Wall 設為 Yes。&#x0a;1. 選取第164條道路陰影檢討。&#x0a;2. 按開始檢討；外牆會自動讀取。&#x0a;3. 選取直線建築線。&#x0a;4. 在道路側點一下。&#x0a;5. 輸入道路寬度並產生 FilledRegion。" />
+                               Text="外牆／樓板會自動判斷（牆類型 Function＝Exterior 或自訂參數 Exterior Wall＝Yes，加上所有樓板；可用名為「164條_外牆與樓板」的 Selection Set 覆寫）。&#x0a;1. 選取第164條道路陰影檢討。&#x0a;2. 按開始檢討；於彈出視窗可取消勾選不需要的牆／樓板類型。&#x0a;3. 選取直線建築線。&#x0a;4. 在道路側點一下。&#x0a;5. 輸入道路寬度（可打字或拖拉桿）；系統會直接建立/覆蓋專用的「164條圖說－結果」視圖（建物投影＋陰影投影＋建築線），不再畫進目前視圖。&#x0a;6. 結果為「符合」後可按圖說製作：選圖框並用拉桿設定圖例文字大小 → 在排版預覽視窗拖曳調整平面圖／圖例位置 → 產生含圖例表格的圖紙；不符合時圖說製作會被擋下。" />
                 </StackPanel>
             </Border>
         </StackPanel>
@@ -67,7 +67,11 @@
             </StackPanel>
         </ScrollViewer>
 
-        <Button Grid.Row="6" x:Name="StartReviewButton" Margin="0,12,0,0" Padding="12,9"
-                Content="開始檢討" IsEnabled="False" Click="StartReviewButton_OnClick" />
+        <StackPanel Grid.Row="6" Orientation="Horizontal" Margin="0,12,0,0" HorizontalAlignment="Stretch">
+            <Button x:Name="StartReviewButton" Padding="12,9" MinWidth="120"
+                    Content="開始檢討" IsEnabled="False" Click="StartReviewButton_OnClick" />
+            <Button x:Name="DrawReviewButton" Padding="12,9" MinWidth="120" Margin="8,0,0,0"
+                    Content="圖說製作" IsEnabled="False" Click="DrawReviewButton_OnClick" />
+        </StackPanel>
     </Grid>
 </UserControl>

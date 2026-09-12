@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("BuildingRegulationReview")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+f99cd681a3d5bff9c7595b49628c630b9fdec8fb")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+dcce166b162fa2e95e1fb82c307ad15b96ad2bc9")]
 [assembly: System.Reflection.AssemblyProductAttribute("BuildingRegulationReview")]
 [assembly: System.Reflection.AssemblyTitleAttribute("BuildingRegulationReview")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

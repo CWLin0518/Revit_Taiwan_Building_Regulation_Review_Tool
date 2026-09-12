@@ -14,10 +14,12 @@ namespace BuildingRegulationReview
     {
         private readonly List<ReviewItem> _allItems;
         private readonly ExternalEvent _article164Event;
+        private readonly ExternalEvent _article164DrawingEvent;
 
-        public ReviewPaneControl(ExternalEvent article164Event)
+        public ReviewPaneControl(ExternalEvent article164Event, ExternalEvent article164DrawingEvent)
         {
             _article164Event = article164Event ?? throw new ArgumentNullException(nameof(article164Event));
+            _article164DrawingEvent = article164DrawingEvent ?? throw new ArgumentNullException(nameof(article164DrawingEvent));
             InitializeComponent();
             _allItems = LoadItems();
             ApplyFilter();
@@ -55,7 +57,9 @@ namespace BuildingRegulationReview
         private void ReviewItemsList_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             var item = ReviewItemsList.SelectedItem as ReviewItem;
-            StartReviewButton.IsEnabled = item?.Id == "article-164-road-shadow";
+            var isArticle164 = item?.Id == "article-164-road-shadow";
+            StartReviewButton.IsEnabled = isArticle164;
+            DrawReviewButton.IsEnabled = isArticle164;
             DetailPanel.Visibility = item == null ? Visibility.Collapsed : Visibility.Visible;
             if (item == null) return;
             DetailTitle.Text = item.Title;
@@ -71,6 +75,15 @@ namespace BuildingRegulationReview
             var request = _article164Event.Raise();
             if (request != ExternalEventRequest.Accepted)
                 TaskDialog.Show("第164條檢討", "Revit 正在執行其他命令，請完成目前操作後再試一次。");
+        }
+
+        private void DrawReviewButton_OnClick(object sender, RoutedEventArgs e)
+        {
+            var item = ReviewItemsList.SelectedItem as ReviewItem;
+            if (item?.Id != "article-164-road-shadow") return;
+            var request = _article164DrawingEvent.Raise();
+            if (request != ExternalEventRequest.Accepted)
+                TaskDialog.Show("第164條圖說製作", "Revit 正在執行其他命令，請完成目前操作後再試一次。");
         }
     }
 }

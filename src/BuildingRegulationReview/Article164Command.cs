@@ -79,6 +79,13 @@ namespace BuildingRegulationReview
                 var shadow = RCurve.CreateBooleanUnion(triangles, tolerance)?.Where(c => c.IsClosed).ToArray() ?? Array.Empty<RCurve>();
                 if (shadow.Length == 0) { message = "Rhino 無法建立道路陰影封閉區域。"; return Result.Failed; }
 
+                var footprintTriangles = new List<RCurve>();
+                foreach (var element in shadowElements)
+                    CollectProjectedTriangles(element.get_Geometry(new Options { DetailLevel = ViewDetailLevel.Fine }),
+                        Autodesk.Revit.DB.Transform.Identity, baseZ, XYZ.Zero, footprintTriangles);
+                var footprint = RCurve.CreateBooleanUnion(footprintTriangles, tolerance)?.Where(c => c.IsClosed).ToArray() ?? Array.Empty<RCurve>();
+                if (footprint.Length == 0) { message = "Rhino 無法建立建物平面投影封閉區域。"; return Result.Failed; }
+
                 var roadWidth = UnitUtils.ConvertToInternalUnits(options.RoadWidthMeters, UnitTypeId.Meters);
                 var roadBoundary = Rectangle(start, end, normal, roadWidth);
                 var roadCurve = ToRhino(roadBoundary);
@@ -89,17 +96,34 @@ namespace BuildingRegulationReview
                 var exceedsOppositeBoundary = shadow.Any(c => MaxRoadDepth(c, start, normal) > roadWidth + tolerance);
                 var compliant = shadowArea <= allowedArea + tolerance * tolerance && !exceedsOppositeBoundary;
 
+                var result = new Article164ReviewSession.Result
+                {
+                    Compliant = compliant,
+                    FootprintSilhouette = footprint,
+                    ShadowSilhouette = roadShadow,
+                    LineStart = start,
+                    LineEnd = end,
+                    RoadWidthInternal = roadWidth,
+                    HasPermanentOpenSpace = options.HasPermanentOpenSpace,
+                    ShadowAreaInternal = shadowArea,
+                    AllowedAreaInternal = allowedArea,
+                    LevelId = ((ViewPlan)doc.ActiveView).GenLevel?.Id ?? ElementId.InvalidElementId,
+                    BaseZ = baseZ,
+                };
+
                 using (var tx = new Transaction(doc, "建築技術規則第164條檢討圖"))
                 {
                     tx.Start();
-                    var loops = roadShadow.Select(c => ToRevitLoop(c, baseZ)).Where(x => x != null).ToList();
-                    var writer = new Article164FilledRegionWriter(doc, doc.ActiveView);
-                    writer.ReplaceResult(loops, compliant, DateTime.UtcNow.ToString("O"));
+                    var (planViewId, footprintTypeId, shadowTypeId) = Article164PlanViewBuilder.Create(doc, result);
+                    result.PlanViewId = planViewId;
+                    result.FootprintTypeId = footprintTypeId;
+                    result.ShadowTypeId = shadowTypeId;
                     tx.Commit();
                 }
+                Article164ReviewSession.SetResult(doc, result);
 
                 var status = compliant ? "符合" : "不符合";
-                TaskDialog.Show("第164條檢討結果", $"結果：{status}\n元件來源：{elementSource}\n讀取牆／樓板：{shadowElements.Count} 個\n陰影面積 As：{ToSquareMeters(shadowArea):0.##} m²\n容許面積：{ToSquareMeters(allowedArea):0.##} m²\n越過道路對側境界：{(exceedsOppositeBoundary ? "是" : "否")}\n\n已在目前視圖建立「164條－{status}」填滿區域。");
+                TaskDialog.Show("第164條檢討結果", $"結果：{status}\n元件來源：{elementSource}\n讀取牆／樓板：{shadowElements.Count} 個\n陰影面積 As：{ToSquareMeters(shadowArea):0.##} m²\n容許面積：{ToSquareMeters(allowedArea):0.##} m²\n越過道路對側境界：{(exceedsOppositeBoundary ? "是" : "否")}\n\n已在「{Article164PlanViewBuilder.PlanViewName}」視圖建立本次檢討圖說（已覆蓋先前結果）。");
                 return Result.Succeeded;
             }
             catch (Autodesk.Revit.Exceptions.OperationCanceledException) { return Result.Cancelled; }
@@ -219,7 +243,7 @@ namespace BuildingRegulationReview
             var pts = loop.Select(c => c.GetEndPoint(0)).Select(p => new Point3d(p.X, p.Y, 0)).ToList();
             pts.Add(pts[0]); return new PolylineCurve(pts);
         }
-        private static CurveLoop ToRevitLoop(RCurve curve, double z)
+        internal static CurveLoop ToRevitLoop(RCurve curve, double z, double minSegmentLength)
         {
             var poly = curve.ToPolyline(0, 0, 0.01, 0.1, 0, 0, 0, 0, true);
             if (poly == null || poly.PointCount < 4) return null;
@@ -227,7 +251,7 @@ namespace BuildingRegulationReview
             for (var i = 1; i < poly.PointCount; i++)
             {
                 var a = poly.Point(i - 1); var b = poly.Point(i);
-                if (a.DistanceTo(b) > 1e-6) loop.Append(DBLine.CreateBound(new XYZ(a.X, a.Y, z), new XYZ(b.X, b.Y, z)));
+                if (a.DistanceTo(b) > minSegmentLength) loop.Append(DBLine.CreateBound(new XYZ(a.X, a.Y, z), new XYZ(b.X, b.Y, z)));
             }
             return loop;
         }
