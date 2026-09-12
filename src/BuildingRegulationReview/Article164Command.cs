@@ -109,6 +109,7 @@ namespace BuildingRegulationReview
                     AllowedAreaInternal = allowedArea,
                     LevelId = ((ViewPlan)doc.ActiveView).GenLevel?.Id ?? ElementId.InvalidElementId,
                     BaseZ = baseZ,
+                    SourceViewId = doc.ActiveView.Id,
                 };
 
                 using (var tx = new Transaction(doc, "建築技術規則第164條檢討圖"))

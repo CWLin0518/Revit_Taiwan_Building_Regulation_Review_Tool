@@ -18,6 +18,7 @@ namespace BuildingRegulationReview
             public double AllowedAreaInternal;
             public ElementId LevelId;
             public double BaseZ;
+            public ElementId SourceViewId;
             public ElementId PlanViewId;
             public ElementId FootprintTypeId;
             public ElementId ShadowTypeId;

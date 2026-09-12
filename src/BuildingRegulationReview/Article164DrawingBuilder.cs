@@ -21,12 +21,15 @@ namespace BuildingRegulationReview
 
         private const string ArticleText =
             "建築技術規則建築設計施工編 第164條\n" +
-            "建築物高度依下列規定：一、建築物以三‧六比一之斜率，依垂直建築線方向投影於面前道路之陰影面積，不得超過基地臨接面前道路之長度與該道路寬度乘積之半，" +
+            "建築物高度依下列規定：\n" +
+            "建築物以三‧六比一之斜率，依垂直建築線方向投影於面前道路之陰影面積，不得超過基地臨接面前道路之長度與該道路寬度乘積之半，" +
             "且其陰影最大不得超過面前道路對側境界線；建築基地臨接面前道路之對側有永久性空地，其陰影面積得加倍計算。陰影及高度之計算如下：\n" +
             "As ≦ (L × Sw) / 2，且 H ≦ 3.6 (Sw + D)\n" +
-            "其中　As：建築物以三‧六比一之斜率，依垂直建築線方向，投影於面前道路之陰影面積。L：基地臨接面前道路之長度。" +
-            "Sw：面前道路寬度（依本編第十四條第一項各款之規定）。H：建築物各部分高度。D：建築物各部分至建築線之水平距離。\n" +
-            "二、前款所稱之斜率，為高度與水平距離之比值。";
+            "As：建築物以三‧六比一之斜率，依垂直建築線方向，投影於面前道路之陰影面積。\n" +
+            "L：基地臨接面前道路之長度。\n" +
+            "Sw：面前道路寬度（依本編第十四條第一項各款之規定）。\n" +
+            "H：建築物各部分高度。\n" +
+            "D：建築物各部分至建築線之水平距離。";
 
         private static readonly int[] StandardScales = { 1, 2, 5, 10, 20, 25, 50, 100, 150, 200, 250, 300, 400, 500, 1000 };
 
@@ -181,7 +184,10 @@ namespace BuildingRegulationReview
                 var swatchX = (swatchColumnWidth - swatchSize) / 2;
                 var swatchY = rowBottom + (rowHeight - swatchSize) / 2;
                 DrawSwatch(view.Id, rows[i].TypeId, swatchX, swatchY, swatchSize);
-                TextNote.Create(_document, view.Id, new XYZ(swatchColumnWidth + padding, rowTop - padding, 0), rows[i].Label, textTypeId);
+                var label = TextNote.Create(_document, view.Id,
+                    new XYZ(swatchColumnWidth + padding, rowTop - rowHeight / 2, 0), rows[i].Label, textTypeId);
+                label.HorizontalAlignment = HorizontalTextAlignment.Left;
+                label.VerticalAlignment = VerticalTextAlignment.Middle;
             }
             return tableBottom;
         }
@@ -212,7 +218,6 @@ namespace BuildingRegulationReview
         }
 
         private static string BuildFormulaText() =>
-            "計算公式：\n" +
             "As ≦ (L × Sw) / 2（道路對側無永久性空地）；有永久性空地時 As ≦ L × Sw\n" +
             "投影公式：P' = (X, Y) + N × max(0, Z－Z0) / 3.6";
 
@@ -222,13 +227,35 @@ namespace BuildingRegulationReview
             var roadWidth = ToMeters(_run.RoadWidthInternal);
             var shadowArea = ToSquareMeters(_run.ShadowAreaInternal);
             var allowedArea = ToSquareMeters(_run.AllowedAreaInternal);
-            var openSpaceNote = _run.HasPermanentOpenSpace ? "道路對側為永久性空地，容許面積 = L × Sw" : "道路對側非永久性空地，容許面積 = L × Sw ÷ 2";
-            return "檢討過程：\n" +
-                   $"L（建築線長度）= {length:0.##} m\n" +
-                   $"Sw（面前道路寬度）= {roadWidth:0.##} m\n" +
-                   $"{openSpaceNote} = {allowedArea:0.##} m²\n" +
-                   $"陰影面積 As = {shadowArea:0.##} m²\n" +
-                   $"As ≦ 容許面積 → 符合";
+
+            string formula, substituted;
+            if (_run.HasPermanentOpenSpace)
+            {
+                formula = "As ≦ L × Sw（道路對側為永久性空地）";
+                substituted = $"As ≦ {length:0.##} × {roadWidth:0.##} = {allowedArea:0.##} m²";
+            }
+            else
+            {
+                formula = "As ≦ (L × Sw) / 2";
+                substituted = $"As ≦ ({length:0.##} × {roadWidth:0.##}) / 2 = {allowedArea:0.##} m²";
+            }
+
+            var result = $"As = {shadowArea:0.##} m² ≦ {allowedArea:0.##} m²" + (_run.Compliant ? " ...ok" : "");
+            return $"{formula}\n{substituted}\n{result}";
+        }
+
+        public ElementId GetOrCreateNoTitleViewportType(Viewport viewport)
+        {
+            const string name = "164條圖說－無標題";
+            var existing = viewport.GetValidTypes()
+                .Select(id => _document.GetElement(id) as ElementType)
+                .FirstOrDefault(t => t != null && t.Name == name);
+            if (existing != null) return existing.Id;
+
+            if (!(_document.GetElement(viewport.GetTypeId()) is ElementType baseType)) return viewport.GetTypeId();
+            var created = baseType.Duplicate(name);
+            created.get_Parameter(BuiltInParameter.VIEWPORT_ATTR_SHOW_LABEL)?.Set(0);
+            return created.Id;
         }
 
         private ElementId GetOrCreateTextNoteType(string name, double textSizeFeet)

@@ -67,7 +67,8 @@ namespace BuildingRegulationReview
                     var planCenter = new XYZ(paperBounds.Min.X + previewWindow.PlanCenter.X, paperBounds.Min.Y + previewWindow.PlanCenter.Y, 0);
                     var legendCenter = new XYZ(paperBounds.Min.X + previewWindow.LegendCenter.X, paperBounds.Min.Y + previewWindow.LegendCenter.Y, 0);
                     Viewport.Create(doc, sheet.Id, planView.Id, planCenter);
-                    Viewport.Create(doc, sheet.Id, legendView.Id, legendCenter);
+                    var legendViewport = Viewport.Create(doc, sheet.Id, legendView.Id, legendCenter);
+                    legendViewport.ChangeTypeId(builder.GetOrCreateNoTitleViewportType(legendViewport));
                     tx.Commit();
                 }
 
