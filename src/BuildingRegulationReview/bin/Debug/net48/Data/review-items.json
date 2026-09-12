@@ -1,0 +1,10 @@
+[
+  {
+    "Id": "article-164-road-shadow",
+    "Category": "容積設計／建築物高度",
+    "Title": "第164條道路陰影檢討",
+    "LegalReference": "建築技術規則建築設計施工編第164條",
+    "Description": "自動讀取牆型別 Identity Data 中 Exterior Wall = Yes 的外牆，以3.6比1斜率投影於面前道路，檢查陰影面積與道路對側境界。",
+    "Output": "在目前平面視圖建立符合（綠色）或不符合（紅色）的 FilledRegion，並顯示 As、容許面積及越界結果。"
+  }
+]

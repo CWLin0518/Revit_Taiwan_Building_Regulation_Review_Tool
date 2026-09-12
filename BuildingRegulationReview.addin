@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>Building Regulation Review</Name>
+    <Assembly>__ASSEMBLY_PATH__</Assembly>
+    <AddInId>0F2CC5F5-B398-4C79-B43B-32B51E4BED8C</AddInId>
+    <FullClassName>BuildingRegulationReview.App</FullClassName>
+    <VendorId>TWBR</VendorId>
+    <VendorDescription>Taiwan Building Regulation Review Tool</VendorDescription>
+  </AddIn>
+</RevitAddIns>

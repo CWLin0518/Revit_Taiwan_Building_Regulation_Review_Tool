@@ -1,0 +1,73 @@
+<UserControl x:Class="BuildingRegulationReview.ReviewPaneControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             MinWidth="300" Background="#F5F6F7">
+    <Grid Margin="14">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="2*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel>
+            <TextBlock Text="建築技術規則檢討" FontSize="20" FontWeight="SemiBold" Foreground="#202124" />
+            <TextBlock Margin="0,4,0,8" Text="選擇要檢討的項目" Foreground="#62666A" />
+            <Border Margin="0,0,0,12" Padding="10" Background="#EAF2FF" BorderBrush="#B8D1F5" BorderThickness="1" CornerRadius="4">
+                <StackPanel>
+                    <TextBlock Text="第164條操作說明" FontWeight="SemiBold" Foreground="#1F5EA8" />
+                    <TextBlock Margin="0,5,0,0" TextWrapping="Wrap" LineHeight="18"
+                               Text="前置設定：在外牆的 Type Parameters → Identity Data，將 Exterior Wall 設為 Yes。&#x0a;1. 選取第164條道路陰影檢討。&#x0a;2. 按開始檢討；外牆會自動讀取。&#x0a;3. 選取直線建築線。&#x0a;4. 在道路側點一下。&#x0a;5. 輸入道路寬度並產生 FilledRegion。" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+
+        <Border Grid.Row="1" Background="White" BorderBrush="#D5D8DC" BorderThickness="1" CornerRadius="4">
+            <Grid>
+                <TextBox x:Name="SearchBox" Margin="10,8" BorderThickness="0"
+                         VerticalContentAlignment="Center" TextChanged="SearchBox_OnTextChanged" />
+                <TextBlock x:Name="SearchHint" Margin="12,8" Text="搜尋項目、法條或關鍵字…"
+                           Foreground="#8A8F94" IsHitTestVisible="False" />
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="2" Margin="0,12,0,6">
+            <TextBlock Text="檢討項目" FontWeight="SemiBold" />
+            <TextBlock x:Name="CountText" HorizontalAlignment="Right" Foreground="#62666A" />
+        </Grid>
+
+        <ListBox x:Name="ReviewItemsList" Grid.Row="3" BorderThickness="0" Background="Transparent"
+                 SelectionChanged="ReviewItemsList_OnSelectionChanged" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <Border Margin="0,0,0,7" Padding="10" Background="White" BorderBrush="#DDE0E3"
+                            BorderThickness="1" CornerRadius="4">
+                        <StackPanel>
+                            <TextBlock Text="{Binding Category}" FontSize="11" Foreground="#246BCE" />
+                            <TextBlock Margin="0,3,0,2" Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding LegalReference}" Foreground="#62666A" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+        <Separator Grid.Row="4" Margin="0,10" />
+
+        <ScrollViewer Grid.Row="5" VerticalScrollBarVisibility="Auto">
+            <StackPanel x:Name="DetailPanel">
+                <TextBlock x:Name="DetailTitle" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap" />
+                <TextBlock x:Name="DetailReference" Margin="0,5,0,10" Foreground="#246BCE" TextWrapping="Wrap" />
+                <TextBlock x:Name="DetailDescription" TextWrapping="Wrap" LineHeight="20" />
+                <TextBlock Margin="0,12,0,3" Text="預計產出" FontWeight="SemiBold" />
+                <TextBlock x:Name="DetailOutput" Foreground="#62666A" TextWrapping="Wrap" />
+            </StackPanel>
+        </ScrollViewer>
+
+        <Button Grid.Row="6" x:Name="StartReviewButton" Margin="0,12,0,0" Padding="12,9"
+                Content="開始檢討" IsEnabled="False" Click="StartReviewButton_OnClick" />
+    </Grid>
+</UserControl>
