@@ -7,19 +7,21 @@ using System.Runtime.Serialization.Json;
 using System.Windows;
 using System.Windows.Controls;
 using Autodesk.Revit.UI;
+using BuildingRegulationReview.ExternalEvents;
+using BuildingRegulationReview.Features;
 
 namespace BuildingRegulationReview
 {
     public partial class ReviewPaneControl : UserControl
     {
         private readonly List<ReviewItem> _allItems;
-        private readonly ExternalEvent _article164Event;
-        private readonly ExternalEvent _article164DrawingEvent;
+        private readonly ReviewFeatureRegistry _featureRegistry;
+        private readonly ReviewExternalEventDispatcher _eventDispatcher;
 
-        public ReviewPaneControl(ExternalEvent article164Event, ExternalEvent article164DrawingEvent)
+        internal ReviewPaneControl(ReviewFeatureRegistry featureRegistry, ReviewExternalEventDispatcher eventDispatcher)
         {
-            _article164Event = article164Event ?? throw new ArgumentNullException(nameof(article164Event));
-            _article164DrawingEvent = article164DrawingEvent ?? throw new ArgumentNullException(nameof(article164DrawingEvent));
+            _featureRegistry = featureRegistry ?? throw new ArgumentNullException(nameof(featureRegistry));
+            _eventDispatcher = eventDispatcher ?? throw new ArgumentNullException(nameof(eventDispatcher));
             InitializeComponent();
             _allItems = LoadItems();
             ApplyFilter();
@@ -57,9 +59,10 @@ namespace BuildingRegulationReview
         private void ReviewItemsList_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             var item = ReviewItemsList.SelectedItem as ReviewItem;
-            var isArticle164 = item?.Id == "article-164-road-shadow";
-            StartReviewButton.IsEnabled = isArticle164;
-            DrawReviewButton.IsEnabled = isArticle164;
+            IReviewFeature feature = null;
+            var hasFeature = item != null && _featureRegistry.TryGet(item.Id, out feature);
+            StartReviewButton.IsEnabled = hasFeature;
+            DrawReviewButton.IsEnabled = hasFeature && feature.SupportsDrawing;
             DetailPanel.Visibility = item == null ? Visibility.Collapsed : Visibility.Visible;
             if (item == null) return;
             DetailTitle.Text = item.Title;
@@ -71,19 +74,19 @@ namespace BuildingRegulationReview
         private void StartReviewButton_OnClick(object sender, RoutedEventArgs e)
         {
             var item = ReviewItemsList.SelectedItem as ReviewItem;
-            if (item?.Id != "article-164-road-shadow") return;
-            var request = _article164Event.Raise();
+            if (item == null || !_featureRegistry.TryGet(item.Id, out var feature)) return;
+            var request = _eventDispatcher.Raise(item.Id, ReviewFeatureAction.Review);
             if (request != ExternalEventRequest.Accepted)
-                TaskDialog.Show("第164條檢討", "Revit 正在執行其他命令，請完成目前操作後再試一次。");
+                TaskDialog.Show(feature.ReviewDialogTitle, "Revit 正在執行其他命令，請完成目前操作後再試一次。");
         }
 
         private void DrawReviewButton_OnClick(object sender, RoutedEventArgs e)
         {
             var item = ReviewItemsList.SelectedItem as ReviewItem;
-            if (item?.Id != "article-164-road-shadow") return;
-            var request = _article164DrawingEvent.Raise();
+            if (item == null || !_featureRegistry.TryGet(item.Id, out var feature) || !feature.SupportsDrawing) return;
+            var request = _eventDispatcher.Raise(item.Id, ReviewFeatureAction.Drawing);
             if (request != ExternalEventRequest.Accepted)
-                TaskDialog.Show("第164條圖說製作", "Revit 正在執行其他命令，請完成目前操作後再試一次。");
+                TaskDialog.Show(feature.DrawingDialogTitle, "Revit 正在執行其他命令，請完成目前操作後再試一次。");
         }
     }
 }
