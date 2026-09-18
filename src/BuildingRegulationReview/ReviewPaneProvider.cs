@@ -1,13 +1,15 @@
 using Autodesk.Revit.UI;
+using BuildingRegulationReview.ExternalEvents;
+using BuildingRegulationReview.Features;
 
 namespace BuildingRegulationReview
 {
     public sealed class ReviewPaneProvider : IDockablePaneProvider
     {
         private readonly ReviewPaneControl _control;
-        public ReviewPaneProvider(ExternalEvent article164Event, ExternalEvent article164DrawingEvent)
+        internal ReviewPaneProvider(ReviewFeatureRegistry featureRegistry, ReviewExternalEventDispatcher eventDispatcher)
         {
-            _control = new ReviewPaneControl(article164Event, article164DrawingEvent);
+            _control = new ReviewPaneControl(featureRegistry, eventDispatcher);
         }
         public void SetupDockablePane(DockablePaneProviderData data)
         {
