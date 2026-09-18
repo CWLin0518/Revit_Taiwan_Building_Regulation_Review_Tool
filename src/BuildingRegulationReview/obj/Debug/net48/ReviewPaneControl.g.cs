@@ -139,7 +139,7 @@ namespace BuildingRegulationReview {
                 return;
             }
             _contentLoaded = true;
-            System.Uri resourceLocater = new System.Uri("/BuildingRegulationReview;component/reviewpanecontrol.xaml", System.UriKind.Relative);
+            System.Uri resourceLocater = new System.Uri("/BuildingRegulationReview;V1.0.0.0;component/reviewpanecontrol.xaml", System.UriKind.Relative);
             
             #line 1 "..\..\..\ReviewPaneControl.xaml"
             System.Windows.Application.LoadComponent(this, resourceLocater);
