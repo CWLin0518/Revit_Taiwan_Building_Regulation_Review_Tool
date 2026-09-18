@@ -4,7 +4,7 @@
 - Completed Task: P1-T01
 - Next Task: P1-T02
 - Status: READY_FOR_NEW_SESSION
-- Commit: PENDING
+- Commit: d9c9b6336734010d0884e9b25a98885c52ceeda4
 - Spec Version: Draft v1.1 (`docs/fire-review-spec.md`)
 
 ## Completed
@@ -65,4 +65,3 @@
 - 不建立 ReviewPackage DataStorage；那是 P1-T03。
 - 不在未確認 GUID／型別時建立或覆寫 Shared Parameter。
 - 不開始 Phase 2。
-
