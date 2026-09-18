@@ -9,6 +9,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\BuildingRegulationReview.Application\BuildingRegulationReview.Application.csproj" />
+    <ProjectReference Include="..\BuildingRegulationReview.Domain\BuildingRegulationReview.Domain.csproj" />
+    <ProjectReference Include="..\BuildingRegulationReview.Revit\BuildingRegulationReview.Revit.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Reference Include="RevitAPI">
       <HintPath>C:\Program Files\Autodesk\Revit 2024\RevitAPI.dll</HintPath>
       <Private>false</Private>
