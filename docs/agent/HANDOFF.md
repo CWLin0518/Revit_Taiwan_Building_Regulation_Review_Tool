@@ -1,67 +1,58 @@
 # Agent Handoff
 
 - Phase: P1
-- Completed Task: P1-T01
-- Next Task: P1-T02
+- Completed Task: P1-T02
+- Next Task: P1-T03
 - Status: READY_FOR_NEW_SESSION
-- Commit: d9c9b6336734010d0884e9b25a98885c52ceeda4
+- Commit: 7a5b00629bb90113e59889b1b0ee5cdf8e4a5823
 - Spec Version: Draft v1.1 (`docs/fire-review-spec.md`)
 
 ## Completed
 
-- 將使用者提供的完整 spec 納入 `docs/fire-review-spec.md`，並建立 Phase 1 的完整 Task Boundary。
-- 建立 Domain／Application／Revit Adapter／Core Tests 分層 Solution。
-- 建立 `Error`、`Result`、`Result<T>` 共通 Domain Contract。
-- 建立不綁定特定容器的模組與服務註冊介面。
-- 建立 Revit 2024 版本適配入口；尚未宣稱支援其他版本。
-- 新增 ADR-0001，記錄依賴方向、框架選擇與舊外掛漸進整合決策。
+- 建立 Project Setup 與 Shared Parameter requirement contract。
+- 建立純讀取的 dry-run 差異服務，涵蓋缺少參數、同名異 GUID、型別、Instance/Type Binding、缺少與多餘 Category Binding。
+- 建立 Revit 2024 inventory adapter；只讀取 ParameterBindings 與 SharedParameterElement，完全不開啟 Transaction。
+- 新增 6 個 P1-T02 單元測試與手動驗證紀錄。
+- 確認 Revit MCP、Rhino MCP 與 Grasshopper MCP 均可連線；Revit 目前專案為「建築道路陰影分析1」。
 
 ## Changed Files
 
-- `.gitignore`
-- `BuildingRegulationReview.sln`
-- `docs/README.md`
-- `docs/fire-review-spec.md`
-- `docs/adr/0001-layered-architecture-and-revit-versioning.md`
-- `docs/agent/phase-1-plan.md`
+- `src/BuildingRegulationReview.Domain/ProjectSetup/**`
+- `src/BuildingRegulationReview.Application/ProjectSetup/**`
+- `src/BuildingRegulationReview.Revit/ProjectSetup/**`
+- `tests/BuildingRegulationReview.Core.Tests/ProjectSetup/**`
+- `docs/agent/p1-t02-shared-parameter-dry-run.md`
 - `docs/agent/phase-state.yaml`
 - `docs/agent/HANDOFF.md`
-- `src/BuildingRegulationReview.Domain/**`
-- `src/BuildingRegulationReview.Application/**`
-- `src/BuildingRegulationReview.Revit/**`
-- `tests/BuildingRegulationReview.Core.Tests/**`
 
 ## Decisions and Assumptions
 
-- 目前鎖定 Revit 2024／.NET Framework 4.8；核心層使用 `netstandard2.0`。
-- Core Tests 使用本機唯一可用的 .NET 10 SDK；產品核心仍可由 net48 Revit Adapter 參考。
-- P1-T01 僅建立抽象 DI 邊界，不導入第三方 DI Container。
-- 舊 `src/BuildingRegulationReview` 專案未改動，也尚未納入新 Solution，避免在骨架 Task 擴大遷移範圍。
+- Category 使用穩定的 `BIC:<ElementId.Value>` key，避免 Revit 語系造成 Category.Name 不一致。
+- 未取得公司正式 Shared Parameter GUID；測試 GUID `11111111-2222-4333-8444-555555555555` 僅為 fixture，不可用於正式模型。
+- 本 Task 只提供 inventory 與差異預覽，不提供建立／修改／刪除參數 API。
 
 ## Verification Results
 
-- `dotnet clean BuildingRegulationReview.sln --configuration Debug`：成功。
-- `dotnet build BuildingRegulationReview.sln --configuration Debug --no-incremental`：成功，0 warnings，0 errors。
-- `dotnet test tests/BuildingRegulationReview.Core.Tests/BuildingRegulationReview.Core.Tests.csproj --configuration Debug --no-build`：成功，3/3 passed。
-- 核心專案檔與原始碼的 Revit API 依賴掃描：僅 Revit Adapter 含 Revit API reference。
+- Solution build：成功，0 warnings，0 errors。
+- Core tests：9/9 passed。
+- Revit MCP `get_project_info`：成功讀取目前專案，證明連線正常。
+- Rhino MCP：available，127.0.0.1:9876；Grasshopper MCP：available，127.0.0.1:9999。
 
 ## Known Issues / Risks
 
-- Shared Parameter 正式 GUID、Category、資料型態及公司標準尚未由使用者確認；P1-T02 不得猜測正式值。
-- P1-T02 的 Revit dry-run 需要可安全操作的測試模型；目前連線模型為「建築道路陰影分析1」，是否可作測試模型尚未確認。
-- 舊 Article 164 外掛功能仍由既有單一專案建置；新骨架尚未接入既有 Ribbon／Dockable Pane。
+- 正式參數名稱、GUID、資料型別與 Category Binding 清單尚待公司確認，因此沒有建立 production configuration。
+- Revit MCP 目前沒有直接載入本次新 assembly 執行 dry-run 的工具；adapter 已在 Revit 2024 API 下成功編譯，但完整模型差異需在外掛入口接線後執行。
+- 工作樹原有使用者變更 `.gitignore` 與未追蹤 `.gtoffice/`，本 Task 未納入 commit。
 
 ## Exact Next Steps
 
-1. 讀取 `docs/fire-review-spec.md` 第 8 節、`docs/agent/phase-1-plan.md` 的 P1-T02、此 handoff 與 phase state。
-2. 確認 HEAD 符合 handoff commit。
-3. 建立專案設定 Contract 與 Shared Parameter dry-run 差異模型。
-4. 以 fixture 測試缺參數、同名異 GUID、錯誤型別；正式 GUID 未定時不得寫入模型。
-5. 透過 Revit MCP 在經確認的測試模型執行唯讀／dry-run 驗證。
+1. 執行 P1-T03：依規格第 6 節建立 ReviewPackage Domain model。
+2. 定義 DataStorage + Extensible Storage schema、repository port 與 Revit adapter。
+3. 加入 schemaVersion、CRUD、migration 與 reopen/round-trip 測試。
+4. 保留 P1-T02 正式 GUID 未決事項，不得自行發明 production GUID。
 
 ## Do Not Do
 
-- 不建立 Area Plan；那是 P1-T05。
-- 不建立 ReviewPackage DataStorage；那是 P1-T03。
-- 不在未確認 GUID／型別時建立或覆寫 Shared Parameter。
-- 不開始 Phase 2。
+- 不要進入 Area Plan（P1-T05）或來源視圖 UI（P1-T04）。
+- 不要修改或建立正式 Shared Parameter，直到名稱、GUID、型別、Category 清單獲確認。
+- 不要納入或覆蓋使用者現有 `.gitignore` 與 `.gtoffice/` 變更。
