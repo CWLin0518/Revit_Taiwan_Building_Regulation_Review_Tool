@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("BuildingRegulationReview")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+d4c982c8869f238a6ba529c537cb760a514ec70d")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+5e5d1305933bac5daec185304cf0c0c04f18ea1a")]
 [assembly: System.Reflection.AssemblyProductAttribute("BuildingRegulationReview")]
 [assembly: System.Reflection.AssemblyTitleAttribute("BuildingRegulationReview")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
