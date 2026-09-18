@@ -1,0 +1,8 @@
+workflow: fire-review-addon
+activePhase: P1
+completedTask: P1-T01
+nextTask: P1-T02
+status: ready_for_new_session
+commit: PENDING
+updatedAtUtc: 2026-09-18T17:10:00Z
+
