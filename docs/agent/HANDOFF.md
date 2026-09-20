@@ -3,7 +3,7 @@
 - Completed Task: P1-T06
 - Next Task: P2-T01
 - Status: READY_FOR_NEW_SESSION
-- Commit: pending-phase-1-acceptance-commit
+- Commit: 27bb3d8
 - Spec Version: Draft v1.1 (`docs/fire-review-spec.md`)
 
 ## Completed
