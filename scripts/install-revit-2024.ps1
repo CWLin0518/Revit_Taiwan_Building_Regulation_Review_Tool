@@ -37,8 +37,23 @@ if (-not $SkipBuild) {
 }
 
 New-Item -ItemType Directory -Path $installDirectory -Force | Out-Null
-Copy-Item (Join-Path $outputDirectory 'BuildingRegulationReview.dll') $installDirectory -Force
-Copy-Item (Join-Path $outputDirectory 'BuildingRegulationReview.pdb') $installDirectory -Force -ErrorAction SilentlyContinue
+$assemblies = @(
+    'BuildingRegulationReview',
+    'BuildingRegulationReview.Application',
+    'BuildingRegulationReview.Domain',
+    'BuildingRegulationReview.Revit'
+)
+foreach ($assembly in $assemblies) {
+    $dll = Join-Path $outputDirectory "$assembly.dll"
+    if (-not (Test-Path -LiteralPath $dll)) {
+        throw "Missing build output: $dll"
+    }
+    Copy-Item -LiteralPath $dll -Destination $installDirectory -Force
+    $pdb = Join-Path $outputDirectory "$assembly.pdb"
+    if (Test-Path -LiteralPath $pdb) {
+        Copy-Item -LiteralPath $pdb -Destination $installDirectory -Force
+    }
+}
 Copy-Item (Join-Path $outputDirectory 'Data') $installDirectory -Recurse -Force
 
 $assemblyPath = Join-Path $installDirectory 'BuildingRegulationReview.dll'
