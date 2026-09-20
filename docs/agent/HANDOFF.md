@@ -1,29 +1,33 @@
 # Agent Handoff
-- Phase: P1
-- Completed Task: P1-T05; P1-T06 code integration complete
-- Next Task: P1-T06 live Revit acceptance
-- Status: BLOCKED_ON_TEST_MODEL
-- Commit: d1af04e
+- Phase: P2
+- Completed Task: P1-T06
+- Next Task: P2-T01
+- Status: READY_FOR_NEW_SESSION
+- Commit: pending-phase-1-acceptance-commit
 - Spec Version: Draft v1.1 (`docs/fire-review-spec.md`)
 
 ## Completed
-- 設定 UI 已串接 Area Plan writer，顯示已建立／已重用與警告。
-- 同一來源平面及 Area Scheme 重用既有 ReviewPackage；重複套件會阻擋。
-- 設定、套件與 Area Plan 建立納入同一 TransactionGroup。
-- `docs/agent/phase-1-acceptance.md` 記錄實機驗收步驟。
+- Phase 1 setup, shared parameters, ReviewPackage persistence, Area Plan creation/reuse, and setup UI are implemented.
+- User reported successful live use on 2026-09-21 and requested the Phase 1 commit and Phase 2 work.
+- Installed Revit 2024 main DLL matches the Release output by SHA-256.
+
+## Changed Files
+- `docs/agent/phase-1-acceptance.md`
+- `docs/agent/phase-state.yaml`
+- `docs/agent/HANDOFF.md`
 
 ## Verification Results
-- Core tests：17/17 passed。
-- Full add-in build：成功，0 warnings / 0 errors。
+- Prior Release build: 0 warnings, 0 errors. Prior core tests: 17/17 passed.
+- User acceptance is recorded; individual create/reuse/rollback/reopen steps were not independently observed by this agent.
 
 ## Known Issues / Risks
-- 尚未以防火區劃測試模型在 Revit UI 執行 live create / rerun / rollback 驗證；目前開啟的 Revit 模型是道路陰影檢討模型，不宜直接修改。
-- 既有 Area Plan 重用時不重新套用樣板、裁切與 Scope Box，UI 已提醒。
-- 使用者原有 `.gitignore` 修改與 `.gtoffice/` 未追蹤內容不得納入 commit。
+- Revit is currently open with `建築防火檢討1.rvt`; avoid changing its model without coordinating live work.
+- Other pre-existing changes in `.gitignore`, generated bin/obj files, and `.gtoffice/` are unrelated and must remain uncommitted.
 
 ## Exact Next Steps
-取得防火區劃測試模型後，依 `docs/agent/phase-1-acceptance.md` 執行實機驗收；通過後才可將 P1-T06 及 Phase 1 標示完成。
+- Begin P2-T01: define pure 2D Segment, Loop, Region, and SourceRef domain contracts, independent of Revit/UI, with coordinate and provenance rules from spec section 10.
+- Add meaningful domain tests, build and run tests, then commit P2-T01 with the corresponding state and handoff updates.
 
 ## Do Not Do
-- 不可修改既有 ReviewPackage schema GUID 或欄位。
-- 不要納入使用者 `.gitignore` 與 `.gtoffice/` 內容。
+- Do not change ReviewPackage schema GUID or fields.
+- Do not stage unrelated user or generated files.

@@ -16,6 +16,8 @@
 4. 用交易失敗的測試情境檢查 Revit Undo 與模型狀態，確認設定、套件與新視圖一併回復。
 5. 關閉並重新開啟模型，確認 Package ID 和 Area Plan 關聯可讀回。
 
-## 尚未完成的實機驗證
+## 實機驗收回報（2026-09-21）
 
-此環境未提供已開啟的 Revit 測試模型或可自動操控的 Revit 工作階段。因此上述 live create、重跑、警告、rollback、重開驗證均未執行；Phase 1 的實機驗收尚未通過。既有 Area Plan 重用時不重新套用樣板、裁切與 Scope Box，UI 會明示。
+- 使用者回報本階段操作成功，要求提交 Phase 1 並進入 Phase 2。
+- 已確認 Revit 2024 安裝目錄中的主 DLL 與 Release 輸出 SHA-256 一致。
+- 本紀錄未取得建立、重用、rollback、重開讀回各步驟的獨立操作證據；使用者回報作為本階段驗收依據。既有 Area Plan 重用時不重新套用樣板、裁切與 Scope Box，UI 會明示。
