@@ -62,18 +62,62 @@ public class ApplyPlanTests
     }
 
     [Fact]
-    public void WritesTheDraftingViewCopiesOnceTheirWriterExists()
+    public void WritesTheDraftingViewCopiesWhenTheCallerSaysItCan()
     {
-        var plan = ApplyPlan.Build(Preview(), new[]
-        {
-            ManagedElementKind.AreaBoundaryLine,
-            ManagedElementKind.Area,
-            ManagedElementKind.AreaTag,
-            ManagedElementKind.DetailCurve
-        });
+        var plan = ApplyPlan.Build(Preview(), ApplyPlan.AllKinds);
 
         Assert.Empty(plan.Deferred);
         Assert.Equal(4, plan.StepsOf(ApplyStage.DetailCurves).Count);
+        Assert.All(plan.StepsOf(ApplyStage.DetailCurves), s => Assert.Equal(ManagedElementKind.DetailCurve, s.Kind));
+    }
+
+    [Fact]
+    public void EveryKindIsWritableUnderAllKinds()
+    {
+        // The list is derived from the enum rather than typed out, so a kind added later cannot be
+        // silently left out of the one run that is supposed to write everything.
+        Assert.Equal(
+            Enum.GetValues(typeof(ManagedElementKind)).Cast<ManagedElementKind>().ToList(),
+            ApplyPlan.AllKinds.ToList());
+    }
+
+    [Fact]
+    public void TheDraftingViewCopiesComeAfterEverythingInTheAreaPlan()
+    {
+        // They depend on nothing the Area Plan holds, and the Drafting View may not exist yet — so
+        // they run last, where a failure to make the view cannot strand a half-written Area Plan.
+        var plan = ApplyPlan.Build(MixedPreview(), ApplyPlan.AllKinds);
+        var stages = plan.Steps.Select(s => s.Stage).ToList();
+
+        var firstDetail = stages.IndexOf(ApplyStage.DetailCurves);
+        Assert.True(firstDetail > 0);
+        Assert.All(stages.Skip(firstDetail), stage => Assert.Equal(ApplyStage.DetailCurves, stage));
+    }
+
+    // ---- the colours that travel with the plan --------------------------------------------------
+
+    [Fact]
+    public void CarriesOneColourEntryPerZoneIncludingTheUnchangedOnes()
+    {
+        var (map, zones) = OneRoom();
+        var preview = ApplyPreview.Build(PackageId, map, zones, AsWritten(map, zones));
+
+        var plan = ApplyPlan.Build(preview, ApplyPlan.AllKinds);
+
+        // Nothing changes in the Area Plan on this run, but the colour scheme still has to say what
+        // all of its entries are — building it from the steps alone would look like no zones left.
+        Assert.True(plan.IsEmpty);
+        Assert.Single(plan.ColorEntries.Entries);
+        Assert.Equal("A", plan.ColorEntries.Entries[0].Value);
+        Assert.Equal(ZoneColorPalette.At(0), plan.ColorEntries.Entries[0].Color);
+    }
+
+    [Fact]
+    public void CarriesNoColourForAZoneThatIsBeingDeleted()
+    {
+        var plan = ApplyPlan.Build(PreviewOfDeletions(), ApplyPlan.AllKinds);
+
+        Assert.True(plan.ColorEntries.IsEmpty);
     }
 
     [Fact]

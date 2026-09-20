@@ -30,9 +30,10 @@ public enum ApplyStage
     Tags,
 
     /// <summary>
-    /// The Drafting View copies, which depend on nothing in the Area Plan and so come last. No
-    /// writer creates these yet — P2-T08 owns the Drafting View — so they are deferred rather than
-    /// attempted, and the stage stays empty until then.
+    /// The 單線圖 copies in the Drafting View, which depend on nothing in the Area Plan and so come
+    /// last. A caller whose adapter cannot reach a Drafting View leaves
+    /// <see cref="ManagedElementKind.DetailCurve"/> out of its writable kinds, and these rows are
+    /// then reported as deferred instead of half-done.
     /// </summary>
     DetailCurves
 }
@@ -95,9 +96,19 @@ public sealed class ApplyStep
 /// </remarks>
 public sealed class ApplyPlan
 {
-    /// <summary>What this write-back creates: everything that lives in the Area Plan.</summary>
+    /// <summary>
+    /// What lives in the Area Plan. The default, because a caller that says nothing about its
+    /// adapter is taken to reach no further than the plan it named.
+    /// </summary>
     public static readonly IReadOnlyList<ManagedElementKind> AreaPlanKinds = new ReadOnlyCollection<ManagedElementKind>(
         new[] { ManagedElementKind.AreaBoundaryLine, ManagedElementKind.Area, ManagedElementKind.AreaTag });
+
+    /// <summary>
+    /// Everything the tool writes, the Drafting View copies included (spec 10.5 items 1 to 4). What
+    /// the Editor passes, now that the write-back can reach the Drafting View too.
+    /// </summary>
+    public static readonly IReadOnlyList<ManagedElementKind> AllKinds = new ReadOnlyCollection<ManagedElementKind>(
+        (ManagedElementKind[])Enum.GetValues(typeof(ManagedElementKind)));
 
     private ApplyPlan(
         Guid packageId,
@@ -105,6 +116,7 @@ public sealed class ApplyPlan
         IEnumerable<ApplyPreviewItem> deferred,
         IEnumerable<string> warnings,
         IDictionary<ManagedElementKey, string> existingElementIds,
+        ColorSchemeEntries colorEntries,
         int unchangedCount,
         int untouchedElementCount)
     {
@@ -113,6 +125,7 @@ public sealed class ApplyPlan
         Deferred = new ReadOnlyCollection<ApplyPreviewItem>(deferred.ToList());
         Warnings = new ReadOnlyCollection<string>(warnings.ToList());
         ExistingElementIds = new ReadOnlyDictionary<ManagedElementKey, string>(existingElementIds);
+        ColorEntries = colorEntries;
         UnchangedCount = unchangedCount;
         UntouchedElementCount = untouchedElementCount;
     }
@@ -129,6 +142,13 @@ public sealed class ApplyPlan
     public IReadOnlyList<ApplyPreviewItem> Deferred { get; }
 
     public IReadOnlyList<string> Warnings { get; }
+
+    /// <summary>
+    /// The colour every 區劃 that reaches the model is drawn with (spec 10.5 item 3), taken from the
+    /// same approved preview as the steps. It covers the unchanged rows too, because a run that
+    /// changes no Area still has to say what all of the scheme's entries are.
+    /// </summary>
+    public ColorSchemeEntries ColorEntries { get; }
 
     /// <summary>
     /// Where this package's elements are in the model right now, keyed the way the plan is. It
@@ -214,6 +234,7 @@ public sealed class ApplyPlan
             deferred,
             preview.Warnings,
             existing,
+            ColorSchemeEntries.From(preview),
             preview.Unchanged.Count,
             preview.UntouchedElementCount);
     }

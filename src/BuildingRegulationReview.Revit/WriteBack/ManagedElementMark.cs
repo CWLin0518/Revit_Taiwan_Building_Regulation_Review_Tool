@@ -27,11 +27,20 @@ namespace BuildingRegulationReview.Revit.WriteBack;
 public static class ManagedElementMark
 {
     /// <summary>Writes, or overwrites, the mark. Requires an open transaction.</summary>
-    public static void Write(Element element, ManagedElementKey key, string signature)
+    public static void Write(Element element, ManagedElementKey key, string signature) =>
+        Write(element, key.ToToken(), signature);
+
+    /// <summary>
+    /// Marks one of the package's containers — the Drafting View, the colour scheme (spec 10.5
+    /// items 3 and 4). The same storage, a token of the other shape.
+    /// </summary>
+    public static void Write(Element element, ManagedOutputKey key, string signature) =>
+        Write(element, key.ToToken(), signature);
+
+    private static void Write(Element element, string token, string signature)
     {
         if (element is null) throw new ArgumentNullException(nameof(element));
 
-        var token = key.ToToken();
         var schema = ManagedElementSchema.GetOrCreate();
         var entity = new Entity(schema);
         entity.Set(schema.GetField(ManagedElementSchema.KeyField), token);
@@ -75,9 +84,7 @@ public static class ManagedElementMark
     /// come from the element in front of us.
     /// </summary>
     public static bool IsOwnedBy(Element element, Guid packageId) =>
-        TryRead(element, out var token, out _)
-        && ManagedElementKey.TryParse(token, out var key)
-        && key.PackageId == packageId;
+        TryRead(element, out var token, out _) && ManagedOwnership.BelongsTo(token, packageId);
 
     private static void MirrorToParameter(Element element, string parameterName, string value)
     {

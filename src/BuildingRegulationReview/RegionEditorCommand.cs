@@ -64,9 +64,11 @@ namespace BuildingRegulationReview
             new WindowInteropHelper(_window).Owner = application.MainWindowHandle;
 
             // Read at preview time rather than at start-up: the model may have been edited while the
-            // modeless Editor was open, and the preview has to diff against what is there now.
+            // modeless Editor was open, and the preview has to diff against what is there now. The
+            // package is re-read too, because the Drafting View it points at may not have existed
+            // when the Editor opened — the first write-back is what creates it.
             _window.ReadExistingElements = () => new RevitManagedElementInventory(document)
-                .Read(choice.AreaPlanUniqueId, choice.DraftingViewUniqueId);
+                .Read(choice.AreaPlanUniqueId, LoadPackage(document, choice.PackageId)?.DraftingViewUniqueId);
 
             _handler = new SelectSourcesHandler();
             _externalEvent = ExternalEvent.Create(_handler);
@@ -76,7 +78,7 @@ namespace BuildingRegulationReview
                 _externalEvent.Raise();
             };
 
-            _applyHandler = new ApplyHandler(choice.AreaPlanUniqueId);
+            _applyHandler = new ApplyHandler(choice.PackageId);
             _applyEvent = ExternalEvent.Create(_applyHandler);
             _window.RequestApply = (plan, policy) =>
             {
@@ -158,6 +160,33 @@ namespace BuildingRegulationReview
             return new RegionEditorSession(map.Value, new ScreenSize(1024, 720), network.Value.Issues);
         }
 
+        /// <summary>
+        /// The package as the model has it now. Re-read on every preview and every write-back,
+        /// because the Editor is modeless and the last run may have recorded a Drafting View on it.
+        /// </summary>
+        private static Domain.ReviewPackages.ReviewPackage LoadPackage(Document document, Guid packageId)
+        {
+            try
+            {
+                return new RevitReviewPackageRepository(document).Get(packageId);
+            }
+            catch (Exception)
+            {
+                // A package that cannot be read is a package with no Drafting View yet, which is the
+                // same thing a first run sees; nothing here is worth interrupting the Editor for.
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Spec 10.5 item 5's <c>{AreaScheme}_{SourceFloorPlan}_防火區劃</c>, used only when the
+        /// write-back has to create an output. Anything already there keeps its own name.
+        /// </summary>
+        private static string DefaultOutputName(Document document, Domain.ReviewPackages.ReviewPackage package) =>
+            ReviewOutputNaming.Default(
+                (document.GetElement(package.AreaSchemeUniqueId) as AreaScheme)?.Name,
+                (document.GetElement(package.SourceFloorPlanUniqueId) as View)?.Name);
+
         private static bool Succeeded<T>(Domain.Common.Result<T> result, string step)
         {
             if (result.IsSuccess) return true;
@@ -211,15 +240,15 @@ namespace BuildingRegulationReview
         }
 
         /// <summary>
-        /// Writes the approved plan back to the Area Plan (spec 10.5). The Editor is modeless, so
-        /// this is where the write gets a legal Revit context; the result is handed back to the
-        /// window, which owns what it means for the drafts.
+        /// Writes the approved plan back to the model (spec 10.5). The Editor is modeless, so this
+        /// is where the write gets a legal Revit context; the result is handed back to the window,
+        /// which owns what it means for the drafts.
         /// </summary>
         private sealed class ApplyHandler : IExternalEventHandler
         {
-            private readonly string _areaPlanUniqueId;
+            private readonly Guid _packageId;
 
-            public ApplyHandler(string areaPlanUniqueId) => _areaPlanUniqueId = areaPlanUniqueId;
+            public ApplyHandler(Guid packageId) => _packageId = packageId;
 
             public ApplyPlan Plan { get; set; }
             public ApplyFailurePolicy Policy { get; set; }
@@ -238,10 +267,24 @@ namespace BuildingRegulationReview
                     return;
                 }
 
+                // The package is loaded now rather than kept from start-up: the last run may have
+                // recorded the Drafting View on it, and this run has to find that view rather than
+                // make a second one.
+                var package = LoadPackage(document, _packageId);
+                if (package == null || string.IsNullOrWhiteSpace(package.AreaPlanUniqueId))
+                {
+                    TaskDialog.Show(DialogTitle, "這個檢討套件已經不在模型中，或它的 Area Plan 已被刪除，這次沒有寫入任何東西。");
+                    Plan = null;
+                    window.Dispatcher.Invoke(() => window.ReportApplied(null));
+                    return;
+                }
+
                 ApplyResult result;
                 try
                 {
-                    result = new RevitZoneWriteBack(document).Apply(Plan, _areaPlanUniqueId, Policy);
+                    result = new RevitZoneWriteBack(document).Apply(
+                        Plan,
+                        new ZoneWriteBackRequest(package, DefaultOutputName(document, package), Policy));
                 }
                 catch (Exception exception)
                 {

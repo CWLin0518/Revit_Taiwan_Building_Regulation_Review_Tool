@@ -130,6 +130,76 @@ public class ApplyIdempotencyTests
         Assert.Equal(8, model.CountOwnedBy(PackageId));
     }
 
+    // ---- the same criteria once the Drafting View is written too (P2-T08) -----------------------
+
+    [Fact]
+    public void ThreeRunsThatAlsoWriteTheDraftingViewStillLeaveTheModelTheSizeTheFirstOneMadeIt()
+    {
+        var (map, zones) = TwoRoomsOneZone();
+        var model = new FakeModel();
+
+        var first = model.Apply(FullPlan(map, zones, model));
+        var second = model.Apply(FullPlan(map, zones, model));
+        var third = model.Apply(FullPlan(map, zones, model));
+
+        // The eight Area Plan elements plus one 單線圖 copy of each of the six boundary segments.
+        Assert.Equal(14, first.Created);
+        Assert.Equal(14, model.Count);
+        Assert.Equal(6, model.CountOf(ManagedElementKind.DetailCurve));
+        Assert.Equal(0, second.Created + second.Updated + second.Deleted);
+        Assert.Equal(0, third.Created + third.Updated + third.Deleted);
+        Assert.Equal(14, model.Count);
+    }
+
+    [Fact]
+    public void ShrinkingAZoneClearsTheDraftingViewCopiesItNoLongerNeeds()
+    {
+        var (map, both) = TwoRoomsOneZone();
+        var model = new FakeModel();
+        model.Apply(FullPlan(map, both, model));
+
+        var oneRoom = Assign(ZoneId, "A", map, FaceAt(map, 5, 5));
+        model.Apply(FullPlan(map, oneRoom, model));
+
+        // The 單線圖 is a copy of the boundary, so it shrinks with it rather than keeping a line
+        // that no longer fences anything.
+        Assert.Equal(4, model.CountOf(ManagedElementKind.AreaBoundaryLine));
+        Assert.Equal(4, model.CountOf(ManagedElementKind.DetailCurve));
+    }
+
+    [Fact]
+    public void DeletingEveryDraftClearsTheDraftingViewCopiesToo()
+    {
+        var (map, zones) = TwoRoomsOneZone();
+        var model = new FakeModel();
+        model.AddForeign("hand-drawn", string.Empty);
+        model.Apply(FullPlan(map, zones, model));
+
+        var run = model.Apply(FullPlan(map, ZoneDraftSet.Empty, model));
+
+        Assert.Equal(14, run.Deleted);
+        Assert.Equal(1, model.Count);
+        Assert.True(model.Holds("hand-drawn"));
+    }
+
+    [Fact]
+    public void ARunThatCannotReachTheDraftingViewLeavesThoseCopiesForNextTimeInsteadOfLosingThem()
+    {
+        var (map, zones) = TwoRoomsOneZone();
+        var model = new FakeModel();
+
+        // The Area Plan alone, as a host with no Drafting View would schedule it.
+        model.Apply(Plan(map, zones, model));
+        Assert.Equal(0, model.CountOf(ManagedElementKind.DetailCurve));
+
+        // And the same drafts once the Drafting View is reachable: only the copies are new.
+        var run = model.Apply(FullPlan(map, zones, model));
+
+        Assert.Equal(6, run.Created);
+        Assert.Equal(0, run.Updated + run.Deleted);
+        Assert.Equal(14, model.Count);
+    }
+
     // ---- the model the plan is executed against -------------------------------------------------
 
     /// <summary>What a run did, in the only three numbers the exit criteria care about.</summary>
@@ -163,7 +233,16 @@ public class ApplyIdempotencyTests
             _elements[uniqueId] = new ExistingManagedElement(uniqueId, string.IsNullOrEmpty(token) ? "人工繪製" : token, string.Empty);
 
         public ApplyPlan Plan(Guid packageId, PlanRegionMap map, ZoneDraftSet zones) =>
-            ApplyPlan.Build(ApplyPreview.Build(packageId, map, zones, _elements.Values.ToList()));
+            Plan(packageId, map, zones, ApplyPlan.AreaPlanKinds);
+
+        public ApplyPlan Plan(
+            Guid packageId,
+            PlanRegionMap map,
+            ZoneDraftSet zones,
+            IReadOnlyList<ManagedElementKind> writableKinds) =>
+            ApplyPlan.Build(
+                ApplyPreview.Build(packageId, map, zones, _elements.Values.ToList()),
+                writableKinds);
 
         public RunTally Apply(ApplyPlan plan)
         {
@@ -214,6 +293,10 @@ public class ApplyIdempotencyTests
 
     private static ApplyPlan Plan(PlanRegionMap map, ZoneDraftSet zones, FakeModel model) =>
         model.Plan(PackageId, map, zones);
+
+    /// <summary>The Area Plan and the Drafting View together, which is what the Editor now asks for.</summary>
+    private static ApplyPlan FullPlan(PlanRegionMap map, ZoneDraftSet zones, FakeModel model) =>
+        model.Plan(PackageId, map, zones, ApplyPlan.AllKinds);
 
     /// <summary>Two rooms, both in one 區劃: four outer walls, one Area, one tag.</summary>
     private static (PlanRegionMap Map, ZoneDraftSet Zones) TwoRoomsOneZone()

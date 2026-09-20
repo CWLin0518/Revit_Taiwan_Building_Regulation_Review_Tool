@@ -29,6 +29,33 @@ public sealed class ReviewPackageTests
     }
 
     [Fact]
+    public void With_drafting_view_records_the_identity_and_keeps_everything_else()
+    {
+        // Spec 10.5 item 5: the UniqueId is the 唯一識別 that survives a rename, so the write-back
+        // records it on the package rather than hoping to find the view by name next time.
+        var original = new ReviewPackage(Guid.NewGuid(), "source", "level", "scheme", "area",
+            legendViewUniqueIds: new[] { "legend-a" }, sheetUniqueId: "sheet", boundaryRevision: 3);
+
+        var updated = original.WithDraftingView(" drafting-1 ");
+
+        Assert.Equal("drafting-1", updated.DraftingViewUniqueId);
+        Assert.Equal(original.PackageId, updated.PackageId);
+        Assert.Equal(original.AreaPlanUniqueId, updated.AreaPlanUniqueId);
+        Assert.Equal(original.LegendViewUniqueIds, updated.LegendViewUniqueIds);
+        Assert.Equal(original.SheetUniqueId, updated.SheetUniqueId);
+        Assert.Equal(original.BoundaryRevision, updated.BoundaryRevision);
+        Assert.Equal(original.Status, updated.Status);
+    }
+
+    [Fact]
+    public void With_drafting_view_rejects_an_identity_that_is_not_one()
+    {
+        var package = new ReviewPackage(Guid.NewGuid(), "source", "level", "scheme", "area");
+
+        Assert.Throws<ArgumentException>(() => package.WithDraftingView("  "));
+    }
+
+    [Fact]
     public void Storage_mapper_round_trips_all_fields()
     {
         var id = Guid.NewGuid();

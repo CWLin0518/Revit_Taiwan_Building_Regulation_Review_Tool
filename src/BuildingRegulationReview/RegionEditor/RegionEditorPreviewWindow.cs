@@ -101,10 +101,16 @@ namespace BuildingRegulationReview.RegionEditor
             }
 
             panel.Children.Add(Note(
+                "同一次寫入還會更新本套件的面積色彩配置，並把單線圖細部線寫進專屬的繪圖視圖；"
+                + "Revit 不允許的色彩項目會列為需人工處理，不會被當成失敗。",
+                Brushes.DimGray,
+                8));
+
+            panel.Children.Add(Note(
                 "刪除只會發生在這個檢討套件自己建立的元素上；人工繪製或其他套件的元素不會被更動。"
                 + "寫入全程在一個交易群組內，致命錯誤會整批復原。",
                 Brushes.DimGray,
-                8));
+                6));
 
             DockPanel.SetDock(panel, Dock.Top);
             return panel;

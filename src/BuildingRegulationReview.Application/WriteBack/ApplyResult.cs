@@ -81,11 +81,13 @@ public sealed class ApplyResult
         Guid packageId,
         IEnumerable<ApplyResultItem> items,
         IEnumerable<string> notes,
+        IEnumerable<ManualAction> manualActions,
         string? fatalError)
     {
         PackageId = packageId;
         Items = new ReadOnlyCollection<ApplyResultItem>(items.ToList());
         Notes = new ReadOnlyCollection<string>(notes.ToList());
+        ManualActions = new ReadOnlyCollection<ManualAction>(manualActions.ToList());
         FatalError = fatalError;
     }
 
@@ -95,6 +97,13 @@ public sealed class ApplyResult
 
     /// <summary>Run-level remarks: what was deferred, what the drafts still warn about.</summary>
     public IReadOnlyList<string> Notes { get; }
+
+    /// <summary>
+    /// What the run left for the user to finish in Revit (spec 10.5 item 3). These survive a
+    /// rollback: the reason the tool would not do something — an ambiguous draft, a Revit refusal —
+    /// is still true once the model is back where it started.
+    /// </summary>
+    public IReadOnlyList<ManualAction> ManualActions { get; }
 
     /// <summary>Set only when the whole group was rolled back; the model was left untouched.</summary>
     public string? FatalError { get; }
@@ -136,13 +145,21 @@ public sealed class ApplyResult
                 UpdatedCount,
                 DeletedCount);
 
-            if (FailedCount == 0 && SkippedCount == 0) return done;
+            if (FailedCount > 0 || SkippedCount > 0)
+            {
+                done += string.Format(
+                    CultureInfo.InvariantCulture,
+                    "另有 {0} 個失敗、{1} 個略過，詳見日誌。",
+                    FailedCount,
+                    SkippedCount);
+            }
 
-            return done + string.Format(
-                CultureInfo.InvariantCulture,
-                "另有 {0} 個失敗、{1} 個略過，詳見日誌。",
-                FailedCount,
-                SkippedCount);
+            return ManualActions.Count == 0
+                ? done
+                : done + string.Format(
+                    CultureInfo.InvariantCulture,
+                    "還有 {0} 項需要在 Revit 中人工處理。",
+                    ManualActions.Count);
         }
     }
 
@@ -153,14 +170,19 @@ public sealed class ApplyResult
         {
             var lines = new List<string> { Summary };
             lines.AddRange(Notes);
+            lines.AddRange(ManualActions.Select(action => action.Text));
             lines.AddRange(Items.Select(item => item.Text));
             return new ReadOnlyCollection<string>(lines);
         }
     }
 
     /// <summary>The run that never started, because the plan had nothing to do.</summary>
-    public static ApplyResult Nothing(Guid packageId) =>
-        new ApplyResult(packageId, Array.Empty<ApplyResultItem>(), Array.Empty<string>(), null);
+    public static ApplyResult Nothing(Guid packageId) => new ApplyResult(
+        packageId,
+        Array.Empty<ApplyResultItem>(),
+        Array.Empty<string>(),
+        Array.Empty<ManualAction>(),
+        null);
 
     /// <summary>
     /// Collects what a run does. The Revit adapter owns one of these and hands back
@@ -171,6 +193,7 @@ public sealed class ApplyResult
     {
         private readonly List<ApplyResultItem> _items = new List<ApplyResultItem>();
         private readonly List<string> _notes = new List<string>();
+        private readonly List<ManualAction> _manualActions = new List<ManualAction>();
         private readonly Guid _packageId;
 
         public Builder(ApplyPlan plan)
@@ -189,6 +212,15 @@ public sealed class ApplyResult
             if (!string.IsNullOrWhiteSpace(line)) _notes.Add(line.Trim());
         }
 
+        /// <summary>Records something the run is handing back to the user (spec 10.5 item 3).</summary>
+        public void Manual(ManualAction action)
+        {
+            if (action is not null) _manualActions.Add(action);
+        }
+
+        public void Manual(string subject, string reason, string suggestion) =>
+            Manual(new ManualAction(subject, reason, suggestion));
+
         public void Created(ApplyStep step, string elementUniqueId) =>
             Record(ApplyOutcome.Created, step, null, elementUniqueId);
 
@@ -205,7 +237,7 @@ public sealed class ApplyResult
             Record(ApplyOutcome.Failed, step, reason, step.ElementUniqueId);
 
         /// <summary>The run committed. Individual failures are on the log, not in an exception.</summary>
-        public ApplyResult Complete() => new ApplyResult(_packageId, _items, _notes, null);
+        public ApplyResult Complete() => new ApplyResult(_packageId, _items, _notes, _manualActions, null);
 
         /// <summary>
         /// The group was rolled back. Every line collected so far describes something that no longer
@@ -216,7 +248,12 @@ public sealed class ApplyResult
             if (string.IsNullOrWhiteSpace(fatalError))
                 throw new ArgumentException("A rollback has to say why.", nameof(fatalError));
 
-            return new ApplyResult(_packageId, Array.Empty<ApplyResultItem>(), _notes, fatalError.Trim());
+            return new ApplyResult(
+                _packageId,
+                Array.Empty<ApplyResultItem>(),
+                _notes,
+                _manualActions,
+                fatalError.Trim());
         }
 
         private void Record(ApplyOutcome outcome, ApplyStep step, string? message, string? elementUniqueId)

@@ -5,22 +5,23 @@ using System.Linq;
 using Autodesk.Revit.DB;
 using BuildingRegulationReview.Application.WriteBack;
 using BuildingRegulationReview.Domain.Geometry;
+using BuildingRegulationReview.Revit.ReviewPackages;
 using RevitApplicationException = Autodesk.Revit.Exceptions.ApplicationException;
 
 namespace BuildingRegulationReview.Revit.WriteBack;
 
 /// <summary>
-/// Writes the approved 區劃 drafts into the Area Plan (spec 10.5 steps 1 and 2): the Area Boundary
-/// Lines that fence each contiguous part, the Area inside it, and its tag. Everything it creates
-/// carries this package's ownership mark, which is what makes a second run a no-op and what confines
-/// deletion to the tool's own work.
+/// Writes the approved 區劃 drafts into the model (spec 10.5): the Area Boundary Lines that fence
+/// each contiguous part, the Area inside it and its tag; the Area Color Scheme that colours them;
+/// and the Drafting View holding the 單線圖 copies. Everything it creates carries this package's
+/// ownership mark, which is what makes a second run a no-op and what confines deletion to the tool's
+/// own work.
 /// </summary>
 /// <remarks>
 /// The whole run lives in one <c>TransactionGroup</c>. Each stage is its own transaction inside it,
 /// because Revit has to regenerate between placing boundaries and placing the Areas they enclose,
-/// and a rollback of the group undoes every stage together. Steps 3 to 5 of spec 10.5 — the Area
-/// Color Scheme and the Drafting View — are P2-T08; the plan reports them as deferred rather than
-/// this class half-doing them.
+/// and a rollback of the group undoes every stage together — the Drafting View and the colour
+/// scheme included, so a run either leaves all of its outputs or none of them.
 /// </remarks>
 public sealed class RevitZoneWriteBack
 {
@@ -33,22 +34,20 @@ public sealed class RevitZoneWriteBack
         _document = document ?? throw new ArgumentNullException(nameof(document));
 
     /// <summary>
-    /// Runs the plan against the package's Area Plan. Returns what happened; it does not throw for
+    /// Runs the plan against the package's views. Returns what happened; it does not throw for
     /// anything the user can act on, because a write-back that fails still has to report a log.
     /// </summary>
-    public ApplyResult Apply(
-        ApplyPlan plan,
-        string areaPlanUniqueId,
-        ApplyFailurePolicy failurePolicy = ApplyFailurePolicy.SkipAndLog)
+    public ApplyResult Apply(ApplyPlan plan, ZoneWriteBackRequest request)
     {
         if (plan is null) throw new ArgumentNullException(nameof(plan));
+        if (request is null) throw new ArgumentNullException(nameof(request));
         if (_document.IsModifiable)
             throw new InvalidOperationException("Write-back owns its transaction group and requires an unmodified document.");
 
         var log = new ApplyResult.Builder(plan);
         if (plan.IsEmpty) return log.Complete();
 
-        if (!(_document.GetElement(areaPlanUniqueId) is ViewPlan view) || view.ViewType != ViewType.AreaPlan)
+        if (!(_document.GetElement(request.AreaPlanUniqueId) is ViewPlan view) || view.ViewType != ViewType.AreaPlan)
             return log.RolledBack("找不到這個檢討套件的 Area Plan，沒有寫入任何東西。");
 
         var level = view.GenLevel;
@@ -67,13 +66,10 @@ public sealed class RevitZoneWriteBack
                 Run(plan, ApplyStage.Boundaries, "建立與更新面積邊界線", step => Boundary(plan, step, log, view, level));
                 Run(plan, ApplyStage.Areas, "建立與更新面積", step => Area(plan, step, log, view));
                 Run(plan, ApplyStage.Tags, "建立與更新面積標註", step => Tag(plan, step, log, view));
+                DetailCurves(plan, request, log);
+                ColorScheme(plan, request, view, log);
 
-                // Nothing here writes the Drafting View. A caller that scheduled those steps anyway
-                // is told so on the log rather than left believing they happened.
-                foreach (var step in plan.StepsOf(ApplyStage.DetailCurves))
-                    log.Skipped(step, "單線圖細部線由單線圖輸出階段建立，這次沒有寫入。");
-
-                if (failurePolicy == ApplyFailurePolicy.RollBackEverything && log.FailureCount > 0)
+                if (request.FailurePolicy == ApplyFailurePolicy.RollBackEverything && log.FailureCount > 0)
                 {
                     group.RollBack();
                     return log.RolledBack(string.Format(
@@ -273,6 +269,106 @@ public sealed class RevitZoneWriteBack
         catch (RevitApplicationException exception)
         {
             log.Failed(step, exception.Message);
+        }
+    }
+
+    /// <summary>
+    /// Copies the 區劃 outline into the package's Drafting View (spec 10.5 item 4). The view is
+    /// found or created inside this run's group, so a rollback takes it with everything else rather
+    /// than leaving an empty view behind.
+    /// </summary>
+    private void DetailCurves(ApplyPlan plan, ZoneWriteBackRequest request, ApplyResult.Builder log)
+    {
+        var steps = plan.StepsOf(ApplyStage.DetailCurves);
+        if (steps.Count == 0) return;
+
+        using (var transaction = new Transaction(_document, "建立與更新單線圖"))
+        {
+            transaction.Start();
+
+            var lookup = new RevitDraftingViewWriter(_document).Ensure(request.Package, request.DefaultOutputName);
+            if (lookup.View is null)
+            {
+                // A failure rather than a skip: the drafts are not in the model, so the Editor has
+                // to go on showing unapplied changes, and a run set to roll back on any failure has
+                // to roll this one back too.
+                log.Manual(lookup.ManualAction!);
+                foreach (var step in steps) log.Failed(step, "沒有可用的單線圖視圖。");
+                transaction.RollBack();
+                return;
+            }
+
+            foreach (var step in steps) Copy(plan, step, log, lookup.View);
+
+            if (lookup.Created)
+            {
+                // Identity before name (spec 10.5 item 5): the package records the UniqueId in the
+                // same group as the view itself, so the two can never end up existing apart.
+                new RevitReviewPackageRepository(_document)
+                    .Save(request.Package.WithDraftingView(lookup.View.UniqueId));
+                log.Note("已建立單線圖視圖「" + lookup.View.Name + "」。");
+            }
+
+            if (transaction.Commit() != TransactionStatus.Committed)
+                throw new InvalidOperationException("Revit 無法提交「建立與更新單線圖」。");
+        }
+    }
+
+    private void Copy(ApplyPlan plan, ApplyStep step, ApplyResult.Builder log, ViewDrafting view)
+    {
+        if (step.Change == ApplyChangeKind.Delete)
+        {
+            Remove(plan, step, log);
+            return;
+        }
+
+        var planned = step.Planned!;
+        // A drafting view has no level, so the copy sits on the view's own plane; the XY is the same
+        // as the boundary line's, which is what makes it a copy rather than a second drawing.
+        var curve = ToLine(planned, 0.0);
+        if (curve is null)
+        {
+            log.Failed(step, "這一段線太短，Revit 無法建立細部線。");
+            return;
+        }
+
+        try
+        {
+            var existing = Owned(plan, step) as Autodesk.Revit.DB.DetailCurve;
+            if (existing is not null && existing.OwnerViewId == view.Id)
+            {
+                existing.SetGeometryCurve(curve, false);
+                ManagedElementMark.Write(existing, step.Key, planned.Signature);
+                Remember(step, existing);
+                log.Updated(step, existing.UniqueId);
+                return;
+            }
+
+            var created = _document.Create.NewDetailCurve(view, curve);
+            ManagedElementMark.Write(created, step.Key, planned.Signature);
+            Remember(step, created);
+            log.Created(step, created.UniqueId);
+        }
+        catch (RevitApplicationException exception)
+        {
+            log.Failed(step, exception.Message);
+        }
+    }
+
+    /// <summary>
+    /// Brings the Area Color Scheme in line with the 區劃 colours (spec 10.5 item 3). Whatever Revit
+    /// refuses becomes a manual item on the log; nothing here is fatal, because a colour the user
+    /// has to set by hand is not a reason to throw away the boundaries that did get written.
+    /// </summary>
+    private void ColorScheme(ApplyPlan plan, ZoneWriteBackRequest request, ViewPlan view, ApplyResult.Builder log)
+    {
+        using (var transaction = new Transaction(_document, "更新面積色彩配置"))
+        {
+            transaction.Start();
+            new RevitColorSchemeWriter(_document).Sync(view, request.PackageId, plan.ColorEntries, log);
+
+            if (transaction.Commit() != TransactionStatus.Committed)
+                throw new InvalidOperationException("Revit 無法提交「更新面積色彩配置」。");
         }
     }
 

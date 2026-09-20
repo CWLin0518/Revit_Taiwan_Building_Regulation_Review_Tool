@@ -83,6 +83,23 @@ public sealed class ReviewPackage
         GeneratedElementUniqueIds, BoundaryRevision, RuleSetId, RuleSetVersion,
         LastReviewRunId, Status, updatedAtUtc);
 
+    /// <summary>
+    /// Records the Drafting View holding the 單線圖 copies (spec 10.5 item 5). The UniqueId is the
+    /// 唯一識別 that clause asks for: the view is found by it on every later run, so a user who
+    /// renames the view keeps the name and the package keeps the view.
+    /// </summary>
+    public ReviewPackage WithDraftingView(string draftingViewUniqueId, DateTime? updatedAtUtc = null)
+    {
+        if (string.IsNullOrWhiteSpace(draftingViewUniqueId))
+            throw new ArgumentException("Drafting view UniqueId is required.", nameof(draftingViewUniqueId));
+
+        return new ReviewPackage(
+            PackageId, SourceFloorPlanUniqueId, LevelUniqueId, AreaSchemeUniqueId,
+            AreaPlanUniqueId, draftingViewUniqueId, LegendViewUniqueIds, SheetUniqueId,
+            GeneratedElementUniqueIds, BoundaryRevision, RuleSetId, RuleSetVersion,
+            LastReviewRunId, Status, updatedAtUtc);
+    }
+
     private static string? Normalize(string? value) => value is null || string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static IReadOnlyList<string> NormalizeIds(IEnumerable<string>? values) =>

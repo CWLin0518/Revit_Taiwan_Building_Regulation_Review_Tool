@@ -343,7 +343,9 @@ namespace BuildingRegulationReview.RegionEditor
 
             var existing = ReadExistingElements == null ? null : ReadExistingElements();
             var preview = _session.BuildPreview(existing);
-            var plan = ApplyPlan.Build(preview);
+            // Everything, the 單線圖 copies included: the host's write-back reaches the Drafting View
+            // too now, so nothing the preview lists is deferred.
+            var plan = ApplyPlan.Build(preview, ApplyPlan.AllKinds);
 
             var decision = RegionEditorPreviewWindow.Show(this, preview, plan, RequestApply != null);
             if (decision == null)

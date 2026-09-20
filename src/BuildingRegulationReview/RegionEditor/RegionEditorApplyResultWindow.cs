@@ -18,6 +18,7 @@ namespace BuildingRegulationReview.RegionEditor
     internal sealed class RegionEditorApplyResultWindow : Window
     {
         private static readonly Brush ProblemBrush = new SolidColorBrush(Color.FromRgb(0xC0, 0x39, 0x2B));
+        private static readonly Brush ManualBrush = new SolidColorBrush(Color.FromRgb(0xB8, 0x6E, 0x00));
 
         private readonly ApplyResult _result;
 
@@ -64,6 +65,20 @@ namespace BuildingRegulationReview.RegionEditor
                     Text = "○ " + note,
                     TextWrapping = TextWrapping.Wrap,
                     Foreground = Brushes.DimGray,
+                    Margin = new Thickness(0, 6, 0, 0)
+                });
+            }
+
+            // Spec 10.5 item 3: what Revit would not do, and the drafts the tool refused to guess
+            // about, are named here rather than buried in the element list — they are the only lines
+            // that ask the user to go and do something.
+            foreach (var action in _result.ManualActions)
+            {
+                panel.Children.Add(new TextBlock
+                {
+                    Text = "✱ " + action.Text,
+                    TextWrapping = TextWrapping.Wrap,
+                    Foreground = ManualBrush,
                     Margin = new Thickness(0, 6, 0, 0)
                 });
             }

@@ -116,6 +116,59 @@ public class ApplyResultTests
         Assert.True(result.IsComplete);
         Assert.False(result.IsRolledBack);
         Assert.Empty(result.Items);
+        Assert.Empty(result.ManualActions);
+    }
+
+    // ---- what the run hands back to the user (spec 10.5 item 3) ---------------------------------
+
+    [Fact]
+    public void AManualItemIsNotAFailureButStillShowsUpInTheSummaryAndTheLog()
+    {
+        var plan = Plan();
+        var log = new ApplyResult.Builder(plan);
+        foreach (var step in plan.Steps) log.Created(step, "new-" + step.Key.Ordinal);
+        log.Manual("色彩項目「A」", "Revit 不允許刪除使用中的色彩項目", "請先確認沒有面積在用這個名稱");
+
+        var result = log.Complete();
+
+        // The boundaries went in; only the colour entry needs a person. Calling that a failure would
+        // leave the Editor claiming the drafts were never applied.
+        Assert.True(result.IsComplete);
+        Assert.Equal(0, result.FailedCount);
+        Assert.Contains("還有 1 項需要在 Revit 中人工處理。", result.Summary, StringComparison.Ordinal);
+        Assert.Contains(result.Log, line => line.StartsWith("需人工處理：", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AManualItemSaysWhatItIsWhyAndWhatToDo()
+    {
+        var action = new ManualAction("色彩項目「A」", "Revit 不允許刪除使用中的色彩項目", "請先確認沒有面積在用這個名稱");
+
+        Assert.Equal(
+            "需人工處理：色彩項目「A」——Revit 不允許刪除使用中的色彩項目。建議：請先確認沒有面積在用這個名稱",
+            action.Text);
+    }
+
+    [Theory]
+    [InlineData("", "why", "what")]
+    [InlineData("subject", " ", "what")]
+    [InlineData("subject", "why", null)]
+    public void AManualItemWithoutAllThreePartsIsNotOne(string subject, string reason, string? suggestion)
+    {
+        // An item that only says 不支援 is a dead end; the user has to be told what to click.
+        Assert.Throws<ArgumentException>(() => new ManualAction(subject, reason, suggestion!));
+    }
+
+    [Fact]
+    public void ManualItemsSurviveARollbackBecauseTheReasonStillHolds()
+    {
+        var log = new ApplyResult.Builder(Plan());
+        log.Manual("面積色彩配置", "這個專案沒有可複製的色彩配置", "請先新增一個色彩配置");
+
+        var result = log.RolledBack("Revit 無法提交。");
+
+        Assert.Single(result.ManualActions);
+        Assert.Empty(result.Items);
     }
 
     // ---- helpers ------------------------------------------------------------------------------
