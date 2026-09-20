@@ -7,6 +7,7 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using BuildingRegulationReview.Application.Geometry;
 using BuildingRegulationReview.Application.RegionEditing;
+using BuildingRegulationReview.Application.WriteBack;
 using BuildingRegulationReview.Domain.Geometry;
 using BuildingRegulationReview.RegionEditor;
 using BuildingRegulationReview.Revit.Geometry;
@@ -20,8 +21,9 @@ namespace BuildingRegulationReview
     /// network repair and region solving, then hands the solved map to the Editor window.
     /// </summary>
     /// <remarks>
-    /// Read-only from end to end. Nothing here opens a transaction, and the Editor only drafts;
-    /// writing boundaries and Areas back is P2-T07.
+    /// The command itself is read-only: extraction, repair and solving open no transaction. Writing
+    /// boundaries and Areas back does, but it happens later and elsewhere — the Editor is modeless,
+    /// so the write runs on Revit's own thread through an ExternalEvent that owns its transactions.
     /// </remarks>
     [Transaction(TransactionMode.ReadOnly)]
     public sealed class RegionEditorCommand : IExternalCommand
@@ -31,6 +33,8 @@ namespace BuildingRegulationReview
         private static RegionEditorWindow _window;
         private static ExternalEvent _externalEvent;
         private static SelectSourcesHandler _handler;
+        private static ExternalEvent _applyEvent;
+        private static ApplyHandler _applyHandler;
 
         public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
             => Run(commandData.Application, ref message);
@@ -71,11 +75,24 @@ namespace BuildingRegulationReview
                 _handler.Sources = sources;
                 _externalEvent.Raise();
             };
+
+            _applyHandler = new ApplyHandler(choice.AreaPlanUniqueId);
+            _applyEvent = ExternalEvent.Create(_applyHandler);
+            _window.RequestApply = (plan, policy) =>
+            {
+                _applyHandler.Plan = plan;
+                _applyHandler.Policy = policy;
+                _applyEvent.Raise();
+            };
+
             _window.Closed += (_, __) =>
             {
                 _externalEvent?.Dispose();
                 _externalEvent = null;
                 _handler = null;
+                _applyEvent?.Dispose();
+                _applyEvent = null;
+                _applyHandler = null;
                 _window = null;
             };
             _window.Show();
@@ -191,6 +208,58 @@ namespace BuildingRegulationReview
             }
 
             public string GetName() => "防火區劃編輯器：選取來源元素";
+        }
+
+        /// <summary>
+        /// Writes the approved plan back to the Area Plan (spec 10.5). The Editor is modeless, so
+        /// this is where the write gets a legal Revit context; the result is handed back to the
+        /// window, which owns what it means for the drafts.
+        /// </summary>
+        private sealed class ApplyHandler : IExternalEventHandler
+        {
+            private readonly string _areaPlanUniqueId;
+
+            public ApplyHandler(string areaPlanUniqueId) => _areaPlanUniqueId = areaPlanUniqueId;
+
+            public ApplyPlan Plan { get; set; }
+            public ApplyFailurePolicy Policy { get; set; }
+
+            public void Execute(UIApplication application)
+            {
+                var window = _window;
+                var document = application.ActiveUIDocument?.Document;
+                if (window == null || Plan == null) return;
+
+                if (document == null)
+                {
+                    TaskDialog.Show(DialogTitle, "找不到作用中的 Revit 專案，這次沒有寫入任何東西。");
+                    Plan = null;
+                    window.Dispatcher.Invoke(() => window.ReportApplied(null));
+                    return;
+                }
+
+                ApplyResult result;
+                try
+                {
+                    result = new RevitZoneWriteBack(document).Apply(Plan, _areaPlanUniqueId, Policy);
+                }
+                catch (Exception exception)
+                {
+                    // The write-back rolls its own group back before it rethrows, so the model is
+                    // unchanged; what is left is telling the user why.
+                    TaskDialog.Show(DialogTitle, "寫回失敗，模型沒有變更：" + exception.Message);
+                    window.Dispatcher.Invoke(() => window.ReportApplied(null));
+                    return;
+                }
+                finally
+                {
+                    Plan = null;
+                }
+
+                window.Dispatcher.Invoke(() => window.ReportApplied(result));
+            }
+
+            public string GetName() => "防火區劃編輯器：寫回 Area Plan";
         }
     }
 }

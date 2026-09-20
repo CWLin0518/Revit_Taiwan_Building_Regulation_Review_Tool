@@ -20,9 +20,10 @@ namespace BuildingRegulationReview.RegionEditor
     /// session call whose result becomes the status line.
     /// </summary>
     /// <remarks>
-    /// Nothing in this window writes to the model. Drafts live in memory, Undo/Redo and the apply
-    /// preview only read them, and the prompt on closing is there because closing is still the only
-    /// thing that can lose them: writing back arrives with P2-T07.
+    /// The window never touches Revit itself. 套用 hands the scheduled plan to the host, which runs
+    /// it on Revit's own thread and calls <see cref="ReportApplied"/> back — the Editor is modeless,
+    /// so a write cannot happen inline. Drafts still live in memory until that write succeeds, which
+    /// is why closing with unapplied changes still asks.
     /// </remarks>
     internal sealed class RegionEditorWindow : Window
     {
@@ -35,8 +36,10 @@ namespace BuildingRegulationReview.RegionEditor
         private readonly TextBlock _draftState = new TextBlock { Foreground = Brushes.DimGray, TextWrapping = TextWrapping.Wrap };
         private readonly Button _undoButton;
         private readonly Button _redoButton;
+        private readonly Button _previewButton;
         private readonly string _baseTitle;
         private bool _syncing;
+        private bool _applying;
 
         public RegionEditorWindow(RegionEditorSession session, string planName)
         {
@@ -44,6 +47,7 @@ namespace BuildingRegulationReview.RegionEditor
 
             _undoButton = MakeButton("復原", () => Step(undo: true));
             _redoButton = MakeButton("重做", () => Step(undo: false));
+            _previewButton = MakeButton("套用前預覽", ShowPreview);
             _baseTitle = string.IsNullOrWhiteSpace(planName) ? "防火區劃編輯器" : "防火區劃編輯器 — " + planName;
             Title = _baseTitle;
             Width = 1180;
@@ -94,6 +98,35 @@ namespace BuildingRegulationReview.RegionEditor
         /// </summary>
         public Action<IReadOnlyList<SourceRef>> ShowSourceElements { get; set; }
 
+        /// <summary>
+        /// Asked to write the plan back to the model (spec 10.5). Also an ExternalEvent, so it
+        /// returns nothing: the host calls <see cref="ReportApplied"/> when the run is over. With
+        /// nothing set the preview is read-only and its 套用 button stays disabled.
+        /// </summary>
+        public Action<ApplyPlan, ApplyFailurePolicy> RequestApply { get; set; }
+
+        /// <summary>
+        /// The outcome of the run the window asked for. A run that wrote everything clears the
+        /// unapplied-changes mark; one that failed or skipped something leaves it standing, because
+        /// the drafts and the model are still not the same thing.
+        /// </summary>
+        public void ReportApplied(ApplyResult result)
+        {
+            _applying = false;
+            if (result == null)
+            {
+                // The host already said what went wrong; all that is left is to let the Editor go.
+                Report("這次沒有寫入任何東西，草稿維持原狀。");
+                Refresh();
+                return;
+            }
+
+            if (result.IsComplete) _session.MarkApplied();
+            RegionEditorApplyResultWindow.Show(this, result);
+            Report(result.Summary);
+            Refresh();
+        }
+
         private UIElement BuildStatusBar()
         {
             var panel = new StackPanel { Margin = new Thickness(12, 6, 12, 10) };
@@ -128,7 +161,7 @@ namespace BuildingRegulationReview.RegionEditor
             var historyButtons = Row();
             historyButtons.Children.Add(_undoButton);
             historyButtons.Children.Add(_redoButton);
-            historyButtons.Children.Add(MakeButton("套用前預覽", ShowPreview));
+            historyButtons.Children.Add(_previewButton);
             panel.Children.Add(historyButtons);
 
             var viewButtons = Row();
@@ -143,7 +176,7 @@ namespace BuildingRegulationReview.RegionEditor
 
             panel.Children.Add(new TextBlock
             {
-                Text = "問題清單中的每一則都可點選，畫面會移到該位置。草稿尚未寫回模型，「套用前預覽」只列出將要新增、更新與刪除的元素；實際寫入會在後續階段提供。",
+                Text = "問題清單中的每一則都可點選，畫面會移到該位置。「套用前預覽」會列出將要新增、更新與刪除的元素，確認後才會寫回模型；刪除只會發生在這個檢討套件自己建立的元素上。",
                 TextWrapping = TextWrapping.Wrap,
                 Foreground = Brushes.DimGray,
                 Margin = new Thickness(0, 10, 0, 0)
@@ -294,16 +327,47 @@ namespace BuildingRegulationReview.RegionEditor
             MessageBoxImage.Warning,
             MessageBoxResult.No) == MessageBoxResult.Yes;
 
+        /// <summary>
+        /// Reads the model as it is right now, shows the difference, and — if the user says so —
+        /// hands the scheduled plan to the host to write (spec 10.4 and 10.5). The model is read at
+        /// this moment rather than when the Editor opened, because the Editor is modeless and the
+        /// model may have moved on since.
+        /// </summary>
         private void ShowPreview()
         {
+            if (_applying)
+            {
+                Report("上一次寫回還在進行中，請稍候。");
+                return;
+            }
+
             var existing = ReadExistingElements == null ? null : ReadExistingElements();
             var preview = _session.BuildPreview(existing);
-            RegionEditorPreviewWindow.Show(this, preview);
-            Report(preview.Summary);
+            var plan = ApplyPlan.Build(preview);
+
+            var decision = RegionEditorPreviewWindow.Show(this, preview, plan, RequestApply != null);
+            if (decision == null)
+            {
+                Report(preview.Summary);
+                return;
+            }
+
+            _applying = true;
+            Report("正在寫回模型……");
+            RequestApply(plan, decision.Policy);
         }
 
         private void WarnAboutUnappliedChanges(object sender, System.ComponentModel.CancelEventArgs e)
         {
+            if (_applying)
+            {
+                // Closing now would leave the write-back with nowhere to report to, and the run
+                // itself cannot be called off once Revit has it.
+                MessageBox.Show(this, "正在寫回模型，請等這一次寫回結束後再關閉。", Title, MessageBoxButton.OK, MessageBoxImage.Information);
+                e.Cancel = true;
+                return;
+            }
+
             var prompt = _session.UnappliedChangesPrompt;
             if (prompt == null) return;
 
@@ -392,8 +456,9 @@ namespace BuildingRegulationReview.RegionEditor
         {
             _summary.Text = view.Summary;
             _draftState.Text = view.DraftState;
-            _undoButton.IsEnabled = view.CanUndo;
-            _redoButton.IsEnabled = view.CanRedo;
+            _undoButton.IsEnabled = view.CanUndo && !_applying;
+            _redoButton.IsEnabled = view.CanRedo && !_applying;
+            _previewButton.IsEnabled = !_applying;
             _undoButton.ToolTip = _session.UndoLabel == null ? "沒有可以復原的動作" : "復原：" + _session.UndoLabel;
             _redoButton.ToolTip = _session.RedoLabel == null ? "沒有可以重做的動作" : "重做：" + _session.RedoLabel;
             Title = view.HasUnappliedChanges ? _baseTitle + " *" : _baseTitle;

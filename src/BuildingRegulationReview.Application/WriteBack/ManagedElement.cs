@@ -31,8 +31,9 @@ public enum ManagedElementKind
 /// touched.
 /// </summary>
 /// <remarks>
-/// The token is a flat string so it can live in one text parameter. P2-T07 writes it; P2-T06 only
-/// needs to read it back to tell Add from Update from Delete.
+/// The token is a flat string so one field can hold it, wherever the adapter chooses to keep it.
+/// The preview reads it back to tell Add from Update from Delete; the write-back reads it again on
+/// the element itself before deleting anything.
 /// </remarks>
 public readonly struct ManagedElementKey : IEquatable<ManagedElementKey>
 {
@@ -40,13 +41,14 @@ public readonly struct ManagedElementKey : IEquatable<ManagedElementKey>
     public const string Prefix = "BCR";
 
     /// <summary>
-    /// The parameter carrying <see cref="ToToken"/> on every element the tool creates. P2-T07 writes
-    /// it; the preview reads it to decide what it owns. An element without it is not ours.
+    /// The text parameter the adapter mirrors <see cref="ToToken"/> into, for a project that binds
+    /// it and wants the key where a schedule can see it. The mark itself lives in the element's own
+    /// storage, because Area Boundary Lines are not a category a project parameter can reach.
     /// </summary>
     public const string KeyParameterName = "BCR_ManagedKey";
 
     /// <summary>
-    /// The parameter carrying the <see cref="PlannedElement.Signature"/> that was last written, which
+    /// The matching mirror of the <see cref="PlannedElement.Signature"/> that was last written, which
     /// is what tells an element that still matches the draft from one that has to be updated.
     /// </summary>
     public const string SignatureParameterName = "BCR_ManagedSignature";

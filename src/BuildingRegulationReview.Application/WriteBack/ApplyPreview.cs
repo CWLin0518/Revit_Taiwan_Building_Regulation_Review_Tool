@@ -25,7 +25,8 @@ public sealed class ApplyPreviewItem
         ManagedElementKey key,
         string description,
         string? elementUniqueId = null,
-        string? zoneName = null)
+        string? zoneName = null,
+        PlannedElement? planned = null)
     {
         if (!Enum.IsDefined(typeof(ApplyChangeKind), change)) throw new ArgumentOutOfRangeException(nameof(change));
         if (string.IsNullOrWhiteSpace(description)) throw new ArgumentException("A preview item needs a description.", nameof(description));
@@ -35,6 +36,7 @@ public sealed class ApplyPreviewItem
         Description = description.Trim();
         ElementUniqueId = string.IsNullOrWhiteSpace(elementUniqueId) ? null : elementUniqueId!.Trim();
         ZoneName = string.IsNullOrWhiteSpace(zoneName) ? null : zoneName!.Trim();
+        Planned = planned;
     }
 
     public ApplyChangeKind Change { get; }
@@ -46,6 +48,14 @@ public sealed class ApplyPreviewItem
     public string? ElementUniqueId { get; }
 
     public string? ZoneName { get; }
+
+    /// <summary>
+    /// What the draft says this element should be — geometry, placement, name and colour. Null on a
+    /// 刪除 row, which is the one case where the draft no longer plans anything. Carrying it here is
+    /// what lets the write-back execute the preview the user approved, instead of re-deriving a second
+    /// plan that could differ from the one that was shown.
+    /// </summary>
+    public PlannedElement? Planned { get; }
 
     /// <summary>The list line: 新增／更新／刪除／不變 followed by what it is.</summary>
     public string Text => ChangeText(Change) + " " + Description;
@@ -181,14 +191,14 @@ public sealed class ApplyPreview
             plannedKeys.Add(element.Key);
             if (!mine.TryGetValue(element.Key, out var current))
             {
-                items.Add(new ApplyPreviewItem(ApplyChangeKind.Add, element.Key, element.Description, null, element.ZoneName));
+                items.Add(new ApplyPreviewItem(ApplyChangeKind.Add, element.Key, element.Description, null, element.ZoneName, element));
                 continue;
             }
 
             var change = string.Equals(current.Signature, element.Signature, StringComparison.Ordinal)
                 ? ApplyChangeKind.Unchanged
                 : ApplyChangeKind.Update;
-            items.Add(new ApplyPreviewItem(change, element.Key, element.Description, current.ElementUniqueId, element.ZoneName));
+            items.Add(new ApplyPreviewItem(change, element.Key, element.Description, current.ElementUniqueId, element.ZoneName, element));
         }
 
         foreach (var orphan in mine.Where(pair => !plannedKeys.Contains(pair.Key)).OrderBy(pair => pair.Key.ToToken(), StringComparer.Ordinal))
