@@ -20,13 +20,26 @@ namespace BuildingRegulationReview
             var document = application.ActiveUIDocument?.Document;
             if (document == null) { message = "請先開啟 Revit 專案。"; return Result.Failed; }
             var catalog = RevitReviewSetupCatalog.Read(document);
-            if (catalog.FloorPlans.Count == 0 || catalog.AreaSchemes.Count == 0)
+            if (catalog.FloorPlans.Count == 0)
             {
-                TaskDialog.Show("防火區劃設定", "專案必須至少有一個樓層平面與一個面積配置。Revit 2024 API 不提供建立 Area Scheme 的公開方法，請先由「建築 > 房間及面積 > 面積配置」建立後再執行設定。");
+                TaskDialog.Show("防火區劃設定", "專案必須至少有一個樓層平面。");
                 return Result.Cancelled;
             }
             var window = new FireReviewSetupWindow(catalog);
-            if (window.ShowDialog() != true) return Result.Cancelled;
+            if (window.ShowDialog() != true)
+            {
+                if (window.OpenAreaComputations)
+                {
+                    var commandId = RevitCommandId.LookupPostableCommandId(PostableCommand.AreaAndVolumeComputations);
+                    if (commandId == null || !application.CanPostCommand(commandId))
+                    {
+                        TaskDialog.Show("防火區劃設定", "目前無法開啟 Revit 的 Area and Volume Computations。請從「建築 > 房間及面積」開啟。");
+                        return Result.Cancelled;
+                    }
+                    application.PostCommand(commandId);
+                }
+                return Result.Cancelled;
+            }
             var selections = window.Selections;
             var repository = new RevitReviewPackageRepository(document);
             var existing = repository.GetAll();
