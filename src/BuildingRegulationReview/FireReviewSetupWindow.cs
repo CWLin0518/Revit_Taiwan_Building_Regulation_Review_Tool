@@ -9,7 +9,7 @@ namespace BuildingRegulationReview
 {
     internal sealed class FireReviewSetupWindow : Window
     {
-        private readonly ListBox _floors = new ListBox { DisplayMemberPath = "Name", SelectionMode = SelectionMode.Multiple, MinHeight = 100, MaxHeight = 180 };
+        private readonly ListBox _floors = new ListBox { DisplayMemberPath = "Name", SelectionMode = SelectionMode.Extended, MinHeight = 100, MaxHeight = 180 };
         private readonly ComboBox _scheme = NewCombo();
         private readonly ComboBox _template = NewCombo();
         private readonly ComboBox _scopeBox = NewCombo();
