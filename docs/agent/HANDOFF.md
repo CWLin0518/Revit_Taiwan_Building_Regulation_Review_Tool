@@ -1,52 +1,59 @@
 # Agent Handoff
 - Phase: P2
-- Completed Task: P2-T03
-- Next Task: P2-T04
+- Completed Task: P2-T04
+- Next Task: P2-T05
 - Status: READY_FOR_NEW_SESSION
-- Commit: 04799be
+- Commit: 7c9bae2
 - Spec Version: Draft v1.1 (`docs/fire-review-spec.md`)
 
 ## Completed
-- `PlanLineNetwork` (Domain): the repaired plan as a graph — nodes, edges, the repair log and the issue list, plus the tolerance and scope it came from. Exposes `DegreeOf`, `EdgesAt`, `DanglingNodes`, `ComponentCount`, `LoopCount` (E - V + C) and `HasClosedLoop`.
-- `NetworkRepair` (Domain): one repair log entry, holding the original geometry, the repair kind, the distance moved and the source elements, as spec 10.2 requires.
-- `NetworkIssue` (Domain): what the pipeline refused to guess at, with a severity and the plan location the reviewer has to look at.
-- `SegmentGeometry` (Application): the plane geometry every repair step measures with — segment intersection with tolerance slack, point-to-segment and point-to-line distance, axis projection, ray-to-segment hit, collinear overlap.
-- `LineNetworkRepairer` (Application): spec 10.2 in order over a `PlanGeometrySnapshot` — de-duplicate, split at intersections, snap endpoints, extend short gaps, merge collinear runs, detect closure. Returns `Result<PlanLineNetwork>`; only an empty result fails, with `geometry.repair.empty`.
+- `RingGeometry` (Domain): ring-level plane geometry — signed area (shoelace), point-in-ring by crossing number with the half-open rule on Y, and an interior point (centroid first, horizontal band scan when the centroid falls outside). It sits in the Domain so a solved face can hit-test itself.
+- `PlanRegionMap` (Domain): every enclosed area one package defines. `PlanFace` carries its outer boundary, holes, `Region2D` draft area and a representative point; `FaceBoundary` keeps the node IDs and edge indices the loop ran through so a boundary stays traceable to the model; `FaceAdjacency` records the shared length between two faces; `MultiFaceRegion` is spec 10.3's MultiPolygon and reports how many contiguous parts a chosen set of faces falls into; `RegionIssue` is what the solve resolved but a reviewer should still see.
+- `RegionSolver` (Application): `Result<PlanRegionMap> Solve(PlanLineNetwork, DateTime?)`. Checks planarity, prunes dangling edges, traces faces with half-edges, assigns holes by smallest containing face, builds adjacency from the two sides of each edge, and reports draft areas.
 
 ## Changed Files
-- `src/BuildingRegulationReview.Domain/Geometry/PlanLineNetwork.cs`
-- `src/BuildingRegulationReview.Application/Geometry/SegmentGeometry.cs`
-- `src/BuildingRegulationReview.Application/Geometry/LineNetworkRepairer.cs`
-- `tests/BuildingRegulationReview.Core.Tests/Geometry/LineNetworkRepairerTests.cs`
-- `tests/BuildingRegulationReview.Core.Tests/Geometry/SegmentGeometryTests.cs`
-- `docs/agent/p2-t03-line-network-repair.md`
+- `src/BuildingRegulationReview.Domain/Geometry/RingGeometry.cs`
+- `src/BuildingRegulationReview.Domain/Geometry/PlanRegionMap.cs`
+- `src/BuildingRegulationReview.Application/Geometry/RegionSolver.cs`
+- `tests/BuildingRegulationReview.Core.Tests/Geometry/RegionSolverTests.cs`
+- `tests/BuildingRegulationReview.Core.Tests/Geometry/RingGeometryTests.cs`
+- `docs/agent/p2-t04-region-solving.md`
 - `docs/agent/phase-state.yaml`
 - `docs/agent/HANDOFF.md`
 
+## Decisions and Assumptions
+- Inside and outside come from the traversal, never from a bounding box. At each node the walk turns onto the clockwise-next neighbour, so loops that enclose area come out counter-clockwise and each connected part's surrounding loop comes out clockwise.
+- A clockwise loop becomes a hole of the smallest face that contains it, chosen only among faces of other connected parts. If two candidates are within a sliver's area of each other, that is ambiguity and the solve fails.
+- Failure is reserved for cases that would need an interpretation: `geometry.regions.non-planar`, `geometry.regions.ambiguous-nesting`, `geometry.regions.degenerate-face`, `geometry.regions.no-closed-loop`. Everything resolved without a choice travels with the map as a `RegionIssue`, matching how P2-T03 split failures from issues.
+- Sliver faces (under a snap-tolerance square, 10 mm x 10 mm) are reported, not dropped: removing one would leave a gap in the adjacency graph.
+- Dangling edges are pruned before tracing, each with a warning naming its source. Left in, the walk would run out and back along them and leave meaningless spikes on the boundary.
+- Faces are ordered by their node sequence rotated to start at the lowest node ID, so one network always yields the same face IDs.
+- Contiguity is reported, not enforced. `MultiFaceRegion.ContiguousPartCount` tells the Editor what it needs; spec 10.3's "no non-contiguous merge unless confirmed" is a P2-T06 policy.
+
 ## Verification Results
 - Solution build: 0 warnings, 0 errors, including the net48 Revit project.
-- Core tests: 129/129 passed (97 before this task; 32 added).
-- Normal: a clean rectangle needs no repair at all; a rectangle divided by an interior wall keeps both compartments (7 edges, 6 nodes, 2 loops); an island inside a room stays its own component (2 components, 2 loops).
-- Short gap: a 5 mm shortfall onto a wall interior is resolved by splitting and snapping with no extension logged; a 30 mm gap is closed by extending along the segment direction and the rectangle closes.
-- Over tolerance: a 150 mm gap is not extended; it becomes a `GapBeyondTolerance` error quoting the measured distance and the tolerance, and the network reports that nothing encloses an area.
-- Self-intersection: two pieces of one element crossing are split so the network stays planar, and a `SelfIntersection` warning names the crossing point.
-- Other: duplicate merging keeps both sources; collinear merging never crosses a degree-3 junction; pieces shorter than the snap tolerance are dropped with a warning; the input snapshot is not mutated; two runs over one snapshot produce identical nodes, edges and repairs.
+- Core tests: 160/160 passed (129 before this task; 31 added — `RegionSolverTests` 21, `RingGeometryTests` 10).
+- Golden cases: clean rectangle (1 face, 100 sq ft, 40 ft perimeter, no adjacency, no issues); partitioned rectangle (2 faces of 50 sq ft, one adjacency of 10 ft over one edge); island (surrounding face 375 sq ft with one clockwise 25 sq ft hole, island 25 sq ft, adjacency 20 ft over 4 edges, and the surrounding face does not claim a point inside the island); three concentric rings (500 / 300 / 100 sq ft, innermost ring becomes the middle face's hole); L-shaped room (centroid outside, 64 sq ft, representative point genuinely inside).
+- Pruning: one free end, a chain of two free ends, and a whole part that closes nothing each produce warnings while the room still solves.
+- Determinism: solving one network twice produces identical face IDs, areas, representative points, hole counts, adjacencies and issue messages.
+- Ambiguity: unsplit crossing, two parts 5 mm apart (message quotes the distance), two edges joining one pair of nodes, and nothing enclosing an area each return an error instead of a guess.
 
 ## Known Issues / Risks
-- Not yet run against a real model. The extractor output has never been fed into the repairer end to end; the read-only run against `建築防火檢討1.rvt` is still outstanding from P2-T02.
-- `PlanLineNetwork` has no storage record. The repair log lives in memory only; persisting it for the review report or the audit trail is a P2-T06 / P2-T07 decision and must not change the existing `PlanGeometrySnapshot` field set.
-- Gap extension is a single pass: after extending one dangling end it does not revisit ends already processed. Chained gaps (B only becomes reachable once A is closed) are left to the user.
-- Endpoints created by view-extent clipping look like ordinary dangling ends and usually surface as `DanglingEnd` warnings. Whether a zone should close along the clip boundary is still a P2-T04 decision.
-- `GapReportingFactor` (10x the extension tolerance = 500 mm) is provisional, like the tolerances themselves, and is not wired to any settings UI.
+- Not yet run against a real model. Extractor to repairer to solver has never been exercised end to end; the read-only run against `建築防火檢討1.rvt` is still outstanding from P2-T02.
+- `PlanRegionMap` has no storage record. Solved faces live in memory only; persisting them is a P2-T06 / P2-T07 decision and must not change the existing `PlanGeometrySnapshot` field set.
+- The planarity check is O(n^2) with a bounding-box prefilter, the same order as the repair. Performance on a large plan is a P2-T09 measurement.
+- Endpoints created by view-extent clipping are dangling ends after repair and get pruned here, so a zone does not close along the clip boundary. The user has to add an auxiliary line where that matters.
+- The sliver threshold and the ambiguous-nesting distance are not wired to any settings UI.
 
 ## Exact Next Steps
-- Begin P2-T04: solve closed loops and regions from `PlanLineNetwork` — loops, holes, MultiPolygon, adjacency and draft areas (spec 10.2 closing step and 10.3).
-- Exit criteria: geometry golden tests pass; ambiguous cases produce an error rather than a guess.
-- Build on what is already there: `LoopCount` / `ComponentCount` state how many independent closed areas and connected components exist, `EdgesAt` / `DegreeOf` give the adjacency queries face tracing needs, and `Loop2D` / `Region2D` (P2-T01) already provide signed area and hole subtraction.
+- Begin P2-T05: Region Editor basic interaction — display, zoom, selection, left click to add and right click to remove, create / delete a zone draft, name and colour (spec 10.3).
+- Exit criteria: UI tests or a reproducible manual test checklist pass.
+- Build on what is already there: `PlanRegionMap.FaceAt` turns a click into a face, `PlanFace.RepresentativePoint` gives each face a stable label anchor, `NeighboursOf` / `AreAdjacent` answer which faces touch, and `Combine` reports a zone's draft area and whether it is contiguous. `RegionIssue` and `PlanLineNetwork.Issues` are what the editor has to surface as unclosed-boundary errors.
 
 ## Do Not Do
 - Do not change `PlanGeometrySnapshot.CurrentSchemaVersion` or the storage record field set without a migration path.
 - Do not introduce Revit types into the Domain or Application layers.
-- Do not add automatic filleting or unlimited gap closing (spec 10.2 non-goal), and do not resolve an ambiguous region by picking one interpretation.
+- Do not resolve an ambiguous region by picking one interpretation, and do not add automatic filleting or unlimited gap closing (spec 10.2 non-goal).
 - Do not define new epsilons; read tolerances from `GeometryTolerance`.
+- Do not let the editor merge non-contiguous faces silently; spec 10.3 requires explicit confirmation.
 - Do not stage unrelated user or generated files: `.gitignore`, `src/BuildingRegulationReview/bin`, `obj` output and `.gtoffice/` must stay uncommitted.

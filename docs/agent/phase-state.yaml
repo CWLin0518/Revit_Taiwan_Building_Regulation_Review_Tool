@@ -1,7 +1,7 @@
 workflow: fire-review-addon
 activePhase: P2
-completedTask: P2-T03
-nextTask: P2-T04
+completedTask: P2-T04
+nextTask: P2-T05
 status: ready_for_new_session
-commit: 04799be
-updatedAtUtc: 2026-09-21T02:55:00Z
+commit: 7c9bae2
+updatedAtUtc: 2026-09-21T03:30:00Z
