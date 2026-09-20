@@ -1,55 +1,52 @@
 # Agent Handoff
 - Phase: P2
-- Completed Task: P2-T02
-- Next Task: P2-T03
+- Completed Task: P2-T03
+- Next Task: P2-T04
 - Status: READY_FOR_NEW_SESSION
-- Commit: c03d4ed
+- Commit: 04799be
 - Spec Version: Draft v1.1 (`docs/fire-review-spec.md`)
 
 ## Completed
-- `RevitPlanGeometryExtractor`: the read-only Revit implementation of `IPlanGeometryExtractor`. Resolves the Area Plan and its level, picks the extraction scope (scope box over crop region), derives the cut elevation from the view range, and reads wall location curves, column plan outlines and auxiliary lines. Opens no transaction.
-- `RevitPlanShapeReader`: the only class that touches `XYZ`. Curve flattening (lines keep two points, arcs tessellate), column silhouettes via `ExtrusionAnalyzer`, plan extents from the eight transformed corners of a `BoundingBoxXYZ`.
-- `RevitDocumentIdentity`: document provenance keyed on `ProjectInformation.UniqueId`, with path and title as fallbacks.
-- `PlanGeometryBuilder` (Application): degenerate-geometry removal, view-extent clipping, provenance, warning de-duplication, discard accounting, and deterministic segment ordering. Empty extraction fails with `geometry.extraction.empty` instead of returning an empty snapshot.
-- `PlanExtentClipper` (Application): Liang-Barsky clip that cuts boundary-crossing segments at the boundary rather than discarding them.
-- `LinkGeometryPolicy` + `BasisVector` (Application): accepts a link transform only as a planar rigid transform; rejects mirrored, scaled, tilted and skewed links with distinct error codes.
+- `PlanLineNetwork` (Domain): the repaired plan as a graph — nodes, edges, the repair log and the issue list, plus the tolerance and scope it came from. Exposes `DegreeOf`, `EdgesAt`, `DanglingNodes`, `ComponentCount`, `LoopCount` (E - V + C) and `HasClosedLoop`.
+- `NetworkRepair` (Domain): one repair log entry, holding the original geometry, the repair kind, the distance moved and the source elements, as spec 10.2 requires.
+- `NetworkIssue` (Domain): what the pipeline refused to guess at, with a severity and the plan location the reviewer has to look at.
+- `SegmentGeometry` (Application): the plane geometry every repair step measures with — segment intersection with tolerance slack, point-to-segment and point-to-line distance, axis projection, ray-to-segment hit, collinear overlap.
+- `LineNetworkRepairer` (Application): spec 10.2 in order over a `PlanGeometrySnapshot` — de-duplicate, split at intersections, snap endpoints, extend short gaps, merge collinear runs, detect closure. Returns `Result<PlanLineNetwork>`; only an empty result fails, with `geometry.repair.empty`.
 
 ## Changed Files
-- `src/BuildingRegulationReview.Application/Geometry/PlanGeometryBuilder.cs`
-- `src/BuildingRegulationReview.Application/Geometry/PlanExtentClipper.cs`
-- `src/BuildingRegulationReview.Application/Geometry/LinkGeometryPolicy.cs`
-- `src/BuildingRegulationReview.Revit/Geometry/RevitPlanGeometryExtractor.cs`
-- `src/BuildingRegulationReview.Revit/Geometry/RevitPlanShapeReader.cs`
-- `src/BuildingRegulationReview.Revit/Geometry/RevitDocumentIdentity.cs`
-- `tests/BuildingRegulationReview.Core.Tests/Geometry/PlanGeometryBuilderTests.cs`
-- `tests/BuildingRegulationReview.Core.Tests/Geometry/PlanExtentClipperTests.cs`
-- `tests/BuildingRegulationReview.Core.Tests/Geometry/LinkGeometryPolicyTests.cs`
-- `docs/agent/p2-t02-revit-geometry-extraction.md`
+- `src/BuildingRegulationReview.Domain/Geometry/PlanLineNetwork.cs`
+- `src/BuildingRegulationReview.Application/Geometry/SegmentGeometry.cs`
+- `src/BuildingRegulationReview.Application/Geometry/LineNetworkRepairer.cs`
+- `tests/BuildingRegulationReview.Core.Tests/Geometry/LineNetworkRepairerTests.cs`
+- `tests/BuildingRegulationReview.Core.Tests/Geometry/SegmentGeometryTests.cs`
+- `docs/agent/p2-t03-line-network-repair.md`
 - `docs/agent/phase-state.yaml`
 - `docs/agent/HANDOFF.md`
 
 ## Verification Results
-- Solution build: 0 warnings, 0 errors, including the net48 Revit project against the Revit 2024 API.
-- Core tests: 97/97 passed (66 before this task; 31 added).
-- Clipping: inside, outside, bounding-box-overlap-only, one-end cut, both-ends cut, along-boundary and tolerance-edge cases all pass.
-- Link transforms: unrotated, rotated + translated, point mapping, mirrored, scaled, tilted, upside-down and non-orthogonal cases all pass.
-- Determinism: two builders fed the same elements in different orders produce identical segment sequences; segment order within one element's polyline is preserved.
-- Provenance: every segment carries document / element / link UniqueId and `GeometrySourceKind`, and survives the storage round trip.
+- Solution build: 0 warnings, 0 errors, including the net48 Revit project.
+- Core tests: 129/129 passed (97 before this task; 32 added).
+- Normal: a clean rectangle needs no repair at all; a rectangle divided by an interior wall keeps both compartments (7 edges, 6 nodes, 2 loops); an island inside a room stays its own component (2 components, 2 loops).
+- Short gap: a 5 mm shortfall onto a wall interior is resolved by splitting and snapping with no extension logged; a 30 mm gap is closed by extending along the segment direction and the rectangle closes.
+- Over tolerance: a 150 mm gap is not extended; it becomes a `GapBeyondTolerance` error quoting the measured distance and the tolerance, and the network reports that nothing encloses an area.
+- Self-intersection: two pieces of one element crossing are split so the network stays planar, and a `SelfIntersection` warning names the crossing point.
+- Other: duplicate merging keeps both sources; collinear merging never crosses a degree-3 junction; pieces shorter than the snap tolerance are dropped with a warning; the input snapshot is not mutated; two runs over one snapshot produce identical nodes, edges and repairs.
 
 ## Known Issues / Risks
-- Not yet run against a real model. The "stable output for a fixed test model" exit criterion is currently covered only at unit-test level by the ordering invariant; it still needs a read-only run against `建築防火檢討1.rvt` to confirm element counts and traceability.
-- Extraction has no command or UI entry point yet; wiring happens in P2-T05 or P2-T09.
-- Clipping creates endpoints on the view boundary that match no model element. Whether a zone should close along that boundary is a P2-T03 / P2-T04 decision.
-- Provisional values not yet wired to the setup UI: auxiliary line-style whitelist (empty = accept all), default tolerances (1 / 10 / 50 mm, 0.5 degrees), and the 50 mm link level-plane slack.
+- Not yet run against a real model. The extractor output has never been fed into the repairer end to end; the read-only run against `建築防火檢討1.rvt` is still outstanding from P2-T02.
+- `PlanLineNetwork` has no storage record. The repair log lives in memory only; persisting it for the review report or the audit trail is a P2-T06 / P2-T07 decision and must not change the existing `PlanGeometrySnapshot` field set.
+- Gap extension is a single pass: after extending one dangling end it does not revisit ends already processed. Chained gaps (B only becomes reachable once A is closed) are left to the user.
+- Endpoints created by view-extent clipping look like ordinary dangling ends and usually surface as `DanglingEnd` warnings. Whether a zone should close along the clip boundary is still a P2-T04 decision.
+- `GapReportingFactor` (10x the extension tolerance = 500 mm) is provisional, like the tolerances themselves, and is not wired to any settings UI.
 
 ## Exact Next Steps
-- Begin P2-T03: network normalisation and repair (spec 10.2), in this order — de-duplicate, split at intersections, snap endpoints, extend across short gaps, merge collinear runs, detect closed loops.
-- Every repair must record the original geometry, the repair kind and the distance. Anything beyond tolerance is flagged as an error for the user, never guessed.
-- Exit criteria: normal, short-gap, over-tolerance and self-intersecting cases all covered by tests.
-- Repair consumes `PlanGeometrySnapshot` and must read its tolerances from `GeometryTolerance` rather than defining new epsilons.
+- Begin P2-T04: solve closed loops and regions from `PlanLineNetwork` — loops, holes, MultiPolygon, adjacency and draft areas (spec 10.2 closing step and 10.3).
+- Exit criteria: geometry golden tests pass; ambiguous cases produce an error rather than a guess.
+- Build on what is already there: `LoopCount` / `ComponentCount` state how many independent closed areas and connected components exist, `EdgesAt` / `DegreeOf` give the adjacency queries face tracing needs, and `Loop2D` / `Region2D` (P2-T01) already provide signed area and hole subtraction.
 
 ## Do Not Do
 - Do not change `PlanGeometrySnapshot.CurrentSchemaVersion` or the storage record field set without a migration path.
 - Do not introduce Revit types into the Domain or Application layers.
-- Do not add automatic filleting or unlimited gap closing (spec 10.2 non-goal).
+- Do not add automatic filleting or unlimited gap closing (spec 10.2 non-goal), and do not resolve an ambiguous region by picking one interpretation.
+- Do not define new epsilons; read tolerances from `GeometryTolerance`.
 - Do not stage unrelated user or generated files: `.gitignore`, `src/BuildingRegulationReview/bin`, `obj` output and `.gtoffice/` must stay uncommitted.
