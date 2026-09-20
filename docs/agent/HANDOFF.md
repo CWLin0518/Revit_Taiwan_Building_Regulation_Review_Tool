@@ -1,28 +1,28 @@
 # Agent Handoff
 - Phase: P1
-- Completed Task: P1-T04
-- Next Task: P1-T05
+- Completed Task: P1-T05
+- Next Task: P1-T06
 - Status: READY_FOR_NEW_SESSION
-- Commit: 934cbfea50a1b009d5c0f1f33c516c2366a61b5d
+- Commit: PENDING
 - Spec Version: Draft v1.1 (`docs/fire-review-spec.md`)
 
 ## Completed
-- 新增 Ribbon「防火區劃設定」入口與 WPF 設定視窗。
-- 可選來源 Floor Plan、既有 Area Scheme、Area Plan View Template、crop 複製及 Scope Box。
-- 確認後在單一 transaction 建立 Setup 狀態的 ReviewPackage，且不提前建立 Area Plan。
-- setup options 使用獨立 Extensible Storage schema，未修改 P1-T03 已發布 schema。
+- 完成 Area Plan 冪等建立／重用服務與 Revit writer。
+- 新建視圖可套用 Area Plan template、來源 crop 與 Scope Box；非致命設定失敗會回傳警告。
+- 建立及 ReviewPackage 更新位於同一 transaction，致命錯誤 rollback。
+- setup options 可從 Extensible Storage 讀回。
 
 ## Verification Results
-- Core tests：15/15 passed。
+- Core tests：17/17 passed。
 - Full add-in build：成功，0 warnings / 0 errors。
 
 ## Known Issues / Risks
-- Revit 2024 公開 API 無法建立 Area Scheme；UI 明確要求使用者先以 Revit 原生命令建立。
-- 尚未在實際 Revit UI 執行 live create/reopen；API adapter 已編譯。
+- 尚未在實際 Revit UI 執行 live create / rerun / rollback 驗證。
+- P1-T05 writer 尚未接到 Ribbon UI；此為 P1-T06 範圍。
 - 使用者原有 `.gitignore` 修改與 `.gtoffice/` 未追蹤內容不得納入 commit。
 
 ## Exact Next Steps
-執行 P1-T05：從 ReviewPackage 與 setup options 建立/重用 Area Plan，套用 template、crop/scope box，並確保 transaction rollback 與不重複建立。
+執行 P1-T06：把 P1-T04 設定 UI 串接 P1-T05 writer，呈現 created/reused 與 warnings，完成 Revit 手動驗收及 Phase 1 回歸。
 
 ## Do Not Do
 - 不可修改既有 ReviewPackage schema GUID 或欄位。

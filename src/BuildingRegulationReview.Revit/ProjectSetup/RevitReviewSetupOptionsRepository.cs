@@ -3,6 +3,7 @@ using System.Linq;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.ExtensibleStorage;
 using BuildingRegulationReview.Application.ProjectSetup;
+using BuildingRegulationReview.Domain.ReviewPackages;
 
 namespace BuildingRegulationReview.Revit.ProjectSetup;
 
@@ -25,6 +26,22 @@ public sealed class RevitReviewSetupOptionsRepository
         entity.Set(schema.GetField("ScopeBoxUniqueId"), selection.ScopeBoxUniqueId ?? string.Empty);
         storage.SetEntity(entity);
     }
+
+    public ReviewPackageSetupSelection? Get(ReviewPackage package)
+    {
+        if (package is null) throw new ArgumentNullException(nameof(package));
+        var schema = Schema.Lookup(SchemaId);
+        var storage = Find(package.PackageId);
+        if (schema == null || storage == null) return null;
+        var entity = storage.GetEntity(schema);
+        var templateId = entity.Get<string>(schema.GetField("AreaPlanTemplateUniqueId"));
+        var scopeBoxId = entity.Get<string>(schema.GetField("ScopeBoxUniqueId"));
+        return new ReviewPackageSetupSelection(package.SourceFloorPlanUniqueId, package.LevelUniqueId, package.AreaSchemeUniqueId,
+            EmptyToNull(templateId), entity.Get<int>(schema.GetField("CopyCropSettings")) != 0,
+            EmptyToNull(scopeBoxId));
+    }
+
+    private static string? EmptyToNull(string value) => string.IsNullOrWhiteSpace(value) ? null : value;
 
     private DataStorage? Find(Guid packageId)
     {

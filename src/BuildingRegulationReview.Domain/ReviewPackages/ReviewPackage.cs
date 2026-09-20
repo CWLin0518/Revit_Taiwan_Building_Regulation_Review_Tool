@@ -77,6 +77,12 @@ public sealed class ReviewPackage
     public ReviewPackageStatus Status { get; }
     public DateTime UpdatedAtUtc { get; }
 
+    public ReviewPackage WithAreaPlan(string areaPlanUniqueId, DateTime? updatedAtUtc = null) => new ReviewPackage(
+        PackageId, SourceFloorPlanUniqueId, LevelUniqueId, AreaSchemeUniqueId,
+        areaPlanUniqueId, DraftingViewUniqueId, LegendViewUniqueIds, SheetUniqueId,
+        GeneratedElementUniqueIds, BoundaryRevision, RuleSetId, RuleSetVersion,
+        LastReviewRunId, Status, updatedAtUtc);
+
     private static string? Normalize(string? value) => value is null || string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static IReadOnlyList<string> NormalizeIds(IEnumerable<string>? values) =>
