@@ -152,15 +152,19 @@ namespace BuildingRegulationReview.RegionEditor
 
     internal sealed class PackageChoice
     {
-        public PackageChoice(Guid packageId, string areaPlanUniqueId, string label)
+        public PackageChoice(Guid packageId, string areaPlanUniqueId, string label, string draftingViewUniqueId = null)
         {
             PackageId = packageId;
             AreaPlanUniqueId = areaPlanUniqueId;
             Label = label;
+            DraftingViewUniqueId = draftingViewUniqueId;
         }
 
         public Guid PackageId { get; }
         public string AreaPlanUniqueId { get; }
         public string Label { get; }
+
+        /// <summary>Where the 單線圖 copies live, when the package already has one; null until P2-T08.</summary>
+        public string DraftingViewUniqueId { get; }
     }
 }

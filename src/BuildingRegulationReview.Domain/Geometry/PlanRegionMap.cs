@@ -191,22 +191,33 @@ public sealed class FaceAdjacency
 /// </summary>
 public sealed class MultiFaceRegion
 {
-    public MultiFaceRegion(IEnumerable<PlanFace> faces, int contiguousPartCount)
+    public MultiFaceRegion(IEnumerable<PlanFace> faces, IEnumerable<IReadOnlyList<int>> contiguousParts)
     {
         if (faces is null) throw new ArgumentNullException(nameof(faces));
-        if (contiguousPartCount < 0) throw new ArgumentOutOfRangeException(nameof(contiguousPartCount));
+        if (contiguousParts is null) throw new ArgumentNullException(nameof(contiguousParts));
 
         var copy = faces.ToList();
         if (copy.Any(x => x is null)) throw new ArgumentException("A region cannot contain null faces.", nameof(faces));
 
+        var parts = contiguousParts
+            .Select(part => (IReadOnlyList<int>)new ReadOnlyCollection<int>(part.ToList()))
+            .ToList();
+
         Faces = new ReadOnlyCollection<PlanFace>(copy);
-        ContiguousPartCount = contiguousPartCount;
+        ContiguousParts = new ReadOnlyCollection<IReadOnlyList<int>>(parts);
     }
 
     public IReadOnlyList<PlanFace> Faces { get; }
 
+    /// <summary>
+    /// The chosen faces grouped into connected clusters, each group ascending and the groups ordered
+    /// by their lowest face ID. Write-back needs the grouping, not just the count: one Revit Area can
+    /// only cover one connected part.
+    /// </summary>
+    public IReadOnlyList<IReadOnlyList<int>> ContiguousParts { get; }
+
     /// <summary>How many connected clusters the chosen faces fall into. One means contiguous.</summary>
-    public int ContiguousPartCount { get; }
+    public int ContiguousPartCount => ContiguousParts.Count;
 
     public bool IsContiguous => ContiguousPartCount <= 1;
     public bool IsEmpty => Faces.Count == 0;
@@ -319,22 +330,37 @@ public sealed class PlanRegionMap
             if (id < 0 || id >= Faces.Count) throw new ArgumentOutOfRangeException(nameof(faceIds), $"Face {id} is not in this map.");
         }
 
-        return new MultiFaceRegion(chosen.Select(id => Faces[id]), CountContiguousParts(chosen));
+        return new MultiFaceRegion(chosen.Select(id => Faces[id]), ContiguousParts(chosen));
     }
 
-    private int CountContiguousParts(List<int> chosen)
+    /// <summary>
+    /// Groups faces into the connected clusters they form, each group ascending and the groups
+    /// ordered by their lowest face ID, so the same selection always yields the same part order.
+    /// </summary>
+    public IReadOnlyList<IReadOnlyList<int>> ContiguousPartsOf(IEnumerable<int> faceIds)
     {
-        if (chosen.Count == 0) return 0;
+        if (faceIds is null) throw new ArgumentNullException(nameof(faceIds));
 
+        var chosen = faceIds.Distinct().OrderBy(id => id).ToList();
+        foreach (var id in chosen)
+        {
+            if (id < 0 || id >= Faces.Count) throw new ArgumentOutOfRangeException(nameof(faceIds), $"Face {id} is not in this map.");
+        }
+
+        return ContiguousParts(chosen);
+    }
+
+    private IReadOnlyList<IReadOnlyList<int>> ContiguousParts(List<int> chosen)
+    {
         var members = new HashSet<int>(chosen);
         var seen = new HashSet<int>();
-        var parts = 0;
+        var parts = new List<IReadOnlyList<int>>();
 
         foreach (var start in chosen)
         {
             if (!seen.Add(start)) continue;
-            parts++;
 
+            var part = new List<int> { start };
             var queue = new Queue<int>();
             queue.Enqueue(start);
             while (queue.Count > 0)
@@ -344,12 +370,16 @@ public sealed class PlanRegionMap
                 {
                     var other = adjacency.Other(current);
                     if (!members.Contains(other) || !seen.Add(other)) continue;
+                    part.Add(other);
                     queue.Enqueue(other);
                 }
             }
+
+            part.Sort();
+            parts.Add(new ReadOnlyCollection<int>(part));
         }
 
-        return parts;
+        return new ReadOnlyCollection<IReadOnlyList<int>>(parts.OrderBy(p => p[0]).ToList());
     }
 
     private void Index(int faceId, FaceAdjacency adjacency)

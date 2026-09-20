@@ -52,6 +52,16 @@ namespace BuildingRegulationReview.RegionEditor
         /// <summary>Raised with the line for the status bar after every gesture.</summary>
         public event Action<string> Reported;
 
+        /// <summary>
+        /// Asks the user the question spec 10.3 requires before a 區劃 may fall into blocks that do
+        /// not touch. The canvas does not decide anything: the session refuses the edit, this puts
+        /// the session's own question on screen, and the edit is repeated with the answer.
+        /// </summary>
+        public Func<string, bool> ConfirmDisjoint { get; set; }
+
+        /// <summary>Raised when the user asked for Undo or Redo from the keyboard.</summary>
+        public event Action<bool> HistoryStepRequested;
+
         public void Refresh() => InvalidateVisual();
 
         public void ZoomToFit()
@@ -221,7 +231,8 @@ namespace BuildingRegulationReview.RegionEditor
                 }
                 else
                 {
-                    Apply(_session.AddFaceAt(ToScreen(position)));
+                    var at = ToScreen(position);
+                    Apply(confirmed => _session.AddFaceAt(at, confirmed));
                 }
 
                 InvalidateVisual();
@@ -255,12 +266,18 @@ namespace BuildingRegulationReview.RegionEditor
                     InvalidateVisual();
                     break;
                 case Key.Enter:
-                    Apply(_session.AddSelectionToActiveZone());
+                    Apply(confirmed => _session.AddSelectionToActiveZone(confirmed));
                     InvalidateVisual();
                     break;
                 case Key.Delete:
                     Apply(_session.RemoveSelectionFromZones());
                     InvalidateVisual();
+                    break;
+                case Key.Z when Keyboard.Modifiers.HasFlag(ModifierKeys.Control):
+                    HistoryStepRequested?.Invoke(true);
+                    break;
+                case Key.Y when Keyboard.Modifiers.HasFlag(ModifierKeys.Control):
+                    HistoryStepRequested?.Invoke(false);
                     break;
                 default:
                     return;
@@ -277,8 +294,30 @@ namespace BuildingRegulationReview.RegionEditor
                 return;
             }
 
-            Report(result.Value.Message);
+            Report(result.Value.FullMessage);
             Edited?.Invoke();
+        }
+
+        /// <summary>
+        /// Runs an edit that may need the disjoint confirmation of spec 10.3. The first attempt is
+        /// made without it; only if the session refuses for that reason is the user asked, and the
+        /// same edit is then repeated with the answer.
+        /// </summary>
+        private void Apply(Func<bool, Result<ZoneMembershipChange>> edit)
+        {
+            var result = edit(false);
+            if (result.IsFailure && result.Error.Code == RegionEditorSession.DisjointNotConfirmedCode)
+            {
+                if (ConfirmDisjoint == null || !ConfirmDisjoint(result.Error.Message))
+                {
+                    Report("已取消：" + result.Error.Message);
+                    return;
+                }
+
+                result = edit(true);
+            }
+
+            Apply(result);
         }
 
         private void Report(string message) => Reported?.Invoke(message);

@@ -6,6 +6,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using BuildingRegulationReview.Application.RegionEditing;
+using BuildingRegulationReview.Application.WriteBack;
 using BuildingRegulationReview.Domain.Common;
 using BuildingRegulationReview.Domain.Geometry;
 using BuildingRegulationReview.Domain.Regions;
@@ -19,8 +20,9 @@ namespace BuildingRegulationReview.RegionEditor
     /// session call whose result becomes the status line.
     /// </summary>
     /// <remarks>
-    /// Nothing in this window writes to the model. Drafts live in memory until P2-T07 writes them
-    /// back, and Undo/Redo plus the prompt for unapplied changes arrive with P2-T06.
+    /// Nothing in this window writes to the model. Drafts live in memory, Undo/Redo and the apply
+    /// preview only read them, and the prompt on closing is there because closing is still the only
+    /// thing that can lose them: writing back arrives with P2-T07.
     /// </remarks>
     internal sealed class RegionEditorWindow : Window
     {
@@ -30,13 +32,20 @@ namespace BuildingRegulationReview.RegionEditor
         private readonly ListBox _issueList = new ListBox { Height = 150 };
         private readonly TextBlock _status = new TextBlock { TextWrapping = TextWrapping.Wrap };
         private readonly TextBlock _summary = new TextBlock { Foreground = Brushes.DimGray, TextWrapping = TextWrapping.Wrap };
+        private readonly TextBlock _draftState = new TextBlock { Foreground = Brushes.DimGray, TextWrapping = TextWrapping.Wrap };
+        private readonly Button _undoButton;
+        private readonly Button _redoButton;
+        private readonly string _baseTitle;
         private bool _syncing;
 
         public RegionEditorWindow(RegionEditorSession session, string planName)
         {
             _session = session ?? throw new ArgumentNullException(nameof(session));
 
-            Title = string.IsNullOrWhiteSpace(planName) ? "防火區劃編輯器" : "防火區劃編輯器 — " + planName;
+            _undoButton = MakeButton("復原", () => Step(undo: true));
+            _redoButton = MakeButton("重做", () => Step(undo: false));
+            _baseTitle = string.IsNullOrWhiteSpace(planName) ? "防火區劃編輯器" : "防火區劃編輯器 — " + planName;
+            Title = _baseTitle;
             Width = 1180;
             Height = 780;
             MinWidth = 820;
@@ -46,6 +55,8 @@ namespace BuildingRegulationReview.RegionEditor
             _canvas = new RegionEditorCanvas(_session);
             _canvas.Edited += Refresh;
             _canvas.Reported += Report;
+            _canvas.ConfirmDisjoint = AskToMergeBlocksThatDoNotTouch;
+            _canvas.HistoryStepRequested += undo => Step(undo);
 
             var root = new DockPanel();
             root.Children.Add(BuildStatusBar());
@@ -64,9 +75,18 @@ namespace BuildingRegulationReview.RegionEditor
                 _canvas.Focus();
                 _canvas.ZoomToFit();
                 Refresh();
-                Report("左鍵點選加入目前區劃，右鍵移出；拖曳框選，Ctrl+點選切換選取；滾輪縮放，中鍵或 Alt+拖曳平移，F 鍵全部顯示。");
+                Report("左鍵點選加入目前區劃，右鍵移出；拖曳框選，Ctrl+點選切換選取；滾輪縮放，中鍵或 Alt+拖曳平移，F 鍵全部顯示，Ctrl+Z 復原、Ctrl+Y 重做。");
             };
+
+            Closing += WarnAboutUnappliedChanges;
         }
+
+        /// <summary>
+        /// What this package has already written to the model, for the apply preview. The host sets
+        /// it; with nothing set the preview reports every planned element as an addition, which is
+        /// the truth about a model the tool has not written to yet.
+        /// </summary>
+        public Func<IReadOnlyList<ExistingManagedElement>> ReadExistingElements { get; set; }
 
         /// <summary>
         /// Asked to show source elements back in Revit. The host wires this to an ExternalEvent,
@@ -79,6 +99,7 @@ namespace BuildingRegulationReview.RegionEditor
             var panel = new StackPanel { Margin = new Thickness(12, 6, 12, 10) };
             panel.Children.Add(_status);
             panel.Children.Add(_summary);
+            panel.Children.Add(_draftState);
             DockPanel.SetDock(panel, Dock.Bottom);
             return panel;
         }
@@ -100,9 +121,15 @@ namespace BuildingRegulationReview.RegionEditor
             panel.Children.Add(zoneButtons);
 
             var faceButtons = Row();
-            faceButtons.Children.Add(MakeButton("加入選取的範圍", () => Apply(_session.AddSelectionToActiveZone())));
+            faceButtons.Children.Add(MakeButton("加入選取的範圍", () => Apply(confirmed => _session.AddSelectionToActiveZone(confirmed))));
             faceButtons.Children.Add(MakeButton("移出選取的範圍", () => Apply(_session.RemoveSelectionFromZones())));
             panel.Children.Add(faceButtons);
+
+            var historyButtons = Row();
+            historyButtons.Children.Add(_undoButton);
+            historyButtons.Children.Add(_redoButton);
+            historyButtons.Children.Add(MakeButton("套用前預覽", ShowPreview));
+            panel.Children.Add(historyButtons);
 
             var viewButtons = Row();
             viewButtons.Children.Add(MakeButton("全部顯示", () => { _canvas.ZoomToFit(); }));
@@ -116,7 +143,7 @@ namespace BuildingRegulationReview.RegionEditor
 
             panel.Children.Add(new TextBlock
             {
-                Text = "問題清單中的每一則都可點選，畫面會移到該位置。草稿尚未寫回模型；套用與 Undo/Redo 會在後續階段提供。",
+                Text = "問題清單中的每一則都可點選，畫面會移到該位置。草稿尚未寫回模型，「套用前預覽」只列出將要新增、更新與刪除的元素；實際寫入會在後續階段提供。",
                 TextWrapping = TextWrapping.Wrap,
                 Foreground = Brushes.DimGray,
                 Margin = new Thickness(0, 10, 0, 0)
@@ -234,7 +261,7 @@ namespace BuildingRegulationReview.RegionEditor
             _session.SetActiveZone(zone.Id);
             _session.SelectZoneFaces(zone.Id);
             _canvas.Refresh();
-            _summary.Text = _session.BuildView().Summary;
+            ShowState(_session.BuildView());
         }
 
         private void CenterOnSelectedIssue()
@@ -246,13 +273,75 @@ namespace BuildingRegulationReview.RegionEditor
             Report(row.Text);
         }
 
+        // ---- history, preview and closing (P2-T06) ----------------------------------------------
+
+        private void Step(bool undo)
+        {
+            var result = undo ? _session.Undo() : _session.Redo();
+            Report(result.IsSuccess ? result.Value : result.Error.Message);
+            Refresh();
+        }
+
+        /// <summary>
+        /// Puts the session's own question on screen before a 區劃 is allowed to fall into blocks
+        /// that do not touch (spec 10.3). No is the safe answer, so it is the default button.
+        /// </summary>
+        private bool AskToMergeBlocksThatDoNotTouch(string question) => MessageBox.Show(
+            this,
+            question,
+            Title,
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning,
+            MessageBoxResult.No) == MessageBoxResult.Yes;
+
+        private void ShowPreview()
+        {
+            var existing = ReadExistingElements == null ? null : ReadExistingElements();
+            var preview = _session.BuildPreview(existing);
+            RegionEditorPreviewWindow.Show(this, preview);
+            Report(preview.Summary);
+        }
+
+        private void WarnAboutUnappliedChanges(object sender, System.ComponentModel.CancelEventArgs e)
+        {
+            var prompt = _session.UnappliedChangesPrompt;
+            if (prompt == null) return;
+
+            var answer = MessageBox.Show(
+                this,
+                prompt,
+                Title,
+                MessageBoxButton.OKCancel,
+                MessageBoxImage.Warning,
+                MessageBoxResult.Cancel);
+            if (answer != MessageBoxResult.OK) e.Cancel = true;
+        }
+
         // ---- refresh --------------------------------------------------------------------------
 
         private void Apply(Result<ZoneMembershipChange> result)
         {
-            Report(result.IsSuccess ? result.Value.Message : result.Error.Message);
+            Report(result.IsSuccess ? result.Value.FullMessage : result.Error.Message);
             if (result.IsSuccess) Refresh();
             _canvas.Refresh();
+        }
+
+        /// <summary>Runs an edit that may first come back asking for the disjoint confirmation.</summary>
+        private void Apply(Func<bool, Result<ZoneMembershipChange>> edit)
+        {
+            var result = edit(false);
+            if (result.IsFailure && result.Error.Code == RegionEditorSession.DisjointNotConfirmedCode)
+            {
+                if (!AskToMergeBlocksThatDoNotTouch(result.Error.Message))
+                {
+                    Report("已取消：" + result.Error.Message);
+                    return;
+                }
+
+                result = edit(true);
+            }
+
+            Apply(result);
         }
 
         private string Run(Result result, string success)
@@ -285,14 +374,29 @@ namespace BuildingRegulationReview.RegionEditor
                 _syncing = false;
             }
 
-            _summary.Text = view.Summary;
+            ShowState(view);
             _canvas.Refresh();
         }
 
         private void Report(string message)
         {
             _status.Text = message;
-            _summary.Text = _session.BuildView().Summary;
+            ShowState(_session.BuildView());
+        }
+
+        /// <summary>
+        /// Keeps the summary line, the history buttons and the title in step with the session. The
+        /// asterisk in the title is the standing reminder that the drafts are not in the model yet.
+        /// </summary>
+        private void ShowState(RegionEditorView view)
+        {
+            _summary.Text = view.Summary;
+            _draftState.Text = view.DraftState;
+            _undoButton.IsEnabled = view.CanUndo;
+            _redoButton.IsEnabled = view.CanRedo;
+            _undoButton.ToolTip = _session.UndoLabel == null ? "沒有可以復原的動作" : "復原：" + _session.UndoLabel;
+            _redoButton.ToolTip = _session.RedoLabel == null ? "沒有可以重做的動作" : "重做：" + _session.RedoLabel;
+            Title = view.HasUnappliedChanges ? _baseTitle + " *" : _baseTitle;
         }
 
         // ---- helpers --------------------------------------------------------------------------

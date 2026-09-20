@@ -11,6 +11,7 @@ using BuildingRegulationReview.Domain.Geometry;
 using BuildingRegulationReview.RegionEditor;
 using BuildingRegulationReview.Revit.Geometry;
 using BuildingRegulationReview.Revit.ReviewPackages;
+using BuildingRegulationReview.Revit.WriteBack;
 
 namespace BuildingRegulationReview
 {
@@ -58,6 +59,11 @@ namespace BuildingRegulationReview
             _window = new RegionEditorWindow(session, (document.GetElement(choice.AreaPlanUniqueId) as View)?.Name);
             new WindowInteropHelper(_window).Owner = application.MainWindowHandle;
 
+            // Read at preview time rather than at start-up: the model may have been edited while the
+            // modeless Editor was open, and the preview has to diff against what is there now.
+            _window.ReadExistingElements = () => new RevitManagedElementInventory(document)
+                .Read(choice.AreaPlanUniqueId, choice.DraftingViewUniqueId);
+
             _handler = new SelectSourcesHandler();
             _externalEvent = ExternalEvent.Create(_handler);
             _window.ShowSourceElements = sources =>
@@ -83,7 +89,8 @@ namespace BuildingRegulationReview
                 .Select(package => new PackageChoice(
                     package.PackageId,
                     package.AreaPlanUniqueId,
-                    (document.GetElement(package.AreaPlanUniqueId) as View)?.Name ?? package.PackageId.ToString()))
+                    (document.GetElement(package.AreaPlanUniqueId) as View)?.Name ?? package.PackageId.ToString(),
+                    package.DraftingViewUniqueId))
                 .OrderBy(choice => choice.Label, StringComparer.CurrentCulture)
                 .ToList();
 

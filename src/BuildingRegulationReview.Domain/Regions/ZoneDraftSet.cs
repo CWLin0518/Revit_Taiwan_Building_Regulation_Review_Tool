@@ -145,6 +145,16 @@ public sealed class ZoneDraftSet
         return Result.Success(Replace(zone.WithColor(color)));
     }
 
+    /// <summary>
+    /// Records, or withdraws, the user's explicit confirmation that a zone may hold parts that do
+    /// not touch (spec 10.3). The set only stores the answer; deciding when to ask is the Editor's.
+    /// </summary>
+    public Result<ZoneDraftSet> SetDisjointAllowed(Guid zoneId, bool allowed)
+    {
+        if (!_byId.TryGetValue(zoneId, out var zone)) return UnknownZone<ZoneDraftSet>(zoneId);
+        return Result.Success(Replace(zone.WithDisjointAllowed(allowed)));
+    }
+
     /// <summary>Puts a face into a zone, taking it out of whichever zone held it before.</summary>
     public Result<ZoneAssignment> Assign(int faceId, Guid zoneId)
     {
@@ -191,6 +201,13 @@ public sealed class ZoneDraftSet
         var unchanged = updated.Zip(Zones, (a, b) => a.FaceCount == b.FaceCount).All(same => same);
         return unchanged ? this : new ZoneDraftSet(updated);
     }
+
+    /// <summary>
+    /// A deterministic fingerprint of the whole set, in zone order. Equal signatures mean the drafts
+    /// would write the same thing back to the model, which is what tells an Editor with unapplied
+    /// changes from one the user has undone back to where it started.
+    /// </summary>
+    public string Signature() => string.Join(";", Zones.Select(z => z.Signature()));
 
     private ZoneDraftSet Replace(ZoneDraft zone) =>
         new ZoneDraftSet(Zones.Select(z => z.Id == zone.Id ? zone : z));

@@ -136,7 +136,8 @@ public sealed class ZoneVisual
         int holeCount,
         int contiguousPartCount,
         bool isActive,
-        ScreenPoint? labelAnchor)
+        ScreenPoint? labelAnchor,
+        bool allowsDisjointParts = false)
     {
         if (zoneId == Guid.Empty) throw new ArgumentException("Zone ID cannot be empty.", nameof(zoneId));
         if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("A zone needs a name.", nameof(name));
@@ -153,6 +154,7 @@ public sealed class ZoneVisual
         ContiguousPartCount = contiguousPartCount;
         IsActive = isActive;
         LabelAnchor = labelAnchor;
+        AllowsDisjointParts = allowsDisjointParts;
     }
 
     public Guid ZoneId { get; }
@@ -169,6 +171,12 @@ public sealed class ZoneVisual
     public bool IsActive { get; }
     public bool IsEmpty => FaceCount == 0;
 
+    /// <summary>
+    /// True once the user has confirmed this zone may hold blocks that do not touch (spec 10.3), so
+    /// the label can say the split was intended rather than leaving it looking like a mistake.
+    /// </summary>
+    public bool AllowsDisjointParts { get; }
+
     /// <summary>Where to draw the zone label, or null when the zone holds no face yet.</summary>
     public ScreenPoint? LabelAnchor { get; }
 
@@ -179,7 +187,15 @@ public sealed class ZoneVisual
         {
             var text = Name + "\n" + AreaText;
             if (HoleCount > 0) text += string.Format(CultureInfo.InvariantCulture, "\n孔洞 {0}", HoleCount);
-            if (!IsContiguous) text += string.Format(CultureInfo.InvariantCulture, "\n{0} 塊不相連", ContiguousPartCount);
+            if (!IsContiguous)
+            {
+                text += string.Format(
+                    CultureInfo.InvariantCulture,
+                    "\n{0} 塊不相連{1}",
+                    ContiguousPartCount,
+                    AllowsDisjointParts ? "（已確認）" : string.Empty);
+            }
+
             return text;
         }
     }
@@ -203,7 +219,10 @@ public sealed class RegionEditorView
         IEnumerable<EditorIssue> issues,
         Func<Point2D, ScreenPoint> toScreen,
         Guid? activeZoneId,
-        IEnumerable<int> selectedFaceIds)
+        IEnumerable<int> selectedFaceIds,
+        bool canUndo = false,
+        bool canRedo = false,
+        bool hasUnappliedChanges = false)
     {
         if (toScreen is null) throw new ArgumentNullException(nameof(toScreen));
 
@@ -215,6 +234,9 @@ public sealed class RegionEditorView
         IssueAnchors = new ReadOnlyCollection<ScreenPoint>(issueList.Select(i => toScreen(i.Location)).ToList());
         ActiveZoneId = activeZoneId;
         SelectedFaceIds = new ReadOnlyCollection<int>((selectedFaceIds ?? Array.Empty<int>()).Distinct().OrderBy(x => x).ToList());
+        CanUndo = canUndo;
+        CanRedo = canRedo;
+        HasUnappliedChanges = hasUnappliedChanges;
     }
 
     public EditorViewport Viewport { get; }
@@ -227,6 +249,17 @@ public sealed class RegionEditorView
 
     public Guid? ActiveZoneId { get; }
     public IReadOnlyList<int> SelectedFaceIds { get; }
+
+    /// <summary>Whether the Undo and Redo commands have anything to do, for enabling the buttons.</summary>
+    public bool CanUndo { get; }
+
+    public bool CanRedo { get; }
+
+    /// <summary>Whether the drafts differ from the model, which the title bar marks with an asterisk.</summary>
+    public bool HasUnappliedChanges { get; }
+
+    /// <summary>Zones the user confirmed may hold blocks that do not touch (spec 10.3).</summary>
+    public IEnumerable<ZoneVisual> DisjointZones => Zones.Where(z => !z.IsContiguous);
 
     public int AssignedFaceCount => Faces.Count(f => f.IsAssigned);
     public int UnassignedFaceCount => Faces.Count - AssignedFaceCount;
@@ -246,4 +279,23 @@ public sealed class RegionEditorView
         Zones.Count,
         Issues.Count,
         ErrorCount);
+
+    /// <summary>
+    /// The draft state line next to the summary: whether anything is waiting to be applied, and how
+    /// many zones are in pieces the user confirmed.
+    /// </summary>
+    public string DraftState
+    {
+        get
+        {
+            var text = HasUnappliedChanges ? "草稿尚未套用到模型" : "草稿與模型一致";
+            var disjoint = DisjointZones.Count();
+            if (disjoint > 0)
+            {
+                text += string.Format(CultureInfo.InvariantCulture, "；{0} 個區劃不相連", disjoint);
+            }
+
+            return text;
+        }
+    }
 }

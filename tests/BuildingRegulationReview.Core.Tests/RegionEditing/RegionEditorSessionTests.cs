@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using BuildingRegulationReview.Application.Geometry;
 using BuildingRegulationReview.Application.RegionEditing;
+using BuildingRegulationReview.Application.WriteBack;
 using BuildingRegulationReview.Domain.Common;
 using BuildingRegulationReview.Domain.Geometry;
 using BuildingRegulationReview.Domain.Regions;
@@ -98,7 +99,7 @@ public class RegionEditorSessionTests
         var session = TwoDetachedRooms();
         Succeeds(session.CreateZone("A"));
         Succeeds(session.AddFaceAt(At(session, 5, 5)));
-        Succeeds(session.AddFaceAt(At(session, 55, 5)));
+        Succeeds(session.AddFaceAt(At(session, 55, 5), confirmDisjoint: true));
 
         var zone = session.BuildView().Zones.Single();
 
@@ -557,10 +558,304 @@ public class RegionEditorSessionTests
         Assert.Throws<ArgumentNullException>(() => new RegionEditorSession(null!, Canvas));
     }
 
+    // ---- undo and redo (P2-T06) -------------------------------------------------------------
+
+    [Fact]
+    public void UndoTakesBackTheLastEditAndRedoPutsItBack()
+    {
+        var session = TwoRooms();
+        Succeeds(session.CreateZone("A"));
+        Succeeds(session.AddFaceAt(At(session, 5, 5)));
+
+        Assert.True(session.CanUndo);
+        Succeeds(session.Undo());
+
+        Assert.Empty(session.Zones.Zones.Single().FaceIds);
+        Assert.True(session.CanRedo);
+
+        Succeeds(session.Redo());
+        Assert.Single(session.Zones.Zones.Single().FaceIds);
+    }
+
+    [Fact]
+    public void UndoWalksBackThroughEveryEditToTheEmptyDraft()
+    {
+        var session = TwoRooms();
+        Succeeds(session.CreateZone("A"));
+        Succeeds(session.AddFaceAt(At(session, 5, 5)));
+        Succeeds(session.AddFaceAt(At(session, 15, 5)));
+
+        while (session.CanUndo) Succeeds(session.Undo());
+
+        Assert.True(session.Zones.IsEmpty);
+        Assert.Null(session.ActiveZoneId);
+        Assert.False(session.HasUnappliedChanges);
+    }
+
+    [Fact]
+    public void UndoNamesTheEditItTakesBack()
+    {
+        var session = TwoRooms();
+        Succeeds(session.CreateZone("A"));
+
+        Assert.Equal("建立區劃「A」", session.UndoLabel);
+        Assert.Equal("已復原「建立區劃「A」」。", Succeeds(session.Undo()));
+        Assert.Equal("建立區劃「A」", session.RedoLabel);
+    }
+
+    [Fact]
+    public void ANewEditDropsWhatWasUndone()
+    {
+        var session = TwoRooms();
+        Succeeds(session.CreateZone("A"));
+        Succeeds(session.AddFaceAt(At(session, 5, 5)));
+        Succeeds(session.Undo());
+
+        Assert.True(session.CanRedo);
+        Succeeds(session.AddFaceAt(At(session, 15, 5)));
+
+        Assert.False(session.CanRedo);
+    }
+
+    [Fact]
+    public void RefusesToUndoOrRedoWhenThereIsNothingToStepThrough()
+    {
+        var session = TwoRooms();
+
+        Assert.False(session.CanUndo);
+        Assert.False(session.CanRedo);
+        Assert.Equal("regions.editor.nothingToUndo", session.Undo().Error.Code);
+        Assert.Equal("regions.editor.nothingToRedo", session.Redo().Error.Code);
+    }
+
+    [Fact]
+    public void AFailedEditIsNotRecordedInTheHistory()
+    {
+        var session = TwoRooms();
+        var zone = Succeeds(session.CreateZone("A"));
+        Succeeds(session.CreateZone("B"));
+
+        Assert.True(session.RenameZone(zone.Id, "B").IsFailure);
+        Assert.Equal("建立區劃「B」", session.UndoLabel);
+
+        // The refused edit also left the drafts alone.
+        Assert.Equal("A", session.Zones.Zone(zone.Id)!.Name);
+    }
+
+    [Fact]
+    public void UndoBringsBackADeletedZoneAsTheActiveOne()
+    {
+        var session = TwoRooms();
+        var zone = Succeeds(session.CreateZone("A"));
+        Succeeds(session.AddFaceAt(At(session, 5, 5)));
+        Succeeds(session.DeleteZone(zone.Id));
+
+        Succeeds(session.Undo());
+
+        Assert.True(session.Zones.Contains(zone.Id));
+        Assert.Equal(zone.Id, session.ActiveZoneId);
+        Assert.Single(session.Zones.Zone(zone.Id)!.FaceIds);
+    }
+
+    [Fact]
+    public void ZoomingAndSelectingAreNotEdits()
+    {
+        var session = TwoRooms();
+        session.ZoomByWheel(At(session, 5, 5), 3);
+        session.SelectAll();
+        session.PanByPixels(20, 20);
+        Assert.True(session.SetActiveZone(null).IsSuccess);
+
+        Assert.False(session.CanUndo);
+    }
+
+    [Fact]
+    public void UndoKeepsTheViewWhereTheUserLeftIt()
+    {
+        var session = TwoRooms();
+        Succeeds(session.CreateZone("A"));
+        session.ZoomByWheel(At(session, 5, 5), 4);
+        var scale = session.Viewport.PixelsPerFoot;
+
+        Succeeds(session.Undo());
+
+        Assert.Equal(scale, session.Viewport.PixelsPerFoot, 9);
+    }
+
+    // ---- the explicit confirmation a disjoint merge needs (spec 10.3) -------------------------
+
+    [Fact]
+    public void RefusesToMergeBlocksThatDoNotTouchUntilTheUserConfirms()
+    {
+        var session = TwoDetachedRooms();
+        Succeeds(session.CreateZone("A"));
+        Succeeds(session.AddFaceAt(At(session, 5, 5)));
+
+        var blocked = session.AddFaceAt(At(session, 55, 5));
+
+        Assert.True(blocked.IsFailure);
+        Assert.Equal(RegionEditorSession.DisjointNotConfirmedCode, blocked.Error.Code);
+        Assert.Contains("2 塊互不相連", blocked.Error.Message);
+        Assert.Single(session.Zones.Zones.Single().FaceIds);
+        Assert.False(session.CanUndo is false && session.Zones.Count == 0);
+    }
+
+    [Fact]
+    public void MergesBlocksThatDoNotTouchOnceTheUserConfirms()
+    {
+        var session = TwoDetachedRooms();
+        Succeeds(session.CreateZone("A"));
+        Succeeds(session.AddFaceAt(At(session, 5, 5)));
+
+        var merged = Succeeds(session.AddFaceAt(At(session, 55, 5), confirmDisjoint: true));
+
+        Assert.True(session.Zones.Zones.Single().AllowsDisjointParts);
+        Assert.Contains("2 塊不相連", merged.Warning);
+        Assert.Contains("（已確認）", session.BuildView().Zones.Single().Label);
+    }
+
+    [Fact]
+    public void DoesNotAskAgainWhileTheZoneStaysInPieces()
+    {
+        var session = ThreeDetachedRooms();
+        Succeeds(session.CreateZone("A"));
+        Succeeds(session.AddFaceAt(At(session, 5, 5)));
+        Succeeds(session.AddFaceAt(At(session, 55, 5), confirmDisjoint: true));
+
+        Succeeds(session.AddFaceAt(At(session, 105, 5)));
+
+        Assert.Equal(3, session.BuildView().Zones.Single().ContiguousPartCount);
+    }
+
+    [Fact]
+    public void AsksAgainOnceTheZoneIsWholeAgain()
+    {
+        var session = TwoDetachedRooms();
+        Succeeds(session.CreateZone("A"));
+        Succeeds(session.AddFaceAt(At(session, 5, 5)));
+        Succeeds(session.AddFaceAt(At(session, 55, 5), confirmDisjoint: true));
+
+        Succeeds(session.RemoveFaceAt(At(session, 55, 5)));
+        Assert.False(session.Zones.Zones.Single().AllowsDisjointParts);
+
+        Assert.Equal(
+            RegionEditorSession.DisjointNotConfirmedCode,
+            session.AddFaceAt(At(session, 55, 5)).Error.Code);
+    }
+
+    [Fact]
+    public void AddingATouchingRoomNeverAsks()
+    {
+        var session = ThreeRooms();
+        Succeeds(session.CreateZone("A"));
+        Succeeds(session.AddFaceAt(At(session, 5, 5)));
+
+        Succeeds(session.AddFaceAt(At(session, 15, 5)));
+
+        Assert.True(session.BuildView().Zones.Single().IsContiguous);
+    }
+
+    [Fact]
+    public void SaysSoWhenTakingARoomOutSplitsAZone()
+    {
+        var session = ThreeRooms();
+        Succeeds(session.CreateZone("A"));
+        session.SelectAll();
+        Succeeds(session.AddSelectionToActiveZone());
+
+        var change = Succeeds(session.RemoveFaceAt(At(session, 15, 5)));
+
+        Assert.Contains("「A」2 塊不相連", change.Warning);
+        Assert.Contains("2 塊不相連", change.FullMessage);
+    }
+
+    // ---- unapplied changes (spec 10.3, 離開前提示) --------------------------------------------
+
+    [Fact]
+    public void HasNothingToApplyBeforeAnyEdit()
+    {
+        var session = TwoRooms();
+
+        Assert.False(session.HasUnappliedChanges);
+        Assert.Null(session.UnappliedChangesPrompt);
+    }
+
+    [Fact]
+    public void AsksBeforeClosingOnceSomethingWasDrafted()
+    {
+        var session = TwoRooms();
+        Succeeds(session.CreateZone("A"));
+        Succeeds(session.AddFaceAt(At(session, 5, 5)));
+
+        Assert.True(session.HasUnappliedChanges);
+        Assert.Contains("尚未套用", session.UnappliedChangesPrompt);
+        Assert.Contains("草稿尚未套用到模型", session.BuildView().DraftState);
+    }
+
+    [Fact]
+    public void UndoingBackToTheAppliedStateLeavesNothingToApply()
+    {
+        var session = TwoRooms();
+        Succeeds(session.CreateZone("A"));
+        Succeeds(session.AddFaceAt(At(session, 5, 5)));
+        session.MarkApplied();
+
+        Succeeds(session.AddFaceAt(At(session, 15, 5)));
+        Assert.True(session.HasUnappliedChanges);
+
+        Succeeds(session.Undo());
+
+        Assert.False(session.HasUnappliedChanges);
+        Assert.Equal("草稿與模型一致", session.BuildView().DraftState);
+    }
+
+    [Fact]
+    public void RenamingAZoneCountsAsSomethingToApply()
+    {
+        var session = TwoRooms();
+        var zone = Succeeds(session.CreateZone("A"));
+        session.MarkApplied();
+
+        Assert.True(session.RenameZone(zone.Id, "B").IsSuccess);
+
+        Assert.True(session.HasUnappliedChanges);
+    }
+
+    // ---- apply preview (spec 10.4) ------------------------------------------------------------
+
+    [Fact]
+    public void PreviewsEveryPlannedElementAsAnAdditionAgainstAnEmptyModel()
+    {
+        var session = TwoRooms();
+        Succeeds(session.CreateZone("A"));
+        Succeeds(session.AddFaceAt(At(session, 5, 5)));
+
+        var preview = session.BuildPreview();
+
+        Assert.Empty(preview.Updated);
+        Assert.Empty(preview.Deleted);
+        Assert.Equal(1, preview.CountOf(ManagedElementKind.Area, ApplyChangeKind.Add));
+        Assert.Equal(1, preview.CountOf(ManagedElementKind.AreaTag, ApplyChangeKind.Add));
+        Assert.Equal(4, preview.CountOf(ManagedElementKind.AreaBoundaryLine, ApplyChangeKind.Add));
+        Assert.Contains("未指派", string.Join("\n", preview.Warnings));
+    }
+
     // ---- helpers --------------------------------------------------------------------------
 
     private static RegionEditorSession TwoRooms() => Session(
         Rectangle(0, 0, 20, 10, "OUTER").Concat(new[] { Seg(10, 0, 10, 10, "DIVIDER") }));
+
+    private static RegionEditorSession ThreeRooms() => Session(
+        Rectangle(0, 0, 30, 10, "OUTER").Concat(new[]
+        {
+            Seg(10, 0, 10, 10, "DIVIDER-1"),
+            Seg(20, 0, 20, 10, "DIVIDER-2")
+        }));
+
+    private static RegionEditorSession ThreeDetachedRooms() => Session(
+        Rectangle(0, 0, 10, 10, "LEFT")
+            .Concat(Rectangle(50, 0, 10, 10, "MIDDLE"))
+            .Concat(Rectangle(100, 0, 10, 10, "RIGHT")));
 
     private static RegionEditorSession TwoDetachedRooms() => Session(
         Rectangle(0, 0, 10, 10, "LEFT").Concat(Rectangle(50, 0, 10, 10, "RIGHT")));

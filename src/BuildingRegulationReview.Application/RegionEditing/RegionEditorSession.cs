@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
+using BuildingRegulationReview.Application.WriteBack;
 using BuildingRegulationReview.Domain.Common;
 using BuildingRegulationReview.Domain.Geometry;
 using BuildingRegulationReview.Domain.Regions;
@@ -47,7 +48,12 @@ public sealed class FaceMove
 /// </summary>
 public sealed class ZoneMembershipChange
 {
-    public ZoneMembershipChange(Guid? zoneId, IEnumerable<int> faceIds, IEnumerable<FaceMove>? moves, string message)
+    public ZoneMembershipChange(
+        Guid? zoneId,
+        IEnumerable<int> faceIds,
+        IEnumerable<FaceMove>? moves,
+        string message,
+        string? warning = null)
     {
         if (string.IsNullOrWhiteSpace(message)) throw new ArgumentException("A change needs a message.", nameof(message));
 
@@ -55,6 +61,7 @@ public sealed class ZoneMembershipChange
         FaceIds = new ReadOnlyCollection<int>((faceIds ?? throw new ArgumentNullException(nameof(faceIds))).Distinct().OrderBy(x => x).ToList());
         MovedFrom = new ReadOnlyCollection<FaceMove>((moves ?? Array.Empty<FaceMove>()).ToList());
         Message = message.Trim();
+        Warning = string.IsNullOrWhiteSpace(warning) ? null : warning!.Trim();
     }
 
     /// <summary>The zone the faces are in now, or null when they were taken out of every zone.</summary>
@@ -64,7 +71,13 @@ public sealed class ZoneMembershipChange
     public IReadOnlyList<FaceMove> MovedFrom { get; }
     public string Message { get; }
 
-    public override string ToString() => Message;
+    /// <summary>Something the user should know but that did not stop the edit, such as a split zone.</summary>
+    public string? Warning { get; }
+
+    /// <summary>Message plus warning, which is what the status line shows.</summary>
+    public string FullMessage => Warning is null ? Message : Message + Warning;
+
+    public override string ToString() => FullMessage;
 }
 
 /// <summary>
@@ -74,8 +87,8 @@ public sealed class ZoneMembershipChange
 /// </summary>
 /// <remarks>
 /// The session is deliberately the only mutable object: the map is fixed for its lifetime and the
-/// zone set is immutable, so P2-T06 can keep past <see cref="Zones"/> values for Undo/Redo without
-/// snapshotting anything else. Nothing here writes to Revit; write-back is P2-T07.
+/// zone set is immutable, so Undo/Redo keeps past <see cref="Zones"/> values without snapshotting
+/// anything else. Nothing here writes to Revit; write-back is P2-T07.
 /// <para>
 /// Zoom and pan are not edits and are not part of that history. Neither is selection, which follows
 /// the picture rather than the draft.
@@ -89,8 +102,18 @@ public sealed class RegionEditorSession
     /// <summary>One wheel notch. Twelve notches roughly double or halve the scale.</summary>
     public const double WheelZoomFactor = 1.1;
 
+    /// <summary>
+    /// Returned when an edit would leave a 區劃 in pieces that do not touch. Spec 10.3 forbids that
+    /// merge unless the user confirms it, so the UI matches this code, asks, and calls the same
+    /// operation again with the confirmation.
+    /// </summary>
+    public const string DisjointNotConfirmedCode = "regions.zone.disjointNotConfirmed";
+
     private readonly SortedSet<int> _selected = new SortedSet<int>();
     private readonly List<EditorIssue> _issues;
+    private readonly EditorHistory _history = new EditorHistory();
+
+    private string _appliedSignature;
 
     public RegionEditorSession(PlanRegionMap map, ScreenSize canvasSize, IEnumerable<NetworkIssue>? networkIssues = null)
     {
@@ -99,6 +122,7 @@ public sealed class RegionEditorSession
         ModelExtent = map.Extent ?? MeasureExtent(map);
         Viewport = EditorViewport.FitTo(ModelExtent, canvasSize);
         Zones = ZoneDraftSet.Empty;
+        _appliedSignature = Zones.Signature();
 
         _issues = (networkIssues ?? Array.Empty<NetworkIssue>())
             .Where(x => x is not null)
@@ -123,6 +147,81 @@ public sealed class RegionEditorSession
     public bool HasSelection => _selected.Count > 0;
     public Guid? ActiveZoneId { get; private set; }
     public ZoneDraft? ActiveZone => ActiveZoneId.HasValue ? Zones.Zone(ActiveZoneId.Value) : null;
+
+    // ---- history and applied state --------------------------------------------------------
+
+    public bool CanUndo => _history.CanUndo;
+    public bool CanRedo => _history.CanRedo;
+
+    /// <summary>The edit Undo would take back, for the button's tooltip; null when there is none.</summary>
+    public string? UndoLabel => _history.UndoLabel;
+
+    public string? RedoLabel => _history.RedoLabel;
+
+    /// <summary>
+    /// Whether the drafts differ from what was last written to the model (spec 10.3, 離開前提示未
+    /// 套用變更). It compares content, not history, so undoing back to the applied state correctly
+    /// reports nothing to apply.
+    /// </summary>
+    public bool HasUnappliedChanges => !string.Equals(Zones.Signature(), _appliedSignature, StringComparison.Ordinal);
+
+    /// <summary>The question to ask before closing, or null when there is nothing unapplied.</summary>
+    public string? UnappliedChangesPrompt
+    {
+        get
+        {
+            if (!HasUnappliedChanges) return null;
+
+            var assigned = Zones.AssignedFaceCount;
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "有 {0} 個區劃草稿（共 {1} 個範圍）尚未套用到模型，關閉後會遺失。仍要關閉嗎？",
+                Zones.Count,
+                assigned);
+        }
+    }
+
+    /// <summary>
+    /// Steps back one edit. The view, the selection and the zoom stay where they are: only the
+    /// drafts and which zone is active go back.
+    /// </summary>
+    public Result<string> Undo()
+    {
+        var entry = _history.Undo(Snapshot());
+        if (entry is null)
+        {
+            return Result.Failure<string>(new Error("regions.editor.nothingToUndo", "沒有可以復原的動作。"));
+        }
+
+        Restore(entry.State);
+        return Result.Success(string.Format(CultureInfo.InvariantCulture, "已復原「{0}」。", entry.Label));
+    }
+
+    public Result<string> Redo()
+    {
+        var entry = _history.Redo(Snapshot());
+        if (entry is null)
+        {
+            return Result.Failure<string>(new Error("regions.editor.nothingToRedo", "沒有可以重做的動作。"));
+        }
+
+        Restore(entry.State);
+        return Result.Success(string.Format(CultureInfo.InvariantCulture, "已重做「{0}」。", entry.Label));
+    }
+
+    /// <summary>
+    /// Records that the current drafts now match the model. P2-T07 calls this once write-back has
+    /// committed; until then every Editor reports its drafts as unapplied.
+    /// </summary>
+    public void MarkApplied() => _appliedSignature = Zones.Signature();
+
+    /// <summary>
+    /// What applying the drafts would add, update and delete (spec 10.4). <paramref name="existing"/>
+    /// is what the model already holds for this package; with nothing passed every planned element
+    /// reads as an addition.
+    /// </summary>
+    public ApplyPreview BuildPreview(IEnumerable<ExistingManagedElement>? existing = null) =>
+        ApplyPreview.Build(Map.PackageId, Map, Zones, existing);
 
     // ---- view -----------------------------------------------------------------------------
 
@@ -173,7 +272,17 @@ public sealed class RegionEditorSession
                 zone is not null && zone.Id == ActiveZoneId);
         });
 
-        return new RegionEditorView(viewport, faces, BuildZoneVisuals(viewport), _issues, viewport.ToScreen, ActiveZoneId, _selected);
+        return new RegionEditorView(
+            viewport,
+            faces,
+            BuildZoneVisuals(viewport),
+            _issues,
+            viewport.ToScreen,
+            ActiveZoneId,
+            _selected,
+            CanUndo,
+            CanRedo,
+            HasUnappliedChanges);
     }
 
     // ---- selection ------------------------------------------------------------------------
@@ -245,8 +354,10 @@ public sealed class RegionEditorSession
         var added = Zones.Add(zone);
         if (added.IsFailure) return Result.Failure<ZoneDraft>(added.Error);
 
+        var before = Snapshot();
         Zones = added.Value;
         ActiveZoneId = zone.Id;
+        _history.Record(before, string.Format(CultureInfo.InvariantCulture, "建立區劃「{0}」", zone.Name));
         return Result.Success(zone);
     }
 
@@ -266,10 +377,17 @@ public sealed class RegionEditorSession
 
     public Result RenameZone(Guid zoneId, string name)
     {
+        var previous = Zones.Zone(zoneId);
         var renamed = Zones.Rename(zoneId, name);
         if (renamed.IsFailure) return Result.Failure(renamed.Error);
 
+        var before = Snapshot();
         Zones = renamed.Value;
+        _history.Record(before, string.Format(
+            CultureInfo.InvariantCulture,
+            "將「{0}」改名為「{1}」",
+            previous!.Name,
+            Zones.Zone(zoneId)!.Name));
         return Result.Success();
     }
 
@@ -278,7 +396,12 @@ public sealed class RegionEditorSession
         var recolored = Zones.Recolor(zoneId, color);
         if (recolored.IsFailure) return Result.Failure(recolored.Error);
 
+        var before = Snapshot();
         Zones = recolored.Value;
+        _history.Record(before, string.Format(
+            CultureInfo.InvariantCulture,
+            "變更「{0}」的顏色",
+            Zones.Zone(zoneId)!.Name));
         return Result.Success();
     }
 
@@ -295,7 +418,9 @@ public sealed class RegionEditorSession
         var removed = Zones.Remove(zoneId);
         if (removed.IsFailure) return Result.Failure<ZoneDraft>(removed.Error);
 
+        var before = Snapshot();
         Zones = removed.Value;
+        _history.Record(before, string.Format(CultureInfo.InvariantCulture, "刪除區劃「{0}」", zone.Name));
         if (ActiveZoneId == zoneId)
         {
             // Keep the list position rather than the identity: after deleting one zone the neighbour
@@ -311,13 +436,18 @@ public sealed class RegionEditorSession
     // ---- membership -----------------------------------------------------------------------
 
     /// <summary>Left click: puts the face under the cursor into the active 區劃 and selects it.</summary>
-    public Result<ZoneMembershipChange> AddFaceAt(ScreenPoint point)
+    /// <param name="confirmDisjoint">
+    /// The user's answer to the question spec 10.3 requires before a 區劃 may fall into parts that do
+    /// not touch. It is passed on a second call, after the first came back with
+    /// <see cref="DisjointNotConfirmedCode"/>.
+    /// </param>
+    public Result<ZoneMembershipChange> AddFaceAt(ScreenPoint point, bool confirmDisjoint = false)
     {
         var face = FaceAt(point);
         if (face is null) return Result.Failure<ZoneMembershipChange>(NoFaceHere());
 
         Apply(new[] { face.Id }, SelectionMode.Replace);
-        return AddFaces(new[] { face.Id });
+        return AddFaces(new[] { face.Id }, confirmDisjoint);
     }
 
     /// <summary>Right click: takes the face under the cursor out of whichever 區劃 holds it.</summary>
@@ -329,12 +459,14 @@ public sealed class RegionEditorSession
         return RemoveFaces(new[] { face.Id });
     }
 
-    public Result<ZoneMembershipChange> AddSelectionToActiveZone() => AddFaces(_selected.ToList());
+    public Result<ZoneMembershipChange> AddSelectionToActiveZone(bool confirmDisjoint = false) =>
+        AddFaces(_selected.ToList(), confirmDisjoint);
 
     public Result<ZoneMembershipChange> RemoveSelectionFromZones() => RemoveFaces(_selected.ToList());
 
     /// <summary>Puts faces into the active 區劃, moving any that another zone already held.</summary>
-    public Result<ZoneMembershipChange> AddFaces(IEnumerable<int> faceIds)
+    /// <param name="confirmDisjoint">See <see cref="AddFaceAt"/>.</param>
+    public Result<ZoneMembershipChange> AddFaces(IEnumerable<int> faceIds, bool confirmDisjoint = false)
     {
         if (faceIds is null) throw new ArgumentNullException(nameof(faceIds));
 
@@ -349,6 +481,10 @@ public sealed class RegionEditorSession
         if (invalid is not null) return Result.Failure<ZoneMembershipChange>(invalid);
         if (requested.Count == 0) return Result.Failure<ZoneMembershipChange>(NothingChosen());
 
+        var block = CheckDisjoint(zone, requested, confirmDisjoint);
+        if (block is not null) return Result.Failure<ZoneMembershipChange>(block);
+
+        var before = Snapshot();
         var added = new List<int>();
         var moves = new List<FaceMove>();
         foreach (var faceId in requested)
@@ -369,11 +505,15 @@ public sealed class RegionEditorSession
 
         if (added.Count == 0)
         {
+            Restore(before);
             return Result.Failure<ZoneMembershipChange>(new Error(
                 "regions.zone.faceAlreadyInZone",
                 $"選取的範圍已經屬於「{zone.Name}」。",
                 "faceIds=" + string.Join(",", requested)));
         }
+
+        SettleDisjointConfirmation(zone.Id, confirmDisjoint);
+        foreach (var source in moves.Select(m => m.FromZoneId).Distinct()) SettleDisjointConfirmation(source, false);
 
         var message = string.Format(CultureInfo.InvariantCulture, "已將 {0} 個範圍加入「{1}」。", added.Count, zone.Name);
         if (moves.Count > 0)
@@ -385,7 +525,11 @@ public sealed class RegionEditorSession
                 string.Join("、", moves.Select(m => "「" + m.FromZoneName + "」").Distinct()));
         }
 
-        return Result.Success(new ZoneMembershipChange(zone.Id, added, moves, message));
+        _history.Record(before, string.Format(
+            CultureInfo.InvariantCulture, "將 {0} 個範圍加入「{1}」", added.Count, zone.Name));
+
+        return Result.Success(new ZoneMembershipChange(
+            zone.Id, added, moves, message, SplitWarning(moves.Select(m => m.FromZoneId).Concat(new[] { zone.Id }))));
     }
 
     /// <summary>Takes faces out of the 區劃 that holds them, leaving them unassigned.</summary>
@@ -397,6 +541,7 @@ public sealed class RegionEditorSession
         if (invalid is not null) return Result.Failure<ZoneMembershipChange>(invalid);
         if (requested.Count == 0) return Result.Failure<ZoneMembershipChange>(NothingChosen());
 
+        var before = Snapshot();
         var removed = new List<int>();
         var moves = new List<FaceMove>();
         foreach (var faceId in requested)
@@ -412,11 +557,14 @@ public sealed class RegionEditorSession
 
         if (removed.Count == 0)
         {
+            Restore(before);
             return Result.Failure<ZoneMembershipChange>(new Error(
                 "regions.zone.faceNotAssigned",
                 "選取的範圍不屬於任何區劃。",
                 "faceIds=" + string.Join(",", requested)));
         }
+
+        foreach (var source in moves.Select(m => m.FromZoneId).Distinct()) SettleDisjointConfirmation(source, false);
 
         var names = moves.Select(m => "「" + m.FromZoneName + "」").Distinct().ToList();
         var message = string.Format(
@@ -425,7 +573,11 @@ public sealed class RegionEditorSession
             removed.Count,
             names.Count > 0 ? string.Join("、", names) : "區劃");
 
-        return Result.Success(new ZoneMembershipChange(null, removed, moves, message));
+        _history.Record(before, string.Format(
+            CultureInfo.InvariantCulture, "將 {0} 個範圍移出區劃", removed.Count));
+
+        return Result.Success(new ZoneMembershipChange(
+            null, removed, moves, message, SplitWarning(moves.Select(m => m.FromZoneId))));
     }
 
     // ---- source elements ------------------------------------------------------------------
@@ -457,6 +609,79 @@ public sealed class RegionEditorSession
 
     // ---- internals ------------------------------------------------------------------------
 
+    private EditorState Snapshot() => new EditorState(Zones, ActiveZoneId);
+
+    private void Restore(EditorState state)
+    {
+        Zones = state.Zones;
+        ActiveZoneId = state.ActiveZoneId.HasValue && Zones.Contains(state.ActiveZoneId.Value)
+            ? state.ActiveZoneId
+            : null;
+
+        // The drafts may no longer hold faces the selection still names; drop those so the canvas
+        // never highlights a face that belongs nowhere the user can see.
+        _selected.RemoveWhere(id => id < 0 || id >= Map.Faces.Count);
+    }
+
+    /// <summary>
+    /// Spec 10.3 forbids merging blocks that do not touch unless the user says so. The question is
+    /// asked only when an edit actually breaks the zone into more pieces than it already had, so
+    /// adding a neighbour to a zone that is already in two pieces does not ask again.
+    /// </summary>
+    private Error? CheckDisjoint(ZoneDraft zone, IReadOnlyList<int> requested, bool confirmed)
+    {
+        if (confirmed || zone.AllowsDisjointParts) return null;
+
+        var prospective = zone.FaceIds.Concat(requested).Distinct().ToList();
+        var after = Map.ContiguousPartsOf(prospective).Count;
+        var current = zone.IsEmpty ? 1 : Map.ContiguousPartsOf(zone.FaceIds).Count;
+        if (after <= Math.Max(current, 1)) return null;
+
+        return new Error(
+            DisjointNotConfirmedCode,
+            string.Format(
+                CultureInfo.InvariantCulture,
+                "加入後「{0}」會分成 {1} 塊互不相連的區塊，將各自產生一個面積。確定要合併嗎？",
+                zone.Name,
+                after),
+            string.Format(CultureInfo.InvariantCulture, "zoneId={0};parts={1}", zone.Id, after));
+    }
+
+    /// <summary>
+    /// Keeps the stored confirmation honest: it is set only when the user has just confirmed a
+    /// disjoint merge, and cleared the moment the zone is in one piece again, so a later split has
+    /// to be confirmed on its own.
+    /// </summary>
+    private void SettleDisjointConfirmation(Guid zoneId, bool confirmed)
+    {
+        var zone = Zones.Zone(zoneId);
+        if (zone is null) return;
+
+        var parts = zone.IsEmpty ? 0 : Map.ContiguousPartsOf(zone.FaceIds).Count;
+        var allowed = parts > 1 && (confirmed || zone.AllowsDisjointParts);
+        if (allowed == zone.AllowsDisjointParts) return;
+
+        var updated = Zones.SetDisjointAllowed(zoneId, allowed);
+        if (updated.IsSuccess) Zones = updated.Value;
+    }
+
+    /// <summary>Names the zones an edit left in pieces, which the status line appends to its message.</summary>
+    private string? SplitWarning(IEnumerable<Guid> zoneIds)
+    {
+        var split = zoneIds
+            .Distinct()
+            .Select(id => Zones.Zone(id))
+            .Where(z => z is not null && !z.IsEmpty && Map.ContiguousPartsOf(z.FaceIds).Count > 1)
+            .Select(z => string.Format(
+                CultureInfo.InvariantCulture,
+                "「{0}」{1} 塊不相連",
+                z!.Name,
+                Map.ContiguousPartsOf(z.FaceIds).Count))
+            .ToList();
+
+        return split.Count == 0 ? null : "注意：" + string.Join("、", split) + "，套用時會各自建立一個面積。";
+    }
+
     private IEnumerable<ZoneVisual> BuildZoneVisuals(EditorViewport viewport)
     {
         foreach (var zone in Zones.Zones)
@@ -473,7 +698,8 @@ public sealed class RegionEditorSession
                 region.Faces.Sum(f => f.Holes.Count),
                 region.ContiguousPartCount,
                 zone.Id == ActiveZoneId,
-                anchorFace is null ? (ScreenPoint?)null : viewport.ToScreen(anchorFace.RepresentativePoint));
+                anchorFace is null ? (ScreenPoint?)null : viewport.ToScreen(anchorFace.RepresentativePoint),
+                zone.AllowsDisjointParts);
         }
     }
 

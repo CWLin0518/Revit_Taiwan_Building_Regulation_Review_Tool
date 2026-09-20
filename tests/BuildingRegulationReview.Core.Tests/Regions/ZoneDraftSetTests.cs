@@ -256,6 +256,66 @@ public class ZoneDraftSetTests
         Assert.Throws<FormatException>(() => ZoneColor.FromHex(hex));
     }
 
+    // ---- the confirmation a disjoint zone carries, and content fingerprints (P2-T06) ------------
+
+    [Fact]
+    public void RemembersThatTheUserAllowedAZoneToBeInPieces()
+    {
+        var zones = TwoZones();
+        Assert.False(zones.Zone(FirstZoneId)!.AllowsDisjointParts);
+
+        var allowed = Succeeds(zones.SetDisjointAllowed(FirstZoneId, true));
+
+        Assert.True(allowed.Zone(FirstZoneId)!.AllowsDisjointParts);
+        Assert.False(allowed.Zone(SecondZoneId)!.AllowsDisjointParts);
+        Assert.False(zones.Zone(FirstZoneId)!.AllowsDisjointParts);
+    }
+
+    [Fact]
+    public void KeepsTheConfirmationWhileFacesComeAndGo()
+    {
+        var zones = Succeeds(TwoZones().SetDisjointAllowed(FirstZoneId, true));
+
+        var assigned = Succeeds(zones.Assign(3, FirstZoneId)).Zones;
+
+        Assert.True(assigned.Zone(FirstZoneId)!.AllowsDisjointParts);
+        Assert.True(Succeeds(assigned.Unassign(3)).Zones.Zone(FirstZoneId)!.AllowsDisjointParts);
+    }
+
+    [Fact]
+    public void RefusesToConfirmAZoneThatIsNotThere()
+    {
+        Assert.Equal(
+            "regions.zone.unknownZone",
+            ZoneDraftSet.Empty.SetDisjointAllowed(FirstZoneId, true).Error.Code);
+    }
+
+    [Fact]
+    public void GivesEqualDraftsTheSameSignature()
+    {
+        Assert.Equal(TwoZones().Signature(), TwoZones().Signature());
+        Assert.Equal(string.Empty, ZoneDraftSet.Empty.Signature());
+    }
+
+    [Theory]
+    [InlineData("rename")]
+    [InlineData("recolor")]
+    [InlineData("assign")]
+    [InlineData("confirm")]
+    public void ChangesTheSignatureWheneverSomethingReachesTheModel(string edit)
+    {
+        var zones = TwoZones();
+        var changed = edit switch
+        {
+            "rename" => Succeeds(zones.Rename(FirstZoneId, "C")),
+            "recolor" => Succeeds(zones.Recolor(FirstZoneId, ZoneColor.FromHex("#123456"))),
+            "assign" => Succeeds(zones.Assign(7, FirstZoneId)).Zones,
+            _ => Succeeds(zones.SetDisjointAllowed(FirstZoneId, true))
+        };
+
+        Assert.NotEqual(zones.Signature(), changed.Signature());
+    }
+
     private static ZoneDraftSet TwoZones() =>
         Succeeds(Succeeds(ZoneDraftSet.Empty.Add(Zone(FirstZoneId, "A"))).Add(Zone(SecondZoneId, "B")));
 
