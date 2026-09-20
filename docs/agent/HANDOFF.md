@@ -3,7 +3,7 @@
 - Completed Task: P2-T01
 - Next Task: P2-T02
 - Status: READY_FOR_NEW_SESSION
-- Commit: PENDING
+- Commit: a869e29
 - Spec Version: Draft v1.1 (`docs/fire-review-spec.md`)
 
 ## Completed
