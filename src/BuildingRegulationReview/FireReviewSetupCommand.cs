@@ -13,8 +13,11 @@ namespace BuildingRegulationReview
     public sealed class FireReviewSetupCommand : IExternalCommand
     {
         public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
+            => Run(commandData.Application, ref message);
+
+        internal static Result Run(UIApplication application, ref string message)
         {
-            var document = commandData.Application.ActiveUIDocument?.Document;
+            var document = application.ActiveUIDocument?.Document;
             if (document == null) { message = "請先開啟 Revit 專案。"; return Result.Failed; }
             var catalog = RevitReviewSetupCatalog.Read(document);
             if (catalog.FloorPlans.Count == 0 || catalog.AreaSchemes.Count == 0)
@@ -24,41 +27,46 @@ namespace BuildingRegulationReview
             }
             var window = new FireReviewSetupWindow(catalog);
             if (window.ShowDialog() != true) return Result.Cancelled;
-            var selection = window.Selection;
+            var selections = window.Selections;
             var repository = new RevitReviewPackageRepository(document);
-            var matches = repository.GetAll().Where(x =>
-                x.SourceFloorPlanUniqueId == selection.SourceFloorPlanUniqueId &&
-                x.AreaSchemeUniqueId == selection.AreaSchemeUniqueId).ToList();
-            if (matches.Count > 1)
+            var existing = repository.GetAll();
+            foreach (var selection in selections)
             {
-                message = "同一來源平面與面積配置已有多個檢討套件，請先清理重複資料。";
+                if (existing.Count(x => x.SourceFloorPlanUniqueId == selection.SourceFloorPlanUniqueId &&
+                    x.AreaSchemeUniqueId == selection.AreaSchemeUniqueId) <= 1) continue;
+                message = "所選樓層平面與面積配置已有多個檢討套件，請先清理重複資料。";
                 TaskDialog.Show("防火區劃設定", message);
                 return Result.Failed;
             }
-            var package = matches.Count == 1 ? matches[0] : ReviewPackageSetup.Create(selection);
             try
             {
-                AreaPlanProvisioningResult provisioned;
+                var created = 0; var reused = 0;
+                var warnings = new System.Collections.Generic.List<string>();
                 using (var group = new TransactionGroup(document, "建立防火區劃檢討視圖"))
                 {
                     group.Start();
-                    using (var transaction = new Transaction(document, "儲存防火區劃檢討設定"))
+                    foreach (var selection in selections)
                     {
-                        transaction.Start();
-                        repository.Save(package);
-                        new RevitReviewSetupOptionsRepository(document).Save(package.PackageId, selection);
-                        if (transaction.Commit() != TransactionStatus.Committed)
-                            throw new InvalidOperationException("設定交易未能提交。");
+                        var package = existing.FirstOrDefault(x => x.SourceFloorPlanUniqueId == selection.SourceFloorPlanUniqueId &&
+                            x.AreaSchemeUniqueId == selection.AreaSchemeUniqueId) ?? ReviewPackageSetup.Create(selection);
+                        using (var transaction = new Transaction(document, "儲存防火區劃檢討設定"))
+                        {
+                            transaction.Start();
+                            repository.Save(package);
+                            new RevitReviewSetupOptionsRepository(document).Save(package.PackageId, selection);
+                            if (transaction.Commit() != TransactionStatus.Committed)
+                                throw new InvalidOperationException("設定交易未能提交。");
+                        }
+                        AreaPlanProvisioningResult provisioned = new RevitAreaPlanProvisioner(document).Provision(package, selection);
+                        if (provisioned.Created) created++;
+                        else { reused++; warnings.Add("既有 Area Plan 的樣板、裁切與 Scope Box 設定未重新套用。"); }
+                        warnings.AddRange(provisioned.Warnings);
                     }
-                    provisioned = new RevitAreaPlanProvisioner(document).Provision(package, selection);
                     if (group.Assimilate() != TransactionStatus.Committed)
                         throw new InvalidOperationException("防火區劃檢討視圖交易未能提交。");
                 }
-                var status = provisioned.Created ? "已建立" : "已重用";
-                var warnings = provisioned.Warnings.Count == 0 ? "" : "\n警告：\n- " + string.Join("\n- ", provisioned.Warnings);
-                if (!provisioned.Created)
-                    warnings += "\n既有 Area Plan 的樣板、裁切與 Scope Box 設定未重新套用。";
-                TaskDialog.Show("防火區劃設定", $"Area Plan {status}。\nPackage ID: {package.PackageId:D}{warnings}");
+                var warningText = warnings.Count == 0 ? "" : "\n警告：\n- " + string.Join("\n- ", warnings.Distinct());
+                TaskDialog.Show("防火區劃設定", $"已處理 {selections.Count} 個樓層平面：建立 {created} 個 Area Plan，重用 {reused} 個。{warningText}");
                 return Result.Succeeded;
             }
             catch (Exception exception)

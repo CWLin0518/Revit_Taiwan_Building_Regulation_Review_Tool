@@ -27,6 +27,7 @@ namespace BuildingRegulationReview
             var featureRegistry = new ReviewFeatureRegistry(new IReviewFeature[]
             {
                 new Article164ReviewFeature(),
+                new FireReviewSetupFeature(),
             });
             _eventDispatcher = new ReviewExternalEventDispatcher(featureRegistry);
             _eventDispatcher.Initialize();
