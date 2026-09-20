@@ -25,12 +25,12 @@ namespace BuildingRegulationReview
             _floor.SelectedIndex = 0; _scheme.SelectedIndex = 0; _template.SelectedIndex = 0; _scopeBox.SelectedIndex = 0;
             var panel = new StackPanel { Margin = new Thickness(20) };
             panel.Children.Add(new TextBlock { Text = "建立檢討套件", FontSize = 20, FontWeight = FontWeights.SemiBold });
-            panel.Children.Add(new TextBlock { Text = "此步驟只儲存設定，不會建立 Area Plan。", Margin = new Thickness(0, 4, 0, 16), Foreground = System.Windows.Media.Brushes.DimGray });
+            panel.Children.Add(new TextBlock { Text = "儲存設定並建立或重用受管理 Area Plan。", Margin = new Thickness(0, 4, 0, 16), Foreground = System.Windows.Media.Brushes.DimGray });
             AddField(panel, "來源樓層平面", _floor); AddField(panel, "面積配置", _scheme);
             AddField(panel, "Area Plan 視圖樣板（選填）", _template); AddField(panel, "Scope Box（選填）", _scopeBox);
             _copyCrop.Margin = new Thickness(0, 8, 0, 8); panel.Children.Add(_copyCrop);
             panel.Children.Add(new TextBlock { Text = "需要新面積配置時，請先使用 Revit 的「面積配置」命令建立。", TextWrapping = TextWrapping.Wrap, Foreground = System.Windows.Media.Brushes.DimGray });
-            var ok = new Button { Content = "儲存設定", Padding = new Thickness(12, 8, 12, 8), Margin = new Thickness(0, 16, 0, 0), HorizontalAlignment = HorizontalAlignment.Right };
+            var ok = new Button { Content = "建立 Area Plan", Padding = new Thickness(12, 8, 12, 8), Margin = new Thickness(0, 16, 0, 0), HorizontalAlignment = HorizontalAlignment.Right };
             ok.Click += (_, __) => Accept(); panel.Children.Add(ok); Content = panel;
         }
 
