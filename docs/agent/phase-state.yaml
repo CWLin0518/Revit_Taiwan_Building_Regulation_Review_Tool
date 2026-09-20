@@ -1,7 +1,7 @@
 workflow: fire-review-addon
 activePhase: P1
 completedTask: P1-T05
-nextTask: P1-T06
-status: ready_for_new_session
-commit: 209a116
-updatedAtUtc: 2026-09-18T18:30:00Z
+nextTask: P1-T06-live-acceptance
+status: blocked_on_test_model
+commit: d1af04e
+updatedAtUtc: 2026-09-20T15:09:31Z
