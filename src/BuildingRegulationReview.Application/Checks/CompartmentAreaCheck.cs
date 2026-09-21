@@ -16,6 +16,7 @@ namespace BuildingRegulationReview.Application.Checks;
 public static class ReviewCheckTypes
 {
     public const string CompartmentArea = "CompartmentArea";
+    public const string FireResistance = "FireResistance";
 }
 
 /// <summary>How Revit's Area and the measured boundary compared (spec 11.4 step 2).</summary>
@@ -121,17 +122,8 @@ public static class CompartmentAreaCheck
         options ??= CompartmentAreaOptions.Default;
         newResultId ??= Guid.NewGuid;
 
-        // Spec 11.1: 任一關鍵條件不成立時停止檢討並列出修正方式.
-        if (set.Zones.Count == 0)
-            return Result.Failure<CompartmentAreaReview>(new Error(ReviewErrorCode.CandidateZoneUnusable,
-                "此工作包沒有任何區劃，無法檢討面積；請先在「建立區劃範圍」套用區劃。"));
-
-        var unmeasurable = set.Zones.Where(z => !z.IsMeasurable).ToList();
-        if (unmeasurable.Count > 0)
-            return Result.Failure<CompartmentAreaReview>(new Error(ReviewErrorCode.CandidateZoneUnusable,
-                $"區劃 {string.Join("、", unmeasurable.Select(z => $"「{z.Name}」"))} 沒有任何封閉的面積，無法檢討；" +
-                "請回到「建立區劃範圍」修正邊界後重新套用。",
-                string.Join(", ", unmeasurable.Select(z => z.ZoneIdText))));
+        var ready = ReviewPreconditions.Zones(set, "面積");
+        if (ready.IsFailure) return Result.Failure<CompartmentAreaReview>(ready.Error);
 
         var warnings = inputs.ZoneIds.Where(id => set.Zone(id) is null)
             .Select(id => $"輸入資料指定的區劃 {id:D} 不在此工作包中，已略過。")

@@ -92,6 +92,9 @@ public static class ReviewErrorCode
     public const string StatusBlocked = "BCR-STALE-002";
     public const string StatusAdvanced = "BCR-STALE-003";
 
+    // 構件防火時效（spec 11.5 第 5 點：複合構造無法判定）
+    public const string FireRatingUndetermined = "BCR-RATE-001";
+
     private static readonly IReadOnlyDictionary<string, string> Descriptions =
         new ReadOnlyDictionary<string, string>(new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -125,7 +128,8 @@ public static class ReviewErrorCode
             { AreaNotEnclosed, "面積未落在封閉邊界內" },
             { StatusStale, "結果已失效" },
             { StatusBlocked, "尚不得進入 Ready" },
-            { StatusAdvanced, "套件狀態已更新" }
+            { StatusAdvanced, "套件狀態已更新" },
+            { FireRatingUndetermined, "複合構造無法判定防火時效" }
         });
 
     /// <summary>Every code this tool can emit, for the documentation and for the tests that pin it.</summary>
