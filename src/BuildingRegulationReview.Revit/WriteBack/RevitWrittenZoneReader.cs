@@ -65,7 +65,7 @@ public sealed class RevitWrittenZoneReader
         return found;
     }
 
-    private static List<IReadOnlyList<Point2D>> ReadLoops(RevitArea area, SpatialElementBoundaryOptions options)
+    internal static List<IReadOnlyList<Point2D>> ReadLoops(RevitArea area, SpatialElementBoundaryOptions options)
     {
         var rings = new List<IReadOnlyList<Point2D>>();
         IList<IList<BoundarySegment>>? loops;

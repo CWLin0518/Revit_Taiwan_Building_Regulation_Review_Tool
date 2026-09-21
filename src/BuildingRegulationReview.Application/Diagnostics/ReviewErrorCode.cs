@@ -74,6 +74,10 @@ public static class ReviewErrorCode
     public const string RuleVersionMismatch = "BCR-RULE-004";
     public const string RuleSchemaInvalid = "BCR-RULE-005";
 
+    // 來源元素與區劃空間關係可解析（spec 11.1）
+    public const string CandidateAmbiguous = "BCR-CAND-001";
+    public const string CandidateZoneUnusable = "BCR-CAND-002";
+
     // 寫回本身
     public const string WriteBackRolledBack = "BCR-WB-001";
     public const string WriteBackElementFailed = "BCR-WB-002";
@@ -110,6 +114,8 @@ public static class ReviewErrorCode
             { RuleComputationFailed, "規則運算錯誤" },
             { RuleVersionMismatch, "規則版本不一致" },
             { RuleSchemaInvalid, "規則格式不符合 schema" },
+            { CandidateAmbiguous, "元素與區劃的空間關係無法判定" },
+            { CandidateZoneUnusable, "區劃範圍無法用於檢討" },
             { WriteBackRolledBack, "寫回整批復原" },
             { WriteBackElementFailed, "元素寫入失敗" },
             { WriteBackElementSkipped, "元素略過未寫入" },
