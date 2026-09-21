@@ -3,7 +3,7 @@
 - Completed Task: P3-T02
 - Next Task: P3-T03
 - Status: READY_FOR_NEW_SESSION
-- Commit: （feat commit SHA 記錄於後續 docs commit）
+- Commit: ab57f75（feat）；SHA 由後續 docs commit 記錄
 - Spec Version: Draft v1.1 (`docs/fire-review-spec.md`)
 - 任務文件：`docs/agent/p3-t02-rule-engine.md`（DSL 定案與引擎語意都在這裡）
 - P2 實機驗收仍有兩項「未回報」（見 `phase-2-acceptance.md`），使用者選擇先進行 P3。
