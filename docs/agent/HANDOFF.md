@@ -3,7 +3,7 @@
 - Completed Task: P3-T06
 - Next Task: P3-T07
 - Status: READY_FOR_NEW_SESSION
-- Commit: （feat commit，SHA 由後續 docs commit 記錄）
+- Commit: ef67dd3（feat）；SHA 由後續 docs commit 記錄
 - Spec Version: Draft v1.1 (`docs/fire-review-spec.md`)
 - 任務文件：`docs/agent/p3-t06-opening-protection.md`（判定流程表、證據欄位、門／窗／幕牆統計、設計決策都在這裡）
 - P2 實機驗收仍有兩項「未回報」（見 `phase-2-acceptance.md`），使用者選擇先進行 P3。
