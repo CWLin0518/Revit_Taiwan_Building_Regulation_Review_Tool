@@ -11,7 +11,7 @@ namespace BuildingRegulationReview.Application.WriteBack;
 /// <summary>
 /// What the current 區劃 drafts say the model should contain (spec 10.5, read-only here): the Area
 /// Boundary Lines that fence each contiguous part, the Area inside it, its tag, and the Detail Curve
-/// copy for the Drafting View. P2-T06 only compares this with the model; P2-T07 creates it.
+/// copy and area label for the Drafting View. P2-T06 only compares this with the model; P2-T07 creates it.
 /// </summary>
 /// <remarks>
 /// The outline of a part is taken by dropping every network edge that two of its own faces share, so
@@ -109,6 +109,90 @@ public static class ZoneWritePlan
             zoneName: zone.Name,
             color: zone.Color,
             netAreaSquareMeters: netArea);
+
+        // The 單線圖 has no Areas to tag, so each part gets a plain label at its centre instead.
+        var labelText = LabelText(zone.Name, netArea);
+        var labelPoint = LabelPoint(faces, outline, anchor);
+        yield return new PlannedElement(
+            new ManagedElementKey(packageId, zone.Id, ManagedElementKind.DetailLabel, partIndex, 0),
+            PlannedElementSignature.ForLabel(labelText, labelPoint, quantum),
+            string.Format(CultureInfo.InvariantCulture, "「{0}」{1}的單線圖面積標註", zone.Name, partSuffix),
+            placement: labelPoint,
+            zoneName: zone.Name,
+            color: zone.Color,
+            netAreaSquareMeters: netArea,
+            text: labelText);
+    }
+
+    /// <summary>What a 單線圖 label reads: the 區劃 name over its net area.</summary>
+    public static string LabelText(string zoneName, double netAreaSquareMeters) =>
+        string.Format(CultureInfo.InvariantCulture, "{0}\n{1:0.00} m²", zoneName, netAreaSquareMeters);
+
+    /// <summary>
+    /// The area-weighted centroid of the part, which is its visual centre. An L-shaped or ringed part
+    /// can have its centroid outside itself, and a label there would sit on somebody else's zone, so
+    /// that case falls back to the point inside the largest face the Area is placed at.
+    /// </summary>
+    /// <remarks>
+    /// Inside is judged against the part's outline, not face by face: the centre of two merged rooms
+    /// often lands on the wall between them, which the 單線圖 does not draw and so is a fine place for
+    /// the label, but which no single face would claim.
+    /// </remarks>
+    private static Point2D LabelPoint(IReadOnlyList<PlanFace> faces, IReadOnlyList<Segment2D> outline, PlanFace anchor)
+    {
+        var weight = 0.0;
+        var x = 0.0;
+        var y = 0.0;
+
+        foreach (var loop in faces.SelectMany(f => f.Geometry.AllLoops))
+        {
+            // Signed area: the outer loop is counter-clockwise and the holes clockwise, so the holes
+            // subtract themselves without being told apart.
+            var area = loop.SignedAreaSquareFeet;
+            if (area == 0) continue;
+            var centroid = Centroid(loop);
+            weight += area;
+            x += area * centroid.X;
+            y += area * centroid.Y;
+        }
+
+        if (Math.Abs(weight) < 1e-12) return anchor.RepresentativePoint;
+
+        var centre = new Point2D(x / weight, y / weight);
+        return IsInside(outline, centre) ? centre : anchor.RepresentativePoint;
+    }
+
+    /// <summary>
+    /// Crossing-number test over the outline's loose segments, which fence the outer boundary and
+    /// any holes alike, so even-odd needs no loops to be rebuilt first.
+    /// </summary>
+    private static bool IsInside(IReadOnlyList<Segment2D> outline, Point2D point)
+    {
+        var inside = false;
+        foreach (var s in outline)
+        {
+            if ((s.Start.Y > point.Y) == (s.End.Y > point.Y)) continue;
+
+            var x = s.Start.X + ((point.Y - s.Start.Y) / (s.End.Y - s.Start.Y) * (s.End.X - s.Start.X));
+            if (point.X < x) inside = !inside;
+        }
+
+        return inside;
+    }
+
+    private static Point2D Centroid(Loop2D loop)
+    {
+        var cx = 0.0;
+        var cy = 0.0;
+        foreach (var s in loop.Segments)
+        {
+            var cross = (s.Start.X * s.End.Y) - (s.End.X * s.Start.Y);
+            cx += (s.Start.X + s.End.X) * cross;
+            cy += (s.Start.Y + s.End.Y) * cross;
+        }
+
+        var factor = 6.0 * loop.SignedAreaSquareFeet;
+        return new Point2D(cx / factor, cy / factor);
     }
 
     /// <summary>

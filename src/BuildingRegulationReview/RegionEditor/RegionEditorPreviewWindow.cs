@@ -9,10 +9,17 @@ using BuildingRegulationReview.Application.WriteBack;
 
 namespace BuildingRegulationReview.RegionEditor
 {
-    /// <summary>What the user decided in the preview: apply, and under which failure policy.</summary>
+    /// <summary>What the user decided in the preview: which plan to apply, and under which failure policy.</summary>
     internal sealed class ApplyDecision
     {
-        public ApplyDecision(ApplyFailurePolicy policy) => Policy = policy;
+        public ApplyDecision(ApplyPlan plan, ApplyFailurePolicy policy)
+        {
+            Plan = plan ?? throw new ArgumentNullException(nameof(plan));
+            Policy = policy;
+        }
+
+        /// <summary>The ordinary plan, or the rebuild plan when the user ticked 全部重建.</summary>
+        public ApplyPlan Plan { get; }
 
         public ApplyFailurePolicy Policy { get; }
     }
@@ -41,10 +48,23 @@ namespace BuildingRegulationReview.RegionEditor
             ToolTip = "不勾選時，個別失敗會被略過並寫入日誌，其餘元素照常寫入。"
         };
 
-        private RegionEditorPreviewWindow(ApplyPreview preview, ApplyPlan plan, bool canApply)
+        private readonly CheckBox _rebuildEverything = new CheckBox
+        {
+            Content = "全部重建（重畫本套件所有元素，包含判定為不變的）",
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 0, 6),
+            ToolTip = "模型裡的邊界線或面積被拉歪、但草稿沒有變時使用：本套件的邊界線與單線圖細部線全部重畫，"
+                + "面積與標註重新定位。人工繪製或其他套件的元素仍然不會被更動。"
+        };
+
+        private readonly ApplyPlan _plan;
+        private readonly ApplyPlan _rebuildPlan;
+
+        private RegionEditorPreviewWindow(ApplyPreview preview, ApplyPlan plan, ApplyPlan rebuildPlan, bool canApply)
         {
             if (preview == null) throw new ArgumentNullException(nameof(preview));
-            if (plan == null) throw new ArgumentNullException(nameof(plan));
+            _plan = plan ?? throw new ArgumentNullException(nameof(plan));
+            _rebuildPlan = rebuildPlan ?? throw new ArgumentNullException(nameof(rebuildPlan));
 
             Title = "套用前差異預覽";
             Width = 720;
@@ -55,7 +75,7 @@ namespace BuildingRegulationReview.RegionEditor
             ShowInTaskbar = false;
 
             var root = new DockPanel { Margin = new Thickness(16) };
-            root.Children.Add(BuildButtons(plan, canApply));
+            root.Children.Add(BuildButtons(canApply));
             root.Children.Add(BuildHeader(preview, plan));
             root.Children.Add(BuildList(preview));
             Content = root;
@@ -64,16 +84,21 @@ namespace BuildingRegulationReview.RegionEditor
         /// <summary>
         /// Shows the preview. Returns the decision when the user asked for it to be applied, and
         /// null when they only looked — which is also what a caller with no write-back gets.
+        /// <paramref name="rebuildPlan"/> is what runs instead when the user ticks 全部重建.
         /// </summary>
-        public static ApplyDecision Show(Window owner, ApplyPreview preview, ApplyPlan plan, bool canApply)
+        public static ApplyDecision Show(Window owner, ApplyPreview preview, ApplyPlan plan, ApplyPlan rebuildPlan, bool canApply)
         {
-            var window = new RegionEditorPreviewWindow(preview, plan, canApply) { Owner = owner };
+            var window = new RegionEditorPreviewWindow(preview, plan, rebuildPlan, canApply) { Owner = owner };
             return window.ShowDialog() == true
-                ? new ApplyDecision(window._rollBackOnAnyFailure.IsChecked == true
-                    ? ApplyFailurePolicy.RollBackEverything
-                    : ApplyFailurePolicy.SkipAndLog)
+                ? new ApplyDecision(
+                    window.ChosenPlan,
+                    window._rollBackOnAnyFailure.IsChecked == true
+                        ? ApplyFailurePolicy.RollBackEverything
+                        : ApplyFailurePolicy.SkipAndLog)
                 : null;
         }
+
+        private ApplyPlan ChosenPlan => _rebuildEverything.IsChecked == true ? _rebuildPlan : _plan;
 
         private static UIElement BuildHeader(ApplyPreview preview, ApplyPlan plan)
         {
@@ -101,7 +126,7 @@ namespace BuildingRegulationReview.RegionEditor
             }
 
             panel.Children.Add(Note(
-                "同一次寫入還會更新本套件的面積色彩配置，並把單線圖細部線寫進專屬的繪圖視圖；"
+                "同一次寫入還會更新本套件的面積色彩配置，並把單線圖細部線與各區劃的面積標註寫進專屬的繪圖視圖；"
                 + "Revit 不允許的色彩項目會列為需人工處理，不會被當成失敗。",
                 Brushes.DimGray,
                 8));
@@ -177,9 +202,10 @@ namespace BuildingRegulationReview.RegionEditor
             }
         }
 
-        private UIElement BuildButtons(ApplyPlan plan, bool canApply)
+        private UIElement BuildButtons(bool canApply)
         {
             var panel = new DockPanel { Margin = new Thickness(0, 12, 0, 0) };
+            var options = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
 
             var buttons = new StackPanel
             {
@@ -192,9 +218,7 @@ namespace BuildingRegulationReview.RegionEditor
                 Content = "套用到模型",
                 Padding = new Thickness(14, 4, 14, 4),
                 Margin = new Thickness(0, 0, 8, 0),
-                IsDefault = true,
-                IsEnabled = canApply && !plan.IsEmpty,
-                ToolTip = plan.IsEmpty ? "模型已經與草稿一致，沒有需要寫入的變更。" : plan.Summary
+                IsDefault = true
             };
             apply.Click += (_, __) => { DialogResult = true; Close(); };
             buttons.Children.Add(apply);
@@ -208,10 +232,26 @@ namespace BuildingRegulationReview.RegionEditor
             close.Click += (_, __) => Close();
             buttons.Children.Add(close);
 
-            _rollBackOnAnyFailure.IsEnabled = apply.IsEnabled;
+            // Re-evaluated when 全部重建 is toggled: a model already in agreement has nothing to
+            // apply, but still has everything to rebuild.
+            void Refresh()
+            {
+                var plan = ChosenPlan;
+                apply.IsEnabled = canApply && !plan.IsEmpty;
+                apply.ToolTip = plan.IsEmpty ? "模型已經與草稿一致，沒有需要寫入的變更。" : plan.Summary;
+                _rollBackOnAnyFailure.IsEnabled = apply.IsEnabled;
+            }
+
+            _rebuildEverything.IsEnabled = canApply && !_rebuildPlan.IsEmpty;
+            _rebuildEverything.Checked += (_, __) => Refresh();
+            _rebuildEverything.Unchecked += (_, __) => Refresh();
+            Refresh();
+
             DockPanel.SetDock(buttons, Dock.Right);
             panel.Children.Add(buttons);
-            panel.Children.Add(_rollBackOnAnyFailure);
+            options.Children.Add(_rebuildEverything);
+            options.Children.Add(_rollBackOnAnyFailure);
+            panel.Children.Add(options);
 
             DockPanel.SetDock(panel, Dock.Bottom);
             return panel;

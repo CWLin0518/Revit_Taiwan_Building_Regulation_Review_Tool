@@ -142,13 +142,15 @@ public class ApplyIdempotencyTests
         var second = model.Apply(FullPlan(map, zones, model));
         var third = model.Apply(FullPlan(map, zones, model));
 
-        // The eight Area Plan elements plus one 單線圖 copy of each of the six boundary segments.
-        Assert.Equal(14, first.Created);
-        Assert.Equal(14, model.Count);
+        // The eight Area Plan elements plus one 單線圖 copy of each of the six boundary segments and
+        // the one area label of the zone's single part.
+        Assert.Equal(15, first.Created);
+        Assert.Equal(15, model.Count);
         Assert.Equal(6, model.CountOf(ManagedElementKind.DetailCurve));
+        Assert.Equal(1, model.CountOf(ManagedElementKind.DetailLabel));
         Assert.Equal(0, second.Created + second.Updated + second.Deleted);
         Assert.Equal(0, third.Created + third.Updated + third.Deleted);
-        Assert.Equal(14, model.Count);
+        Assert.Equal(15, model.Count);
     }
 
     [Fact]
@@ -177,7 +179,7 @@ public class ApplyIdempotencyTests
 
         var run = model.Apply(FullPlan(map, ZoneDraftSet.Empty, model));
 
-        Assert.Equal(14, run.Deleted);
+        Assert.Equal(15, run.Deleted);
         Assert.Equal(1, model.Count);
         Assert.True(model.Holds("hand-drawn"));
     }
@@ -195,9 +197,9 @@ public class ApplyIdempotencyTests
         // And the same drafts once the Drafting View is reachable: only the copies are new.
         var run = model.Apply(FullPlan(map, zones, model));
 
-        Assert.Equal(6, run.Created);
+        Assert.Equal(7, run.Created);
         Assert.Equal(0, run.Updated + run.Deleted);
-        Assert.Equal(14, model.Count);
+        Assert.Equal(15, model.Count);
     }
 
     // ---- the model the plan is executed against -------------------------------------------------

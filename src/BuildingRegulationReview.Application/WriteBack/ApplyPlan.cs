@@ -30,10 +30,10 @@ public enum ApplyStage
     Tags,
 
     /// <summary>
-    /// The 單線圖 copies in the Drafting View, which depend on nothing in the Area Plan and so come
-    /// last. A caller whose adapter cannot reach a Drafting View leaves
-    /// <see cref="ManagedElementKind.DetailCurve"/> out of its writable kinds, and these rows are
-    /// then reported as deferred instead of half-done.
+    /// The 單線圖 copies and their area labels in the Drafting View, which depend on nothing in the
+    /// Area Plan and so come last. A caller whose adapter cannot reach a Drafting View leaves
+    /// <see cref="ManagedElementKind.DetailCurve"/> and <see cref="ManagedElementKind.DetailLabel"/>
+    /// out of its writable kinds, and these rows are then reported as deferred instead of half-done.
     /// </summary>
     DetailCurves
 }
@@ -248,6 +248,7 @@ public sealed class ApplyPlan
         ManagedElementKind.Area => ApplyStage.Areas,
         ManagedElementKind.AreaTag => ApplyStage.Tags,
         ManagedElementKind.DetailCurve => ApplyStage.DetailCurves,
+        ManagedElementKind.DetailLabel => ApplyStage.DetailCurves,
         _ => throw new ArgumentOutOfRangeException(nameof(kind))
     };
 

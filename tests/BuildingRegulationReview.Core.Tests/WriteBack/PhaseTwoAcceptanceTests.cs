@@ -346,10 +346,11 @@ public class PhaseTwoAcceptanceTests
         run.RenameZone("改過的名字");
         var renamed = run.Apply();
 
-        // The walls did not move, so only the two elements that carry the name are rewritten, and
-        // they are found again by their key rather than by what they were called.
+        // The walls did not move, so only the three elements that carry the name — the Area, its tag
+        // and the 單線圖 label — are rewritten, and they are found again by their key rather than
+        // by what they were called.
         Assert.Equal(0, renamed.Result.CreatedCount);
-        Assert.Equal(2, renamed.Result.UpdatedCount);
+        Assert.Equal(3, renamed.Result.UpdatedCount);
         Assert.Equal(before, run.Model.Count);
     }
 

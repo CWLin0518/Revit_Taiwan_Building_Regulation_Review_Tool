@@ -98,6 +98,26 @@ public class PlannedElementSignatureTests
         Assert.Equal("A 區", PlannedElementSignature.ZoneNameOf(signature));
     }
 
+    [Fact]
+    public void TheNameAndColourCanBeReadBackEvenWhenTheNameHoldsTheSeparator()
+    {
+        var signature = PlannedElementSignature.ForArea("A|B 區", "#112233", new Point2D(5, 5), Tolerance.ClosureFeet);
+
+        Assert.True(PlannedElementSignature.TryReadArea(signature, out var name, out var hex));
+        Assert.Equal("A|B 區", name);
+        Assert.Equal("#112233", hex);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("0,0>10,0")]
+    [InlineData("A|0,0")]
+    public void ASignatureThatIsNotAnAreasDoesNotReadAsOne(string? signature)
+    {
+        Assert.False(PlannedElementSignature.TryReadArea(signature, out _, out _));
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]

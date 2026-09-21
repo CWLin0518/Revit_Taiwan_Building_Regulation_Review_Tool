@@ -117,12 +117,12 @@ public class ApplyPreviewTests
         Assert.Empty(preview.Added);
         Assert.Empty(preview.Updated);
         Assert.Empty(preview.Deleted);
-        Assert.Equal(10, preview.Unchanged.Count);
+        Assert.Equal(11, preview.Unchanged.Count);
         Assert.Contains("不會變更任何元素", preview.Summary);
     }
 
     [Fact]
-    public void RenamingAZoneUpdatesItsAreaAndTagButLeavesTheLinesAlone()
+    public void RenamingAZoneUpdatesItsAreaTagAndLabelButLeavesTheLinesAlone()
     {
         var (map, zones) = TwoRooms(left: true, right: false);
         var written = AsWritten(map, zones);
@@ -130,9 +130,9 @@ public class ApplyPreviewTests
 
         var preview = ApplyPreview.Build(PackageId, map, renamed, written);
 
-        Assert.Equal(2, preview.Updated.Count);
+        Assert.Equal(3, preview.Updated.Count);
         Assert.Equal(
-            new[] { ManagedElementKind.Area, ManagedElementKind.AreaTag },
+            new[] { ManagedElementKind.Area, ManagedElementKind.AreaTag, ManagedElementKind.DetailLabel },
             preview.Updated.Select(i => i.Kind).OrderBy(k => k.ToString()).ToArray());
         Assert.Equal(4, preview.CountOf(ManagedElementKind.AreaBoundaryLine, ApplyChangeKind.Unchanged));
         Assert.Empty(preview.Deleted);
@@ -192,10 +192,64 @@ public class ApplyPreviewTests
 
         var preview = ApplyPreview.Build(PackageId, map, zones);
 
-        Assert.Equal(4, preview.KindSummaries.Count);
+        Assert.Equal(5, preview.KindSummaries.Count);
         Assert.Contains("面積邊界線：新增 4", preview.KindSummaries[0]);
-        Assert.Contains("將新增 10 個", preview.Summary);
-        Assert.Equal(10, preview.ChangeCount);
+        Assert.Contains("將新增 11 個", preview.Summary);
+        Assert.Equal(11, preview.ChangeCount);
+    }
+
+    // ---- the 單線圖 area label ----------------------------------------------------------------
+
+    [Fact]
+    public void LabelsEachPartAtItsCentreWithItsNameAndNetArea()
+    {
+        var (map, zones) = TwoRooms(left: true, right: true);
+
+        var label = Assert.Single(ZoneWritePlan.Build(PackageId, map, zones), e => e.Key.Kind == ManagedElementKind.DetailLabel);
+
+        // The two rooms merge into one 20 x 10 part; its centre sits on the dropped divider.
+        var expectedArea = PlanUnits.SquareFeetToSquareMeters(200);
+        Assert.Equal(new Point2D(10, 5), label.Placement!.Value);
+        Assert.Equal(ZoneWritePlan.LabelText("A", expectedArea), label.Text);
+        Assert.StartsWith("A\n", label.Text, StringComparison.Ordinal);
+        Assert.EndsWith(" m²", label.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ALabelWhoseCentreFallsOutsideAUShapedPartMovesInsideIt()
+    {
+        // A 3 x 3 grid of 10 ft rooms with the middle column's top two left out: a U whose
+        // centroid, (15, 13.6), lands in the unassigned room at its mouth.
+        var segments = new List<Segment2D>();
+        for (var i = 0; i <= 3; i++)
+        {
+            segments.Add(Seg(i * 10, 0, i * 10, 30, "V" + i));
+            segments.Add(Seg(0, i * 10, 30, i * 10, "H" + i));
+        }
+
+        var map = Solve(segments);
+        var faces = new[] { (5, 5), (15, 5), (25, 5), (5, 15), (5, 25), (25, 15), (25, 25) }
+            .Select(p => FaceAt(map, p.Item1, p.Item2))
+            .ToArray();
+        var zones = Assign(map, faces);
+
+        var label = Assert.Single(ZoneWritePlan.Build(PackageId, map, zones), e => e.Key.Kind == ManagedElementKind.DetailLabel);
+
+        var landedIn = map.FaceAt(label.Placement!.Value);
+        Assert.NotNull(landedIn);
+        Assert.Contains(landedIn!.Id, faces);
+    }
+
+    [Fact]
+    public void GrowingAZoneUpdatesItsLabelBecauseTheAreaItShowsChanged()
+    {
+        var (map, left) = TwoRooms(left: true, right: false);
+        var written = AsWritten(map, left);
+        var both = Assign(map, FaceAt(map, 5, 5), FaceAt(map, 15, 5));
+
+        var preview = ApplyPreview.Build(PackageId, map, both, written);
+
+        Assert.Equal(1, preview.CountOf(ManagedElementKind.DetailLabel, ApplyChangeKind.Update));
     }
 
     // ---- helpers ----------------------------------------------------------------------------

@@ -21,7 +21,13 @@ public enum ManagedElementKind
     AreaTag,
 
     /// <summary>A Detail Curve copying the boundary into the Drafting View.</summary>
-    DetailCurve
+    DetailCurve,
+
+    /// <summary>
+    /// A Text Note in the Drafting View naming one closed part of a 區劃 and its net area, the
+    /// 單線圖's counterpart of the Area tag.
+    /// </summary>
+    DetailLabel
 }
 
 /// <summary>
@@ -142,6 +148,7 @@ public readonly struct ManagedElementKey : IEquatable<ManagedElementKey>
         ManagedElementKind.Area => "面積",
         ManagedElementKind.AreaTag => "面積標註",
         ManagedElementKind.DetailCurve => "單線圖細部線",
+        ManagedElementKind.DetailLabel => "單線圖面積標註",
         _ => throw new ArgumentOutOfRangeException(nameof(kind))
     };
 
@@ -151,6 +158,7 @@ public readonly struct ManagedElementKey : IEquatable<ManagedElementKey>
         ManagedElementKind.Area => "area",
         ManagedElementKind.AreaTag => "tag",
         ManagedElementKind.DetailCurve => "detail",
+        ManagedElementKind.DetailLabel => "label",
         _ => throw new ArgumentOutOfRangeException(nameof(kind))
     };
 
@@ -162,6 +170,7 @@ public readonly struct ManagedElementKey : IEquatable<ManagedElementKey>
             case "area": kind = ManagedElementKind.Area; return true;
             case "tag": kind = ManagedElementKind.AreaTag; return true;
             case "detail": kind = ManagedElementKind.DetailCurve; return true;
+            case "label": kind = ManagedElementKind.DetailLabel; return true;
             default: kind = default; return false;
         }
     }
@@ -181,7 +190,8 @@ public sealed class PlannedElement
         Point2D? placement = null,
         string? zoneName = null,
         ZoneColor? color = null,
-        double netAreaSquareMeters = 0.0)
+        double netAreaSquareMeters = 0.0,
+        string? text = null)
     {
         if (string.IsNullOrWhiteSpace(signature)) throw new ArgumentException("A planned element needs a signature.", nameof(signature));
         if (string.IsNullOrWhiteSpace(description)) throw new ArgumentException("A planned element needs a description.", nameof(description));
@@ -194,6 +204,7 @@ public sealed class PlannedElement
         ZoneName = zoneName;
         Color = color;
         NetAreaSquareMeters = netAreaSquareMeters;
+        Text = text;
     }
 
     public ManagedElementKey Key { get; }
@@ -206,12 +217,15 @@ public sealed class PlannedElement
     /// <summary>The line to draw, for a boundary line or detail curve; empty otherwise.</summary>
     public IReadOnlyList<Point2D> Points { get; }
 
-    /// <summary>Where an Area or its tag is placed; null for a line.</summary>
+    /// <summary>Where an Area, its tag or its 單線圖 label is placed; null for a line.</summary>
     public Point2D? Placement { get; }
 
     public string? ZoneName { get; }
     public ZoneColor? Color { get; }
     public double NetAreaSquareMeters { get; }
+
+    /// <summary>What a 單線圖 area label shows; null for every other kind.</summary>
+    public string? Text { get; }
 
     public override string ToString() => Description;
 }

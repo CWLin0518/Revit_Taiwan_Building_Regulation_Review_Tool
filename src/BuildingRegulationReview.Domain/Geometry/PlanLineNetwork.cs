@@ -14,7 +14,11 @@ public enum NetworkRepairKind
     IntersectionSplit,
     EndpointSnapped,
     GapExtended,
-    CollinearMerged
+    CollinearMerged,
+
+    // A wall end that stopped inside a column was carried to where the walls meet. The column
+    // outline itself never becomes a boundary: it only says where such an end may travel.
+    JoinedThroughColumn
 }
 
 // What the repair refused to decide on its own. Errors block region solving and are handed to the

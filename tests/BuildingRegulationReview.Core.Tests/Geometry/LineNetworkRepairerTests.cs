@@ -310,6 +310,89 @@ public class LineNetworkRepairerTests
             second.Repairs.Select(r => (r.Kind, r.DistanceFeet)));
     }
 
+    [Fact]
+    public void CarriesWallsStoppedAtACornerColumnToTheirIntersection()
+    {
+        var network = Succeeds(Repair(new[]
+        {
+            Seg(0, 0, Right - 0.3, 0, "BOTTOM"),
+            Seg(Right, 0.3, Right, Top, "RIGHT"),
+            Seg(Right, Top, 0, Top, "TOP"),
+            Seg(0, Top, 0, 0, "LEFT")
+        }.Concat(Column(Right, 0, 0.3, "C1")).ToArray()));
+
+        Assert.Equal(4, network.Edges.Count);
+        Assert.Equal(1, network.LoopCount);
+        Assert.Contains(network.Nodes, n => n.Position.DistanceTo(new Point2D(Right, 0)) < 1e-9);
+        Assert.All(network.Nodes, n => Assert.Equal(2, network.DegreeOf(n.Id)));
+        Assert.DoesNotContain(network.Edges.SelectMany(e => e.Sources), s => s.Kind == GeometrySourceKind.ColumnOutline);
+        Assert.Equal(2, network.RepairsOfKind(NetworkRepairKind.JoinedThroughColumn).Count());
+    }
+
+    [Fact]
+    public void JoinsAWallRunInterruptedByAColumnIntoOneEdge()
+    {
+        var network = Succeeds(Repair(new[]
+        {
+            Seg(0, 0, 4.7, 0, "BOTTOM-A"),
+            Seg(5.3, 0, Right, 0, "BOTTOM-B"),
+            Seg(Right, 0, Right, Top, "RIGHT"),
+            Seg(Right, Top, 0, Top, "TOP"),
+            Seg(0, Top, 0, 0, "LEFT")
+        }.Concat(Column(5, 0, 0.3, "C1")).ToArray()));
+
+        Assert.Equal(4, network.Edges.Count);
+        var bottom = network.Edges.Single(e => Math.Abs(e.Start.Y) < 1e-9 && Math.Abs(e.End.Y) < 1e-9);
+        Assert.Equal(Right, Math.Abs(bottom.End.X - bottom.Start.X), 9);
+    }
+
+    [Fact]
+    public void MeetsAPartitionAndAnInterruptedWallAtOneJunctionInsideTheColumn()
+    {
+        var network = Succeeds(Repair(new[]
+        {
+            Seg(0, 0, 4.7, 0, "BOTTOM-A"),
+            Seg(5.3, 0, Right, 0, "BOTTOM-B"),
+            Seg(Right, 0, Right, Top, "RIGHT"),
+            Seg(Right, Top, 0, Top, "TOP"),
+            Seg(0, Top, 0, 0, "LEFT"),
+            Seg(5, 0.3, 5, Top, "PARTITION")
+        }.Concat(Column(5, 0, 0.3, "C1")).ToArray()));
+
+        var junction = network.Nodes.Single(n => n.Position.DistanceTo(new Point2D(5, 0)) < 1e-9);
+        Assert.Equal(3, network.DegreeOf(junction.Id));
+        Assert.Equal(7, network.Edges.Count);
+    }
+
+    [Fact]
+    public void CarriesALoneStubThroughTheColumnToTheWallPassingIt()
+    {
+        var network = Succeeds(Repair(Rectangle()
+            .Concat(new[] { Seg(5, 0.3, 5, Top, "PARTITION") })
+            .Concat(Column(5, 0, 0.3, "C1"))
+            .ToArray()));
+
+        var junction = network.Nodes.Single(n => n.Position.DistanceTo(new Point2D(5, 0)) < 1e-9);
+        Assert.Equal(3, network.DegreeOf(junction.Id));
+    }
+
+    [Fact]
+    public void NeverTurnsAColumnOutlineIntoAnEdge()
+    {
+        var network = Succeeds(Repair(Rectangle().Concat(Column(5, 5, 0.3, "FREE")).ToArray()));
+
+        Assert.Equal(4, network.Edges.Count);
+        Assert.Empty(network.RepairsOfKind(NetworkRepairKind.JoinedThroughColumn));
+    }
+
+    [Fact]
+    public void FailsWhenOnlyColumnsWereExtracted()
+    {
+        var result = Repair(Column(5, 5, 0.3, "ONLY").ToArray());
+
+        Assert.True(result.IsFailure);
+    }
+
     private static Segment2D[] Rectangle() => new[]
     {
         Seg(0, 0, Right, 0, "BOTTOM"),
@@ -331,6 +414,20 @@ public class LineNetworkRepairerTests
             new Point2D(x1, y1),
             new Point2D(x2, y2),
             new SourceRef("doc", element, GeometrySourceKind.WallCenterline));
+
+    // A square column outline centred on (x, y), closed the way the extractor adds it.
+    private static Segment2D[] Column(double x, double y, double half, string element)
+    {
+        var source = new SourceRef("doc", element, GeometrySourceKind.ColumnOutline);
+        var corners = new[]
+        {
+            new Point2D(x - half, y - half),
+            new Point2D(x + half, y - half),
+            new Point2D(x + half, y + half),
+            new Point2D(x - half, y + half)
+        };
+        return corners.Select((c, i) => new Segment2D(c, corners[(i + 1) % corners.Length], source)).ToArray();
+    }
 
     private static double Mm(double millimeters) => PlanUnits.MillimetersToFeet(millimeters);
 

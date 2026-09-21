@@ -162,13 +162,6 @@ public sealed class RevitZoneWriteBack
         try
         {
             var existing = Owned(plan, step) as ModelCurve;
-            if (existing is not null)
-            {
-                existing.SetGeometryCurve(curve, false);
-                ManagedElementMark.Write(existing, step.Key, planned.Signature);
-                log.Updated(step, existing.UniqueId);
-                return;
-            }
 
             // One sketch plane for the whole run: SketchPlane.Create makes a new element every call,
             // and a plan with fifty walls has no reason to leave fifty identical planes behind.
@@ -178,7 +171,15 @@ public sealed class RevitZoneWriteBack
             var created = _document.Create.NewAreaBoundaryLine(_sketchPlane, curve, view);
             ManagedElementMark.Write(created, step.Key, planned.Signature);
             Remember(step, created);
-            log.Created(step, created.UniqueId);
+
+            if (existing is null)
+            {
+                log.Created(step, created.UniqueId);
+                return;
+            }
+
+            ReplaceWith(existing);
+            log.Updated(step, created.UniqueId);
         }
         catch (RevitApplicationException exception)
         {
@@ -255,12 +256,16 @@ public sealed class RevitZoneWriteBack
             if (tag is null)
             {
                 var created = _document.Create.NewAreaTag(view, area, new UV(placement.X, placement.Y));
+                // The tag sits on the Area's own placement point, so a leader would only point at
+                // itself; the Area tag type may default to one, so it is switched off explicitly.
+                created.HasLeader = false;
                 ManagedElementMark.Write(created, step.Key, planned.Signature);
                 Remember(step, created);
                 log.Created(step, created.UniqueId);
                 return;
             }
 
+            tag.HasLeader = false;
             tag.TagHeadPosition = new XYZ(placement.X, placement.Y, tag.TagHeadPosition?.Z ?? 0);
             ManagedElementMark.Write(tag, step.Key, planned.Signature);
             Remember(step, tag);
@@ -298,7 +303,13 @@ public sealed class RevitZoneWriteBack
                 return;
             }
 
-            foreach (var step in steps) Copy(plan, step, log, lookup.View);
+            foreach (var step in steps)
+            {
+                if (step.Kind == ManagedElementKind.DetailLabel && step.Change != ApplyChangeKind.Delete)
+                    Label(plan, step, log, lookup.View);
+                else
+                    Copy(plan, step, log, lookup.View);
+            }
 
             if (lookup.Created)
             {
@@ -335,16 +346,74 @@ public sealed class RevitZoneWriteBack
         try
         {
             var existing = Owned(plan, step) as Autodesk.Revit.DB.DetailCurve;
+            var created = _document.Create.NewDetailCurve(view, curve);
+            ManagedElementMark.Write(created, step.Key, planned.Signature);
+            Remember(step, created);
+
             if (existing is not null && existing.OwnerViewId == view.Id)
             {
-                existing.SetGeometryCurve(curve, false);
+                ReplaceWith(existing);
+                log.Updated(step, created.UniqueId);
+                return;
+            }
+
+            log.Created(step, created.UniqueId);
+        }
+        catch (RevitApplicationException exception)
+        {
+            log.Failed(step, exception.Message);
+        }
+    }
+
+    /// <summary>
+    /// Writes one 單線圖 area label: a Text Note centred on the part, in the project's default text
+    /// type, so it reads at whatever scale the user draws the view at.
+    /// </summary>
+    private void Label(ApplyPlan plan, ApplyStep step, ApplyResult.Builder log, ViewDrafting view)
+    {
+        var planned = step.Planned!;
+        if (planned.Placement is null || string.IsNullOrWhiteSpace(planned.Text))
+        {
+            log.Failed(step, "這個單線圖面積標註沒有放置點或文字。");
+            return;
+        }
+
+        var placement = planned.Placement.Value;
+        var position = new XYZ(placement.X, placement.Y, 0.0);
+        // Revit breaks Text Note lines on a carriage return, not a line feed.
+        var text = planned.Text!.Replace("\n", "\r");
+
+        try
+        {
+            var existing = Owned(plan, step) as TextNote;
+            if (existing is not null && existing.OwnerViewId == view.Id)
+            {
+                existing.Coord = position;
+                existing.Text = text;
                 ManagedElementMark.Write(existing, step.Key, planned.Signature);
                 Remember(step, existing);
                 log.Updated(step, existing.UniqueId);
                 return;
             }
 
-            var created = _document.Create.NewDetailCurve(view, curve);
+            var typeId = _document.GetDefaultElementTypeId(ElementTypeGroup.TextNoteType);
+            if (typeId == ElementId.InvalidElementId)
+            {
+                typeId = new FilteredElementCollector(_document).OfClass(typeof(TextNoteType)).FirstElementId();
+            }
+
+            if (typeId == ElementId.InvalidElementId)
+            {
+                log.Failed(step, "這個專案沒有任何文字類型，無法建立單線圖面積標註。");
+                return;
+            }
+
+            var options = new TextNoteOptions(typeId)
+            {
+                HorizontalAlignment = HorizontalTextAlignment.Center,
+                VerticalAlignment = VerticalTextAlignment.Middle
+            };
+            var created = TextNote.Create(_document, view.Id, position, text, options);
             ManagedElementMark.Write(created, step.Key, planned.Signature);
             Remember(step, created);
             log.Created(step, created.UniqueId);
@@ -417,6 +486,14 @@ public sealed class RevitZoneWriteBack
     }
 
     private void Remember(ApplyStep step, Element element) => _written[step.Key] = element.Id;
+
+    /// <summary>
+    /// Retires a line whose replacement has just been drawn. Lines are never moved in place:
+    /// <c>SetGeometryCurve</c> honours the line's end joins, so moving one drags every line joined to
+    /// it, and a ring updated segment by segment is pulled out of shape before the next segment is
+    /// set — the 區劃 ends up nowhere near its draft. A fresh line joins nothing that will move.
+    /// </summary>
+    private void ReplaceWith(Element existing) => _document.Delete(existing.Id);
 
     private Element? Resolve(string? uniqueId) =>
         string.IsNullOrWhiteSpace(uniqueId) ? null : _document.GetElement(uniqueId);

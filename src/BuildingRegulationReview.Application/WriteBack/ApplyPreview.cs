@@ -213,6 +213,22 @@ public sealed class ApplyPreview
         return new ApplyPreview(packageId, items, untouched, Warn(map, zones));
     }
 
+    /// <summary>
+    /// The same comparison with every 不變 row turned into 更新, so the write-back redraws all of
+    /// this package's elements instead of trusting their stored signatures. It exists for a model
+    /// whose elements drifted without their signatures changing — lines dragged by their end joins,
+    /// an Area moved by hand — which a plain apply would call consistent and leave where they are.
+    /// Additions and deletions are untouched, and so is the ownership rule: only rows that already
+    /// name one of this package's elements are rewritten.
+    /// </summary>
+    public ApplyPreview ForRebuild() => new ApplyPreview(
+        PackageId,
+        Items.Select(item => item.Change == ApplyChangeKind.Unchanged
+            ? new ApplyPreviewItem(ApplyChangeKind.Update, item.Key, item.Description, item.ElementUniqueId, item.ZoneName, item.Planned)
+            : item),
+        UntouchedElementCount,
+        Warnings);
+
     private static IEnumerable<string> Warn(PlanRegionMap map, ZoneDraftSet zones)
     {
         foreach (var zone in zones.Zones.Where(z => z.IsEmpty))

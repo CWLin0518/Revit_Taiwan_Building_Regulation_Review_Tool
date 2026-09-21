@@ -18,6 +18,12 @@ namespace BuildingRegulationReview.Application.Geometry;
 /// not have. Nothing is lost: every change is written to the repair log with the geometry it
 /// replaced and the distance it moved, so a finished boundary can always be explained back to the
 /// elements it came from.
+/// <para>
+/// Column outlines are the one input that never becomes an edge. Spec 10.1 reads them 用於判斷遮斷
+/// 與補線: they tell the repair that a wall stopping at a column was cut by it, and the wall is carried
+/// through to where the centrelines meet. The boundary, and so the 單線圖, follows wall centrelines
+/// only.
+/// </para>
 /// </remarks>
 public sealed class LineNetworkRepairer
 {
@@ -82,11 +88,86 @@ public sealed class LineNetworkRepairer
         }
     }
 
+    // One column's plan silhouette, possibly several rings. Containment is even-odd over all of its
+    // segments together, which needs no ring order and treats a hollow column the way it looks.
+    private sealed class ColumnOutline
+    {
+        private readonly IReadOnlyList<Segment2D> _segments;
+        private readonly double _minX;
+        private readonly double _minY;
+        private readonly double _maxX;
+        private readonly double _maxY;
+
+        public ColumnOutline(SourceRef source, IReadOnlyList<Segment2D> segments)
+        {
+            Source = source;
+            _segments = segments;
+            _minX = segments.Min(s => Math.Min(s.Start.X, s.End.X));
+            _minY = segments.Min(s => Math.Min(s.Start.Y, s.End.Y));
+            _maxX = segments.Max(s => Math.Max(s.Start.X, s.End.X));
+            _maxY = segments.Max(s => Math.Max(s.Start.Y, s.End.Y));
+        }
+
+        public SourceRef Source { get; }
+
+        /// <summary>The diagonal of the column's box: no end is carried further than this.</summary>
+        public double ReachFeet => new Point2D(_minX, _minY).DistanceTo(new Point2D(_maxX, _maxY));
+
+        public bool IsNear(Point2D point, double slackFeet) =>
+            point.X >= _minX - slackFeet && point.X <= _maxX + slackFeet &&
+            point.Y >= _minY - slackFeet && point.Y <= _maxY + slackFeet;
+
+        /// <summary>Inside the outline, or on it within <paramref name="slackFeet"/>.</summary>
+        public bool Holds(Point2D point, double slackFeet)
+        {
+            if (!IsNear(point, slackFeet)) return false;
+
+            var inside = false;
+            foreach (var segment in _segments)
+            {
+                if (SegmentGeometry.DistanceToSegment(point, segment.Start, segment.End, out _, out _) <= slackFeet) return true;
+
+                var a = segment.Start;
+                var b = segment.End;
+                if ((a.Y > point.Y) != (b.Y > point.Y) &&
+                    point.X < a.X + ((point.Y - a.Y) * (b.X - a.X) / (b.Y - a.Y)))
+                {
+                    inside = !inside;
+                }
+            }
+
+            return inside;
+        }
+    }
+
+    // A wall end sitting in a column, with the direction the wall was heading when it got there.
+    private readonly struct ColumnEnd
+    {
+        public ColumnEnd(WorkEdge edge, bool atStart)
+        {
+            Edge = edge;
+            AtStart = atStart;
+            Point = atStart ? edge.Start : edge.End;
+            Far = atStart ? edge.End : edge.Start;
+            var length = Far.DistanceTo(Point);
+            DirX = (Point.X - Far.X) / length;
+            DirY = (Point.Y - Far.Y) / length;
+        }
+
+        public WorkEdge Edge { get; }
+        public bool AtStart { get; }
+        public Point2D Point { get; }
+        public Point2D Far { get; }
+        public double DirX { get; }
+        public double DirY { get; }
+    }
+
     private sealed class Run
     {
         private readonly PlanGeometrySnapshot _snapshot;
         private readonly GeometryTolerance _tolerance;
         private readonly List<WorkEdge> _edges;
+        private readonly List<ColumnOutline> _columns;
         private readonly List<NetworkRepair> _repairs = new List<NetworkRepair>();
         private readonly List<NetworkIssue> _issues = new List<NetworkIssue>();
         private readonly List<Point2D> _nodes = new List<Point2D>();
@@ -96,19 +177,181 @@ public sealed class LineNetworkRepairer
         {
             _snapshot = snapshot;
             _tolerance = snapshot.Tolerance;
+
+            // Column outlines never become edges: a 區劃 boundary runs along wall centrelines, and
+            // a column silhouette in the network would put a notch around every column into the
+            // boundary lines and the 單線圖. They are kept aside, grouped per column, only to tell
+            // which wall ends stopped at a column and may be carried through it.
             _edges = snapshot.Segments
+                .Where(s => s.Source.Kind != GeometrySourceKind.ColumnOutline)
                 .Select(s => new WorkEdge(s.Start, s.End, new[] { s.Source }))
+                .ToList();
+            _columns = snapshot.Segments
+                .Where(s => s.Source.Kind == GeometrySourceKind.ColumnOutline)
+                .GroupBy(s => s.Source)
+                .Select(g => new ColumnOutline(g.Key, g.ToList()))
                 .ToList();
         }
 
         public Result<PlanLineNetwork> Execute(DateTime? repairedAtUtc)
         {
+            JoinWallsThroughColumns();
             RemoveDuplicates();
             SplitAtIntersections();
             SnapEndpoints();
             ExtendShortGaps();
             MergeCollinear();
             return Compose(repairedAtUtc);
+        }
+
+        // Step 0: a wall drawn up to a column stops at the column face, so its centreline never
+        // reaches the walls on the other sides. Every end that stops inside a column is carried to
+        // the point where the centrelines meet, which is where the 單線圖 draws the corner. Only
+        // ends inside a column move, and never further than the column reaches: a gap in open floor
+        // is still step 4's to judge.
+        private void JoinWallsThroughColumns()
+        {
+            foreach (var column in _columns)
+            {
+                var ends = new List<ColumnEnd>();
+                foreach (var edge in _edges)
+                {
+                    if (edge.Removed) continue;
+
+                    // A piece lying wholly inside the column has no direction worth following, and
+                    // one passing straight through it is already continuous.
+                    var startInside = column.Holds(edge.Start, _tolerance.SnapFeet);
+                    var endInside = column.Holds(edge.End, _tolerance.SnapFeet);
+                    if (startInside == endInside) continue;
+                    if (edge.LengthFeet <= GeometryTolerance.ZeroLengthFeet) continue;
+
+                    ends.Add(new ColumnEnd(edge, startInside));
+                }
+
+                if (ends.Count == 0 || !TryFindJunction(column, ends, out var junction)) continue;
+
+                foreach (var end in ends) CarryEnd(end, junction, column);
+            }
+        }
+
+        // Where the walls meeting at a column meet each other. The widest-angled pair of ends that
+        // are not collinear decides it, because that pair pins the point down most firmly. A wall
+        // run the column merely interrupts meets in the middle; a lone stub follows its own
+        // direction to the first line crossing the column. Anything else is left for step 4.
+        private bool TryFindJunction(ColumnOutline column, List<ColumnEnd> ends, out Point2D junction)
+        {
+            junction = default;
+            var found = false;
+            var bestSine = Math.Sin(_tolerance.CollinearRadians);
+
+            for (var i = 0; i < ends.Count; i++)
+            {
+                for (var j = i + 1; j < ends.Count; j++)
+                {
+                    var a = ends[i];
+                    var b = ends[j];
+                    var sine = Math.Abs((a.DirX * b.DirY) - (a.DirY * b.DirX));
+                    if (sine <= bestSine) continue;
+
+                    var t = (((b.Point.X - a.Point.X) * b.DirY) - ((b.Point.Y - a.Point.Y) * b.DirX)) /
+                            ((a.DirX * b.DirY) - (a.DirY * b.DirX));
+                    var meeting = new Point2D(a.Point.X + (a.DirX * t), a.Point.Y + (a.DirY * t));
+                    if (!column.IsNear(meeting, _tolerance.SnapFeet)) continue;
+
+                    bestSine = sine;
+                    junction = meeting;
+                    found = true;
+                }
+            }
+
+            if (found) return true;
+
+            if (ends.Count == 2)
+            {
+                // Collinear by now. Only a pair facing each other is one wall broken by the column;
+                // two walls arriving side by side from the same direction share no junction.
+                var first = ends[0];
+                var second = ends[1];
+                if ((first.DirX * second.DirX) + (first.DirY * second.DirY) >= 0) return false;
+
+                junction = new Point2D((first.Point.X + second.Point.X) / 2.0, (first.Point.Y + second.Point.Y) / 2.0);
+                return true;
+            }
+
+            if (ends.Count != 1) return false;
+
+            var lone = ends[0];
+            var reach = column.ReachFeet + _tolerance.SnapFeet;
+            var nearest = double.MaxValue;
+            foreach (var candidate in _edges)
+            {
+                if (candidate.Removed || ReferenceEquals(candidate, lone.Edge)) continue;
+                if (!SegmentGeometry.TryRayHitSegment(lone.Point, lone.DirX, lone.DirY, reach,
+                        candidate.Start, candidate.End, out var distance, out _, out var hit))
+                {
+                    continue;
+                }
+
+                if (distance >= nearest || !column.IsNear(hit, _tolerance.SnapFeet)) continue;
+
+                nearest = distance;
+                junction = hit;
+                found = true;
+            }
+
+            return found;
+        }
+
+        // Moves one end along its own centreline to the junction. A wall whose centreline misses the
+        // junction by more than the snap tolerance stops level with it and gets a short connector
+        // inside the column, so the move stays on the wall's own line and the jog is logged.
+        private void CarryEnd(ColumnEnd end, Point2D junction, ColumnOutline column)
+        {
+            var edge = end.Edge;
+            var point = end.Point;
+            var far = end.Far;
+            var along = ((junction.X - far.X) * end.DirX) + ((junction.Y - far.Y) * end.DirY);
+
+            // Never fold the wall back over itself.
+            if (along <= _tolerance.SnapFeet) return;
+
+            var lateral = Math.Abs(((junction.X - far.X) * -end.DirY) + ((junction.Y - far.Y) * end.DirX));
+            var target = lateral <= _tolerance.SnapFeet
+                ? junction
+                : new Point2D(far.X + (end.DirX * along), far.Y + (end.DirY * along));
+
+            var originalStart = edge.Start;
+            var originalEnd = edge.End;
+            if (end.AtStart) edge.Start = target;
+            else edge.End = target;
+
+            var sources = edge.Sources.Concat(new[] { column.Source }).ToList();
+            var moved = point.DistanceTo(target);
+            if (moved > GeometryTolerance.ZeroLengthFeet)
+            {
+                _repairs.Add(new NetworkRepair(
+                    NetworkRepairKind.JoinedThroughColumn,
+                    originalStart,
+                    originalEnd,
+                    edge.Start,
+                    edge.End,
+                    moved,
+                    sources,
+                    $"端點停在柱內，已沿牆心線延伸 {Mm(moved)} mm 至牆心線交點；柱輪廓不列入區劃邊界。"));
+            }
+
+            if (target.DistanceTo(junction) <= GeometryTolerance.ZeroLengthFeet) return;
+
+            _edges.Add(new WorkEdge(target, junction, sources));
+            _repairs.Add(new NetworkRepair(
+                NetworkRepairKind.JoinedThroughColumn,
+                target,
+                target,
+                target,
+                junction,
+                target.DistanceTo(junction),
+                sources,
+                $"牆心線與交點錯開 {Mm(lateral)} mm，已在柱內補一段連接線。"));
         }
 
         // Step 1: the same wall drawn twice, or a wall and an auxiliary line laid over it. Both are

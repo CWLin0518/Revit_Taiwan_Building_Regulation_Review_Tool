@@ -51,6 +51,17 @@ public static class PlannedElementSignature
             zoneName,
             ForPoint(placement, quantum));
 
+    /// <summary>
+    /// The signature of a 單線圖 area label: the text it shows and where it sits. The text carries the
+    /// net area, so a zone that grows or shrinks updates its label even when the point stays put.
+    /// </summary>
+    public static string ForLabel(string text, Point2D placement, double quantum) =>
+        string.Format(
+            CultureInfo.InvariantCulture,
+            "{0}|{1}",
+            text,
+            ForPoint(placement, quantum));
+
     /// <summary>Rounds a point onto the closure tolerance grid.</summary>
     public static string ForPoint(Point2D point, double quantum)
     {
@@ -73,6 +84,27 @@ public static class PlannedElementSignature
         if (string.IsNullOrEmpty(signature)) return null;
         var index = signature!.IndexOf('|');
         return index < 0 ? null : signature.Substring(0, index);
+    }
+
+    /// <summary>
+    /// Reads the 區劃 name and colour back out of an Area's signature, which is how the Editor
+    /// reopens on the zones an earlier write-back left. Split from the right, because the colour and
+    /// the point never contain the separator but a name typed by the user might.
+    /// </summary>
+    public static bool TryReadArea(string? signature, out string zoneName, out string colorHex)
+    {
+        zoneName = string.Empty;
+        colorHex = string.Empty;
+        if (string.IsNullOrEmpty(signature)) return false;
+
+        var pointAt = signature!.LastIndexOf('|');
+        if (pointAt <= 0) return false;
+        var colorAt = signature.LastIndexOf('|', pointAt - 1);
+        if (colorAt < 0) return false;
+
+        zoneName = signature.Substring(0, colorAt);
+        colorHex = signature.Substring(colorAt + 1, pointAt - colorAt - 1);
+        return zoneName.Trim().Length > 0 && colorHex.Length > 0;
     }
 
     /// <summary>Points a segment one way only, the way <see cref="ZoneWritePlan"/> orders its outline.</summary>

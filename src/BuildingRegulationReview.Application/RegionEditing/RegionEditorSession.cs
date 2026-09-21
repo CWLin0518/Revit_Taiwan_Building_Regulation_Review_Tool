@@ -115,13 +115,23 @@ public sealed class RegionEditorSession
 
     private string _appliedSignature;
 
-    public RegionEditorSession(PlanRegionMap map, ScreenSize canvasSize, IEnumerable<NetworkIssue>? networkIssues = null)
+    /// <param name="initialZones">
+    /// The zones the model already holds for this package, restored by <see cref="WrittenZoneRestorer"/>.
+    /// They open as applied: they are what the last write-back left, so there is nothing to lose yet.
+    /// </param>
+    public RegionEditorSession(
+        PlanRegionMap map,
+        ScreenSize canvasSize,
+        IEnumerable<NetworkIssue>? networkIssues = null,
+        ZoneDraftSet? initialZones = null)
     {
         Map = map ?? throw new ArgumentNullException(nameof(map));
 
         ModelExtent = map.Extent ?? MeasureExtent(map);
         Viewport = EditorViewport.FitTo(ModelExtent, canvasSize);
-        Zones = ZoneDraftSet.Empty;
+        Zones = initialZones ?? ZoneDraftSet.Empty;
+        if (Zones.AssignedFaceIds.Any(id => id >= map.Faces.Count))
+            throw new ArgumentException("The initial zones refer to faces this map does not have.", nameof(initialZones));
         _appliedSignature = Zones.Signature();
 
         _issues = (networkIssues ?? Array.Empty<NetworkIssue>())

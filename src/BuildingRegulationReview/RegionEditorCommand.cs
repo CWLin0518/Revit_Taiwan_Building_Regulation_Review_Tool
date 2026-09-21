@@ -224,7 +224,37 @@ namespace BuildingRegulationReview
                 TaskDialog.Show(DialogTitle, warning);
             }
 
-            return new RegionEditorSession(map.Value, new ScreenSize(1024, 720), network.Value.Issues);
+            var restored = RestoreWrittenZones(document, choice, map.Value);
+            return new RegionEditorSession(map.Value, new ScreenSize(1024, 720), network.Value.Issues, restored);
+        }
+
+        /// <summary>
+        /// The zones an earlier write-back left in the Area Plan, put back onto the freshly solved
+        /// faces, so reopening the Editor edits what is there instead of starting over. A model the
+        /// tool has not written to yet gives an empty set, which is what a first run should see.
+        /// </summary>
+        private static Domain.Regions.ZoneDraftSet RestoreWrittenZones(Document document, PackageChoice choice, PlanRegionMap map)
+        {
+            ZoneRestoration restoration;
+            try
+            {
+                var written = new RevitWrittenZoneReader(document).Read(choice.PackageId, choice.AreaPlanUniqueId);
+                restoration = WrittenZoneRestorer.Restore(map, written);
+            }
+            catch (Exception exception)
+            {
+                // Losing the restore costs the user their earlier zones on the canvas, not the model:
+                // what is written stays written, and the preview will still show it.
+                TaskDialog.Show(DialogTitle, "無法讀取已建立的區劃，編輯器將以空白草稿開啟：" + exception.Message);
+                return null;
+            }
+
+            if (restoration.Warnings.Count > 0)
+            {
+                TaskDialog.Show(DialogTitle, string.Join(Environment.NewLine, restoration.Warnings));
+            }
+
+            return restoration.Zones;
         }
 
         /// <summary>

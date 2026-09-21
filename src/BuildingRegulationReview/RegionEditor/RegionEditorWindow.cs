@@ -354,8 +354,11 @@ namespace BuildingRegulationReview.RegionEditor
             // Everything, the 單線圖 copies included: the host's write-back reaches the Drafting View
             // too now, so nothing the preview lists is deferred.
             var plan = ApplyPlan.Build(preview, ApplyPlan.AllKinds);
+            // The same comparison with nothing trusted as unchanged, offered for a model whose
+            // elements drifted while their signatures stayed put.
+            var rebuildPlan = ApplyPlan.Build(preview.ForRebuild(), ApplyPlan.AllKinds);
 
-            var decision = RegionEditorPreviewWindow.Show(this, preview, plan, RequestApply != null);
+            var decision = RegionEditorPreviewWindow.Show(this, preview, plan, rebuildPlan, RequestApply != null);
             if (decision == null)
             {
                 Report(preview.Summary);
@@ -364,7 +367,7 @@ namespace BuildingRegulationReview.RegionEditor
 
             _applying = true;
             Report("正在寫回模型……");
-            RequestApply(plan, decision.Policy);
+            RequestApply(decision.Plan, decision.Policy);
         }
 
         private void WarnAboutUnappliedChanges(object sender, System.ComponentModel.CancelEventArgs e)

@@ -33,7 +33,7 @@ public class ApplyPlanTests
         var plan = ApplyPlan.Build(preview);
 
         Assert.True(plan.IsEmpty);
-        Assert.Equal(10, plan.UnchangedCount);
+        Assert.Equal(11, plan.UnchangedCount);
         Assert.Equal("沒有需要寫入模型的變更。", plan.Summary);
     }
 
@@ -56,8 +56,10 @@ public class ApplyPlanTests
         var plan = ApplyPlan.Build(Preview());
 
         Assert.All(plan.Steps, s => Assert.NotEqual(ManagedElementKind.DetailCurve, s.Kind));
-        Assert.Equal(4, plan.Deferred.Count);
-        Assert.All(plan.Deferred, item => Assert.Equal(ManagedElementKind.DetailCurve, item.Kind));
+        Assert.All(plan.Steps, s => Assert.NotEqual(ManagedElementKind.DetailLabel, s.Kind));
+        Assert.Equal(5, plan.Deferred.Count);
+        Assert.Equal(4, plan.Deferred.Count(item => item.Kind == ManagedElementKind.DetailCurve));
+        Assert.Single(plan.Deferred, item => item.Kind == ManagedElementKind.DetailLabel);
         Assert.Contains(plan.DeferredNotes, note => note.Contains("單線圖細部線 4 個尚未寫入", StringComparison.Ordinal));
     }
 
@@ -67,8 +69,9 @@ public class ApplyPlanTests
         var plan = ApplyPlan.Build(Preview(), ApplyPlan.AllKinds);
 
         Assert.Empty(plan.Deferred);
-        Assert.Equal(4, plan.StepsOf(ApplyStage.DetailCurves).Count);
-        Assert.All(plan.StepsOf(ApplyStage.DetailCurves), s => Assert.Equal(ManagedElementKind.DetailCurve, s.Kind));
+        Assert.Equal(5, plan.StepsOf(ApplyStage.DetailCurves).Count);
+        Assert.Equal(4, plan.StepsOf(ApplyStage.DetailCurves).Count(s => s.Kind == ManagedElementKind.DetailCurve));
+        Assert.Single(plan.StepsOf(ApplyStage.DetailCurves), s => s.Kind == ManagedElementKind.DetailLabel);
     }
 
     [Fact]
@@ -246,6 +249,45 @@ public class ApplyPlanTests
         Assert.Equal(0, plan.CountOf(ApplyChangeKind.Delete));
         Assert.Equal(1, plan.UntouchedElementCount);
         Assert.Contains("未受管理 1 個不會被更動", plan.Summary, StringComparison.Ordinal);
+    }
+
+    // ---- rebuild everything --------------------------------------------------------------------
+
+    [Fact]
+    public void ARebuildRewritesEveryElementAModelInAgreementAlreadyHas()
+    {
+        var (map, zones) = OneRoom();
+        var preview = ApplyPreview.Build(PackageId, map, zones, AsWritten(map, zones));
+        Assert.True(preview.IsEmpty);
+
+        var rebuild = preview.ForRebuild();
+        var plan = ApplyPlan.Build(rebuild, ApplyPlan.AllKinds);
+
+        Assert.Empty(rebuild.Unchanged);
+        Assert.Equal(11, rebuild.Updated.Count);
+        Assert.Equal(11, plan.CountOf(ApplyChangeKind.Update));
+        Assert.Equal(0, plan.UnchangedCount);
+        Assert.All(plan.Steps, s => Assert.False(string.IsNullOrWhiteSpace(s.ElementUniqueId)));
+        Assert.All(plan.Steps, s => Assert.NotNull(s.Planned));
+    }
+
+    [Fact]
+    public void ARebuildLeavesAdditionsDeletionsAndForeignElementsAsTheyWere()
+    {
+        var foreign = new ExistingManagedElement("other-1", "BCR/" + Guid.NewGuid().ToString("N") + "/" +
+            Guid.NewGuid().ToString("N") + "/area/0/0", "sig");
+        var preview = MixedPreview();
+        var withForeign = ApplyPreview.Build(PackageId, Solve(Rectangle(0, 0, 20, 10, "OUTER")
+            .Concat(new[] { Seg(10, 0, 10, 10, "DIVIDER") })), ZoneDraftSet.Empty, new[] { foreign });
+
+        var rebuild = preview.ForRebuild();
+
+        Assert.Equal(preview.Added.Count, rebuild.Added.Count);
+        Assert.Equal(preview.Deleted.Count, rebuild.Deleted.Count);
+        Assert.Equal(preview.Updated.Count + preview.Unchanged.Count, rebuild.Updated.Count);
+        Assert.Equal(preview.Deleted.Select(i => i.ElementUniqueId), rebuild.Deleted.Select(i => i.ElementUniqueId));
+        Assert.Equal(1, withForeign.ForRebuild().UntouchedElementCount);
+        Assert.True(withForeign.ForRebuild().IsEmpty);
     }
 
     // ---- helpers ------------------------------------------------------------------------------
