@@ -1,52 +1,52 @@
 # Agent Handoff
 - Phase: P3
-- Completed Task: P3-T06
-- Next Task: P3-T07
+- Completed Task: P3-T07
+- Next Task: P3-T08
 - Status: READY_FOR_NEW_SESSION
-- Commit: ef67dd3（feat）；SHA 由後續 docs commit 記錄
+- Commit: （feat commit，SHA 由後續 docs commit 記錄）
 - Spec Version: Draft v1.1 (`docs/fire-review-spec.md`)
-- 任務文件：`docs/agent/p3-t06-opening-protection.md`（判定流程表、證據欄位、門／窗／幕牆統計、設計決策都在這裡）
+- 任務文件：`docs/agent/p3-t07-result-persistence.md`（失效規則表、人工覆寫流程、schema GUID、設計決策）
 - P2 實機驗收仍有兩項「未回報」（見 `phase-2-acceptance.md`），使用者選擇先進行 P3。
 
 ## Completed
-- Application `Checks`：`FireProtectionParameters`（`BCR_ProvidedFireProtection`）、`ProvidedFireProtection`（Yes／No／Missing／Unreadable，`FromBoolean`／`FromInteger`）、
-  `FireProtectionText.Parse`（只接受明確是非字，全形、大小寫不拘）、`OpeningFireProtection`（Instance／Type scope）、`OpeningProtectionInputs`（Instance 優先於 Type）、
-  `OpeningProtectionCheck.Review(...)` → `OpeningProtectionReview`（`OpeningProtectionFinding` 含 `RequiresProtection`、`OpeningGroupSummary` 門／窗／幕牆三列、`Warnings`）、
-  `ReviewCheckTypes.OpeningProtection`。
-- 彙總狀態規則抽成 internal `ReviewStatusSeverity.Worst`，`TypeRatingSummary` 共用（行為不變）。
+- Domain：`ReviewBaseline`（元素證據指紋）、`ReviewOverride`＋`ReviewOverrideStanding`（稽核紀錄）；`ReviewRun` 新增 Baseline／Overrides／EffectiveStatus，schema 1.1。
+- Application `Reviews`：`ReviewEnvironment`、`ReviewBaselineBuilder`（SHA-256，微米四捨五入）、`ReviewBaselineKeys`、
+  `ReviewRunValidity`（Evaluate／WithOverridesSuspended／ApplyTo／Explain）、`ReviewOverrides`（Apply／Reconfirm／Withdraw／CarryOver）、
+  `IReviewRunRepository`＋`GetLatest`；storage record／mapper 可讀 1.0 與 1.1。
+- Revit：`RevitReviewRunRepository`（每個 run 一個 DataStorage，四個 sub-schema，所有欄位各自獨立）。
+- 診斷：`ReviewStage.Review`；`BCR-OVR-001`、`BCR-OVR-002`、`BCR-RUN-001`。
 
 ## Changed Files
-- `src/BuildingRegulationReview.Application/Checks/ProvidedFireProtection.cs`、`OpeningProtectionInputs.cs`、`OpeningProtectionCheck.cs`、`ReviewStatusSeverity.cs`（新增）
-- `src/BuildingRegulationReview.Application/Checks/FireResistanceCheck.cs`（改用 `ReviewStatusSeverity`）、`CompartmentAreaCheck.cs`（check type 常數）
-- `tests/BuildingRegulationReview.Core.Tests/Checks/OpeningProtectionCheckTests.cs`（新增）
-- `docs/agent/p3-t06-opening-protection.md`（新增）、`docs/agent/phase-state.yaml`、`docs/agent/HANDOFF.md`
+- `src/BuildingRegulationReview.Domain/Reviews/ReviewBaseline.cs`、`ReviewOverride.cs`（新增）、`ReviewRun.cs`
+- `src/BuildingRegulationReview.Application/Reviews/ReviewBaselineBuilder.cs`、`ReviewRunValidity.cs`、`ReviewOverrides.cs`、`IReviewRunRepository.cs`（新增）、`ReviewRunStorageRecord.cs`
+- `src/BuildingRegulationReview.Application/Diagnostics/ReviewErrorCode.cs`、`ReviewLogEntry.cs`
+- `src/BuildingRegulationReview.Revit/Reviews/RevitReviewRunRepository.cs`（新增）
+- `tests/BuildingRegulationReview.Core.Tests/Reviews/ReviewRunValidityTests.cs`（新增）
+- `docs/agent/p3-t07-result-persistence.md`（新增）、`docs/agent/phase-state.yaml`、`docs/agent/HANDOFF.md`
 
 ## Decisions and Assumptions
-- 結果粒度為「開口 × 區劃」；是否需要防火保護完全由規則決定（邊界上的小窗可為 NotApplicable），不在檢查裡寫死。
-- 是 → Pass、否 → Fail、未設定 → InsufficientData（`BCR-PARAM-001`）、無法判讀 → InsufficientData（`BCR-PARAM-003`）、不適用 → NotApplicable 並保存適用條件欄位與候選關係。
-- 幕牆嵌板、帷幕牆上的門窗、非 Hosted、Host 未解析、link、無位置 → ManualReview（MVP 政策，不讀設計值）。
-- 防火門等級（甲種）、時效字樣（F60）不當作「是」，視為無法判讀。
-- 統計分組：帷幕嵌板與 Host 為帷幕牆者 → 幕牆；空組狀態 NotRun。
+- 證據存指紋而不是原始值；結果的 evidence 已經保存可追溯的數值。
+- 結果的相依 key 是它的 subjects 加上 `zone:<ZoneId>`；規則版本、環境、邊界版次、run 未完成或沒有證據時，全部結果失效。
+- 新增元素會讓 run 變成 Stale，但沒有具體結果可以失效。
+- 覆寫只增不改；只有 Active 覆寫會影響 EffectiveStatus。模型或規則變更後改為 NeedsReconfirmation；新 run 用 CarryOver 依結果 key 配對，只有規則版本、指紋與計算狀態都相同時才沿用。
+- `ReviewResult.reviewedBy/At` 不由覆寫流程寫入。舊 run 不自動刪除。
 
 ## Verification Results
-- Solution build 與外掛 csproj `-t:Rebuild`：各 0 warnings、0 errors。
-- Core tests：**857/857 通過**（前 809，新增 48）：是／否／未設定／無法判讀、不適用與適用性證據（小窗、內部開口、building 輸入）、共用牆、
-  Instance／Type 來源、固定模型的 MVP 政策歧義（11 筆結果與順序）、帷幕牆門、link、區劃問題、無區劃、無規則、缺資料不為 Pass／Fail、
-  門／窗／幕牆統計、可重現與 `ReviewRun` 儲存來回、有效 fixture 端到端、是非文字解析。
+- Solution `-t:Rebuild` 與外掛 csproj `-t:Rebuild`：各 0 warnings、0 errors。
+- Core tests：**889/889 通過**（前 857，新增 32）。
+- 未實機驗證：Revit Extensible Storage 的實際存檔、重開與讀回，要在 P3-T09 接上指令後驗證。
 
 ## Known Issues / Risks
-- 沒有 Revit adapter 讀門窗防火屬性，也沒有讀 Type 防火時效的 adapter；三個 Check 都未接指令／UI，未實機執行（P3-T09 整合）。
-- spec 19 第 2、4、5、6 項（條文、Shared Parameter GUID、時效型態、區劃輸入來源）未定；防火門等級等要求沒有白名單欄位。
+- `ReviewEnvironment` 事實（Phase、Design Option、單位）與門窗／Type 參數的 Revit reader 尚未實作；三個 Check 都還沒接指令或 UI（P3-T09）。
+- spec 19 第 2、4、5、6、7 項未定。
 - `phase-2-acceptance.md` 的未提交修改、`bin/`、`obj/`、`.gitignore`、`.gtoffice/` 不屬於本 Task，刻意不提交。
 
 ## Exact Next Steps
-1. 讀 spec 11.3、11.8、13、14、18，以及本文件、`p3-t01-rule-and-result-schema.md`（`ReviewRun`、`ReviewRunStorageMapper`）、
-   P1-T03（`p1-t03-review-package-persistence.md`，DataStorage 持久化模式）。
-2. 執行 P3-T07：結果持久化與失效——Run ID、規則版本、元素證據、模型變更 Stale、人工覆寫稽核（原因、操作者、時間、原始／覆寫結果；
-   模型或規則版本變更後覆寫改為需重新確認）。
-3. Exit：重開模型可讀；模型／規則變更能使結果失效。
+1. 讀 spec 11.4 第 4 點、11.5 第 6–7 點、11.6 第 4 點、11.7、13.2，以及本文件、`p3-t04`～`p3-t07` 任務文件、P2 的 `ManagedElementMark`／`RevitManagedElementInventory`（受管理元素標記模式）。
+2. 執行 P3-T08：視圖標示與檢討表——專用檢討 View、紅色 Filled Region（含 Package ID／Run ID／Zone ID）、By Element Override（保存原視圖狀態與覆寫元素集合）、定位、條文與統計；檢討表的六態彙總用 `ReviewRun.EffectiveStatus`。
+3. Exit：只更新目前 Run 管理的元素，六態彙總規則正確。
 
 ## Do Not Do
-- 不做 P3-T08 以後的工作（視圖標示、Filled Region、Override、檢討表 UI）。
-- 不寫任何 Revit 設計參數；不在規則引擎加入任意程式碼執行或函式呼叫語法。
+- 不做 P3-T09（指令／UI 整合、前置檢查串接、取消／Rollback、實機驗收），也不開始 Phase 4。
+- 不寫任何 Revit 設計參數；不在規則引擎加入任意程式碼執行。
 - Revit／WPF 型別不得進 Domain／Application；不 push、不 amend、不 `git add .`。

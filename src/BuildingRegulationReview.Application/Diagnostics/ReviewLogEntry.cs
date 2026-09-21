@@ -105,6 +105,7 @@ public sealed class ReviewLogEntry
         ReviewStage.Preview => "套用前預覽",
         ReviewStage.WriteBack => "寫回模型",
         ReviewStage.Status => "狀態更新",
+        ReviewStage.Review => "開始檢討",
         _ => throw new ArgumentOutOfRangeException(nameof(stage))
     };
 

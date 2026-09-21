@@ -27,7 +27,10 @@ public enum ReviewStage
     WriteBack,
 
     /// <summary>Advancing or invalidating the package's own state (spec 13).</summary>
-    Status
+    Status,
+
+    /// <summary>Running, storing, invalidating and overriding the review itself (spec 11).</summary>
+    Review
 }
 
 /// <summary>How much the entry matters. Only <see cref="Error"/> stops a package advancing.</summary>
@@ -95,6 +98,11 @@ public static class ReviewErrorCode
     // 構件防火時效（spec 11.5 第 5 點：複合構造無法判定）
     public const string FireRatingUndetermined = "BCR-RATE-001";
 
+    // 人工覆寫（spec 11.8）
+    public const string OverrideRejected = "BCR-OVR-001";
+    public const string OverrideNeedsReconfirmation = "BCR-OVR-002";
+    public const string ReviewRunUnreadable = "BCR-RUN-001";
+
     private static readonly IReadOnlyDictionary<string, string> Descriptions =
         new ReadOnlyDictionary<string, string>(new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -129,7 +137,10 @@ public static class ReviewErrorCode
             { StatusStale, "結果已失效" },
             { StatusBlocked, "尚不得進入 Ready" },
             { StatusAdvanced, "套件狀態已更新" },
-            { FireRatingUndetermined, "複合構造無法判定防火時效" }
+            { FireRatingUndetermined, "複合構造無法判定防火時效" },
+            { OverrideRejected, "人工覆寫不成立" },
+            { OverrideNeedsReconfirmation, "人工覆寫需重新確認" },
+            { ReviewRunUnreadable, "檢討紀錄無法讀取" }
         });
 
     /// <summary>Every code this tool can emit, for the documentation and for the tests that pin it.</summary>
