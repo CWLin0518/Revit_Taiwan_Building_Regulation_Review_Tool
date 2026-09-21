@@ -3,7 +3,7 @@
 - Completed Task: P3-T07
 - Next Task: P3-T08
 - Status: READY_FOR_NEW_SESSION
-- Commit: （feat commit，SHA 由後續 docs commit 記錄）
+- Commit: f03d428（feat）；SHA 由本 docs commit 記錄
 - Spec Version: Draft v1.1 (`docs/fire-review-spec.md`)
 - 任務文件：`docs/agent/p3-t07-result-persistence.md`（失效規則表、人工覆寫流程、schema GUID、設計決策）
 - P2 實機驗收仍有兩項「未回報」（見 `phase-2-acceptance.md`），使用者選擇先進行 P3。
