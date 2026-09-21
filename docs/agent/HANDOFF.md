@@ -3,7 +3,7 @@
 - Completed Task: P3-T03
 - Next Task: P3-T04
 - Status: READY_FOR_NEW_SESSION
-- Commit: （feat）；SHA 由後續 docs commit 記錄
+- Commit: 440afcf（feat）；SHA 由後續 docs commit 記錄
 - Spec Version: Draft v1.1 (`docs/fire-review-spec.md`)
 - 任務文件：`docs/agent/p3-t03-spatial-candidates.md`（判定規則表、可重現性、設計決策都在這裡）
 - P2 實機驗收仍有兩項「未回報」（見 `phase-2-acceptance.md`），使用者選擇先進行 P3。
