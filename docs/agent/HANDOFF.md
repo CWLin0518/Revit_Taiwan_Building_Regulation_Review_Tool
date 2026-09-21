@@ -3,7 +3,7 @@
 - Completed Task: P3-T05
 - Next Task: P3-T06
 - Status: READY_FOR_NEW_SESSION
-- Commit: （feat commit，SHA 由後續 docs commit 記錄）
+- Commit: 6a30af3（feat）；SHA 由後續 docs commit 記錄
 - Spec Version: Draft v1.1 (`docs/fire-review-spec.md`)
 - 任務文件：`docs/agent/p3-t05-fire-resistance.md`（判定流程表、證據欄位、Type 彙總、設計決策都在這裡）
 - P2 實機驗收仍有兩項「未回報」（見 `phase-2-acceptance.md`），使用者選擇先進行 P3。
