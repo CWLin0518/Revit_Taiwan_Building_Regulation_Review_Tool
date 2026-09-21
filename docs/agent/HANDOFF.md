@@ -1,75 +1,89 @@
 # Agent Handoff
 - Phase: P2
-- Completed Task: P2-T05
-- Next Task: P2-T06
-- Status: READY_FOR_NEW_SESSION
-- Commit: eef9f9b
+- Completed Task: P2-T09（Phase 2 最後一個任務）
+- Next Task: PHASE_COMPLETE — **不得開始 Phase 3**，需先在 Revit 中補完實機驗收
+- Status: PHASE_COMPLETE_PENDING_REVIT_ACCEPTANCE
 - Spec Version: Draft v1.1 (`docs/fire-review-spec.md`)
+- 驗收對照：`docs/agent/phase-2-acceptance.md`
+- 任務文件：`docs/agent/p2-t09-phase-2-integration.md`
 
 ## Completed
-- `ZoneColor` / `ZoneColorPalette` (Domain): a plain RGB value plus ten categorical colours handed out in order, so a zone colour travels from the Editor to the Area Color Scheme in P2-T08 without WPF or Revit owning the type.
-- `ZoneDraft` / `ZoneDraftSet` (Domain): the 區劃 drafts of one package, immutable, holding spec 10.3's rule that a solved face belongs to one zone at a time. `Assign` moves a face out of the zone that held it and reports the move; names are unique ignoring case.
-- `EditorViewport` (Application): model feet (Y up) to screen pixels (Y down), immutable. `ZoomAt` pins the model point under the cursor, `FitTo` frames the plan with padding, zoom limits clamp instead of failing.
-- `RegionEditorView` (Application): one redraw's worth of screen-space data — faces with rings and fill, zone labels with draft area, holes and contiguous part count, repair and solve issues merged into one list, and the summary line.
-- `RegionEditorSession` (Application): the Editor itself. Left click adds the face under the cursor to the active zone, right click takes it out, rubber band and Ctrl-click select, zones are created, renamed, recoloured and deleted, and every face traces back to its source elements. Every operation returns a `Result` whose message is what the status bar shows.
-- WPF shell (`src/BuildingRegulationReview/RegionEditor/`): canvas, window, name prompt, colour picker and package picker, all code-behind in the project's existing style.
-- `RegionEditorCommand` + ribbon button: extraction, repair and solving, read-only, then the Editor. Source elements are selected back in Revit through an `ExternalEvent`.
+- `ReviewErrorCode` / `ReviewLogEntry` / `ReviewLog`（Application `Diagnostics`，全新）：spec 14 要求的
+  八個欄位（錯誤碼、階段、Package ID、元素 UniqueId、使用者訊息、技術細節、處理建議、時間）、依
+  spec 14「重要錯誤類型」分組的錯誤碼目錄，以及 UI 訊息與本機日誌的分流。技術細節在建構當下就把
+  Windows／UNC／POSIX 路徑換成「（已隱藏路徑）檔名」。
+- `ReviewPackageProgress`（Application `ReviewPackages`，全新）：寫回結束後唯一決定套件狀態的地方，
+  也是 spec 10.6 第 3 項「面積差異超過容許值禁止進入 Ready」的執行點。
+- `ReviewStaleness` + `ReviewModelObservation` + `StalenessVerdict`（全新）：spec 13.1 的失效判斷。
+  刻意不存指紋——視圖靠 UniqueId 找，邊界與面積帶著寫入時的簽章，而簽章是用容差量化出來的。
+- `ReviewRunReport`（全新）：把「寫回做了什麼」「套件變成什麼」「日誌」收成一個值，就是 P2-T09 要
+  的那道接縫。
+- `AreaAgreement`：新增 `AreaAgreementKind` / `AreaAgreementFinding`（帶 `ManagedElementKey`，所以
+  Package ID 與 Zone ID 跟著判決走）/ `Compare(...)`；`Describe(...)` 保留並委派。
+- `ApplyResult`：新增 `AreaFindings` / `AreaDisagreements` / `Builder.Area(...)`；復原時丟棄。
+- `PlannedElementSignature`（全新）：簽章拼法獨立出來，`ZoneWritePlan` 與 Revit 端失效探測共用。
+- `ReviewPackage.WithProgress` / `WithNextBoundaryRevision`（Domain）。**儲存欄位集合未變動**。
+- `RevitReviewStalenessProbe`（Revit，全新）：唯讀，重算簽章比對邊界線與細部線，面積比對名稱。
+- `RegionEditorCommand`：改 `TransactionMode.Manual`；開窗前 `CheckForStaleResults` 並存下狀態；
+  寫回後重讀套件、組報告、存回狀態。
+- `RegionEditorWindow.ReportApplied(ReviewRunReport)`；結果視窗顯示狀態與阻擋原因，日誌改寫
+  `ReviewLog.ToText()`。
 
 ## Changed Files
-- `src/BuildingRegulationReview.Domain/Regions/ZoneColor.cs`
-- `src/BuildingRegulationReview.Domain/Regions/ZoneDraft.cs`
-- `src/BuildingRegulationReview.Domain/Regions/ZoneDraftSet.cs`
-- `src/BuildingRegulationReview.Application/RegionEditing/EditorViewport.cs`
-- `src/BuildingRegulationReview.Application/RegionEditing/RegionEditorView.cs`
-- `src/BuildingRegulationReview.Application/RegionEditing/RegionEditorSession.cs`
-- `src/BuildingRegulationReview/RegionEditor/RegionEditorCanvas.cs`
-- `src/BuildingRegulationReview/RegionEditor/RegionEditorWindow.cs`
-- `src/BuildingRegulationReview/RegionEditor/RegionEditorDialogs.cs`
+- `src/BuildingRegulationReview.Application/Diagnostics/ReviewErrorCode.cs`（新增）
+- `src/BuildingRegulationReview.Application/Diagnostics/ReviewLogEntry.cs`（新增）
+- `src/BuildingRegulationReview.Application/Diagnostics/ReviewLog.cs`（新增）
+- `src/BuildingRegulationReview.Application/ReviewPackages/ReviewPackageProgress.cs`（新增）
+- `src/BuildingRegulationReview.Application/ReviewPackages/ReviewStaleness.cs`（新增）
+- `src/BuildingRegulationReview.Application/ReviewPackages/ReviewRunReport.cs`（新增）
+- `src/BuildingRegulationReview.Application/WriteBack/PlannedElementSignature.cs`（新增）
+- `src/BuildingRegulationReview.Application/WriteBack/AreaAgreement.cs`
+- `src/BuildingRegulationReview.Application/WriteBack/ApplyResult.cs`
+- `src/BuildingRegulationReview.Application/WriteBack/ZoneWritePlan.cs`
+- `src/BuildingRegulationReview.Domain/ReviewPackages/ReviewPackage.cs`
+- `src/BuildingRegulationReview.Revit/ReviewPackages/RevitReviewStalenessProbe.cs`（新增）
+- `src/BuildingRegulationReview.Revit/WriteBack/RevitZoneWriteBack.cs`
 - `src/BuildingRegulationReview/RegionEditorCommand.cs`
-- `src/BuildingRegulationReview/App.cs`
-- `tests/BuildingRegulationReview.Core.Tests/Regions/ZoneDraftSetTests.cs`
-- `tests/BuildingRegulationReview.Core.Tests/RegionEditing/EditorViewportTests.cs`
-- `tests/BuildingRegulationReview.Core.Tests/RegionEditing/RegionEditorSessionTests.cs`
-- `docs/agent/p2-t05-region-editor.md`
+- `src/BuildingRegulationReview/RegionEditor/RegionEditorWindow.cs`
+- `src/BuildingRegulationReview/RegionEditor/RegionEditorApplyResultWindow.cs`
+- `tests/BuildingRegulationReview.Core.Tests/Diagnostics/ReviewLogTests.cs`（新增）
+- `tests/BuildingRegulationReview.Core.Tests/ReviewPackages/ReviewPackageProgressTests.cs`（新增）
+- `tests/BuildingRegulationReview.Core.Tests/ReviewPackages/ReviewStalenessTests.cs`（新增）
+- `tests/BuildingRegulationReview.Core.Tests/WriteBack/PhaseTwoAcceptanceTests.cs`（新增）
+- `tests/BuildingRegulationReview.Core.Tests/WriteBack/PlannedElementSignatureTests.cs`（新增）
+- `tests/BuildingRegulationReview.Core.Tests/WriteBack/ApplyResultTests.cs`
+- `tests/BuildingRegulationReview.Core.Tests/ReviewPackages/ReviewPackageTests.cs`
+- `docs/agent/p2-t09-phase-2-integration.md`（新增）
+- `docs/agent/phase-2-acceptance.md`（新增）
 - `docs/agent/phase-state.yaml`
 - `docs/agent/HANDOFF.md`
 
 ## Decisions and Assumptions
-- Every interaction rule lives in the Application layer. The session decides what a gesture means and the view decides what appears; WPF only draws and forwards events. That is what lets the whole exit criteria be asserted by tests with no window open.
-- Unique ownership is enforced by moving and reporting, not by refusing. Refusing would make the user walk back to the old zone first; moving silently would make a zone lose a face for no visible reason.
-- Drafts are immutable values. P2-T06 can keep past `ZoneDraftSet` values for Undo/Redo without inverse operations. Zoom, pan and selection are deliberately outside that history because they do not edit the draft.
-- Rubber band selection is crossing-style with three cheap rules: the band holds the representative point, holds a boundary vertex, or lies inside the face. The third makes a small band inside a large room still pick that room.
-- Left click adds (spec 10.3), Ctrl+left click toggles selection, dragging is always a band, right click removes, and panning is middle-drag or Alt+drag — right click already has a meaning.
-- Repair issues and solve issues are shown as one list, errors first: to the reviewer both answer the same question, and both carry source elements.
-- The launch command runs the full pipeline read-only. Without it the manual checklist could not be run at all; write-back stays in P2-T07.
-- Zone names are unique ignoring case, because a name reaches the Area parameters where duplicates cannot be told apart. Traceability still rides on Package ID and Zone ID.
+- 面積不符擋 Ready，色彩人工處理項不擋：spec 10.6 問的是邊界圍出來的東西對不對，色彩是外觀。
+  寫入失敗會擋，因為草稿確實還沒進模型。
+- 「什麼都沒做」的那一次不動狀態：模型本來就與草稿一致時沒有任何 Area 被重新量測，這一輪沒有學到
+  任何事，升級成 Ready 等於做了沒人做過的宣稱。
+- 邊界改了就把 `Reviewed`／`Documented` 打回 Ready／BoundaryDraft（spec 13.1）。
+- 失效判斷不存指紋，理由見 `phase-2-acceptance.md`；容差變更走「簽章不同」同一條路徑。
+- 日誌是值不是 logger：之後要加檔案寫入或 Revit journal 都不必動到各階段。
+- `RegionEditorCommand` 從 ReadOnly 改成 Manual，只為了存狀態那一筆寫入。
 
 ## Verification Results
-- Solution build: 0 warnings, 0 errors. The Revit add-in project (`src/BuildingRegulationReview/`) is not in the .sln and was rebuilt separately: 0 warnings, 0 errors.
-- Core tests: 247/247 passed (160 before this task; 87 added — `ZoneDraftSetTests` 27, `EditorViewportTests` 18, `RegionEditorSessionTests` 42).
-- Covered by tests: face and hole drawing, fills and selection state, zone labels with draft area, hole count and disjoint parts, the summary line, zoom around the cursor, fit and zoom-to-zone, resize, click and band selection in replace / add / toggle modes, all left- and right-click outcomes including the no-active-zone, nothing-here, already-in-zone and not-assigned messages, automatic zone naming and colouring, duplicate names, rename, recolour, delete with the list position kept, and source element lookup.
-- Headless run against the built DLLs (`scratchpad/headless-editor.ps1`, four rooms with an island and a stub wall): 5 faces, 5 adjacencies, 1 issue; the full click sequence produced the expected Chinese messages and error codes, and the summary reported 222.97 m² assigned — exactly the whole 60x40 ft plan, so hole subtraction and the island face do not double count.
-- The WPF window could not be rendered locally: `MS.Internal.FontCache.Util` fails to initialize in this environment (`UriFormatException`), so no `System.Windows.Window` can be constructed at all. The window layer is covered by the manual checklist in `docs/agent/p2-t05-region-editor.md` instead.
+- Solution build 與 add-in `-t:Rebuild`：各 0 warnings、0 errors。
+- Core tests：**494/494 通過**（P2-T09 前 391，新增 103）。
+- 無頭腳本 `headless-t09.ps1`：**30/30 通過**，跑的是 add-in 實際載入的 net48 輸出目錄裡的
+  `BuildingRegulationReview.Domain.dll`／`BuildingRegulationReview.Application.dll`。
+- WPF 視窗仍無法在本機渲染（`MS.Internal.FontCache.Util` 初始化失敗，與程式碼無關）。
 
 ## Known Issues / Risks
-- Drafts live in memory only. Persistence, Undo/Redo and the prompt for unapplied changes are P2-T06; write-back is P2-T07.
-- A non-contiguous zone is only reported ("n 塊不相連"). Spec 10.3's explicit confirmation is still missing (P2-T06).
-- `BuildView()` recomputes every face's screen coordinates on each redraw and does no viewport culling. Fine for a floor; large plans are a P2-T09 measurement.
-- The WPF window has never run for real. Its rendering and event wiring passed compilation and review only — the manual checklist has to be executed in Revit.
-- The end-to-end run against `建築防火檢討1.rvt` is still outstanding from P2-T02. `RegionEditorCommand` now provides the entry point for it.
-- The Editor cannot draw auxiliary lines: a gap in the network still has to be fixed in Revit and the editor reopened.
-- Face IDs come from one solve. After a re-solve an old draft's IDs can be stale; `ZoneDraftSet.RetainFaces` is ready for that cleanup but nothing calls it yet.
-
-## Exact Next Steps
-- Begin P2-T06: Editor state and difference preview — Undo/Redo, unique ownership, non-contiguous warning, unapplied-changes prompt, and the Add/Update/Delete preview (spec 10.3, 10.4).
-- Exit criteria: state replay is stable and the difference covers only the current package.
-- Build on what is there: `ZoneDraftSet` is an immutable value, so an Undo stack is a list of past sets plus the active zone ID; `MultiFaceRegion.ContiguousPartCount` (via `ZoneVisual.ContiguousPartCount`) is the non-contiguous signal that now needs a confirmation step; `ZoneDraftSet.RetainFaces` is the hook for a re-solve; `RegionEditorSession.Zones` is the single place state changes.
-
-## Do Not Do
-- Do not change `PlanGeometrySnapshot.CurrentSchemaVersion` or the storage record field set without a migration path.
-- Do not introduce Revit or WPF types into the Domain or Application layers.
-- Do not put interaction rules in the WPF layer; the session decides, the canvas draws.
-- Do not resolve an ambiguous region by picking one interpretation, and do not define new epsilons; tolerances come from `GeometryTolerance`.
-- Do not let the editor merge non-contiguous faces silently; spec 10.3 requires explicit confirmation.
-- Do not write to the model before P2-T07, and keep extraction, repair and solving transaction-free.
-- Do not stage unrelated user or generated files: `.gitignore`, `src/BuildingRegulationReview/bin`, `obj` output and `.gtoffice/` must stay uncommitted.
+- **Revit 內的實際寫入從未執行過。** P2-T07 的 18 項、P2-T08 的 21 項與 P2-T09 的 12 項手動清單
+  全部未跑，`建築防火檢討1.rvt` 的端到端實跑仍未執行。實跑前務必備份。
+- Design Option、專案 Phase、參與檢討的元素與參數的失效判斷未實作（前兩項整條流程不讀取，後兩項
+  要到 Phase 3 才有意義）。
+- 面積標註與面積顏色沒有被納入失效比對；色彩配置本身也沒有。
+- 規則版本目前沒有來源：`RevitReviewStalenessProbe.Observe` 的 `ruleSetVersion` 沒有呼叫端會傳。
+- 失效判斷每次都要掃描整個 Area Plan 與單線圖的受管理元素，大平面上未量測。
+- 日誌只在結果視窗按按鈕時寫檔；失效判斷產生的日誌目前只進對話框，沒有落檔。
+- 草稿仍只在記憶體，關窗即失；`ZoneDraftSet.RetainFaces` 仍沒有流程呼叫。
+- 編輯器不能畫輔助線：線網缺口仍要回 Revit 補線後重開編輯器。
+- 單線圖只有細部線，沒有區劃名稱文字或圖例（圖例是 P4-T03）。

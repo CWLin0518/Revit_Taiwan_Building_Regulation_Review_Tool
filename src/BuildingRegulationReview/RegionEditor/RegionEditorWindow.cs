@@ -6,6 +6,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using BuildingRegulationReview.Application.RegionEditing;
+using BuildingRegulationReview.Application.ReviewPackages;
 using BuildingRegulationReview.Application.WriteBack;
 using BuildingRegulationReview.Domain.Common;
 using BuildingRegulationReview.Domain.Geometry;
@@ -106,14 +107,21 @@ namespace BuildingRegulationReview.RegionEditor
         public Action<ApplyPlan, ApplyFailurePolicy> RequestApply { get; set; }
 
         /// <summary>
-        /// The outcome of the run the window asked for. A run that wrote everything clears the
-        /// unapplied-changes mark; one that failed or skipped something leaves it standing, because
-        /// the drafts and the model are still not the same thing.
+        /// The outcome of the run the window asked for, together with what it made of the package
+        /// (spec 10.6, 13 and 14). A run that wrote everything clears the unapplied-changes mark;
+        /// one that failed or skipped something leaves it standing, because the drafts and the model
+        /// are still not the same thing.
         /// </summary>
-        public void ReportApplied(ApplyResult result)
+        /// <remarks>
+        /// The mark is cleared on <see cref="ApplyResult.IsComplete"/>, not on the package reaching
+        /// Ready. The two answer different questions: the drafts are in the model either way, and an
+        /// area that disagrees with the draft is a boundary to go and fix in Revit, not a reason to
+        /// tell the user their editing was lost.
+        /// </remarks>
+        public void ReportApplied(ReviewRunReport report)
         {
             _applying = false;
-            if (result == null)
+            if (report == null)
             {
                 // The host already said what went wrong; all that is left is to let the Editor go.
                 Report("這次沒有寫入任何東西，草稿維持原狀。");
@@ -121,9 +129,9 @@ namespace BuildingRegulationReview.RegionEditor
                 return;
             }
 
-            if (result.IsComplete) _session.MarkApplied();
-            RegionEditorApplyResultWindow.Show(this, result);
-            Report(result.Summary);
+            if (report.Result.IsComplete) _session.MarkApplied();
+            RegionEditorApplyResultWindow.Show(this, report);
+            Report(report.Summary);
             Refresh();
         }
 

@@ -6,27 +6,32 @@ using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using BuildingRegulationReview.Application.ReviewPackages;
 using BuildingRegulationReview.Application.WriteBack;
 
 namespace BuildingRegulationReview.RegionEditor
 {
     /// <summary>
-    /// What one write-back run did (spec 10.5). Problems come first because they are the only lines
-    /// anybody has to act on, and the whole log can be saved to a file — spec 10.5 requires that a
-    /// skipped element leaves a record, and a dialog the user closes is not one.
+    /// What one write-back run did and what it made of the package (spec 10.5, 10.6 and 13).
+    /// Problems come first because they are the only lines anybody has to act on, and the whole log
+    /// can be saved to a file — spec 14 requires that a skipped element leaves a record with its
+    /// error code and technical detail, and a dialog the user closes is not one.
     /// </summary>
     internal sealed class RegionEditorApplyResultWindow : Window
     {
         private static readonly Brush ProblemBrush = new SolidColorBrush(Color.FromRgb(0xC0, 0x39, 0x2B));
         private static readonly Brush ManualBrush = new SolidColorBrush(Color.FromRgb(0xB8, 0x6E, 0x00));
+        private static readonly Brush ReadyBrush = new SolidColorBrush(Color.FromRgb(0x1E, 0x7B, 0x34));
 
+        private readonly ReviewRunReport _report;
         private readonly ApplyResult _result;
 
-        private RegionEditorApplyResultWindow(ApplyResult result)
+        private RegionEditorApplyResultWindow(ReviewRunReport report)
         {
-            _result = result ?? throw new ArgumentNullException(nameof(result));
+            _report = report ?? throw new ArgumentNullException(nameof(report));
+            _result = report.Result;
 
-            Title = result.IsRolledBack ? "寫回已復原" : "寫回完成";
+            Title = _result.IsRolledBack ? "寫回已復原" : "寫回完成";
             Width = 720;
             Height = 560;
             MinWidth = 520;
@@ -41,9 +46,9 @@ namespace BuildingRegulationReview.RegionEditor
             Content = root;
         }
 
-        public static void Show(Window owner, ApplyResult result)
+        public static void Show(Window owner, ReviewRunReport report)
         {
-            var window = new RegionEditorApplyResultWindow(result) { Owner = owner };
+            var window = new RegionEditorApplyResultWindow(report) { Owner = owner };
             window.ShowDialog();
         }
 
@@ -57,6 +62,26 @@ namespace BuildingRegulationReview.RegionEditor
                 FontWeight = FontWeights.SemiBold,
                 Foreground = _result.IsRolledBack ? ProblemBrush : Brushes.Black
             });
+
+            // Spec 10.6: whether the package may advance, and if not, what is standing in the way.
+            panel.Children.Add(new TextBlock
+            {
+                Text = _report.Progress.Message,
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = _report.IsReady ? ReadyBrush : ManualBrush,
+                Margin = new Thickness(0, 6, 0, 0)
+            });
+
+            foreach (var blocker in _report.Blockers)
+            {
+                panel.Children.Add(new TextBlock
+                {
+                    Text = "▲ " + blocker,
+                    TextWrapping = TextWrapping.Wrap,
+                    Foreground = ProblemBrush,
+                    Margin = new Thickness(0, 6, 0, 0)
+                });
+            }
 
             foreach (var note in _result.Notes)
             {
@@ -162,7 +187,10 @@ namespace BuildingRegulationReview.RegionEditor
 
             try
             {
-                File.WriteAllLines(path, _result.Log, Encoding.UTF8);
+                // The log, not the summary lines: spec 14 wants the error code, the stage, the
+                // Package ID, the element UniqueId and the technical detail, and only the file gets
+                // the last of those.
+                File.WriteAllText(path, _report.Log.ToText(), Encoding.UTF8);
                 MessageBox.Show(this, "日誌已儲存到：" + Environment.NewLine + path, Title);
             }
             catch (Exception exception) when (exception is IOException || exception is UnauthorizedAccessException)

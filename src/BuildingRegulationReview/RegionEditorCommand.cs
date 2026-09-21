@@ -6,7 +6,9 @@ using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using BuildingRegulationReview.Application.Geometry;
+using BuildingRegulationReview.Application.Diagnostics;
 using BuildingRegulationReview.Application.RegionEditing;
+using BuildingRegulationReview.Application.ReviewPackages;
 using BuildingRegulationReview.Application.WriteBack;
 using BuildingRegulationReview.Domain.Geometry;
 using BuildingRegulationReview.RegionEditor;
@@ -21,11 +23,14 @@ namespace BuildingRegulationReview
     /// network repair and region solving, then hands the solved map to the Editor window.
     /// </summary>
     /// <remarks>
-    /// The command itself is read-only: extraction, repair and solving open no transaction. Writing
-    /// boundaries and Areas back does, but it happens later and elsewhere — the Editor is modeless,
-    /// so the write runs on Revit's own thread through an ExternalEvent that owns its transactions.
+    /// Extraction, repair and solving open no transaction. The command is nonetheless Manual rather
+    /// than ReadOnly, because of one write it does up front: spec 13.1 says a result whose model has
+    /// changed underneath it is Stale, and a status the tool works out and then forgets would let
+    /// the next session read a Ready package that is not ready. Writing boundaries and Areas back is
+    /// a different matter — the Editor is modeless, so that runs on Revit's own thread through an
+    /// ExternalEvent that owns its own transactions.
     /// </remarks>
-    [Transaction(TransactionMode.ReadOnly)]
+    [Transaction(TransactionMode.Manual)]
     public sealed class RegionEditorCommand : IExternalCommand
     {
         private const string DialogTitle = "防火區劃編輯器";
@@ -56,6 +61,8 @@ namespace BuildingRegulationReview
 
             var choice = ChoosePackage(application, document);
             if (choice == null) return Result.Cancelled;
+
+            if (!CheckForStaleResults(document, choice.PackageId)) return Result.Cancelled;
 
             var session = BuildSession(document, choice);
             if (session == null) return Result.Cancelled;
@@ -124,6 +131,66 @@ namespace BuildingRegulationReview
             var picker = new PackagePickerWindow(choices);
             new WindowInteropHelper(picker).Owner = application.MainWindowHandle;
             return picker.ShowDialog() == true ? picker.Selected : null;
+        }
+
+        /// <summary>
+        /// Spec 13.1: asks whether what this package last wrote still describes the model, records
+        /// the answer on the package and tells the user. Returns false only when the user decides
+        /// not to carry on.
+        /// </summary>
+        /// <remarks>
+        /// The check runs before extraction rather than after, because a stale result is exactly the
+        /// case where the user is about to look at a canvas that disagrees with the model and needs
+        /// to know which of the two is out of date before they start editing.
+        /// </remarks>
+        private static bool CheckForStaleResults(Document document, Guid packageId)
+        {
+            var package = LoadPackage(document, packageId);
+            if (package == null) return true;
+
+            StalenessVerdict verdict;
+            try
+            {
+                verdict = ReviewStaleness.Evaluate(package, new RevitReviewStalenessProbe(document).Observe(package));
+            }
+            catch (Exception)
+            {
+                // A probe that cannot read the model says nothing about the package; the Editor is
+                // still worth opening, and extraction will fail with a better message if it must.
+                return true;
+            }
+
+            if (verdict.Changed) SaveStatus(document, verdict.Package);
+            if (verdict.Reasons.Count == 0) return true;
+
+            var dialog = new TaskDialog(DialogTitle)
+            {
+                MainInstruction = verdict.Message,
+                MainContent = string.Join(Environment.NewLine, verdict.Reasons),
+                CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No,
+                DefaultButton = TaskDialogResult.Yes
+            };
+            dialog.FooterText = "繼續會以模型現在的幾何重新求解區劃，原本寫入的結果要重新套用才會一致。";
+            return dialog.Show() != TaskDialogResult.No;
+        }
+
+        /// <summary>Stores a status the tool worked out. Its own transaction, and never fatal.</summary>
+        private static void SaveStatus(Document document, Domain.ReviewPackages.ReviewPackage package)
+        {
+            try
+            {
+                using (var transaction = new Transaction(document, "更新防火區劃檢討狀態"))
+                {
+                    transaction.Start();
+                    new RevitReviewPackageRepository(document).Save(package);
+                    transaction.Commit();
+                }
+            }
+            catch (Exception)
+            {
+                // A status that could not be stored is a status that will be worked out again on the
+                // next run. It is not worth interrupting the user for.
+            }
         }
 
         private static RegionEditorSession BuildSession(Document document, PackageChoice choice)
@@ -299,7 +366,14 @@ namespace BuildingRegulationReview
                     Plan = null;
                 }
 
-                window.Dispatcher.Invoke(() => window.ReportApplied(result));
+                // Re-read before judging: the run itself may have recorded the Drafting View it
+                // created on the package, and building the new state from the copy loaded before the
+                // run would save that record straight back out again.
+                var written = LoadPackage(document, _packageId) ?? package;
+                var report = ReviewRunReport.For(written, result);
+                if (report.PackageChanged) SaveStatus(document, report.Package);
+
+                window.Dispatcher.Invoke(() => window.ReportApplied(report));
             }
 
             public string GetName() => "防火區劃編輯器：寫回 Area Plan";

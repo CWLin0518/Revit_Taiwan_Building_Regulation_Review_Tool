@@ -100,6 +100,41 @@ public sealed class ReviewPackage
             LastReviewRunId, Status, updatedAtUtc);
     }
 
+    /// <summary>
+    /// Moves the package to the state one pass through the review left it in (spec 13). The status
+    /// and the boundary revision travel together because they answer one question between them:
+    /// what the package is, and which version of its boundaries that answer is about.
+    /// </summary>
+    /// <remarks>
+    /// Nothing here decides which status is right — <c>ReviewPackageProgress</c> and
+    /// <c>ReviewStaleness</c> in the Application layer do, because the rule depends on what a
+    /// write-back reported and the domain object has no way to know that.
+    /// </remarks>
+    public ReviewPackage WithProgress(
+        ReviewPackageStatus status,
+        int? boundaryRevision = null,
+        DateTime? updatedAtUtc = null)
+    {
+        if (!Enum.IsDefined(typeof(ReviewPackageStatus), status))
+            throw new ArgumentOutOfRangeException(nameof(status));
+        if (boundaryRevision is not null && boundaryRevision.Value < BoundaryRevision)
+            throw new ArgumentOutOfRangeException(
+                nameof(boundaryRevision),
+                "A boundary revision only ever moves forward.");
+
+        return new ReviewPackage(
+            PackageId, SourceFloorPlanUniqueId, LevelUniqueId, AreaSchemeUniqueId,
+            AreaPlanUniqueId, DraftingViewUniqueId, LegendViewUniqueIds, SheetUniqueId,
+            GeneratedElementUniqueIds, boundaryRevision ?? BoundaryRevision, RuleSetId, RuleSetVersion,
+            LastReviewRunId, status, updatedAtUtc);
+    }
+
+    /// <summary>The same package with its boundary revision advanced by one (spec 13.2).</summary>
+    public ReviewPackage WithNextBoundaryRevision(
+        ReviewPackageStatus status,
+        DateTime? updatedAtUtc = null) =>
+        WithProgress(status, BoundaryRevision + 1, updatedAtUtc);
+
     private static string? Normalize(string? value) => value is null || string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static IReadOnlyList<string> NormalizeIds(IEnumerable<string>? values) =>

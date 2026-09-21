@@ -65,7 +65,7 @@ public static class ZoneWritePlan
         {
             var segment = outline[ordinal];
             var points = new[] { segment.Start, segment.End };
-            var geometry = Quantize(segment, quantum);
+            var geometry = PlannedElementSignature.ForSegment(segment.Start, segment.End, quantum);
 
             yield return new PlannedElement(
                 new ManagedElementKey(packageId, zone.Id, ManagedElementKind.AreaBoundaryLine, partIndex, ordinal),
@@ -87,7 +87,6 @@ public static class ZoneWritePlan
         // One Revit Area can only sit in one closed part, so a merged zone gets one per part.
         var anchor = faces.OrderByDescending(f => f.NetAreaSquareFeet).First();
         var netArea = PlanUnits.SquareFeetToSquareMeters(faces.Sum(f => f.NetAreaSquareFeet));
-        var placement = Quantize(anchor.RepresentativePoint, quantum);
         // A zone that is all one piece needs no part number; a merged one has to say which piece.
         var partSuffix = partCount <= 1
             ? string.Empty
@@ -95,7 +94,7 @@ public static class ZoneWritePlan
 
         yield return new PlannedElement(
             new ManagedElementKey(packageId, zone.Id, ManagedElementKind.Area, partIndex, 0),
-            string.Format(CultureInfo.InvariantCulture, "{0}|{1}|{2}", zone.Name, zone.Color.ToHex(), placement),
+            PlannedElementSignature.ForArea(zone.Name, zone.Color.ToHex(), anchor.RepresentativePoint, quantum),
             string.Format(CultureInfo.InvariantCulture, "「{0}」{1}的面積（{2:0.##} m²）", zone.Name, partSuffix, netArea),
             placement: anchor.RepresentativePoint,
             zoneName: zone.Name,
@@ -104,7 +103,7 @@ public static class ZoneWritePlan
 
         yield return new PlannedElement(
             new ManagedElementKey(packageId, zone.Id, ManagedElementKind.AreaTag, partIndex, 0),
-            string.Format(CultureInfo.InvariantCulture, "{0}|{1}", zone.Name, placement),
+            PlannedElementSignature.ForTag(zone.Name, anchor.RepresentativePoint, quantum),
             string.Format(CultureInfo.InvariantCulture, "「{0}」{1}的面積標註", zone.Name, partSuffix),
             placement: anchor.RepresentativePoint,
             zoneName: zone.Name,
@@ -141,24 +140,6 @@ public static class ZoneWritePlan
 
     /// <summary>Points a segment one way only, so its order does not depend on which face traced it.</summary>
     private static Segment2D Canonical(Segment2D segment) =>
-        segment.Start.X < segment.End.X || (segment.Start.X == segment.End.X && segment.Start.Y <= segment.End.Y)
-            ? segment
-            : segment.Reversed();
+        PlannedElementSignature.IsCanonical(segment.Start, segment.End) ? segment : segment.Reversed();
 
-    private static string Quantize(Segment2D segment, double quantum) => string.Format(
-        CultureInfo.InvariantCulture,
-        "{0}>{1}",
-        Quantize(segment.Start, quantum),
-        Quantize(segment.End, quantum));
-
-    /// <summary>
-    /// Rounds a point onto the closure tolerance grid. Signatures must survive the float noise of a
-    /// re-solve, or every re-run would report an update; the quantum is read from
-    /// <see cref="GeometryTolerance.ClosureFeet"/> rather than invented here.
-    /// </summary>
-    private static string Quantize(Point2D point, double quantum) => string.Format(
-        CultureInfo.InvariantCulture,
-        "{0},{1}",
-        Math.Round(point.X / quantum),
-        Math.Round(point.Y / quantum));
 }

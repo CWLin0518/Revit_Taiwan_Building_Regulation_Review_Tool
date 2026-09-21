@@ -82,12 +82,14 @@ public sealed class ApplyResult
         IEnumerable<ApplyResultItem> items,
         IEnumerable<string> notes,
         IEnumerable<ManualAction> manualActions,
+        IEnumerable<AreaAgreementFinding> areaFindings,
         string? fatalError)
     {
         PackageId = packageId;
         Items = new ReadOnlyCollection<ApplyResultItem>(items.ToList());
         Notes = new ReadOnlyCollection<string>(notes.ToList());
         ManualActions = new ReadOnlyCollection<ManualAction>(manualActions.ToList());
+        AreaFindings = new ReadOnlyCollection<AreaAgreementFinding>(areaFindings.ToList());
         FatalError = fatalError;
     }
 
@@ -104,6 +106,17 @@ public sealed class ApplyResult
     /// is still true once the model is back where it started.
     /// </summary>
     public IReadOnlyList<ManualAction> ManualActions { get; }
+
+    /// <summary>
+    /// What Revit measured for every Area this run wrote, against what the drafts computed (spec
+    /// 10.6). A rollback drops them: the Areas they describe are not in the model any more, so a
+    /// verdict about their size would be a verdict about nothing.
+    /// </summary>
+    public IReadOnlyList<AreaAgreementFinding> AreaFindings { get; }
+
+    /// <summary>The Areas whose two measurements disagree, which is what refuses Ready.</summary>
+    public IReadOnlyList<AreaAgreementFinding> AreaDisagreements =>
+        new ReadOnlyCollection<AreaAgreementFinding>(AreaFindings.Where(f => f.BlocksReady).ToList());
 
     /// <summary>Set only when the whole group was rolled back; the model was left untouched.</summary>
     public string? FatalError { get; }
@@ -154,12 +167,23 @@ public sealed class ApplyResult
                     SkippedCount);
             }
 
-            return ManualActions.Count == 0
-                ? done
-                : done + string.Format(
+            if (ManualActions.Count > 0)
+            {
+                done += string.Format(
                     CultureInfo.InvariantCulture,
                     "還有 {0} 項需要在 Revit 中人工處理。",
                     ManualActions.Count);
+            }
+
+            if (AreaDisagreements.Count > 0)
+            {
+                done += string.Format(
+                    CultureInfo.InvariantCulture,
+                    "另有 {0} 個區劃的面積與草算不符，需要先修正邊界。",
+                    AreaDisagreements.Count);
+            }
+
+            return done;
         }
     }
 
@@ -171,6 +195,7 @@ public sealed class ApplyResult
             var lines = new List<string> { Summary };
             lines.AddRange(Notes);
             lines.AddRange(ManualActions.Select(action => action.Text));
+            lines.AddRange(AreaDisagreements.Select(finding => finding.Message!));
             lines.AddRange(Items.Select(item => item.Text));
             return new ReadOnlyCollection<string>(lines);
         }
@@ -182,6 +207,7 @@ public sealed class ApplyResult
         Array.Empty<ApplyResultItem>(),
         Array.Empty<string>(),
         Array.Empty<ManualAction>(),
+        Array.Empty<AreaAgreementFinding>(),
         null);
 
     /// <summary>
@@ -194,6 +220,7 @@ public sealed class ApplyResult
         private readonly List<ApplyResultItem> _items = new List<ApplyResultItem>();
         private readonly List<string> _notes = new List<string>();
         private readonly List<ManualAction> _manualActions = new List<ManualAction>();
+        private readonly List<AreaAgreementFinding> _areaFindings = new List<AreaAgreementFinding>();
         private readonly Guid _packageId;
 
         public Builder(ApplyPlan plan)
@@ -221,6 +248,16 @@ public sealed class ApplyResult
         public void Manual(string subject, string reason, string suggestion) =>
             Manual(new ManualAction(subject, reason, suggestion));
 
+        /// <summary>
+        /// Records what Revit measured for one Area this run wrote (spec 10.6). Every Area is
+        /// recorded, agreeing ones included, so the log shows the comparison was made rather than
+        /// leaving the reader to guess whether it was skipped.
+        /// </summary>
+        public void Area(AreaAgreementFinding finding)
+        {
+            if (finding is not null) _areaFindings.Add(finding);
+        }
+
         public void Created(ApplyStep step, string elementUniqueId) =>
             Record(ApplyOutcome.Created, step, null, elementUniqueId);
 
@@ -237,7 +274,8 @@ public sealed class ApplyResult
             Record(ApplyOutcome.Failed, step, reason, step.ElementUniqueId);
 
         /// <summary>The run committed. Individual failures are on the log, not in an exception.</summary>
-        public ApplyResult Complete() => new ApplyResult(_packageId, _items, _notes, _manualActions, null);
+        public ApplyResult Complete() =>
+            new ApplyResult(_packageId, _items, _notes, _manualActions, _areaFindings, null);
 
         /// <summary>
         /// The group was rolled back. Every line collected so far describes something that no longer
@@ -253,6 +291,7 @@ public sealed class ApplyResult
                 Array.Empty<ApplyResultItem>(),
                 _notes,
                 _manualActions,
+                Array.Empty<AreaAgreementFinding>(),
                 fatalError.Trim());
         }
 

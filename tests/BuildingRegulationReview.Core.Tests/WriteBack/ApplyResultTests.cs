@@ -160,6 +160,42 @@ public class ApplyResultTests
     }
 
     [Fact]
+    public void TheAreasThatWereMeasuredAreAllOnTheResultButOnlyTheDisagreeingOnesAreProblems()
+    {
+        var log = new ApplyResult.Builder(Plan());
+        log.Area(AreaAgreement.Compare(AreaKey(0), "A", 100.0, 100.2));
+        log.Area(AreaAgreement.Compare(AreaKey(1), "B", 100.0, 70.0));
+
+        var result = log.Complete();
+
+        Assert.Equal(2, result.AreaFindings.Count);
+        Assert.Equal("B", Assert.Single(result.AreaDisagreements).ZoneName);
+        Assert.Contains("面積與草算不符", result.Summary, StringComparison.Ordinal);
+        Assert.Contains(result.Log, line => line.Contains("相差 30%", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AreaFindingsDoNotSurviveARollbackBecauseTheAreasTheyDescribeAreGone()
+    {
+        var log = new ApplyResult.Builder(Plan());
+        log.Area(AreaAgreement.Compare(AreaKey(0), "A", 100.0, 70.0));
+
+        var result = log.RolledBack("Revit 無法提交。");
+
+        Assert.Empty(result.AreaFindings);
+        Assert.Empty(result.AreaDisagreements);
+    }
+
+    [Fact]
+    public void AnAgreeingAreaAddsNothingToTheSummary()
+    {
+        var log = new ApplyResult.Builder(Plan());
+        log.Area(AreaAgreement.Compare(AreaKey(0), "A", 100.0, 100.4));
+
+        Assert.DoesNotContain("不符", log.Complete().Summary, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ManualItemsSurviveARollbackBecauseTheReasonStillHolds()
     {
         var log = new ApplyResult.Builder(Plan());
@@ -172,6 +208,9 @@ public class ApplyResultTests
     }
 
     // ---- helpers ------------------------------------------------------------------------------
+
+    private static ManagedElementKey AreaKey(int partIndex) =>
+        new ManagedElementKey(PackageId, ZoneId, ManagedElementKind.Area, partIndex, 0);
 
     private static ApplyPlan Plan()
     {
@@ -251,4 +290,66 @@ public class AreaAgreementTests
     {
         Assert.Null(AreaAgreement.Describe("A", 0.0, 12.0));
     }
+
+    [Fact]
+    public void TheVerdictCarriesThePackageAndTheZoneSoTheLogCanTraceIt()
+    {
+        // Spec 10.6 第 4 項: a finding about a 區劃 has to say which 區劃, of which package.
+        var finding = AreaAgreement.Compare(Key(), "A", 100.0, 70.0, elementUniqueId: "area-7");
+
+        Assert.Equal(AreaAgreementKind.Differs, finding.Kind);
+        Assert.True(finding.BlocksReady);
+        Assert.Equal(PackageId, finding.PackageId);
+        Assert.Equal(ZoneId, finding.ZoneId);
+        Assert.Equal("area-7", finding.ElementUniqueId);
+        Assert.Equal(70.0, finding.RevitSquareMeters);
+    }
+
+    [Fact]
+    public void AnAgreementIsAVerdictToo_WithNothingToSayAndNothingToBlock()
+    {
+        var finding = AreaAgreement.Compare(Key(), "A", 100.0, 100.4);
+
+        Assert.Equal(AreaAgreementKind.Agrees, finding.Kind);
+        Assert.False(finding.BlocksReady);
+        Assert.Null(finding.Message);
+    }
+
+    [Fact]
+    public void AnAreaRevitMeasuredAsZeroIsItsOwnKindBecauseItIsItsOwnProblem()
+    {
+        var finding = AreaAgreement.Compare(Key(), "A", 100.0, 0.0);
+
+        Assert.Equal(AreaAgreementKind.NotEnclosed, finding.Kind);
+        Assert.True(finding.BlocksReady);
+    }
+
+    [Fact]
+    public void ADraftWithNothingToCompareBlocksNothing()
+    {
+        var finding = AreaAgreement.Compare(Key(), "A", 0.0, 12.0);
+
+        Assert.Equal(AreaAgreementKind.NotComparable, finding.Kind);
+        Assert.False(finding.BlocksReady);
+    }
+
+    [Fact]
+    public void AWiderToleranceLetsABiggerDifferenceThrough()
+    {
+        Assert.False(AreaAgreement.Compare(Key(), "A", 100.0, 92.0, relativeTolerance: 0.10).BlocksReady);
+        Assert.True(AreaAgreement.Compare(Key(), "A", 100.0, 92.0, relativeTolerance: 0.05).BlocksReady);
+    }
+
+    [Fact]
+    public void RefusesANegativeTolerance()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            AreaAgreement.Compare(Key(), "A", 100.0, 100.0, relativeTolerance: -0.1));
+    }
+
+    private static readonly Guid PackageId = Guid.Parse("11111111-2222-3333-4444-555555555555");
+    private static readonly Guid ZoneId = Guid.Parse("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+
+    private static ManagedElementKey Key() =>
+        new ManagedElementKey(PackageId, ZoneId, ManagedElementKind.Area, 0, 0);
 }

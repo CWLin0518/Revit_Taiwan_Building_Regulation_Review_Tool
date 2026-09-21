@@ -376,17 +376,23 @@ public sealed class RevitZoneWriteBack
     /// Compares every Area written with what the drafts computed (spec 10.6). Read-only and after
     /// the stages have committed, so Revit has regenerated and the numbers are the real ones.
     /// </summary>
+    /// <remarks>
+    /// The verdict goes on the result rather than straight to the log, because it is the one thing
+    /// that decides whether the package may reach Ready. <c>ReviewPackageProgress</c> reads it back;
+    /// nothing here judges, so a disagreement never throws away boundaries that were written.
+    /// </remarks>
     private void VerifyPlacedAreas(ApplyResult.Builder log)
     {
         foreach (var placed in _placedAreas)
         {
             if (!(_document.GetElement(placed.ElementId) is Autodesk.Revit.DB.Area area)) continue;
 
-            var note = AreaAgreement.Describe(
-                placed.Planned.ZoneName ?? string.Empty,
+            log.Area(AreaAgreement.Compare(
+                placed.Planned.Key,
+                placed.Planned.ZoneName,
                 placed.Planned.NetAreaSquareMeters,
-                PlanUnits.SquareFeetToSquareMeters(area.Area));
-            if (note is not null) log.Note(note);
+                PlanUnits.SquareFeetToSquareMeters(area.Area),
+                elementUniqueId: area.UniqueId));
         }
     }
 

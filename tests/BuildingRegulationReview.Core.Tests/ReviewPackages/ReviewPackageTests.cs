@@ -56,6 +56,55 @@ public sealed class ReviewPackageTests
     }
 
     [Fact]
+    public void With_progress_moves_the_status_and_keeps_everything_else()
+    {
+        var original = new ReviewPackage(Guid.NewGuid(), "source", "level", "scheme", "area", "draft",
+            new[] { "legend-a" }, "sheet", boundaryRevision: 3, ruleSetVersion: "2026.09");
+
+        var advanced = original.WithProgress(ReviewPackageStatus.Ready);
+
+        Assert.Equal(ReviewPackageStatus.Ready, advanced.Status);
+        Assert.Equal(3, advanced.BoundaryRevision);
+        Assert.Equal(original.DraftingViewUniqueId, advanced.DraftingViewUniqueId);
+        Assert.Equal(original.LegendViewUniqueIds, advanced.LegendViewUniqueIds);
+        Assert.Equal(original.SheetUniqueId, advanced.SheetUniqueId);
+        Assert.Equal(original.RuleSetVersion, advanced.RuleSetVersion);
+    }
+
+    [Fact]
+    public void With_next_boundary_revision_advances_the_revision_by_one()
+    {
+        var original = new ReviewPackage(Guid.NewGuid(), "source", "level", "scheme", "area", boundaryRevision: 3);
+
+        var advanced = original.WithNextBoundaryRevision(ReviewPackageStatus.BoundaryDraft);
+
+        Assert.Equal(4, advanced.BoundaryRevision);
+        Assert.Equal(ReviewPackageStatus.BoundaryDraft, advanced.Status);
+    }
+
+    [Fact]
+    public void A_boundary_revision_never_moves_backwards()
+    {
+        // It is what tells one written boundary from the next; a revision that could go back would
+        // make two different boundaries share a number.
+        var original = new ReviewPackage(Guid.NewGuid(), "source", "level", "scheme", "area", boundaryRevision: 3);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => original.WithProgress(ReviewPackageStatus.Ready, 2));
+    }
+
+    [Fact]
+    public void A_status_the_tool_worked_out_survives_the_round_trip_to_storage()
+    {
+        var original = new ReviewPackage(Guid.NewGuid(), "source", "level", "scheme", "area", boundaryRevision: 1)
+            .WithNextBoundaryRevision(ReviewPackageStatus.Stale);
+
+        var restored = ReviewPackageStorageMapper.FromRecord(ReviewPackageStorageMapper.ToRecord(original));
+
+        Assert.Equal(ReviewPackageStatus.Stale, restored.Status);
+        Assert.Equal(2, restored.BoundaryRevision);
+    }
+
+    [Fact]
     public void Storage_mapper_round_trips_all_fields()
     {
         var id = Guid.NewGuid();
