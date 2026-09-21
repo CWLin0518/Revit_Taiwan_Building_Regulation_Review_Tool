@@ -3,7 +3,7 @@
 - Completed Task: P3-T01
 - Next Task: P3-T02
 - Status: READY_FOR_NEW_SESSION
-- Commit: （見下一個 docs commit）
+- Commit: b888904（feat）；SHA 記錄於後續 docs commit
 - Spec Version: Draft v1.1 (`docs/fire-review-spec.md`)
 - 任務文件：`docs/agent/p3-t01-rule-and-result-schema.md`
 - Phase 3 由使用者於 2026-09-22 明確啟動。P2 實機驗收仍有兩項「未回報」（見 `phase-2-acceptance.md`），使用者選擇先開始 P3。
