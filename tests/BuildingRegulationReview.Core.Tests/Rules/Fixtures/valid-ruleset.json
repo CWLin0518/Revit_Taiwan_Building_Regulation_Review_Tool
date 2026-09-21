@@ -13,7 +13,7 @@
       "jurisdiction": "TW",
       "priority": 10,
       "appliesWhen": "building.fireResistiveConstruction == true",
-      "requiredValue": "area <= (zone.sprinklered ? 3000 : 1500) m2",
+      "requiredValue": "zone.area <= (zone.sprinklered ? 3000 m2 : 1500 m2)",
       "exemptions": [
         "zone.use == \"樓梯間\""
       ],
@@ -29,7 +29,7 @@
       "jurisdiction": "TW",
       "priority": 10,
       "appliesWhen": "element.category == \"Walls\" && element.isCompartmentBoundary == true",
-      "requiredValue": "60 min",
+      "requiredValue": "element.providedFireRating >= 60 min",
       "exemptions": [],
       "evidenceFields": [ "element.typeName", "element.providedFireRating" ],
       "severity": "Error"
