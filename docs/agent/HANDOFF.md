@@ -1,52 +1,57 @@
 # Agent Handoff
 - Phase: P3
-- Completed Task: P3-T07
-- Next Task: P3-T08
+- Completed Task: P3-T08
+- Next Task: P3-T09
 - Status: READY_FOR_NEW_SESSION
-- Commit: f03d428（feat）；SHA 由本 docs commit 記錄
+- Commit: （feat commit，SHA 由下一個 docs commit 記錄）
 - Spec Version: Draft v1.1 (`docs/fire-review-spec.md`)
-- 任務文件：`docs/agent/p3-t07-result-persistence.md`（失效規則表、人工覆寫流程、schema GUID、設計決策）
+- 任務文件：`docs/agent/p3-t08-review-marking-and-table.md`（檢討表規則、標示計畫與差異、schema GUID、設計決策）
 - P2 實機驗收仍有兩項「未回報」（見 `phase-2-acceptance.md`），使用者選擇先進行 P3。
 
 ## Completed
-- Domain：`ReviewBaseline`（元素證據指紋）、`ReviewOverride`＋`ReviewOverrideStanding`（稽核紀錄）；`ReviewRun` 新增 Baseline／Overrides／EffectiveStatus，schema 1.1。
-- Application `Reviews`：`ReviewEnvironment`、`ReviewBaselineBuilder`（SHA-256，微米四捨五入）、`ReviewBaselineKeys`、
-  `ReviewRunValidity`（Evaluate／WithOverridesSuspended／ApplyTo／Explain）、`ReviewOverrides`（Apply／Reconfirm／Withdraw／CarryOver）、
-  `IReviewRunRepository`＋`GetLatest`；storage record／mapper 可讀 1.0 與 1.1。
-- Revit：`RevitReviewRunRepository`（每個 run 一個 DataStorage，四個 sub-schema，所有欄位各自獨立）。
-- 診斷：`ReviewStage.Review`；`BCR-OVR-001`、`BCR-OVR-002`、`BCR-RUN-001`。
+- Application `Reviews/ReviewTable.cs`：`ReviewStatusAggregation`（六態列彙總、spec 11.7 總狀態規則）、`ReviewVerdict`（含 NeedsUpdate）、`ReviewStatusCounts`、
+  `ReviewTable`／`ReviewTableSection`／`ReviewTableGroup`／`ReviewTableEntry`（依區劃、類別＋Type、門／窗／幕牆統計；定位、條文、覆寫、失效）。
+- Application `Reviews/ReviewMarkup.cs`：`ReviewMarkKey`（Package／Run／Zone ID）、`ReviewMarkupPlan`（紅色區域與元素覆寫，依 EffectiveStatus，失效／連結略過）、
+  `ReviewMarkupDiff`（只動本套件標記與工具紀錄的元素）、`RecordedElementOverride`＋`ReviewOverrideRestore`（原始狀態與使用者修改保留）、`ReviewMarkupResult`。
+- `ManagedOutputKind.ReviewView`、`ReviewOutputNaming.ReviewView`、`ManagedOwnership` 認得 `BCRRV` token；錯誤碼 `BCR-MARK-001/002/003`。
+- Revit `Reviews/`：`RevitReviewViewMarker`（找回／複製檢討視圖、Filled Region、By Element Override、恢復、`Locate`，TransactionGroup）、
+  `RevitOverrideStateCodec`、`ReviewViewOverrideStorage`（view 上的 Extensible Storage）；`ManagedElementMark.Write(element, ReviewMarkKey, …)`。
 
 ## Changed Files
-- `src/BuildingRegulationReview.Domain/Reviews/ReviewBaseline.cs`、`ReviewOverride.cs`（新增）、`ReviewRun.cs`
-- `src/BuildingRegulationReview.Application/Reviews/ReviewBaselineBuilder.cs`、`ReviewRunValidity.cs`、`ReviewOverrides.cs`、`IReviewRunRepository.cs`（新增）、`ReviewRunStorageRecord.cs`
-- `src/BuildingRegulationReview.Application/Diagnostics/ReviewErrorCode.cs`、`ReviewLogEntry.cs`
-- `src/BuildingRegulationReview.Revit/Reviews/RevitReviewRunRepository.cs`（新增）
-- `tests/BuildingRegulationReview.Core.Tests/Reviews/ReviewRunValidityTests.cs`（新增）
-- `docs/agent/p3-t07-result-persistence.md`（新增）、`docs/agent/phase-state.yaml`、`docs/agent/HANDOFF.md`
+- `src/BuildingRegulationReview.Application/Reviews/ReviewTable.cs`、`ReviewMarkup.cs`（新增）
+- `src/BuildingRegulationReview.Application/WriteBack/ManagedOutput.cs`、`ReviewOutputNaming.cs`
+- `src/BuildingRegulationReview.Application/Diagnostics/ReviewErrorCode.cs`
+- `src/BuildingRegulationReview.Revit/Reviews/RevitReviewViewMarker.cs`、`RevitOverrideStateCodec.cs`（新增）
+- `src/BuildingRegulationReview.Revit/WriteBack/ManagedElementMark.cs`
+- `tests/BuildingRegulationReview.Core.Tests/Reviews/ReviewTableTests.cs`、`ReviewMarkupTests.cs`（新增）
+- `docs/agent/p3-t08-review-marking-and-table.md`（新增）、`docs/agent/phase-state.yaml`、`docs/agent/HANDOFF.md`
 
 ## Decisions and Assumptions
-- 證據存指紋而不是原始值；結果的 evidence 已經保存可追溯的數值。
-- 結果的相依 key 是它的 subjects 加上 `zone:<ZoneId>`；規則版本、環境、邊界版次、run 未完成或沒有證據時，全部結果失效。
-- 新增元素會讓 run 變成 Stale，但沒有具體結果可以失效。
-- 覆寫只增不改；只有 Active 覆寫會影響 EffectiveStatus。模型或規則變更後改為 NeedsReconfirmation；新 run 用 CarryOver 依結果 key 配對，只有規則版本、指紋與計算狀態都相同時才沿用。
-- `ReviewResult.reviewedBy/At` 不由覆寫流程寫入。舊 run 不自動刪除。
+- 一個套件一個檢討視圖（來源平面圖的複本），以擁有權標記找回；不改 `ReviewPackage` schema。
+- 紅色區域跨 run 以 package＋zone＋part 配對，新 run 接手（Update），重跑不增加元素；Run ID 寫在 token 與 Comments。
+- 原視圖狀態＝元素在檢討視圖的原始 `OverrideGraphicSettings`，只在第一次上色時擷取；恢復時若使用者已改就保留。
+- 失效結果不標示，列為略過；run 或任一結果失效時總狀態為「需更新」。
+- 空的檢討列顯示未檢討但不影響總狀態；三個檢查都要跑由 P3-T09 保證。
 
 ## Verification Results
-- Solution `-t:Rebuild` 與外掛 csproj `-t:Rebuild`：各 0 warnings、0 errors。
-- Core tests：**889/889 通過**（前 857，新增 32）。
-- 未實機驗證：Revit Extensible Storage 的實際存檔、重開與讀回，要在 P3-T09 接上指令後驗證。
+- Solution `-t:Rebuild`、外掛 csproj `-t:Rebuild`：各 0 warnings、0 errors。
+- Core tests：**931/931 通過**（前 889，新增 42：ReviewTableTests 28、ReviewMarkupTests 14）。
+- 未實機驗證：Revit 端的視圖複製、Filled Region、覆寫與恢復、view 上的 Extensible Storage 都只經過編譯（P3-T09 實機驗收）。
 
 ## Known Issues / Risks
-- `ReviewEnvironment` 事實（Phase、Design Option、單位）與門窗／Type 參數的 Revit reader 尚未實作；三個 Check 都還沒接指令或 UI（P3-T09）。
+- `RevitReviewViewMarker` 尚未被任何指令呼叫；Filled Region 的 Z 取 `GenLevel.Elevation`，需實機確認。
+- `ReviewEnvironment` 事實與門窗／Type 參數的 Revit reader、WPF 檢討表、定位（選取＋縮放）、人工覆核 UI 都在 P3-T09。
 - spec 19 第 2、4、5、6、7 項未定。
 - `phase-2-acceptance.md` 的未提交修改、`bin/`、`obj/`、`.gitignore`、`.gtoffice/` 不屬於本 Task，刻意不提交。
 
 ## Exact Next Steps
-1. 讀 spec 11.4 第 4 點、11.5 第 6–7 點、11.6 第 4 點、11.7、13.2，以及本文件、`p3-t04`～`p3-t07` 任務文件、P2 的 `ManagedElementMark`／`RevitManagedElementInventory`（受管理元素標記模式）。
-2. 執行 P3-T08：視圖標示與檢討表——專用檢討 View、紅色 Filled Region（含 Package ID／Run ID／Zone ID）、By Element Override（保存原視圖狀態與覆寫元素集合）、定位、條文與統計；檢討表的六態彙總用 `ReviewRun.EffectiveStatus`。
-3. Exit：只更新目前 Run 管理的元素，六態彙總規則正確。
+1. 讀 spec 11.0（P3-T09）、11.1、11.8、13.2、14、15、16.3，以及 `p3-t03`～`p3-t08` 任務文件。
+2. 執行 P3-T09：整合 Phase 3——前置檢查（`ReviewPreconditions`）、三類檢討一次執行、`ReviewEnvironment` 與參數 reader、
+   `RevitReviewRunRepository` 存讀、`ReviewTable` WPF 視窗（展開、定位、條文、人工覆核）、`RevitReviewViewMarker.Mark`、取消／Rollback、日誌與效能。
+3. 實機驗收：重開模型可讀 run、模型／規則變更變 Stale、檢討視圖標示與重跑三次元素數量不變。
+4. P3-T09 是 Phase 3 最後一項：完成後發 `PHASE_COMPLETE` 並停止，不得開始 Phase 4。
 
 ## Do Not Do
-- 不做 P3-T09（指令／UI 整合、前置檢查串接、取消／Rollback、實機驗收），也不開始 Phase 4。
-- 不寫任何 Revit 設計參數；不在規則引擎加入任意程式碼執行。
+- 不開始 Phase 4（Legend／Sheet／圖說）。
+- 不寫任何 Revit 設計參數；標示只動檢討視圖，不動來源平面圖與 Area Plan。
 - Revit／WPF 型別不得進 Domain／Application；不 push、不 amend、不 `git add .`。

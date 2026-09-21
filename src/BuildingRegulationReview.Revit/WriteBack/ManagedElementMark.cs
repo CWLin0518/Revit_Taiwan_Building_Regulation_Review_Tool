@@ -37,6 +37,13 @@ public static class ManagedElementMark
     public static void Write(Element element, ManagedOutputKey key, string signature) =>
         Write(element, key.ToToken(), signature);
 
+    /// <summary>
+    /// Marks a red Filled Region of the review view (spec 11.4 item 4), with the Package ID, Run ID and
+    /// Zone ID its token carries.
+    /// </summary>
+    public static void Write(Element element, Application.Reviews.ReviewMarkKey key, string signature) =>
+        Write(element, key.ToToken(), signature);
+
     private static void Write(Element element, string token, string signature)
     {
         if (element is null) throw new ArgumentNullException(nameof(element));

@@ -30,6 +30,16 @@ public static class ReviewOutputNaming
     /// </summary>
     private static readonly char[] Prohibited = { '\\', ':', '{', '}', '[', ']', '|', ';', '<', '>', '?', '`', '~' };
 
+    /// <summary>The trailing part of the dedicated review view's name (spec 11.4 item 4).</summary>
+    public const string ReviewViewSuffix = "防火檢討";
+
+    /// <summary>Builds <c>{AreaScheme}_{SourceFloorPlan}_防火檢討</c>, the default name of the review view.</summary>
+    public static string ReviewView(string? areaSchemeName, string? sourceFloorPlanName) => string.Join(
+        Separator.ToString(),
+        Clean(areaSchemeName),
+        Clean(sourceFloorPlanName),
+        ReviewViewSuffix);
+
     /// <summary>Builds <c>{AreaScheme}_{SourceFloorPlan}_防火區劃</c>.</summary>
     public static string Default(string? areaSchemeName, string? sourceFloorPlanName) => string.Join(
         Separator.ToString(),

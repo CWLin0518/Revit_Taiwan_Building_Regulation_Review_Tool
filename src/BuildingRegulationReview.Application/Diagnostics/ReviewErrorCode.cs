@@ -103,6 +103,11 @@ public static class ReviewErrorCode
     public const string OverrideNeedsReconfirmation = "BCR-OVR-002";
     public const string ReviewRunUnreadable = "BCR-RUN-001";
 
+    // 檢討視圖標示（spec 11.4 第 4 點、11.5 第 6 點、11.6 第 4 點）
+    public const string ReviewMarkRefused = "BCR-MARK-001";
+    public const string ReviewMarkSkipped = "BCR-MARK-002";
+    public const string ReviewMarkUserChangeKept = "BCR-MARK-003";
+
     private static readonly IReadOnlyDictionary<string, string> Descriptions =
         new ReadOnlyDictionary<string, string>(new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -140,7 +145,10 @@ public static class ReviewErrorCode
             { FireRatingUndetermined, "複合構造無法判定防火時效" },
             { OverrideRejected, "人工覆寫不成立" },
             { OverrideNeedsReconfirmation, "人工覆寫需重新確認" },
-            { ReviewRunUnreadable, "檢討紀錄無法讀取" }
+            { ReviewRunUnreadable, "檢討紀錄無法讀取" },
+            { ReviewMarkRefused, "檢討視圖無法標示" },
+            { ReviewMarkSkipped, "未符合項目未標示" },
+            { ReviewMarkUserChangeKept, "保留使用者修改的元素顯示" }
         });
 
     /// <summary>Every code this tool can emit, for the documentation and for the tests that pin it.</summary>

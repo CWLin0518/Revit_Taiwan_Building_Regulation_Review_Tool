@@ -13,7 +13,14 @@ public enum ManagedOutputKind
     DraftingView,
 
     /// <summary>The Area Color Scheme colouring the 區劃 on the Area Plan.</summary>
-    ColorFillScheme
+    ColorFillScheme,
+
+    /// <summary>
+    /// The dedicated review view the red Filled Regions and element overrides go in (spec 11.4 item 4,
+    /// 11.5 item 6). It is a duplicate of the source floor plan, so marking it never touches a view the
+    /// user draws in.
+    /// </summary>
+    ReviewView
 }
 
 /// <summary>
@@ -90,6 +97,7 @@ public readonly struct ManagedOutputKey : IEquatable<ManagedOutputKey>
     {
         ManagedOutputKind.DraftingView => "單線圖視圖",
         ManagedOutputKind.ColorFillScheme => "面積色彩配置",
+        ManagedOutputKind.ReviewView => "防火檢討視圖",
         _ => throw new ArgumentOutOfRangeException(nameof(kind))
     };
 
@@ -97,6 +105,7 @@ public readonly struct ManagedOutputKey : IEquatable<ManagedOutputKey>
     {
         ManagedOutputKind.DraftingView => "draftingview",
         ManagedOutputKind.ColorFillScheme => "colorscheme",
+        ManagedOutputKind.ReviewView => "reviewview",
         _ => throw new ArgumentOutOfRangeException(nameof(kind))
     };
 
@@ -106,6 +115,7 @@ public readonly struct ManagedOutputKey : IEquatable<ManagedOutputKey>
         {
             case "draftingview": kind = ManagedOutputKind.DraftingView; return true;
             case "colorscheme": kind = ManagedOutputKind.ColorFillScheme; return true;
+            case "reviewview": kind = ManagedOutputKind.ReviewView; return true;
             default: kind = default; return false;
         }
     }
@@ -130,6 +140,12 @@ public static class ManagedOwnership
         if (ManagedOutputKey.TryParse(token, out var outputKey))
         {
             packageId = outputKey.PackageId;
+            return true;
+        }
+
+        if (Reviews.ReviewMarkKey.TryParse(token, out var markKey))
+        {
+            packageId = markKey.PackageId;
             return true;
         }
 
