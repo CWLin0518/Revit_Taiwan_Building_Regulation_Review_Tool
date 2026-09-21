@@ -72,6 +72,7 @@ public static class ReviewErrorCode
     public const string RuleConflict = "BCR-RULE-002";
     public const string RuleComputationFailed = "BCR-RULE-003";
     public const string RuleVersionMismatch = "BCR-RULE-004";
+    public const string RuleSchemaInvalid = "BCR-RULE-005";
 
     // 寫回本身
     public const string WriteBackRolledBack = "BCR-WB-001";
@@ -108,6 +109,7 @@ public static class ReviewErrorCode
             { RuleConflict, "規則條件衝突" },
             { RuleComputationFailed, "規則運算錯誤" },
             { RuleVersionMismatch, "規則版本不一致" },
+            { RuleSchemaInvalid, "規則格式不符合 schema" },
             { WriteBackRolledBack, "寫回整批復原" },
             { WriteBackElementFailed, "元素寫入失敗" },
             { WriteBackElementSkipped, "元素略過未寫入" },

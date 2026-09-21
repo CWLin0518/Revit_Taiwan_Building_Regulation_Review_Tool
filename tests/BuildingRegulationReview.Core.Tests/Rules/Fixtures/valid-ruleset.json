@@ -1,0 +1,51 @@
+{
+  "schemaVersion": "1.0",
+  "ruleSetId": "tw-bcr-fire",
+  "version": "2024.1",
+  "title": "建築技術規則建築設計施工編 防火區劃",
+  "rules": [
+    {
+      "ruleId": "tw-bcr-79-area",
+      "version": "1",
+      "category": "CompartmentArea",
+      "legalReference": "建築技術規則建築設計施工編第79條第1項",
+      "effectiveDate": "2024-01-01",
+      "jurisdiction": "TW",
+      "priority": 10,
+      "appliesWhen": "building.fireResistiveConstruction == true",
+      "requiredValue": "area <= (zone.sprinklered ? 3000 : 1500) m2",
+      "exemptions": [
+        "zone.use == \"樓梯間\""
+      ],
+      "evidenceFields": [ "zone.area", "zone.sprinklered", "building.fireResistiveConstruction" ],
+      "severity": "Error"
+    },
+    {
+      "ruleId": "tw-bcr-79-wall-rating",
+      "version": "1",
+      "category": "FireResistance",
+      "legalReference": "建築技術規則建築設計施工編第79條第1項",
+      "effectiveDate": "2024-01-01",
+      "jurisdiction": "TW",
+      "priority": 10,
+      "appliesWhen": "element.category == \"Walls\" && element.isCompartmentBoundary == true",
+      "requiredValue": "60 min",
+      "exemptions": [],
+      "evidenceFields": [ "element.typeName", "element.providedFireRating" ],
+      "severity": "Error"
+    },
+    {
+      "ruleId": "tw-bcr-76-door",
+      "version": "2",
+      "category": "OpeningProtection",
+      "legalReference": "建築技術規則建築設計施工編第76條",
+      "effectiveDate": "2023-07-01",
+      "jurisdiction": "TW",
+      "priority": 5,
+      "appliesWhen": "opening.hostIsCompartmentBoundary == true",
+      "requiredValue": "opening.providedFireProtection == \"是\"",
+      "evidenceFields": [ "opening.hostUniqueId", "opening.providedFireProtection" ],
+      "severity": "Warning"
+    }
+  ]
+}
