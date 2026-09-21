@@ -1,57 +1,56 @@
 # Agent Handoff
 - Phase: P3
-- Completed Task: P3-T08
-- Next Task: P3-T09
-- Status: READY_FOR_NEW_SESSION
-- Commit: 5faa685（feat）；SHA 由本 docs commit 記錄
+- Completed Task: P3-T09（Phase 3 最後一個任務）
+- Next Task: PHASE_COMPLETE — **不得開始 Phase 4**，需由使用者／Orchestrator 明確啟動，並先補 Revit 實機驗收
+- Status: PHASE_COMPLETE_PENDING_REVIT_ACCEPTANCE
+- Commit: 由本任務第二個 docs commit 記錄
 - Spec Version: Draft v1.1 (`docs/fire-review-spec.md`)
-- 任務文件：`docs/agent/p3-t08-review-marking-and-table.md`（檢討表規則、標示計畫與差異、schema GUID、設計決策）
-- P2 實機驗收仍有兩項「未回報」（見 `phase-2-acceptance.md`），使用者選擇先進行 P3。
+- 任務文件：`docs/agent/p3-t09-phase-3-integration.md`；驗收對照：`docs/agent/phase-3-acceptance.md`
 
 ## Completed
-- Application `Reviews/ReviewTable.cs`：`ReviewStatusAggregation`（六態列彙總、spec 11.7 總狀態規則）、`ReviewVerdict`（含 NeedsUpdate）、`ReviewStatusCounts`、
-  `ReviewTable`／`ReviewTableSection`／`ReviewTableGroup`／`ReviewTableEntry`（依區劃、類別＋Type、門／窗／幕牆統計；定位、條文、覆寫、失效）。
-- Application `Reviews/ReviewMarkup.cs`：`ReviewMarkKey`（Package／Run／Zone ID）、`ReviewMarkupPlan`（紅色區域與元素覆寫，依 EffectiveStatus，失效／連結略過）、
-  `ReviewMarkupDiff`（只動本套件標記與工具紀錄的元素）、`RecordedElementOverride`＋`ReviewOverrideRestore`（原始狀態與使用者修改保留）、`ReviewMarkupResult`。
-- `ManagedOutputKind.ReviewView`、`ReviewOutputNaming.ReviewView`、`ManagedOwnership` 認得 `BCRRV` token；錯誤碼 `BCR-MARK-001/002/003`。
-- Revit `Reviews/`：`RevitReviewViewMarker`（找回／複製檢討視圖、Filled Region、By Element Override、恢復、`Locate`，TransactionGroup）、
-  `RevitOverrideStateCodec`、`ReviewViewOverrideStorage`（view 上的 Extensible Storage）；`ManagedElementMark.Write(element, ReviewMarkKey, …)`。
+- Application `Reviews`：`ReviewInputSources`（欄位 → `BCR_*` 參數目錄、規則實際需要的參數）、`ReviewParameterSnapshot`＋`ReviewInputAssembler`
+  （參數值 → 三類檢查輸入，不猜測）、`ReviewReadiness`（spec 11.1 前置檢查，阻擋／提醒＋修正方式）、`FireReviewRunner`
+  （三類一次執行、安全點取消、覆寫沿用、套件 Reviewed＋鎖定規則版本、日誌）、`ReviewPerformance`（spec 15 目標與診斷）、
+  `StoredRunInspection`（重開模型時判定失效並暫停覆寫）。錯誤碼 `BCR-PRE-001/002`、`BCR-ENV-001`、`BCR-RUN-002/003/004`、`BCR-PERF-001`。
+- Domain：`ReviewPackage.WithReviewRun`。
+- Revit：`RevitReviewParameterReader`、`RevitReviewEnvironmentReader`（唯讀）。
+- 外掛：內建暫定規則 `Data/fire-review-rules.json`（`tw-bcr-fire 2026.0-provisional`）、`FireReviewRuleSetSource`、`FireReviewModel`
+  （掃描、儲存＋標示同一 TransactionGroup、定位）、`FireReviewWindow`（前置檢查、進度／取消、檢討表、明細、覆寫、重新標示、日誌）、
+  `FireReviewOverrideDialog`、`FireReviewCommand`、ribbon「防火區劃檢討」。
 
 ## Changed Files
-- `src/BuildingRegulationReview.Application/Reviews/ReviewTable.cs`、`ReviewMarkup.cs`（新增）
-- `src/BuildingRegulationReview.Application/WriteBack/ManagedOutput.cs`、`ReviewOutputNaming.cs`
-- `src/BuildingRegulationReview.Application/Diagnostics/ReviewErrorCode.cs`
-- `src/BuildingRegulationReview.Revit/Reviews/RevitReviewViewMarker.cs`、`RevitOverrideStateCodec.cs`（新增）
-- `src/BuildingRegulationReview.Revit/WriteBack/ManagedElementMark.cs`
-- `tests/BuildingRegulationReview.Core.Tests/Reviews/ReviewTableTests.cs`、`ReviewMarkupTests.cs`（新增）
-- `docs/agent/p3-t08-review-marking-and-table.md`（新增）、`docs/agent/phase-state.yaml`、`docs/agent/HANDOFF.md`
+- 新增：`src/BuildingRegulationReview.Application/Reviews/{ReviewInputSources,ReviewParameterSnapshot,ReviewReadiness,FireReviewRunner,StoredRunInspection}.cs`
+- 新增：`src/BuildingRegulationReview.Revit/Reviews/{RevitReviewParameterReader,RevitReviewEnvironmentReader}.cs`
+- 新增：`src/BuildingRegulationReview/FireReviewCommand.cs`、`src/BuildingRegulationReview/FireReview/*.cs`、`src/BuildingRegulationReview/Data/fire-review-rules.json`
+- 修改：`ReviewErrorCode.cs`、`ReviewPackage.cs`、`App.cs`、外掛 csproj（規則檔輸出）、測試 csproj（連結規則檔）
+- 新增測試：`tests/BuildingRegulationReview.Core.Tests/Reviews/FireReviewIntegrationTests.cs`
+- 文件：`docs/agent/p3-t09-phase-3-integration.md`、`docs/agent/phase-3-acceptance.md`、`HANDOFF.md`、`phase-state.yaml`
 
 ## Decisions and Assumptions
-- 一個套件一個檢討視圖（來源平面圖的複本），以擁有權標記找回；不改 `ReviewPackage` schema。
-- 紅色區域跨 run 以 package＋zone＋part 配對，新 run 接手（Update），重跑不增加元素；Run ID 寫在 token 與 Comments。
-- 原視圖狀態＝元素在檢討視圖的原始 `OverrideGraphicSettings`，只在第一次上色時擷取；恢復時若使用者已改就保留。
-- 失效結果不標示，列為略過；run 或任一結果失效時總狀態為「需更新」。
-- 空的檢討列顯示未檢討但不影響總狀態；三個檢查都要跑由 P3-T09 保證。
+- spec 19 第 2、4～6 項未定：規則為暫定示意；輸入以參數名稱讀取（專案資訊／面積／構件類型／門窗實體或類型），文字、整數、是非皆可，無法判讀即資料不足。
+- 「必要參數」由規則實際讀取的欄位決定；完全沒有參數才阻擋，部分類別沒綁只提醒。
+- 鎖定的規則版本與外掛提供者不同 → 阻擋，使用者勾選「改用目前規則版本」後才以新版檢討並鎖定。
+- run＋套件＋檢討視圖標示是同一個 undo；例外整批復原；標示整批失敗時保留已存結果並提示重新標示。
+- 開窗時就判定最新 run 的失效並寫回（覆寫暫停、套件 Stale）。
 
 ## Verification Results
-- Solution `-t:Rebuild`、外掛 csproj `-t:Rebuild`：各 0 warnings、0 errors。
-- Core tests：**931/931 通過**（前 889，新增 42：ReviewTableTests 28、ReviewMarkupTests 14）。
-- 未實機驗證：Revit 端的視圖複製、Filled Region、覆寫與恢復、view 上的 Extensible Storage 都只經過編譯（P3-T09 實機驗收）。
+- Solution 與外掛 csproj `-t:Rebuild`：各 0 warnings、0 errors。
+- Core tests：**982/982 通過**（原 931，新增 51）。
+- 無頭（net48 實際輸出）：內建規則載入成功（4 條）；缺檔 `BCR-RULE-001`、壞 JSON 與 schema 錯誤 `BCR-RULE-005`。
+- **Revit 實機驗收未執行**（本 session Revit MCP 未連線；新指令需重新部署與重開 Revit）：`phase-3-acceptance.md` R1～R12 皆「未回報」。
 
 ## Known Issues / Risks
-- `RevitReviewViewMarker` 尚未被任何指令呼叫；Filled Region 的 Z 取 `GenLevel.Elevation`，需實機確認。
-- `ReviewEnvironment` 事實與門窗／Type 參數的 Revit reader、WPF 檢討表、定位（選取＋縮放）、人工覆核 UI 都在 P3-T09。
-- spec 19 第 2、4、5、6、7 項未定。
-- `phase-2-acceptance.md` 的未提交修改、`bin/`、`obj/`、`.gitignore`、`.gtoffice/` 不屬於本 Task，刻意不提交。
+- Revit 端（參數／環境 reader、TransactionGroup、檢討視圖標示、Extensible Storage 存讀、WPF 視窗）只經編譯與無頭驗證。
+- 檢討期間使用者改模型不會在儲存時重比對（下次開窗判定為需更新）。
+- 柱、梁沒有規則（不適用）；連結模型與非主要設計選項不讀取；Type 時效只讀 `BCR_ProvidedFireRating`。
+- P2 實機驗收仍有兩項未回報；`docs/agent/phase-2-acceptance.md` 的未提交修改、`bin/`、`obj/`、`.gitignore`、`.gtoffice/` 不屬本任務，未提交。
 
 ## Exact Next Steps
-1. 讀 spec 11.0（P3-T09）、11.1、11.8、13.2、14、15、16.3，以及 `p3-t03`～`p3-t08` 任務文件。
-2. 執行 P3-T09：整合 Phase 3——前置檢查（`ReviewPreconditions`）、三類檢討一次執行、`ReviewEnvironment` 與參數 reader、
-   `RevitReviewRunRepository` 存讀、`ReviewTable` WPF 視窗（展開、定位、條文、人工覆核）、`RevitReviewViewMarker.Mark`、取消／Rollback、日誌與效能。
-3. 實機驗收：重開模型可讀 run、模型／規則變更變 Stale、檢討視圖標示與重跑三次元素數量不變。
-4. P3-T09 是 Phase 3 最後一項：完成後發 `PHASE_COMPLETE` 並停止，不得開始 Phase 4。
+1. 使用者重新部署外掛並依 `phase-3-acceptance.md` 最後一節做 R1～R12 實機驗收，回報結果；有問題以 `fix(fire-review): [P3] …` 修正。
+2. 決定 spec 19 第 2、4～7 項後替換內建規則檔（提高 version）與參數來源。
+3. Phase 4 僅在使用者或 Orchestrator 明確啟動後開始。
 
 ## Do Not Do
 - 不開始 Phase 4（Legend／Sheet／圖說）。
-- 不寫任何 Revit 設計參數；標示只動檢討視圖，不動來源平面圖與 Area Plan。
+- 不寫任何 Revit 設計參數；標示只動檢討視圖。
 - Revit／WPF 型別不得進 Domain／Application；不 push、不 amend、不 `git add .`。

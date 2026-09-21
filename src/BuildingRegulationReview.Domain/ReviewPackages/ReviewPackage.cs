@@ -129,6 +129,30 @@ public sealed class ReviewPackage
             LastReviewRunId, status, updatedAtUtc);
     }
 
+    /// <summary>
+    /// Records a finished review (spec 11.1「規則集存在且版本已鎖定」): the rule set and version the
+    /// run was locked to, the run itself and the status it leaves the package in. The boundary
+    /// revision is untouched — a review reads the boundaries, it never moves them.
+    /// </summary>
+    public ReviewPackage WithReviewRun(
+        string ruleSetId,
+        string ruleSetVersion,
+        Guid runId,
+        ReviewPackageStatus status,
+        DateTime? updatedAtUtc = null)
+    {
+        if (string.IsNullOrWhiteSpace(ruleSetId)) throw new ArgumentException("Rule set ID is required.", nameof(ruleSetId));
+        if (string.IsNullOrWhiteSpace(ruleSetVersion)) throw new ArgumentException("Rule set version is required.", nameof(ruleSetVersion));
+        if (runId == Guid.Empty) throw new ArgumentException("Run ID cannot be empty.", nameof(runId));
+        if (!Enum.IsDefined(typeof(ReviewPackageStatus), status)) throw new ArgumentOutOfRangeException(nameof(status));
+
+        return new ReviewPackage(
+            PackageId, SourceFloorPlanUniqueId, LevelUniqueId, AreaSchemeUniqueId,
+            AreaPlanUniqueId, DraftingViewUniqueId, LegendViewUniqueIds, SheetUniqueId,
+            GeneratedElementUniqueIds, BoundaryRevision, ruleSetId, ruleSetVersion,
+            runId.ToString("D"), status, updatedAtUtc);
+    }
+
     /// <summary>The same package with its boundary revision advanced by one (spec 13.2).</summary>
     public ReviewPackage WithNextBoundaryRevision(
         ReviewPackageStatus status,

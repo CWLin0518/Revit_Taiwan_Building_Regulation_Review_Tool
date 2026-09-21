@@ -108,6 +108,15 @@ public static class ReviewErrorCode
     public const string ReviewMarkSkipped = "BCR-MARK-002";
     public const string ReviewMarkUserChangeKept = "BCR-MARK-003";
 
+    // 前置檢查、執行、取消與效能（spec 11.1、13.2、15）
+    public const string ReviewNotReady = "BCR-PRE-001";
+    public const string ReviewReady = "BCR-PRE-002";
+    public const string EnvironmentLimited = "BCR-ENV-001";
+    public const string ReviewCancelled = "BCR-RUN-002";
+    public const string ReviewCompleted = "BCR-RUN-003";
+    public const string ReviewSaveRolledBack = "BCR-RUN-004";
+    public const string PerformanceExceeded = "BCR-PERF-001";
+
     private static readonly IReadOnlyDictionary<string, string> Descriptions =
         new ReadOnlyDictionary<string, string>(new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -148,7 +157,14 @@ public static class ReviewErrorCode
             { ReviewRunUnreadable, "檢討紀錄無法讀取" },
             { ReviewMarkRefused, "檢討視圖無法標示" },
             { ReviewMarkSkipped, "未符合項目未標示" },
-            { ReviewMarkUserChangeKept, "保留使用者修改的元素顯示" }
+            { ReviewMarkUserChangeKept, "保留使用者修改的元素顯示" },
+            { ReviewNotReady, "前置檢查未通過" },
+            { ReviewReady, "前置檢查" },
+            { EnvironmentLimited, "模型條件超出 MVP 範圍" },
+            { ReviewCancelled, "檢討已取消" },
+            { ReviewCompleted, "檢討完成" },
+            { ReviewSaveRolledBack, "檢討結果寫入已整批復原" },
+            { PerformanceExceeded, "超出效能目標" }
         });
 
     /// <summary>Every code this tool can emit, for the documentation and for the tests that pin it.</summary>

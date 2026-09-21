@@ -25,6 +25,8 @@ namespace BuildingRegulationReview
             setupButton.ToolTip = "選擇來源樓層平面、面積配置與 Area Plan 選項，建立檢討套件。";
             var editorButton = (PushButton)panel.AddItem(new PushButtonData("RegionEditor", "防火區劃\n編輯器", path, typeof(RegionEditorCommand).FullName));
             editorButton.ToolTip = "讀取 Area Plan 的牆、柱與輔助線，求解封閉範圍，並以左右鍵編輯防火區劃草稿。模型不會被更動。";
+            var reviewButton = (PushButton)panel.AddItem(new PushButtonData("FireReview", "防火區劃\n檢討", path, typeof(FireReviewCommand).FullName));
+            reviewButton.ToolTip = "前置檢查後一次檢討防火區劃面積、構件防火時效與防火門窗，在專用檢討視圖標示未符合項目，並可定位與人工覆寫。";
 
             var featureRegistry = new ReviewFeatureRegistry(new IReviewFeature[]
             {
