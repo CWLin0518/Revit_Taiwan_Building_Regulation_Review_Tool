@@ -72,13 +72,6 @@ public sealed class MemberRatingFinding
 /// </summary>
 public sealed class TypeRatingSummary
 {
-    /// <summary>Worst first: the order a Type's overall status is taken in.</summary>
-    private static readonly ReviewStatus[] Severity =
-    {
-        ReviewStatus.Fail, ReviewStatus.ManualReview, ReviewStatus.InsufficientData,
-        ReviewStatus.Pass, ReviewStatus.NotApplicable, ReviewStatus.NotRun
-    };
-
     internal TypeRatingSummary(
         CandidateCategory? category,
         string? typeUniqueId,
@@ -93,7 +86,7 @@ public sealed class TypeRatingSummary
         Findings = new ReadOnlyCollection<MemberRatingFinding>(findings.ToList());
         ElementUniqueIds = new ReadOnlyCollection<string>(Findings.Select(f => f.ElementUniqueId)
             .Distinct(StringComparer.Ordinal).OrderBy(x => x, StringComparer.Ordinal).ToList());
-        Status = Severity.First(s => s == ReviewStatus.NotRun || Findings.Any(f => f.Status == s));
+        Status = ReviewStatusSeverity.Worst(Findings.Select(f => f.Status));
         var required = Findings.Select(f => f.RequiredMinutes).Where(x => x.HasValue).Select(x => x!.Value).ToList();
         HighestRequiredMinutes = required.Count > 0 ? required.Max() : (double?)null;
     }

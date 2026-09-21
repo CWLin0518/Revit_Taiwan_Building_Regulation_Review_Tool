@@ -17,6 +17,7 @@ public static class ReviewCheckTypes
 {
     public const string CompartmentArea = "CompartmentArea";
     public const string FireResistance = "FireResistance";
+    public const string OpeningProtection = "OpeningProtection";
 }
 
 /// <summary>How Revit's Area and the measured boundary compared (spec 11.4 step 2).</summary>
