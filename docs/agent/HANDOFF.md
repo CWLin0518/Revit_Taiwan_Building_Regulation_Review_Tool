@@ -3,7 +3,7 @@
 - Completed Task: P3-T09（Phase 3 最後一個任務）
 - Next Task: PHASE_COMPLETE — **不得開始 Phase 4**，需由使用者／Orchestrator 明確啟動，並先補 Revit 實機驗收
 - Status: PHASE_COMPLETE_PENDING_REVIT_ACCEPTANCE
-- Commit: 由本任務第二個 docs commit 記錄
+- Commit: 5d01da0（feat）；SHA 由本 docs commit 記錄
 - Spec Version: Draft v1.1 (`docs/fire-review-spec.md`)
 - 任務文件：`docs/agent/p3-t09-phase-3-integration.md`；驗收對照：`docs/agent/phase-3-acceptance.md`
 
