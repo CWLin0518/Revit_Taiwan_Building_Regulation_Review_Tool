@@ -17,8 +17,10 @@ namespace BuildingRegulationReview.Revit.Parameters;
 /// <remarks>
 /// The view only decides which Types are listed. The parameters are Type parameters, so the counts
 /// report both what the view showed and what the project holds — an edit reaches all of the latter.
-/// 梁（結構構架）are not listed here: the panel derives a rating from the Type, and 第71～73條 give
-/// 樑 no dimensional threshold to derive one from. The review still reads their 設計防火時效.
+/// 梁（結構構架）are listed like the rest, because 第70條 states a required rating for them and the
+/// review reads their 設計防火時效. What they have no answer for is deriving that design value from
+/// the Type's size — 第71～73條 give 樑 no dimensional threshold — so their 結構材料 column is
+/// disabled and the 推定時效 column says why. The value is typed in instead.
 /// </remarks>
 public sealed class RevitFireReviewTypeScanner
 {
@@ -28,6 +30,7 @@ public sealed class RevitFireReviewTypeScanner
             { BuiltInCategory.OST_Walls, CandidateCategory.Wall },
             { BuiltInCategory.OST_Columns, CandidateCategory.Column },
             { BuiltInCategory.OST_StructuralColumns, CandidateCategory.Column },
+            { BuiltInCategory.OST_StructuralFraming, CandidateCategory.StructuralFraming },
             { BuiltInCategory.OST_Floors, CandidateCategory.Floor },
             { BuiltInCategory.OST_Doors, CandidateCategory.Door },
             { BuiltInCategory.OST_Windows, CandidateCategory.Window },
@@ -81,8 +84,8 @@ public sealed class RevitFireReviewTypeScanner
 
         if (rows.Count == 0)
             warnings.Add(view is null
-                ? "專案中找不到牆、柱、樓板、門、窗或帷幕嵌板。"
-                : $"視圖「{view.Name}」中找不到牆、柱、樓板、門、窗或帷幕嵌板；請切換到含這些構件的視圖。");
+                ? "專案中找不到牆、柱、樑、樓板、門、窗或帷幕嵌板。"
+                : $"視圖「{view.Name}」中找不到牆、柱、樑、樓板、門、窗或帷幕嵌板；請切換到含這些構件的視圖。");
 
         return new FireReviewTypeTable(rows, warnings);
     }
