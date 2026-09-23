@@ -28,13 +28,15 @@ public sealed class FireReviewZoneRow
         string? use = null,
         bool? sprinklered = null,
         int? floorNumber = null,
-        FireReviewZoneParameters present = FireReviewZoneParameters.None)
+        FireReviewZoneParameters present = FireReviewZoneParameters.None,
+        string? levelId = null)
     {
         if (string.IsNullOrWhiteSpace(elementUniqueId)) throw new ArgumentException("Element UniqueId is required.", nameof(elementUniqueId));
         if (areaSquareMeters is double a && (double.IsNaN(a) || double.IsInfinity(a) || a < 0))
             throw new ArgumentOutOfRangeException(nameof(areaSquareMeters));
 
         ElementUniqueId = elementUniqueId.Trim();
+        LevelId = Clean(levelId);
         Name = string.IsNullOrWhiteSpace(name) ? "（未命名區劃）" : name.Trim();
         Number = Clean(number);
         LevelName = Clean(levelName);
@@ -50,6 +52,10 @@ public sealed class FireReviewZoneRow
     public string Name { get; }
     public string? Number { get; }
     public string? LevelName { get; }
+
+    /// <summary>The level this Area sits on, which is what the storey numbering is keyed by.</summary>
+    public string? LevelId { get; }
+
     public string? AreaSchemeName { get; }
 
     /// <summary>Revit's own measurement, shown for context; never written from here.</summary>
@@ -169,9 +175,11 @@ public sealed class FireReviewParameterSet
     public FireReviewParameterSet(
         FireReviewTypeTable types,
         IEnumerable<FireReviewZoneRow>? zones = null,
-        FireReviewProjectRow? project = null)
+        FireReviewProjectRow? project = null,
+        FloorNumbering? floors = null)
     {
         Types = types ?? throw new ArgumentNullException(nameof(types));
+        Floors = floors ?? FloorNumbering.Empty;
         Zones = new ReadOnlyCollection<FireReviewZoneRow>(
             (zones ?? Array.Empty<FireReviewZoneRow>())
             .GroupBy(z => z.ElementUniqueId, StringComparer.Ordinal)
@@ -187,6 +195,14 @@ public sealed class FireReviewParameterSet
 
     /// <summary>Null when the document has no Project Information element to read.</summary>
     public FireReviewProjectRow? Project { get; }
+
+    /// <summary>
+    /// What the model's levels say each storey's number is, so 所在樓層序 and 地上層數 can be
+    /// proposed instead of typed. A proposal only: it is shown in the panel and written when the
+    /// user accepts it, because ground is assumed to be elevation zero and not every Level is a
+    /// storey (see <see cref="LevelFloorNumbering"/>).
+    /// </summary>
+    public FloorNumbering Floors { get; }
 
     /// <summary>
     /// The one fact that decides whether any rule runs at all: with 防火構造建築物 unticked every

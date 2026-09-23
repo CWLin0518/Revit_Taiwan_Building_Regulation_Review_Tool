@@ -53,7 +53,7 @@ public sealed class RevitFireReviewTypeScanner
     /// so scoping them to the view would have shown an empty list nearly every time.
     /// </remarks>
     public FireReviewParameterSet ScanAll(View? view) =>
-        new(Scan(view), Zones(), ProjectRow());
+        new(Scan(view), Zones(), ProjectRow(), Floors());
 
     /// <summary>The Types visible in <paramref name="view"/>, or in the whole project when it is null.</summary>
     public FireReviewTypeTable Scan(View? view)
@@ -229,6 +229,19 @@ public sealed class RevitFireReviewTypeScanner
     private static bool IsPositiveLength(Parameter? parameter) =>
         parameter is not null && parameter.StorageType == StorageType.Double && parameter.HasValue && parameter.AsDouble() > 0;
 
+    /// <summary>
+    /// The storey number of every Level, proposed from their elevations so 所在樓層序 and 地上層數
+    /// do not have to be typed one Area at a time.
+    /// </summary>
+    private FloorNumbering Floors() =>
+        LevelFloorNumbering.From(new FilteredElementCollector(_document)
+            .OfClass(typeof(Level))
+            .Cast<Level>()
+            .Select(level => new BuildingLevel(
+                level.UniqueId,
+                level.Name,
+                UnitUtils.ConvertFromInternalUnits(level.Elevation, UnitTypeId.Meters))));
+
     /// <summary>Every 防火區劃 Area in the document, with the zone parameters the review reads.</summary>
     private IEnumerable<FireReviewZoneRow> Zones()
     {
@@ -249,6 +262,7 @@ public sealed class RevitFireReviewTypeScanner
                 Text(area, BuiltInParameter.ROOM_NAME) ?? area.Name,
                 number: Text(area, BuiltInParameter.ROOM_NUMBER),
                 levelName: area.Level?.Name,
+                levelId: area.Level?.UniqueId,
                 areaSchemeName: SchemeOf(area),
                 // Revit reports an unplaced Area as zero; the review's own cross-check judges that,
                 // so the panel simply shows nothing rather than a misleading 0 m².

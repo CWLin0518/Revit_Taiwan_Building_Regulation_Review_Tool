@@ -75,15 +75,33 @@ namespace BuildingRegulationReview.FireReview
         private string _sprinklered;
         private string _floorNumber;
 
-        public FireReviewZoneRowViewModel(FireReviewZoneRow source)
+        public FireReviewZoneRowViewModel(FireReviewZoneRow source, int? derivedFloorNumber = null)
         {
             Source = source ?? throw new ArgumentNullException(nameof(source));
+            DerivedFloorNumber = derivedFloorNumber;
             _use = source.Use ?? "";
             _sprinklered = TextOf(source.Sprinklered);
             _floorNumber = TextOf(source.FloorNumber);
         }
 
         public FireReviewZoneRow Source { get; }
+
+        /// <summary>What the levels' elevations say this zone's storey number is; null when unknown.</summary>
+        public int? DerivedFloorNumber { get; }
+
+        public string DerivedFloorText => DerivedFloorNumber.HasValue
+            ? TextOf(DerivedFloorNumber)
+            : "—";
+
+        /// <summary>True when the derived storey number is not what the box currently holds.</summary>
+        public bool FloorNumberDiffers =>
+            DerivedFloorNumber.HasValue && IntegerOf(_floorNumber) != DerivedFloorNumber;
+
+        /// <summary>Fills the box from the model's levels; does not write to the model.</summary>
+        public void ApplyDerivedFloorNumber()
+        {
+            if (DerivedFloorNumber.HasValue) FloorNumber = TextOf(DerivedFloorNumber);
+        }
 
         public string DisplayName => Source.DisplayName;
         public string LevelName => Source.LevelName ?? "—";
@@ -119,7 +137,10 @@ namespace BuildingRegulationReview.FireReview
         public string FloorNumber
         {
             get => _floorNumber;
-            set => Set(ref _floorNumber, value);
+            set
+            {
+                if (Set(ref _floorNumber, value)) Raise(nameof(FloorNumberDiffers));
+            }
         }
 
         public string MissingParameters => Source.MissingParameters.Count == 0

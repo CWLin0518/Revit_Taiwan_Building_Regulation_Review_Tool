@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -29,6 +30,7 @@ namespace BuildingRegulationReview.FireReview
             new ObservableCollection<FireReviewZoneRowViewModel>();
 
         private readonly FireReviewProjectViewModel _project;
+        private FloorNumbering _floors;
 
         internal FireReviewParameterPanelWindow(FireReviewParameterSet set, string viewName)
         {
@@ -38,8 +40,17 @@ namespace BuildingRegulationReview.FireReview
             foreach (var row in set.Types.Rows) _rows.Add(new FireReviewTypeRowViewModel(row));
             Grid.ItemsSource = _rows;
 
-            foreach (var zone in set.Zones) _zones.Add(new FireReviewZoneRowViewModel(zone));
+            _floors = set.Floors;
+            foreach (var zone in set.Zones)
+                _zones.Add(new FireReviewZoneRowViewModel(zone, _floors.For(zone.LevelId)));
             ZoneGrid.ItemsSource = _zones;
+
+            if (!_floors.IsEmpty)
+            {
+                FloorsBox.Visibility = Visibility.Visible;
+                FloorsText.Text = string.Join("\n", _floors.Warnings);
+            }
+            DeriveFloorsButton.IsEnabled = !_floors.IsEmpty;
 
             if (set.Project != null)
             {
@@ -177,6 +188,42 @@ namespace BuildingRegulationReview.FireReview
 
             ZoneGrid.Items.Refresh();
             StatusText.Text = $"已設定 {selected.Count} 個區劃。尚未寫入模型。";
+        }
+
+        /// <summary>
+        /// Fills every zone's 所在樓層序 from the levels, and 地上層數 with the count that goes with
+        /// it. Both are written to the boxes, not to the model: 第70條 divides one by the other, so a
+        /// storey number accepted without the matching count would compute a position from the top
+        /// that is nobody's answer.
+        /// </summary>
+        private void DeriveFloors_OnClick(object sender, RoutedEventArgs e)
+        {
+            CommitEdit();
+
+            if (_floors.IsEmpty)
+            {
+                MessageBox.Show(this, "模型中沒有樓層可以判斷樓層序。", Title);
+                return;
+            }
+
+            var filled = 0;
+            var unknown = new List<string>();
+            foreach (var zone in _zones)
+            {
+                if (zone.DerivedFloorNumber.HasValue) { zone.ApplyDerivedFloorNumber(); filled++; }
+                else unknown.Add(zone.DisplayName);
+            }
+
+            ZoneGrid.Items.Refresh();
+
+            if (_project != null) _project.FloorsAboveGround = _floors.FloorsAboveGround.ToString(CultureInfo.InvariantCulture);
+
+            var missing = unknown.Count == 0
+                ? ""
+                : $"；{unknown.Count} 個區劃讀不到所屬樓層（{string.Join("、", unknown.Take(3))}{(unknown.Count > 3 ? "…" : "")}）";
+
+            StatusText.Text = $"已依樓層填入 {filled} 個區劃的樓層序，地上層數帶入 {_floors.FloorsAboveGround}{missing}。" +
+                              " 請核對上方的推定說明後再寫入模型。";
         }
 
         private void Write_OnClick(object sender, RoutedEventArgs e)

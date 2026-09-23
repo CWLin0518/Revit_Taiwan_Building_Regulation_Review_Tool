@@ -189,13 +189,24 @@
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
 
-                    <Border Padding="10" Background="#EAF2FF" BorderBrush="#B8D1F5" BorderThickness="1" CornerRadius="4">
-                        <StackPanel>
-                            <TextBlock Text="這些是 Area 的「實體參數」" FontWeight="SemiBold" Foreground="#1F5EA8" />
-                            <TextBlock Margin="0,4,0,0" TextWrapping="Wrap" LineHeight="18" Foreground="#2C4A76"
-                                       Text="每一列只影響那一個區劃。「自動滅火設備」決定面積上限是 1500 還是 3000 m²，沒填就算不出上限、該區劃會判資料不足。「所在樓層序」是第70條計算「自頂層起算第幾層」用的，地上為正、地下為負。面積由 Revit 量測，不能在這裡改。" />
-                        </StackPanel>
-                    </Border>
+                    <StackPanel>
+                        <Border Padding="10" Background="#EAF2FF" BorderBrush="#B8D1F5" BorderThickness="1" CornerRadius="4">
+                            <StackPanel>
+                                <TextBlock Text="這些是 Area 的「實體參數」" FontWeight="SemiBold" Foreground="#1F5EA8" />
+                                <TextBlock Margin="0,4,0,0" TextWrapping="Wrap" LineHeight="18" Foreground="#2C4A76"
+                                           Text="每一列只影響那一個區劃。「自動滅火設備」決定面積上限是 1500 還是 3000 m²，沒填就算不出上限、該區劃會判資料不足。「所在樓層序」是第70條計算「自頂層起算第幾層」用的，地上為正、地下為負。面積由 Revit 量測，不能在這裡改。" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border x:Name="FloorsBox" Margin="0,8,0,0" Padding="10" Visibility="Collapsed"
+                                Background="#FFF4E5" BorderBrush="#F0C48A" BorderThickness="1" CornerRadius="4">
+                            <StackPanel>
+                                <TextBlock Text="樓層序可以依模型樓層自動推定" FontWeight="SemiBold" Foreground="#8A5200" />
+                                <TextBlock x:Name="FloorsText" Margin="0,4,0,0" TextWrapping="Wrap"
+                                           LineHeight="18" Foreground="#6B4A12" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
 
                     <DataGrid x:Name="ZoneGrid" Grid.Row="1" Margin="0,10,0,0" AutoGenerateColumns="False"
                               CanUserAddRows="False" CanUserDeleteRows="False" HeadersVisibility="Column"
@@ -249,11 +260,28 @@
                                 </DataGridTextColumn.ElementStyle>
                             </DataGridTextColumn>
 
+                            <DataGridTextColumn Header="樓層序（推定）" Binding="{Binding DerivedFloorText}"
+                                                IsReadOnly="True" Width="104">
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="FontWeight" Value="SemiBold" />
+                                        <Setter Property="Foreground" Value="#1F5EA8" />
+                                        <Setter Property="ToolTip" Value="依樓層高程推定：高程 0 以上由下往上 1、2、3…，以下 −1、−2…。" />
+                                    </Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
+
                             <DataGridTextColumn Header="所在樓層序" Width="96"
                                                 Binding="{Binding FloorNumber, UpdateSourceTrigger=LostFocus}">
                                 <DataGridTextColumn.CellStyle>
                                     <Style TargetType="DataGridCell">
                                         <Setter Property="ToolTip" Value="整數；1 = 一樓、-1 = 地下一層。第70條用它算「自頂層起算第幾層」。" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding FloorNumberDiffers}" Value="True">
+                                                <Setter Property="Background" Value="#FFF8E1" />
+                                                <Setter Property="ToolTip" Value="目前填的值與依樓層推定的值不同。" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
                                     </Style>
                                 </DataGridTextColumn.CellStyle>
                             </DataGridTextColumn>
@@ -320,6 +348,8 @@
                     ToolTip="把選取的列一次設成同一個結構材料。" />
             <Button x:Name="FillZonesButton" Content="區劃批次填入…" Click="FillZones_OnClick" MinWidth="120"
                     ToolTip="把「區劃」分頁選取的列一次設成同樣的滅火設備與樓層序。" />
+            <Button x:Name="DeriveFloorsButton" Content="依樓層填入樓層序" Click="DeriveFloors_OnClick" MinWidth="140"
+                    ToolTip="依模型樓層高程填入每個區劃的所在樓層序，並把地上層數帶入專案資訊；尚未寫入模型。" />
             <TextBlock x:Name="StatusText" VerticalAlignment="Center" Margin="12,0,0,0"
                        Foreground="{StaticResource Muted}" TextWrapping="Wrap" />
         </StackPanel>
