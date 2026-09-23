@@ -290,6 +290,12 @@ public sealed class RevitZoneWriteBack
             return;
         }
 
+        // Revit judges the head against the Area's own extent, so the Area is asked where it is
+        // rather than being told: the draft's representative point is where the Area was asked to
+        // go, and Revit refuses a leaderless tag whose head it does not consider inside the host.
+        var anchor = (area.Location as LocationPoint)?.Point;
+        var head = anchor is null ? new UV(placement.X, placement.Y) : new UV(anchor.X, anchor.Y);
+
         try
         {
             // A tag whose host Area was rebuilt is deleted with it, so an update whose element has
@@ -297,7 +303,23 @@ public sealed class RevitZoneWriteBack
             var tag = Owned(plan, step) as AreaTag;
             if (tag is null)
             {
-                var created = _document.Create.NewAreaTag(view, area, new UV(placement.X, placement.Y));
+                AreaTag created;
+                try
+                {
+                    created = _document.Create.NewAreaTag(view, area, head);
+                }
+                catch (RevitApplicationException exception)
+                {
+                    // 「Head position of the tag with no leader could not be located outside of the
+                    // host element」: Revit will not place this annotation here, and no point this
+                    // side of the API changes its mind. An annotation is not what the checks read —
+                    // the boundaries and the Area are — so it is handed back as something to do by
+                    // hand rather than failing the step, which would hold the whole 防火區劃檢討 out
+                    // of 可開始檢討 over a label.
+                    Handback(step, planned, log, exception);
+                    return;
+                }
+
                 try
                 {
                     DropLeader(created, planned.ZoneName, log);
@@ -318,15 +340,29 @@ public sealed class RevitZoneWriteBack
             }
 
             DropLeader(tag, planned.ZoneName, log);
-            tag.TagHeadPosition = new XYZ(placement.X, placement.Y, tag.TagHeadPosition?.Z ?? 0);
+            tag.TagHeadPosition = new XYZ(head.U, head.V, tag.TagHeadPosition?.Z ?? 0);
             ManagedElementMark.Write(tag, step.Key, planned.Signature);
             Remember(step, tag);
             log.Updated(step, tag.UniqueId);
         }
         catch (RevitApplicationException exception)
         {
-            log.Failed(step, exception.Message);
+            Handback(step, planned, log, exception);
         }
+    }
+
+    /// <summary>
+    /// Gives an annotation Revit refused back to the user instead of failing over it. Recorded as
+    /// skipped, not failed, because <c>ReviewPackageProgress</c> blocks Ready on failures and a
+    /// missing label is not a boundary problem — the 區劃 itself is written, measured and reviewable.
+    /// </summary>
+    private static void Handback(ApplyStep step, PlannedElement planned, ApplyResult.Builder log, Exception exception)
+    {
+        log.Skipped(step, "Revit 不接受在這個位置建立面積標註：" + exception.Message);
+        log.Manual(
+            planned.Description,
+            "Revit 拒絕在這個位置建立面積標註，該區劃的邊界與面積本身不受影響。",
+            "請在 Area Plan 中手動放置這個區劃的面積標註；改用帶引線的標註類型通常就能放。");
     }
 
     /// <summary>
