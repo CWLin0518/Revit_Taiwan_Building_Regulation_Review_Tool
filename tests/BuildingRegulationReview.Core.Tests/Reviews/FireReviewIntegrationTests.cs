@@ -27,7 +27,7 @@ namespace BuildingRegulationReview.Core.Tests.Reviews;
 public sealed class FireReviewIntegrationTests
 {
     private const string RuleSetId = "tw-bcr-fire";
-    private const string ShippedVersion = "2026.0-provisional";
+    private const string ShippedVersion = "2026.1-provisional";
     private static readonly DateTime Now = new(2026, 9, 22, 9, 0, 0, DateTimeKind.Utc);
     private static readonly RuleEvaluationContext Today = new(new DateTime(2026, 9, 22), "TW");
 
@@ -166,15 +166,99 @@ public sealed class FireReviewIntegrationTests
         Assert.Contains("zone.use", fields);
         Assert.Contains("element.providedFireRating", fields);
         Assert.Contains("opening.providedFireProtection", fields);
+        // 第70條 decides a column's required rating from where its storey sits, counted from the top.
+        Assert.Contains("building.floorsAboveGround", fields);
+        Assert.Contains("zone.floorNumber", fields);
         Assert.DoesNotContain("element.typeName", fields); // evidence only
 
         var needed = ReviewInputSources.NeededBy(Rules()).Select(s => s.ParameterName).ToList();
         Assert.Equal(new[]
         {
-            ReviewInputSources.FireResistiveConstruction, FireRatingParameters.Provided, FireProtectionParameters.Provided,
-            ReviewInputSources.Sprinklered, ReviewInputSources.ZoneUse
+            ReviewInputSources.FireResistiveConstruction, ReviewInputSources.FloorsAboveGround,
+            FireRatingParameters.Provided, FireProtectionParameters.Provided,
+            ReviewInputSources.FloorNumber, ReviewInputSources.Sprinklered, ReviewInputSources.ZoneUse
         }, needed);
         Assert.DoesNotContain(needed, n => n == FireRatingParameters.Required);
+    }
+
+    /// <summary>
+    /// 建築技術規則建築設計施工編第70條, for 柱: 自頂層起算不超過第四層 → 一小時、超過第四層至第十四層
+    /// → 二小時、第十五層以上 → 三小時。本表所指之層數包括地下層數，所以地下層繼續往下數。
+    /// </summary>
+    [Theory]
+    // 20 層樓：頂層 20F 起算第 1 層，1F 起算第 20 層。
+    [InlineData(20, 20, 60)]   // 自頂層第 1 層
+    [InlineData(20, 17, 60)]   // 自頂層第 4 層，邊界
+    [InlineData(20, 16, 120)]  // 自頂層第 5 層，邊界
+    [InlineData(20, 7, 120)]   // 自頂層第 14 層，邊界
+    [InlineData(20, 6, 180)]   // 自頂層第 15 層，邊界
+    [InlineData(20, 1, 180)]   // 自頂層第 20 層
+    // 地下層繼續往下數：4 層樓的 B1 是自頂層起算第 5 層。
+    [InlineData(4, 4, 60)]
+    [InlineData(4, 1, 60)]     // 自頂層第 4 層
+    [InlineData(4, -1, 120)]   // 自頂層第 5 層
+    [InlineData(4, -10, 120)]  // 自頂層第 14 層，仍在「超過第四層至第十四層」內
+    [InlineData(4, -11, 180)]  // 自頂層第 15 層
+    public void A_columns_required_rating_follows_article_70_by_storey_from_the_top(
+        int floorsAboveGround, int floorNumber, double expectedMinutes)
+    {
+        var outcome = ColumnOutcome(floorsAboveGround, floorNumber, providedMinutes: expectedMinutes);
+
+        Assert.Equal(ReviewStatus.Pass, outcome.Status);
+        Assert.Equal(ReviewValue.Quantity(expectedMinutes, ReviewUnit.Minute), outcome.RequiredValue);
+        Assert.Contains("第70條", outcome.LegalReference);
+    }
+
+    [Fact]
+    public void A_column_one_minute_short_of_what_article_70_requires_fails()
+    {
+        // 自頂層起算第 5 層需要二小時。
+        var outcome = ColumnOutcome(20, 16, providedMinutes: 119);
+
+        Assert.Equal(ReviewStatus.Fail, outcome.Status);
+        Assert.Equal(ReviewValue.Quantity(120, ReviewUnit.Minute), outcome.RequiredValue);
+    }
+
+    /// <summary>第70條 is about 主要構造, so a column that is not structural is not its subject.</summary>
+    [Fact]
+    public void A_column_that_is_not_structural_is_not_the_subject_of_article_70()
+    {
+        var outcome = ColumnOutcome(20, 16, providedMinutes: 60, structural: false);
+
+        Assert.Equal(ReviewStatus.NotApplicable, outcome.Status);
+    }
+
+    /// <summary>Without the storey the clause counts from, the answer is 資料不足 — never a fail.</summary>
+    [Fact]
+    public void A_column_whose_storey_is_unknown_is_insufficient_data_rather_than_a_fail()
+    {
+        var facts = ColumnFacts(providedMinutes: 60, structural: true);
+        facts.Set("building.fireResistiveConstruction", true);
+        // zone.floorNumber and building.floorsAboveGround deliberately left out.
+
+        var outcome = new RuleEngine(Rules()).Evaluate(RuleCategory.FireResistance, facts, Today);
+
+        Assert.Equal(ReviewStatus.InsufficientData, outcome.Status);
+    }
+
+    private static RuleFacts ColumnFacts(double providedMinutes, bool structural)
+    {
+        var facts = new RuleFacts(Rules().Catalog);
+        facts.Set("element.category", "Columns");
+        facts.Set("element.isStructural", structural);
+        facts.Set("element.providedFireRating", providedMinutes, ReviewUnit.Minute);
+        return facts;
+    }
+
+    private static RuleOutcome ColumnOutcome(
+        int floorsAboveGround, int floorNumber, double providedMinutes, bool structural = true)
+    {
+        var facts = ColumnFacts(providedMinutes, structural);
+        facts.Set("building.fireResistiveConstruction", true);
+        facts.Set("building.floorsAboveGround", floorsAboveGround, ReviewUnit.None);
+        facts.Set("zone.floorNumber", floorNumber, ReviewUnit.None);
+
+        return new RuleEngine(Rules()).Evaluate(RuleCategory.FireResistance, facts, Today);
     }
 
     // --- spec 11.1 pre-review check -------------------------------------------------------------
@@ -310,7 +394,9 @@ public sealed class FireReviewIntegrationTests
     public void Evidence_only_fields_do_not_require_parameters()
     {
         var parameters = new Parameters();
-        parameters.Bindings.RemoveAll(b => b.Key == ReviewInputSources.BuildingUse || b.Key == ReviewInputSources.FloorNumber);
+        // 建築物用途類組 is reported but read by no rule; 所在樓層序 is not in this list any more,
+        // because 第70條 decides a column's required rating from it.
+        parameters.Bindings.RemoveAll(b => b.Key == ReviewInputSources.BuildingUse);
         Assert.True(Readiness(parameters: parameters).CanRun);
     }
 
