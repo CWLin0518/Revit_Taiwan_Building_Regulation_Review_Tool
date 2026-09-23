@@ -238,6 +238,35 @@ public sealed class RevitZoneWriteBack
         }
     }
 
+    /// <summary>
+    /// Turns the leader off, which is what a tag sitting on its own Area wants: a leader would only
+    /// point at itself, and the Area tag type may default to having one.
+    /// </summary>
+    /// <remarks>
+    /// Revit refuses when it judges the head to fall outside the host — 「Head position of the tag
+    /// with no leader could not be located outside of the host element」 — which a concave or narrow
+    /// 區劃 can provoke even at the Area's own placement point. A tag with a leader is still a
+    /// correct tag, so the refusal keeps the leader and says so, rather than losing the tag: the
+    /// step would otherwise fail, and a failed step is what keeps the whole package out of
+    /// 可開始檢討 over an annotation.
+    /// </remarks>
+    private static void DropLeader(AreaTag tag, string? zoneName, ApplyResult.Builder log)
+    {
+        if (!tag.HasLeader) return;
+
+        try
+        {
+            tag.HasLeader = false;
+        }
+        catch (RevitApplicationException)
+        {
+            log.Note(string.Format(
+                CultureInfo.InvariantCulture,
+                "「{0}」的面積標註保留了引線：Revit 不接受在這個位置放置無引線的標註。",
+                string.IsNullOrWhiteSpace(zoneName) ? "區劃" : zoneName));
+        }
+    }
+
     private void Tag(ApplyPlan plan, ApplyStep step, ApplyResult.Builder log, ViewPlan view)
     {
         var planned = step.Planned!;
@@ -269,16 +298,26 @@ public sealed class RevitZoneWriteBack
             if (tag is null)
             {
                 var created = _document.Create.NewAreaTag(view, area, new UV(placement.X, placement.Y));
-                // The tag sits on the Area's own placement point, so a leader would only point at
-                // itself; the Area tag type may default to one, so it is switched off explicitly.
-                created.HasLeader = false;
-                ManagedElementMark.Write(created, step.Key, planned.Signature);
+                try
+                {
+                    DropLeader(created, planned.ZoneName, log);
+                    ManagedElementMark.Write(created, step.Key, planned.Signature);
+                }
+                catch (RevitApplicationException)
+                {
+                    // The tag exists but could not be finished. Deleting it keeps the run from
+                    // leaving an unmarked tag behind: the next run would neither own it nor replace
+                    // it, so every attempt would add one more.
+                    _document.Delete(created.Id);
+                    throw;
+                }
+
                 Remember(step, created);
                 log.Created(step, created.UniqueId);
                 return;
             }
 
-            tag.HasLeader = false;
+            DropLeader(tag, planned.ZoneName, log);
             tag.TagHeadPosition = new XYZ(placement.X, placement.Y, tag.TagHeadPosition?.Z ?? 0);
             ManagedElementMark.Write(tag, step.Key, planned.Signature);
             Remember(step, tag);
