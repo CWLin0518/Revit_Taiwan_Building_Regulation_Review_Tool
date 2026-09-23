@@ -46,14 +46,14 @@ namespace BuildingRegulationReview
 
             try
             {
-                var table = new RevitFireReviewTypeScanner(document).Scan(view);
-                if (table.Rows.Count == 0)
+                var set = new RevitFireReviewTypeScanner(document).ScanAll(view);
+                if (set.Types.Rows.Count == 0 && set.Zones.Count == 0 && set.Project == null)
                 {
-                    TaskDialog.Show(DialogTitle, string.Join("\n", table.Warnings));
+                    TaskDialog.Show(DialogTitle, string.Join("\n", set.Types.Warnings));
                     return Result.Cancelled;
                 }
 
-                var window = new FireReviewParameterPanelWindow(table, view.Name);
+                var window = new FireReviewParameterPanelWindow(set, view.Name);
                 new System.Windows.Interop.WindowInteropHelper(window).Owner = commandData.Application.MainWindowHandle;
 
                 window.Write = edits =>

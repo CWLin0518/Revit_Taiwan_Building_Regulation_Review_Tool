@@ -10,35 +10,59 @@ using BuildingRegulationReview.Application.Parameters;
 namespace BuildingRegulationReview.FireReview
 {
     /// <summary>
-    /// Batch-edits the fire review's Type parameters for everything one view shows: 結構材料,
-    /// 防火被覆厚度, 設計防火時效 and, for openings, 設計防火保護.
+    /// Batch-edits every parameter the fire review reads: the Type parameters of 牆／柱／樑／樓板 and
+    /// the openings' 防火保護, the 區劃 facts on each Area, and the Project Information facts.
     /// </summary>
     /// <remarks>
-    /// Nothing reaches the model until 寫入模型: 套用推定值 only fills the editable column, so the
-    /// derived numbers can be reviewed against their clause first. The panel never writes
-    /// 防火檢討_法規要求防火時效 — that belongs to the rules' write-back (spec 11.5 step 4).
+    /// Nothing reaches the model until 寫入模型, and then all three tabs go in one transaction: a
+    /// half-applied set of inputs would produce a review nobody asked for. 套用推定值 only fills the
+    /// editable column, so the derived numbers can be checked against their clause first. The panel
+    /// never writes 防火檢討_法規要求防火時效 — that belongs to the rules' write-back (spec 11.5
+    /// step 4) — and never writes an Area's extent, which is what the review measures (spec 11.4).
     /// </remarks>
     public partial class FireReviewParameterPanelWindow : Window
     {
         private readonly ObservableCollection<FireReviewTypeRowViewModel> _rows =
             new ObservableCollection<FireReviewTypeRowViewModel>();
 
-        internal FireReviewParameterPanelWindow(FireReviewTypeTable table, string viewName)
+        private readonly ObservableCollection<FireReviewZoneRowViewModel> _zones =
+            new ObservableCollection<FireReviewZoneRowViewModel>();
+
+        private readonly FireReviewProjectViewModel _project;
+
+        internal FireReviewParameterPanelWindow(FireReviewParameterSet set, string viewName)
         {
             InitializeComponent();
-            if (table == null) throw new ArgumentNullException(nameof(table));
+            if (set == null) throw new ArgumentNullException(nameof(set));
 
-            foreach (var row in table.Rows) _rows.Add(new FireReviewTypeRowViewModel(row));
+            foreach (var row in set.Types.Rows) _rows.Add(new FireReviewTypeRowViewModel(row));
             Grid.ItemsSource = _rows;
 
-            ScopeText.Text = string.IsNullOrWhiteSpace(viewName)
-                ? $"整個專案，共 {_rows.Count} 個類型。"
-                : $"自視圖「{viewName}」收集，共 {_rows.Count} 個類型。";
+            foreach (var zone in set.Zones) _zones.Add(new FireReviewZoneRowViewModel(zone));
+            ZoneGrid.ItemsSource = _zones;
 
-            if (table.Warnings.Count > 0)
+            if (set.Project != null)
+            {
+                _project = new FireReviewProjectViewModel(set.Project);
+                ProjectPanel.DataContext = _project;
+                _project.PropertyChanged += (_, __) => ShowProjectWarnings();
+                ShowProjectWarnings();
+            }
+            else
+            {
+                ProjectPanel.IsEnabled = false;
+                ProjectMissingBox.Visibility = Visibility.Visible;
+                ProjectMissingText.Text = "這個文件沒有可讀取的專案資訊。";
+            }
+
+            ScopeText.Text = string.IsNullOrWhiteSpace(viewName)
+                ? $"構件類型取自整個專案，共 {_rows.Count} 個類型；區劃 {_zones.Count} 個。"
+                : $"構件類型取自視圖「{viewName}」，共 {_rows.Count} 個類型；區劃 {_zones.Count} 個（取自整個專案）。";
+
+            if (set.Types.Warnings.Count > 0)
             {
                 WarningBox.Visibility = Visibility.Visible;
-                WarningText.Text = string.Join("\n", table.Warnings);
+                WarningText.Text = string.Join("\n", set.Types.Warnings);
             }
 
             UpdateStatus();
@@ -48,11 +72,21 @@ namespace BuildingRegulationReview.FireReview
         internal IReadOnlyList<FireReviewParameterEdit> Edits { get; private set; } =
             new List<FireReviewParameterEdit>();
 
-        /// <summary>Set by the command after it has written, so the panel can show what happened.</summary>
+        /// <summary>Set by the command, which owns the transaction.</summary>
         internal Action<IReadOnlyList<FireReviewParameterEdit>> Write { get; set; }
 
-        /// <summary>Called by the command with the outcome of <see cref="Write"/>.</summary>
         internal void ReportWritten(string summary) => StatusText.Text = summary;
+
+        private void ShowProjectWarnings()
+        {
+            FireResistiveWarningText.Text = _project.FireResistiveWarning;
+
+            var missing = _project.MissingParameters;
+            ProjectMissingBox.Visibility = missing.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+            ProjectMissingText.Text = missing.Length > 0
+                ? missing + "。請先在「管理 > 專案參數 > 加入 > 共用參數」把它們綁到「專案資訊」，否則這一頁的變更寫不進去。"
+                : "";
+        }
 
         private void ApplyAll_OnClick(object sender, RoutedEventArgs e) => Apply(_rows);
 
@@ -61,7 +95,7 @@ namespace BuildingRegulationReview.FireReview
             var selected = Grid.SelectedItems.OfType<FireReviewTypeRowViewModel>().ToList();
             if (selected.Count == 0)
             {
-                MessageBox.Show(this, "請先選取要套用的列。", Title);
+                MessageBox.Show(this, "請先在「構件類型」分頁選取要套用的列。", Title);
                 return;
             }
 
@@ -109,7 +143,7 @@ namespace BuildingRegulationReview.FireReview
                 .Where(r => r.SupportsDerivation).ToList();
             if (selected.Count == 0)
             {
-                MessageBox.Show(this, "請先選取要設定的牆、柱或樓板類型。", Title);
+                MessageBox.Show(this, "請先在「構件類型」分頁選取要設定的牆、柱或樓板類型。", Title);
                 return;
             }
 
@@ -122,21 +156,63 @@ namespace BuildingRegulationReview.FireReview
                               (chooser.Material.Length == 0 ? "（清除）" : chooser.Material) + "。尚未寫入模型。";
         }
 
+        private void FillZones_OnClick(object sender, RoutedEventArgs e)
+        {
+            CommitEdit();
+            var selected = ZoneGrid.SelectedItems.OfType<FireReviewZoneRowViewModel>().ToList();
+            if (selected.Count == 0)
+            {
+                MessageBox.Show(this, "請先在「區劃」分頁選取要設定的區劃。", Title);
+                return;
+            }
+
+            var chooser = new ZoneFillWindow(selected.Count) { Owner = this };
+            if (chooser.ShowDialog() != true) return;
+
+            foreach (var zone in selected)
+            {
+                if (chooser.Sprinklered != null) zone.Sprinklered = chooser.Sprinklered;
+                if (chooser.FloorNumber != null) zone.FloorNumber = chooser.FloorNumber;
+            }
+
+            ZoneGrid.Items.Refresh();
+            StatusText.Text = $"已設定 {selected.Count} 個區劃。尚未寫入模型。";
+        }
+
         private void Write_OnClick(object sender, RoutedEventArgs e)
         {
             CommitEdit();
-            var edits = _rows.SelectMany(r => r.Edits()).ToList();
+
+            var typeEdits = _rows.SelectMany(r => r.Edits()).ToList();
+            var zoneEdits = _zones.SelectMany(z => z.Edits()).ToList();
+            var projectEdits = _project == null
+                ? new List<FireReviewParameterEdit>()
+                : _project.Edits().ToList();
+
+            var edits = typeEdits.Concat(zoneEdits).Concat(projectEdits).ToList();
             if (edits.Count == 0)
             {
                 MessageBox.Show(this, "沒有任何變更需要寫入。", Title);
                 return;
             }
 
-            var types = _rows.Count(r => r.IsDirty);
-            var instances = _rows.Where(r => r.IsDirty).Sum(r => r.Source.ProjectInstanceCount);
+            var lines = new List<string>();
+            if (typeEdits.Count > 0)
+            {
+                var types = _rows.Count(r => r.IsDirty);
+                var instances = _rows.Where(r => r.IsDirty).Sum(r => r.Source.ProjectInstanceCount);
+                lines.Add($"・構件類型：{typeEdits.Count} 個值，影響 {types} 個類型、專案中共 {instances} 個實體");
+            }
+
+            if (zoneEdits.Count > 0) lines.Add($"・區劃：{zoneEdits.Count} 個值，影響 {_zones.Count(z => z.IsDirty)} 個區劃");
+            if (projectEdits.Count > 0) lines.Add($"・專案資訊：{projectEdits.Count} 個值");
+
+            var warning = typeEdits.Count > 0
+                ? "\n\n構件類型是類型參數，變更會套用到專案中所有同類型的實體，不只目前視圖。"
+                : "";
+
             var confirm = MessageBox.Show(this,
-                $"將寫入 {edits.Count} 個參數值，影響 {types} 個類型、專案中共 {instances} 個實體。\n\n" +
-                "這些是類型參數，變更會套用到專案中所有同類型的實體，不只目前視圖。要繼續嗎？",
+                "將寫入以下變更：\n\n" + string.Join("\n", lines) + warning + "\n\n要繼續嗎？",
                 Title, MessageBoxButton.OKCancel, MessageBoxImage.Warning);
             if (confirm != MessageBoxResult.OK) return;
 
@@ -150,19 +226,29 @@ namespace BuildingRegulationReview.FireReview
         /// <summary>Pushes the cell being typed into the view-model before anything reads it.</summary>
         private void CommitEdit()
         {
-            Grid.CommitEdit(DataGridEditingUnit.Cell, true);
-            Grid.CommitEdit(DataGridEditingUnit.Row, true);
+            foreach (var grid in new[] { Grid, ZoneGrid })
+            {
+                grid.CommitEdit(DataGridEditingUnit.Cell, true);
+                grid.CommitEdit(DataGridEditingUnit.Row, true);
+            }
         }
 
         private void UpdateStatus()
         {
-            var derivable = _rows.Count(r => r.CanApplyDerived);
-            var awaiting = _rows.Count(r => r.Derivation.Kind == FireRatingDerivationKind.MaterialMissing);
-            var cover = _rows.Count(r => r.Derivation.Kind == FireRatingDerivationKind.CoverMissing);
+            var parts = new List<string> { $"可推定 {_rows.Count(r => r.CanApplyDerived)} 列" };
 
-            var parts = new List<string> { $"可推定 {derivable} 列" };
+            var awaiting = _rows.Count(r => r.Derivation.Kind == FireRatingDerivationKind.MaterialMissing);
             if (awaiting > 0) parts.Add($"待填結構材料 {awaiting} 列");
+
+            var cover = _rows.Count(r => r.Derivation.Kind == FireRatingDerivationKind.CoverMissing);
             if (cover > 0) parts.Add($"待填 SC 被覆厚度 {cover} 列");
+
+            var sprinklers = _zones.Count(z => string.IsNullOrEmpty(z.Sprinklered));
+            if (sprinklers > 0) parts.Add($"待填滅火設備 {sprinklers} 個區劃");
+
+            var floors = _zones.Count(z => string.IsNullOrEmpty(z.FloorNumber));
+            if (floors > 0) parts.Add($"待填樓層序 {floors} 個區劃");
+
             StatusText.Text = string.Join("；", parts) + "。";
         }
     }
@@ -187,19 +273,7 @@ namespace BuildingRegulationReview.FireReview
             var panel = new StackPanel { Margin = new Thickness(20) };
             panel.Children.Add(new TextBlock { Text = $"把選取的 {rowCount} 個類型設為：" });
             panel.Children.Add(_choice);
-
-            var buttons = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                HorizontalAlignment = HorizontalAlignment.Right,
-                Margin = new Thickness(0, 16, 0, 0)
-            };
-            var ok = new Button { Content = "確定", MinWidth = 80, Padding = new Thickness(10, 5, 10, 5), IsDefault = true };
-            ok.Click += (_, __) => { DialogResult = true; Close(); };
-            var cancel = new Button { Content = "取消", MinWidth = 80, Margin = new Thickness(8, 0, 0, 0), Padding = new Thickness(10, 5, 10, 5), IsCancel = true };
-            buttons.Children.Add(ok);
-            buttons.Children.Add(cancel);
-            panel.Children.Add(buttons);
+            panel.Children.Add(PanelButtons.Build(this));
             Content = panel;
         }
 
@@ -207,5 +281,74 @@ namespace BuildingRegulationReview.FireReview
         public string Material => _choice.SelectedIndex <= 0
             ? string.Empty
             : StructuralMaterialText.Code(StructuralMaterialText.All[_choice.SelectedIndex - 1]);
+    }
+
+    /// <summary>
+    /// Asks what to stamp onto the selected 區劃. A field left as 「不變更」 is not written, so the
+    /// same dialog can set only the sprinklers, only the storey, or both.
+    /// </summary>
+    internal sealed class ZoneFillWindow : Window
+    {
+        private const string Unchanged = "（不變更）";
+
+        private readonly ComboBox _sprinklered = new ComboBox { Margin = new Thickness(0, 4, 0, 12), MinWidth = 220 };
+        private readonly TextBox _floorNumber = new TextBox { Margin = new Thickness(0, 4, 0, 4), MinWidth = 220 };
+
+        public ZoneFillWindow(int rowCount)
+        {
+            Title = "區劃批次填入";
+            SizeToContent = SizeToContent.WidthAndHeight;
+            ResizeMode = ResizeMode.NoResize;
+            WindowStartupLocation = WindowStartupLocation.CenterOwner;
+
+            _sprinklered.Items.Add(Unchanged);
+            _sprinklered.Items.Add(FireReviewEditableRow.YesText);
+            _sprinklered.Items.Add(FireReviewEditableRow.NoText);
+            _sprinklered.SelectedIndex = 0;
+
+            var panel = new StackPanel { Margin = new Thickness(20) };
+            panel.Children.Add(new TextBlock { Text = $"把選取的 {rowCount} 個區劃設為：", FontWeight = FontWeights.SemiBold });
+            panel.Children.Add(new TextBlock { Text = "自動滅火設備", Margin = new Thickness(0, 12, 0, 0) });
+            panel.Children.Add(_sprinklered);
+            panel.Children.Add(new TextBlock { Text = "所在樓層序（留白代表不變更）" });
+            panel.Children.Add(_floorNumber);
+            panel.Children.Add(PanelButtons.Build(this));
+            Content = panel;
+        }
+
+        /// <summary>是／否 as the grid spells it, or null to leave each zone as it is.</summary>
+        public string Sprinklered => _sprinklered.SelectedIndex <= 0 ? null : (string)_sprinklered.SelectedItem;
+
+        public string FloorNumber => string.IsNullOrWhiteSpace(_floorNumber.Text) ? null : _floorNumber.Text.Trim();
+    }
+
+    /// <summary>The 確定／取消 pair both little dialogs end with.</summary>
+    internal static class PanelButtons
+    {
+        public static UIElement Build(Window window)
+        {
+            var buttons = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 16, 0, 0)
+            };
+
+            var ok = new Button { Content = "確定", MinWidth = 80, Padding = new Thickness(10, 5, 10, 5), IsDefault = true };
+            ok.Click += (_, __) => { window.DialogResult = true; window.Close(); };
+
+            var cancel = new Button
+            {
+                Content = "取消",
+                MinWidth = 80,
+                Margin = new Thickness(8, 0, 0, 0),
+                Padding = new Thickness(10, 5, 10, 5),
+                IsCancel = true
+            };
+
+            buttons.Children.Add(ok);
+            buttons.Children.Add(cancel);
+            return buttons;
+        }
     }
 }

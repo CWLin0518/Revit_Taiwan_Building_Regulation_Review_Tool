@@ -5,6 +5,8 @@ using Autodesk.Revit.DB;
 using BuildingRegulationReview.Application.Candidates;
 using BuildingRegulationReview.Application.Checks;
 using BuildingRegulationReview.Application.Parameters;
+using BuildingRegulationReview.Application.Reviews;
+using BuildingRegulationReview.Domain.Geometry;
 
 namespace BuildingRegulationReview.Revit.Parameters;
 
@@ -15,8 +17,8 @@ namespace BuildingRegulationReview.Revit.Parameters;
 /// <remarks>
 /// The view only decides which Types are listed. The parameters are Type parameters, so the counts
 /// report both what the view showed and what the project holds — an edit reaches all of the latter.
-/// 梁（結構構架）are not collected: they carry no 設計防火時效 parameter, because the 樑 clauses set
-/// no dimensional threshold.
+/// 梁（結構構架）are not listed here: the panel derives a rating from the Type, and 第71～73條 give
+/// 樑 no dimensional threshold to derive one from. The review still reads their 設計防火時效.
 /// </remarks>
 public sealed class RevitFireReviewTypeScanner
 {
@@ -36,6 +38,19 @@ public sealed class RevitFireReviewTypeScanner
 
     public RevitFireReviewTypeScanner(Document document) =>
         _document = document ?? throw new ArgumentNullException(nameof(document));
+
+    /// <summary>
+    /// Everything the batch panel edits: the Types <paramref name="view"/> shows, plus the 區劃 and
+    /// the project facts.
+    /// </summary>
+    /// <remarks>
+    /// Only the Types are scoped to the view. The 區劃 and the project facts are read from the whole
+    /// document on purpose: they are instance parameters on a handful of elements the user has to
+    /// fill in whatever view they happen to be in, and an Area is not visible in a floor plan at all,
+    /// so scoping them to the view would have shown an empty list nearly every time.
+    /// </remarks>
+    public FireReviewParameterSet ScanAll(View? view) =>
+        new(Scan(view), Zones(), ProjectRow());
 
     /// <summary>The Types visible in <paramref name="view"/>, or in the whole project when it is null.</summary>
     public FireReviewTypeTable Scan(View? view)
@@ -210,6 +225,97 @@ public sealed class RevitFireReviewTypeScanner
 
     private static bool IsPositiveLength(Parameter? parameter) =>
         parameter is not null && parameter.StorageType == StorageType.Double && parameter.HasValue && parameter.AsDouble() > 0;
+
+    /// <summary>Every 防火區劃 Area in the document, with the zone parameters the review reads.</summary>
+    private IEnumerable<FireReviewZoneRow> Zones()
+    {
+        foreach (var element in new FilteredElementCollector(_document)
+                     .OfCategory(BuiltInCategory.OST_Areas)
+                     .WhereElementIsNotElementType()
+                     .ToElements())
+        {
+            if (!(element is Autodesk.Revit.DB.Area area)) continue;
+
+            var present = FireReviewZoneParameters.None;
+            if (Find(area, ReviewInputSources.ZoneUse) is not null) present |= FireReviewZoneParameters.Use;
+            if (Find(area, ReviewInputSources.Sprinklered) is not null) present |= FireReviewZoneParameters.Sprinklered;
+            if (Find(area, ReviewInputSources.FloorNumber) is not null) present |= FireReviewZoneParameters.FloorNumber;
+
+            yield return new FireReviewZoneRow(
+                area.UniqueId,
+                Text(area, BuiltInParameter.ROOM_NAME) ?? area.Name,
+                number: Text(area, BuiltInParameter.ROOM_NUMBER),
+                levelName: area.Level?.Name,
+                areaSchemeName: SchemeOf(area),
+                // Revit reports an unplaced Area as zero; the review's own cross-check judges that,
+                // so the panel simply shows nothing rather than a misleading 0 m².
+                areaSquareMeters: area.Area > 0 ? PlanUnits.SquareFeetToSquareMeters(area.Area) : (double?)null,
+                use: Text(area, ReviewInputSources.ZoneUse),
+                sprinklered: YesNo(area, ReviewInputSources.Sprinklered),
+                floorNumber: Integer(area, ReviewInputSources.FloorNumber),
+                present: present);
+        }
+    }
+
+    private string? SchemeOf(Autodesk.Revit.DB.Area area)
+    {
+        try
+        {
+            var id = area.get_Parameter(BuiltInParameter.AREA_SCHEME_ID)?.AsElementId();
+            return id is null ? null : (_document.GetElement(id) as AreaScheme)?.Name;
+        }
+        catch (Autodesk.Revit.Exceptions.ApplicationException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>The Project Information facts, or null when the document exposes none.</summary>
+    private FireReviewProjectRow? ProjectRow()
+    {
+        var info = _document.ProjectInformation;
+        if (info is null) return null;
+
+        var present = FireReviewProjectParameters.None;
+        if (Find(info, ReviewInputSources.FireResistiveConstruction) is not null) present |= FireReviewProjectParameters.FireResistive;
+        if (Find(info, ReviewInputSources.BuildingUse) is not null) present |= FireReviewProjectParameters.BuildingUse;
+        if (Find(info, ReviewInputSources.FloorsAboveGround) is not null) present |= FireReviewProjectParameters.FloorsAboveGround;
+
+        return new FireReviewProjectRow(
+            info.UniqueId,
+            fireResistiveConstruction: YesNo(info, ReviewInputSources.FireResistiveConstruction),
+            buildingUse: Text(info, ReviewInputSources.BuildingUse),
+            floorsAboveGround: Integer(info, ReviewInputSources.FloorsAboveGround),
+            present: present);
+    }
+
+    private static string? Text(Element element, BuiltInParameter parameter)
+    {
+        var value = element.get_Parameter(parameter);
+        return value is not null && value.HasValue ? value.AsString() : null;
+    }
+
+    /// <summary>A Yes/No as a tri-state: null means the parameter holds no value, not "no".</summary>
+    private static bool? YesNo(Element element, string name)
+    {
+        var parameter = element.LookupParameter(name);
+        if (parameter is null || !parameter.HasValue || parameter.StorageType != StorageType.Integer) return null;
+
+        var value = parameter.AsInteger();
+        return value == 1 ? true : value == 0 ? false : (bool?)null;
+    }
+
+    private static int? Integer(Element element, string name)
+    {
+        var parameter = element.LookupParameter(name);
+        if (parameter is null || !parameter.HasValue) return null;
+
+        if (parameter.StorageType == StorageType.Integer) return parameter.AsInteger();
+        return parameter.StorageType == StorageType.String &&
+               int.TryParse(parameter.AsString(), out var parsed)
+            ? parsed
+            : (int?)null;
+    }
 
     /// <summary>The parameter if the Type carries it at all — presence, not whether it holds a value.</summary>
     private static Parameter? Find(Element element, string name) => element.LookupParameter(name);
