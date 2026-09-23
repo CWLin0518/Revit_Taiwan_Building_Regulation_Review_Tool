@@ -4,13 +4,13 @@
 
 - Application `Checks`（不相依 Revit／UI，core tests 覆蓋）：
   - `ProvidedFireRating.cs`：
-    - `FireRatingParameters`：`Provided = BCR_ProvidedFireRating`、`Required = BCR_RequiredFireRating`（spec 11.5 第 4 點），`IsRequiredParameter`。
+    - `FireRatingParameters`：`Provided = 防火檢討_設計防火時效`、`Required = 防火檢討_法規要求防火時效`（spec 11.5 第 4 點），`IsRequiredParameter`。
     - `ProvidedFireRating`：Type 的設計／認證防火時效，四種狀態 `Rated`（分鐘）／`Missing`／`Unreadable`（格式錯誤）／`Undeterminable`（複合構造），
       保留原始文字與原因；`FromNumber(value, FireRatingUnit)` 給數值參數用。上限 24 小時。
     - `FireRatingText.Parse(raw, bareNumberUnit)`：純數字（單位依設定，預設分鐘）、`min／分／分鐘`、`h／hr／hour／小時／時`、
       `一／二／兩／三／四小時`、`…小時半`、`半小時`，全形轉半形、不分大小寫。一個值含 ≥2 個時效（`1hr/2hr`、`60~120`、`一小時、兩小時`）→ Undeterminable；
       其他（`耐燃`、`-30`、`60 m`、`六十分`）→ Unreadable 並附原因。`Format(minutes)` → `90 min（1.5 小時）`。
-  - `FireResistanceInputs.cs`：`TypeFireRating`（Type UniqueId、讀到的時效、來源參數名稱；**來源不得是 `BCR_RequiredFireRating`**）、
+  - `FireResistanceInputs.cs`：`TypeFireRating`（Type UniqueId、讀到的時效、來源參數名稱；**來源不得是 `防火檢討_法規要求防火時效`**）、
     `FireResistanceInputs`（building／zone 輸入沿用 `CompartmentAreaInputs`，因此 `element.*` 無法以輸入提供；同一 Type 重複即拒絕）。
   - `FireResistanceCheck.Review(set, inputs, engine, context, runId, newResultId)` → `Result<FireResistanceReview>`：
     `MemberRatingFinding`（每個構件 × 區劃一筆，另加每個歧義構件關係一筆）、`TypeRatingSummary`（按 Type 彙總）、`Warnings`。
@@ -39,8 +39,8 @@
 ## Required／Provided 分離
 
 - 設計值只從 `TypeFireRating` 讀入，永遠是結果的 `actualValue`；規則算出的只放 `requiredValue`。檢查不寫任何參數，也不修改輸入物件（測試以 `Assert.Same` 驗證）。
-- `TypeFireRating` 拒絕以 `BCR_RequiredFireRating` 當設計值來源，避免要求值被當成設計值回讀。
-- 之後若要寫回要求值（P3-T07／T08 決定），只能寫 `BCR_RequiredFireRating`；`TypeRatingSummary.HighestRequiredMinutes` 是 Type 層級的要求值。
+- `TypeFireRating` 拒絕以 `防火檢討_法規要求防火時效` 當設計值來源，避免要求值被當成設計值回讀。
+- 之後若要寫回要求值（P3-T07／T08 決定），只能寫 `防火檢討_法規要求防火時效`；`TypeRatingSummary.HighestRequiredMinutes` 是 Type 層級的要求值。
 
 ## 證據
 
@@ -63,7 +63,7 @@
   - `FireResistanceCheckTests`：
     - **各 Category 邊界值**：牆 59／60／61、柱 119／120、梁 119.5／120、樓板 89／90／60（小時與中文寫法），檢查 actual／required、主體、區劃、訊息。
     - 要求值依 building 輸入（10 層 2h、11 層 3h）；隔間牆 NotApplicable；共用邊界牆兩區各一筆。
-    - **不覆寫 Provided**：Fail 時 actual＝30 min、required＝60 min，輸入物件不變、證據無 Required 欄位；`BCR_RequiredFireRating` 當來源被拒絕。
+    - **不覆寫 Provided**：Fail 時 actual＝30 min、required＝60 min，輸入物件不變、證據無 Required 欄位；`防火檢討_法規要求防火時效` 當來源被拒絕。
     - **缺值與格式錯誤**：四類別缺值 InsufficientData 並保留要求值、構件無 Type、`耐燃`／`-30`／`25 hr`；複合構造 ManualReview `BCR-RATE-001`；
       複合構造遇不適用或其他缺漏時不改 ManualReview；三種缺漏組合一律不會 Pass／Fail。
     - **歧義與區劃問題**：貼柱面 ManualReview（規則集歸屬）、link 與無幾何構件、重疊區劃 `BCR-CAND-002`、整批拒絕、無規則 `BCR-RULE-001`。

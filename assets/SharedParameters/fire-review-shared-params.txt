@@ -1,0 +1,19 @@
+# This is a Revit shared parameter file.
+# 防火區劃檢討外掛（Phase 3）所需的專案參數定義。
+# ENCODING: system ANSI (Big5/cp950 on zh-TW Windows), NOT UTF-8.
+# Revit 的 DefinitionFile parser 以 OS ANSI codepage 讀取，存成 UTF-8 會讓中文參數名變亂碼。
+*META	VERSION	MINVERSION
+META	2	1
+*GROUP	ID	NAME
+GROUP	1	防火區劃檢討
+*PARAM	GUID	NAME	DATATYPE	DATACATEGORY	GROUP	VISIBLE	DESCRIPTION	USERMODIFIABLE	HIDEWHENNOVALUE
+PARAM	bcf10001-0000-4a00-9b00-000000000001	防火檢討_防火構造建築物	YESNO		1	1	是否為防火構造建築物（專案資訊）	1	0
+PARAM	bcf10001-0000-4a00-9b00-000000000002	防火檢討_建築物用途類組	TEXT		1	1	建築物用途類組（專案資訊）	1	0
+PARAM	bcf10001-0000-4a00-9b00-000000000003	防火檢討_地上層數	INTEGER		1	1	地上層數（專案資訊）	1	0
+PARAM	bcf10001-0000-4a00-9b00-000000000004	防火檢討_建築物高度	TEXT		1	1	建築物高度（專案資訊）	1	0
+PARAM	bcf10001-0000-4a00-9b00-000000000005	防火檢討_區劃用途	TEXT		1	1	區劃用途（面積）	1	0
+PARAM	bcf10001-0000-4a00-9b00-000000000006	防火檢討_自動滅火設備	YESNO		1	1	是否設有自動滅火設備（面積）	1	0
+PARAM	bcf10001-0000-4a00-9b00-000000000007	防火檢討_所在樓層序	INTEGER		1	1	所在樓層序（面積）	1	0
+PARAM	bcf10001-0000-4a00-9b00-000000000008	防火檢討_設計防火時效	TEXT		1	1	設計／認證防火時效，例如 60 min 或 1hr（牆柱梁樓板類型）	1	0
+PARAM	bcf10001-0000-4a00-9b00-000000000009	防火檢討_設計防火保護	TEXT		1	1	設計防火保護：是／否（門窗帷幕嵌板）	1	0
+PARAM	bcf10001-0000-4a00-9b00-00000000000a	防火檢討_法規要求防火時效	TEXT		1	1	法規要求防火時效（保留給回寫，檢討不讀取）	1	0

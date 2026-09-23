@@ -54,8 +54,16 @@ Revit 2024 開著 `建築防火檢討1.rvt` 才能確認的部分還沒有執行
 ## Revit 實機驗收（未執行）
 
 前置：重新部署外掛（`scripts/redeploy.bat`）後重開 Revit 2024，開 `建築防火檢討1.rvt` **並先備份**；套件需已由「防火區劃編輯器」套用到「可開始檢討」。
-依規則，專案需有 `BCR_FireResistiveConstruction`（專案資訊，是非）、`BCR_Sprinklered`、`BCR_ZoneUse`（面積）、
-`BCR_ProvidedFireRating`（牆／柱／梁／樓板類型）、`BCR_ProvidedFireProtection`（門／窗／帷幕嵌板）。
+依規則，專案需有 `防火檢討_防火構造建築物`（專案資訊，是非）、`防火檢討_自動滅火設備`、`防火檢討_區劃用途`（面積）、
+`防火檢討_設計防火時效`（牆／柱／梁／樓板類型）、`防火檢討_設計防火保護`（門／窗／帷幕嵌板）。
+
+參數定義放在 `assets/SharedParameters/fire-review-shared-params.txt`（共 10 個，GUID 固定；檔案為 Big5／cp950
+編碼，改存 UTF-8 會讓 Revit 讀到亂碼的參數名）。其中牆／柱／梁／樓板的 `防火檢討_設計防火時效`（類型）與
+門／窗／帷幕嵌板的 `防火檢討_設計防火保護`（實體）可用 revit-mcp 的 `load_shared_parameters` 綁定，分別由
+`fire-review-members-type.txt`、`fire-review-openings-instance.txt` 載入；**面積與專案資訊兩類 MCP 不支援**，
+要在「管理 > 專案參數 > 加入 > 共用參數」選上面的主檔手動加：面積勾 `防火檢討_區劃用途`、`防火檢討_自動滅火設備`、
+`防火檢討_所在樓層序`，專案資訊勾 `防火檢討_防火構造建築物`、`防火檢討_建築物用途類組`、`防火檢討_地上層數`、
+`防火檢討_建築物高度`，都綁在「實體」。`防火檢討_法規要求防火時效` 保留給未來回寫，現在不必綁。
 
 | # | 步驟 | 預期 | 狀態 |
 | --- | --- | --- | --- |

@@ -4,7 +4,7 @@
 
 - Application `Checks`（不相依 Revit／UI，core tests 覆蓋）：
   - `ProvidedFireProtection.cs`：
-    - `FireProtectionParameters.Provided = BCR_ProvidedFireProtection`（預設來源參數名稱；檢查只讀不寫）。
+    - `FireProtectionParameters.Provided = 防火檢討_設計防火保護`（預設來源參數名稱；檢查只讀不寫）。
     - `ProvidedFireProtection`：四種狀態 `Yes`（是）／`No`（否）／`Missing`（未設定）／`Unreadable`（無法判讀），保留原始文字與原因；
       `RuleText` 給規則用（`是`／`否`）；`FromBoolean`、`FromInteger`（Revit 是非參數 1／0，其他值 Unreadable）。
     - `FireProtectionText.Parse(raw)`：全形轉半形、不分大小寫；只接受明確的是非字（`是 有 yes y true 1`／`否 無 无 沒有 没有 no n false 0`），
@@ -85,7 +85,7 @@
 ## 未解決問題
 
 - 尚無 Revit adapter 讀取門窗防火屬性（參數名稱、Instance／Type、Yes/No 或 Text 儲存型態）；P3-T09 整合時需決定並實跑。
-- spec 19 第 4 項（門窗防火屬性既有 Shared Parameter GUID）未定；`BCR_ProvidedFireProtection` 只是預設名稱。
+- spec 19 第 4 項（門窗防火屬性既有 Shared Parameter GUID）未定；`防火檢討_設計防火保護` 只是預設名稱。
 - 規則集正式條文（spec 19 第 2 項）未定，測試規則只是示意；防火門窗的等級／遮煙性能等要求目前沒有白名單欄位。
 - 本 Task 不做結果持久化（P3-T07）、紅色 Override 標示與檢討表（P3-T08）。
 

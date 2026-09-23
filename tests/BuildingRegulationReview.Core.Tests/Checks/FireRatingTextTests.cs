@@ -145,7 +145,7 @@ public sealed class FireRatingTextTests
     public void The_required_rating_parameter_is_never_a_design_value_source()
     {
         Assert.NotEqual(FireRatingParameters.Provided, FireRatingParameters.Required);
-        Assert.True(FireRatingParameters.IsRequiredParameter(" bcr_requiredfirerating "));
+        Assert.True(FireRatingParameters.IsRequiredParameter("　防火檢討_法規要求防火時效 "));
         Assert.False(FireRatingParameters.IsRequiredParameter(FireRatingParameters.Provided));
 
         var ex = Assert.Throws<ArgumentException>(() =>

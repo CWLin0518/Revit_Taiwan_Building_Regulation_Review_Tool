@@ -369,11 +369,11 @@ public sealed class FireReviewIntegrationTests
             _ => ParameterReading.OfText(text)
         };
 
-        var input = ReviewInputAssembler.Convert(Field("zone.sprinklered"), reading, "面積：BCR_Sprinklered")!;
+        var input = ReviewInputAssembler.Convert(Field("zone.sprinklered"), reading, "面積：防火檢討_自動滅火設備")!;
 
         Assert.False(input.IsUnreadable);
         Assert.Equal(expected, input.Value!.Flag);
-        Assert.Equal("面積：BCR_Sprinklered", input.Source);
+        Assert.Equal("面積：防火檢討_自動滅火設備", input.Source);
     }
 
     [Fact]

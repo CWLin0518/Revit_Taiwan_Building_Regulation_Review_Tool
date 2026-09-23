@@ -29,7 +29,7 @@ public sealed class TypeFireRating
     public string TypeUniqueId { get; }
     public ProvidedFireRating Rating { get; }
 
-    /// <summary>The parameter the rating was read from, e.g. <c>BCR_ProvidedFireRating</c> or <c>Fire Rating</c>.</summary>
+    /// <summary>The parameter the rating was read from, e.g. <c>防火檢討_設計防火時效</c> or <c>Fire Rating</c>.</summary>
     public string Source { get; }
 
     public string? TypeName { get; }

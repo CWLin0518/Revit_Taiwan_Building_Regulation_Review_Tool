@@ -15,10 +15,10 @@ namespace BuildingRegulationReview.Application.Checks;
 public static class FireRatingParameters
 {
     /// <summary>The design／certified rating of a Type (設計／認證防火時效).</summary>
-    public const string Provided = "BCR_ProvidedFireRating";
+    public const string Provided = "防火檢討_設計防火時效";
 
     /// <summary>The rating the rules require; reserved for write-back, never a source of the design value.</summary>
-    public const string Required = "BCR_RequiredFireRating";
+    public const string Required = "防火檢討_法規要求防火時效";
 
     /// <summary>True when the parameter is the required-rating one, so it may not be read as a design value.</summary>
     public static bool IsRequiredParameter(string? name) =>

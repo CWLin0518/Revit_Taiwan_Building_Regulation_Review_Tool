@@ -57,8 +57,8 @@ public sealed class CompartmentAreaCheckTests
         var building = new List<ReviewInput>();
         if (fireResistive is bool f) building.Add(ReviewInput.Known("building.fireResistiveConstruction", f, "專案設定"));
         var zoneInputs = new List<ReviewInput>();
-        if (sprinklered is bool s) zoneInputs.Add(ReviewInput.Known("zone.sprinklered", s, "BCR_Sprinklered"));
-        if (use is not null) zoneInputs.Add(ReviewInput.Known("zone.use", use, "BCR_ZoneUse"));
+        if (sprinklered is bool s) zoneInputs.Add(ReviewInput.Known("zone.sprinklered", s, "防火檢討_自動滅火設備"));
+        if (use is not null) zoneInputs.Add(ReviewInput.Known("zone.use", use, "防火檢討_區劃用途"));
         return new CompartmentAreaInputs(building, new Dictionary<Guid, IEnumerable<ReviewInput>> { [zone ?? ZoneA] = zoneInputs });
     }
 
@@ -126,7 +126,7 @@ public sealed class CompartmentAreaCheckTests
         Assert.True(Number(evidence.Find("area.relativeDifference")) < 1e-9);
         Assert.Equal(0.01, Number(evidence.Find("area.crossCheckTolerance")));
         Assert.Equal(ReviewValue.OfText("專案設定"), evidence.Find("source[building.fireResistiveConstruction]"));
-        Assert.Equal(ReviewValue.OfText("BCR_Sprinklered"), evidence.Find("source[zone.sprinklered]"));
+        Assert.Equal(ReviewValue.OfText("防火檢討_自動滅火設備"), evidence.Find("source[zone.sprinklered]"));
         Assert.False(evidence.Has("rule.gaps"));
     }
 
@@ -196,13 +196,13 @@ public sealed class CompartmentAreaCheckTests
             new[] { ReviewInput.Known("building.fireResistiveConstruction", true) },
             new Dictionary<Guid, IEnumerable<ReviewInput>>
             {
-                [ZoneA] = new[] { ReviewInput.Unreadable("zone.sprinklered", "參數值為「部分」", "BCR_Sprinklered") }
+                [ZoneA] = new[] { ReviewInput.Unreadable("zone.sprinklered", "參數值為「部分」", "防火檢討_自動滅火設備") }
             });
         var result = Single(Review(OneZone(5000), inputs)).Result;
 
         Assert.Equal(ReviewStatus.InsufficientData, result.Status);
         Assert.Contains("zone.sprinklered 格式無法判讀（參數值為「部分」）", result.Message);
-        Assert.Equal(ReviewValue.OfText("BCR_Sprinklered"), result.Evidence.Find("source[zone.sprinklered]"));
+        Assert.Equal(ReviewValue.OfText("防火檢討_自動滅火設備"), result.Evidence.Find("source[zone.sprinklered]"));
     }
 
     [Fact]

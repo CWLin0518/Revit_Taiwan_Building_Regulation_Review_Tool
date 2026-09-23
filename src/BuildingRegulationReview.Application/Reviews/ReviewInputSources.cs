@@ -73,13 +73,13 @@ public sealed class ReviewInputSource
 /// </remarks>
 public static class ReviewInputSources
 {
-    public const string FireResistiveConstruction = "BCR_FireResistiveConstruction";
-    public const string BuildingUse = "BCR_BuildingUse";
-    public const string FloorsAboveGround = "BCR_FloorsAboveGround";
-    public const string BuildingHeight = "BCR_BuildingHeight";
-    public const string ZoneUse = "BCR_ZoneUse";
-    public const string Sprinklered = "BCR_Sprinklered";
-    public const string FloorNumber = "BCR_FloorNumber";
+    public const string FireResistiveConstruction = "防火檢討_防火構造建築物";
+    public const string BuildingUse = "防火檢討_建築物用途類組";
+    public const string FloorsAboveGround = "防火檢討_地上層數";
+    public const string BuildingHeight = "防火檢討_建築物高度";
+    public const string ZoneUse = "防火檢討_區劃用途";
+    public const string Sprinklered = "防火檢討_自動滅火設備";
+    public const string FloorNumber = "防火檢討_所在樓層序";
 
     public static readonly IReadOnlyList<ReviewParameterHost> MemberHosts = new ReadOnlyCollection<ReviewParameterHost>(new[]
     {

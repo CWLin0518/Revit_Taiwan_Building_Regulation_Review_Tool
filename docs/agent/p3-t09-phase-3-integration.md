@@ -10,10 +10,10 @@ spec 第 11 節與 16.3 的逐條對照見 `docs/agent/phase-3-acceptance.md`。
 - `ReviewInputSources.cs`：規則欄位 → 參數來源目錄（spec 19 第 4～6 項未定，先以名稱讀取）：
   | 欄位 | 參數 | 層級 | 類別 |
   | --- | --- | --- | --- |
-  | `building.fireResistiveConstruction`／`use`／`floorsAboveGround`／`height` | `BCR_FireResistiveConstruction`／`BCR_BuildingUse`／`BCR_FloorsAboveGround`／`BCR_BuildingHeight` | 實體 | 專案資訊 |
-  | `zone.use`／`sprinklered`／`floorNumber` | `BCR_ZoneUse`／`BCR_Sprinklered`／`BCR_FloorNumber` | 實體 | 面積（工具寫入的 Area） |
-  | `element.providedFireRating` | `BCR_ProvidedFireRating` | 類型 | 牆、柱、梁、樓板 |
-  | `opening.providedFireProtection` | `BCR_ProvidedFireProtection` | 實體或類型 | 門、窗、帷幕嵌板 |
+  | `building.fireResistiveConstruction`／`use`／`floorsAboveGround`／`height` | `防火檢討_防火構造建築物`／`防火檢討_建築物用途類組`／`防火檢討_地上層數`／`防火檢討_建築物高度` | 實體 | 專案資訊 |
+  | `zone.use`／`sprinklered`／`floorNumber` | `防火檢討_區劃用途`／`防火檢討_自動滅火設備`／`防火檢討_所在樓層序` | 實體 | 面積（工具寫入的 Area） |
+  | `element.providedFireRating` | `防火檢討_設計防火時效` | 類型 | 牆、柱、梁、樓板 |
+  | `opening.providedFireProtection` | `防火檢討_設計防火保護` | 實體或類型 | 門、窗、帷幕嵌板 |
   - `FieldsUsedBy(ruleSet)`：規則的適用條件、要求值兩側、豁免用到的欄位（只出現在 evidenceFields 的不算）；`NeededBy(ruleSet)`：規則需要的參數。
 - `ReviewParameterSnapshot.cs`：`ParameterReading`（Absent／Empty／Text／Integer／YesNo／Number／Length，adapter 只換長度單位）、
   `ReviewParameterSnapshot`（綁定類別＋專案資訊值＋各元素值）、`ReviewInputAssembler`：
@@ -69,7 +69,7 @@ spec 第 11 節與 16.3 的逐條對照見 `docs/agent/phase-3-acceptance.md`。
 - **規則版本鎖定需使用者確認**：外掛版本與套件鎖定版本不同時先阻擋；勾選改用後才以新版本檢討並鎖定，舊 run 以 spec 13.1 標為需更新。
 - **儲存與標示同一個 undo**：run、套件與檢討視圖標示在同一個 TransactionGroup；標示整批失敗不撤銷已儲存的結果（避免標示的持續性問題讓結果永遠存不進去），並提示重新標示。
 - **既有 run 在開窗時就判定失效並寫回**，下一個 session 不會把過期結果當成目前結果。
-- **不寫任何設計參數**：reader 全部唯讀；`BCR_RequiredFireRating` 仍不寫回（spec 11.5 第 4 點「若需要」，未要求）。
+- **不寫任何設計參數**：reader 全部唯讀；`防火檢討_法規要求防火時效` 仍不寫回（spec 11.5 第 4 點「若需要」，未要求）。
 
 ## 驗證
 
@@ -83,5 +83,5 @@ spec 第 11 節與 16.3 的逐條對照見 `docs/agent/phase-3-acceptance.md`。
 - 內建規則為暫定示意（spec 19 第 2 項）；柱、梁沒有規則，結果為不適用。
 - 檢討期間若使用者在 Revit 修改模型，儲存時不會重新比對；下次開窗的失效判定會把它標為需更新。
 - 連結模型、非主要設計選項不讀取（MVP，前置檢查提醒）。
-- 構件 Type 時效只讀 `BCR_ProvidedFireRating`，不讀 Revit 內建「Fire Rating」參數；裸數字一律視為分鐘。
+- 構件 Type 時效只讀 `防火檢討_設計防火時效`，不讀 Revit 內建「Fire Rating」參數；裸數字一律視為分鐘。
 - run 全部保留，沒有保留政策；覆寫、重新標示會重存整個 run。

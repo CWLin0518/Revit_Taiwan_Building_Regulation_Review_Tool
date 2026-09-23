@@ -11,7 +11,7 @@ namespace BuildingRegulationReview.Application.Checks;
 /// </summary>
 public static class FireProtectionParameters
 {
-    public const string Provided = "BCR_ProvidedFireProtection";
+    public const string Provided = "防火檢討_設計防火保護";
 }
 
 public enum ProvidedFireProtectionKind

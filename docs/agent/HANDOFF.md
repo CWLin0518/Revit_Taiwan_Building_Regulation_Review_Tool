@@ -42,7 +42,7 @@
 ## Known Issues / Risks
 - Revit 端（參數／環境 reader、TransactionGroup、檢討視圖標示、Extensible Storage 存讀、WPF 視窗）只經編譯與無頭驗證。
 - 檢討期間使用者改模型不會在儲存時重比對（下次開窗判定為需更新）。
-- 柱、梁沒有規則（不適用）；連結模型與非主要設計選項不讀取；Type 時效只讀 `BCR_ProvidedFireRating`。
+- 柱、梁沒有規則（不適用）；連結模型與非主要設計選項不讀取；Type 時效只讀 `防火檢討_設計防火時效`。
 - P2 實機驗收仍有兩項未回報；`docs/agent/phase-2-acceptance.md` 的未提交修改、`bin/`、`obj/`、`.gitignore`、`.gtoffice/` 不屬本任務，未提交。
 
 ## Exact Next Steps

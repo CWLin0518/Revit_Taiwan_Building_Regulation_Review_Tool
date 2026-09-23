@@ -1,0 +1,10 @@
+# This is a Revit shared parameter file.
+# 防火區劃檢討外掛（Phase 3）所需的專案參數定義。
+# ENCODING: system ANSI (Big5/cp950 on zh-TW Windows), NOT UTF-8.
+# Revit 的 DefinitionFile parser 以 OS ANSI codepage 讀取，存成 UTF-8 會讓中文參數名變亂碼。
+*META	VERSION	MINVERSION
+META	2	1
+*GROUP	ID	NAME
+GROUP	1	防火區劃檢討
+*PARAM	GUID	NAME	DATATYPE	DATACATEGORY	GROUP	VISIBLE	DESCRIPTION	USERMODIFIABLE	HIDEWHENNOVALUE
+PARAM	bcf10001-0000-4a00-9b00-000000000009	防火檢討_設計防火保護	TEXT		1	1	設計防火保護：是／否（門窗帷幕嵌板）	1	0

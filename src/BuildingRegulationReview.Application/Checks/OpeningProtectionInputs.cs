@@ -44,7 +44,7 @@ public sealed class OpeningFireProtection
 
     public ProvidedFireProtection Protection { get; }
 
-    /// <summary>The parameter the value was read from, e.g. <c>BCR_ProvidedFireProtection</c>.</summary>
+    /// <summary>The parameter the value was read from, e.g. <c>防火檢討_設計防火保護</c>.</summary>
     public string Source { get; }
 
     public override string ToString() => $"{Scope} {UniqueId}: {Protection}（{Source}）";
