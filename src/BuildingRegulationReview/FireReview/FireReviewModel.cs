@@ -112,7 +112,8 @@ namespace BuildingRegulationReview.FireReview
             var environment = environmentReader.ReadEnvironment(package);
             var readiness = ReviewReadiness.Evaluate(new ReviewReadinessInput(
                 package, boundaryReasons, ruleSet, environmentReader.ReadConditions(package), parameters, candidates, acceptRuleSetUpdate));
-            var inputs = set == null ? null : ReviewInputAssembler.Assemble(set, parameters);
+            var modelFacts = new RevitBuildingHeightReader(document).Read();
+            var inputs = set == null ? null : ReviewInputAssembler.Assemble(set, parameters, model: modelFacts);
             watch.Stop();
 
             var scan = new FireReviewScan

@@ -302,14 +302,61 @@ public sealed class FireReviewIntegrationTests
         Assert.Contains("柱", warning.Message);
         Assert.Contains("樓板", warning.Message);
         Assert.DoesNotContain("牆", warning.Message.Split('到')[1].Split('，')[0]);
+        // 梁 are candidates but carry no rating parameter, so they are never reported as a gap.
+        Assert.DoesNotContain("結構構架", warning.Message);
     }
 
     [Fact]
     public void Evidence_only_fields_do_not_require_parameters()
     {
         var parameters = new Parameters();
-        parameters.Bindings.RemoveAll(b => b.Key == ReviewInputSources.BuildingHeight || b.Key == ReviewInputSources.FloorNumber);
+        parameters.Bindings.RemoveAll(b => b.Key == ReviewInputSources.BuildingUse || b.Key == ReviewInputSources.FloorNumber);
         Assert.True(Readiness(parameters: parameters).CanRun);
+    }
+
+    /// <summary>建築物高度 is measured, not typed: no Project Information parameter supplies it.</summary>
+    [Fact]
+    public void Building_height_comes_from_the_model_and_not_from_a_parameter()
+    {
+        Assert.Null(ReviewInputSources.For("building.height"));
+        Assert.DoesNotContain("建築物高度", ReviewInputSources.ParameterNames);
+
+        var measured = ReviewInputAssembler.Assemble(Set(), new Parameters().Snapshot(),
+            model: new ReviewModelFacts(31.5, "模型量測：最高構件頂端至最低樓層"));
+
+        var height = Assert.Single(measured.Area.Building, i => i.Field == "building.height");
+        Assert.Equal(ReviewValue.Quantity(31.5, ReviewUnit.Meter), height.Value);
+        Assert.Contains("模型量測", height.Source);
+    }
+
+    /// <summary>An unmeasurable model leaves the field missing — never a zero height.</summary>
+    [Fact]
+    public void An_unmeasured_model_supplies_no_height_at_all()
+    {
+        var assembled = ReviewInputAssembler.Assemble(Set(), new Parameters().Snapshot(), model: ReviewModelFacts.None);
+
+        Assert.DoesNotContain(assembled.Area.Building, i => i.Field == "building.height");
+    }
+
+    /// <summary>The two building facts a project already records keep their plain names.</summary>
+    [Fact]
+    public void The_shared_building_parameters_carry_no_review_prefix()
+    {
+        Assert.Equal("建築物用途類組", ReviewInputSources.BuildingUse);
+        Assert.Equal("地上層數", ReviewInputSources.FloorsAboveGround);
+        Assert.DoesNotContain(ReviewInputSources.ParameterNames,
+            name => name.StartsWith("防火檢討_建築物", StringComparison.Ordinal) ||
+                    name.StartsWith("防火檢討_地上層數", StringComparison.Ordinal));
+    }
+
+    /// <summary>第71～73條 give 樑 no dimensional threshold, so beams carry no 設計防火時效 parameter.</summary>
+    [Fact]
+    public void Beams_are_not_asked_to_carry_the_rating_parameter()
+    {
+        Assert.DoesNotContain(ReviewParameterHost.StructuralFraming, ReviewInputSources.MemberHosts);
+
+        var source = ReviewInputSources.For("element.providedFireRating")!;
+        Assert.DoesNotContain(ReviewParameterHost.StructuralFraming, source.Hosts);
     }
 
     [Fact]

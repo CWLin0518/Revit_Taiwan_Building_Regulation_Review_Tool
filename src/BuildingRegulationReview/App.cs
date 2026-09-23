@@ -23,6 +23,8 @@ namespace BuildingRegulationReview
             button.ToolTip = "以 RhinoCommon 計算 3.6:1 道路陰影，並在目前平面視圖建立 FilledRegion。";
             var setupButton = (PushButton)panel.AddItem(new PushButtonData("FireReviewSetup", "防火區劃\n設定", path, typeof(FireReviewSetupCommand).FullName));
             setupButton.ToolTip = "選擇來源樓層平面、面積配置與 Area Plan 選項，建立檢討套件。";
+            var parameterButton = (PushButton)panel.AddItem(new PushButtonData("FireReviewParameters", "防火參數\n批次設定", path, typeof(FireReviewParameterPanelCommand).FullName));
+            parameterButton.ToolTip = "收集目前視圖的牆、柱、樓板、門窗類型，批次填寫結構材料與防火時效；RC／SRC／SC 加上斷面尺寸可依第71～73條自動推定時效。";
             var editorButton = (PushButton)panel.AddItem(new PushButtonData("RegionEditor", "防火區劃\n編輯器", path, typeof(RegionEditorCommand).FullName));
             editorButton.ToolTip = "讀取 Area Plan 的牆、柱與輔助線，求解封閉範圍，並以左右鍵編輯防火區劃草稿。模型不會被更動。";
             var reviewButton = (PushButton)panel.AddItem(new PushButtonData("FireReview", "防火區劃\n檢討", path, typeof(FireReviewCommand).FullName));

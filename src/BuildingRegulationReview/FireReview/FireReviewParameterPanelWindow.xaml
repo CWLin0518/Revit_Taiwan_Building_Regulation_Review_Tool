@@ -1,0 +1,180 @@
+<Window x:Class="BuildingRegulationReview.FireReview.FireReviewParameterPanelWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="防火檢討參數批次設定" Width="1240" Height="720" MinWidth="900" MinHeight="520"
+        WindowStartupLocation="CenterScreen" Background="#F5F6F7">
+    <Window.Resources>
+        <SolidColorBrush x:Key="Muted" Color="#62666A" />
+        <Style TargetType="Button">
+            <Setter Property="Padding" Value="12,6" />
+            <Setter Property="Margin" Value="0,0,8,0" />
+            <Setter Property="MinWidth" Value="96" />
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="14">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel>
+            <TextBlock Text="防火檢討參數批次設定" FontSize="20" FontWeight="SemiBold" Foreground="#202124" />
+            <TextBlock x:Name="ScopeText" Margin="0,4,0,0" Foreground="{StaticResource Muted}" TextWrapping="Wrap" />
+        </StackPanel>
+
+        <Border Grid.Row="1" Margin="0,10,0,0" Padding="10" Background="#FFF4E5"
+                BorderBrush="#F0C48A" BorderThickness="1" CornerRadius="4">
+            <StackPanel>
+                <TextBlock Text="這些是「類型參數」" FontWeight="SemiBold" Foreground="#8A5200" />
+                <TextBlock Margin="0,4,0,0" TextWrapping="Wrap" LineHeight="18" Foreground="#6B4A12"
+                           Text="防火時效、結構材料與防火被覆厚度都掛在類型上，改一列會套用到整個專案中該類型的所有實體，不只目前視圖看得到的那些。「數量」欄的第二個數字就是專案中的實體數。" />
+            </StackPanel>
+        </Border>
+
+        <Border x:Name="WarningBox" Grid.Row="2" Margin="0,10,0,0" Padding="10" Visibility="Collapsed"
+                Background="#FDECEA" BorderBrush="#F3B5AE" BorderThickness="1" CornerRadius="4">
+            <TextBlock x:Name="WarningText" TextWrapping="Wrap" Foreground="#8A2C22" />
+        </Border>
+
+        <DataGrid x:Name="Grid" Grid.Row="3" Margin="0,12,0,0" AutoGenerateColumns="False"
+                  CanUserAddRows="False" CanUserDeleteRows="False" HeadersVisibility="Column"
+                  GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#E3E5E8"
+                  RowHeaderWidth="0" SelectionMode="Extended" SelectionUnit="FullRow"
+                  AlternatingRowBackground="#FAFBFC" Background="White" BorderBrush="#D5D8DC">
+            <DataGrid.RowStyle>
+                <Style TargetType="DataGridRow">
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding HasMissingParameters}" Value="True">
+                            <Setter Property="Background" Value="#FDECEA" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </DataGrid.RowStyle>
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="類別" Binding="{Binding CategoryLabel}" IsReadOnly="True" Width="64" />
+                <DataGridTextColumn Header="類型" Binding="{Binding DisplayName}" IsReadOnly="True" Width="2*" />
+                <DataGridTextColumn Header="數量" Binding="{Binding Counts}" IsReadOnly="True" Width="76">
+                    <DataGridTextColumn.ElementStyle>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="ToolTip" Value="{Binding CountsTooltip}" />
+                        </Style>
+                    </DataGridTextColumn.ElementStyle>
+                </DataGridTextColumn>
+                <DataGridTextColumn Header="斷面尺寸" Binding="{Binding DimensionText}" IsReadOnly="True" Width="122" />
+
+                <DataGridComboBoxColumn Header="結構材料" Width="96"
+                                        SelectedItemBinding="{Binding Material, UpdateSourceTrigger=PropertyChanged}">
+                    <DataGridComboBoxColumn.ElementStyle>
+                        <Style TargetType="ComboBox">
+                            <Setter Property="ItemsSource" Value="{Binding MaterialChoices}" />
+                            <Setter Property="IsEnabled" Value="{Binding SupportsDerivation}" />
+                        </Style>
+                    </DataGridComboBoxColumn.ElementStyle>
+                    <DataGridComboBoxColumn.EditingElementStyle>
+                        <Style TargetType="ComboBox">
+                            <Setter Property="ItemsSource" Value="{Binding MaterialChoices}" />
+                            <Setter Property="IsEnabled" Value="{Binding SupportsDerivation}" />
+                        </Style>
+                    </DataGridComboBoxColumn.EditingElementStyle>
+                </DataGridComboBoxColumn>
+
+                <DataGridTextColumn Header="被覆厚度 cm" Width="96"
+                                    Binding="{Binding CoverCm, UpdateSourceTrigger=LostFocus}">
+                    <DataGridTextColumn.CellStyle>
+                        <Style TargetType="DataGridCell">
+                            <Setter Property="ToolTip" Value="僅 SC（鋼骨造）需要：第71～73條以防火被覆單面厚度計時效。" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding NeedsCover}" Value="False">
+                                    <Setter Property="IsEnabled" Value="False" />
+                                    <Setter Property="Background" Value="#F0F1F2" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </DataGridTextColumn.CellStyle>
+                </DataGridTextColumn>
+
+                <DataGridTextColumn Header="推定時效" Binding="{Binding DerivedText}" IsReadOnly="True" Width="84">
+                    <DataGridTextColumn.ElementStyle>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="FontWeight" Value="SemiBold" />
+                            <Setter Property="Foreground" Value="#1F5EA8" />
+                            <Setter Property="ToolTip" Value="{Binding DerivedBasis}" />
+                        </Style>
+                    </DataGridTextColumn.ElementStyle>
+                </DataGridTextColumn>
+
+                <DataGridTextColumn Header="設計防火時效" Width="110"
+                                    Binding="{Binding Rating, UpdateSourceTrigger=LostFocus}">
+                    <DataGridTextColumn.CellStyle>
+                        <Style TargetType="DataGridCell">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding RatingDiffers}" Value="True">
+                                    <Setter Property="Background" Value="#FFF8E1" />
+                                    <Setter Property="ToolTip" Value="目前填的值與推定值不同。" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding IsOpening}" Value="True">
+                                    <Setter Property="IsEnabled" Value="False" />
+                                    <Setter Property="Background" Value="#F0F1F2" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </DataGridTextColumn.CellStyle>
+                </DataGridTextColumn>
+
+                <DataGridComboBoxColumn Header="防火保護" Width="84"
+                                        SelectedItemBinding="{Binding Protection, UpdateSourceTrigger=PropertyChanged}">
+                    <DataGridComboBoxColumn.ElementStyle>
+                        <Style TargetType="ComboBox">
+                            <Setter Property="ItemsSource" Value="{Binding ProtectionChoices}" />
+                            <Setter Property="IsEnabled" Value="{Binding IsOpening}" />
+                        </Style>
+                    </DataGridComboBoxColumn.ElementStyle>
+                    <DataGridComboBoxColumn.EditingElementStyle>
+                        <Style TargetType="ComboBox">
+                            <Setter Property="ItemsSource" Value="{Binding ProtectionChoices}" />
+                            <Setter Property="IsEnabled" Value="{Binding IsOpening}" />
+                        </Style>
+                    </DataGridComboBoxColumn.EditingElementStyle>
+                </DataGridComboBoxColumn>
+
+                <DataGridTextColumn Header="依據／提醒" IsReadOnly="True" Width="3*"
+                                    Binding="{Binding DerivedBasis}">
+                    <DataGridTextColumn.ElementStyle>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+                            <Setter Property="Foreground" Value="{StaticResource Muted}" />
+                            <Setter Property="ToolTip" Value="{Binding DerivedBasis}" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding HasMissingParameters}" Value="True">
+                                    <Setter Property="Text" Value="{Binding MissingParameters}" />
+                                    <Setter Property="Foreground" Value="#B3261E" />
+                                    <Setter Property="ToolTip" Value="{Binding MissingParameters}" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </DataGridTextColumn.ElementStyle>
+                </DataGridTextColumn>
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,12,0,0">
+            <Button x:Name="ApplyAllButton" Content="套用推定值（全部）" Click="ApplyAll_OnClick" MinWidth="140"
+                    ToolTip="把每一列的推定防火時效填進「設計防火時效」欄；尚未寫入模型。" />
+            <Button x:Name="ApplySelectedButton" Content="套用推定值（選取列）" Click="ApplySelected_OnClick" MinWidth="150" />
+            <Button x:Name="SetMaterialButton" Content="選取列設為…" Click="SetMaterial_OnClick" MinWidth="110"
+                    ToolTip="把選取的列一次設成同一個結構材料。" />
+            <TextBlock x:Name="StatusText" VerticalAlignment="Center" Margin="12,0,0,0"
+                       Foreground="{StaticResource Muted}" TextWrapping="Wrap" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button x:Name="WriteButton" Content="寫入模型" Click="Write_OnClick" MinWidth="120" FontWeight="SemiBold" />
+            <Button Content="關閉" Click="Close_OnClick" IsCancel="True" Margin="0" />
+        </StackPanel>
+    </Grid>
+</Window>

@@ -160,13 +160,22 @@ public static class ReviewInputAssembler
         CandidateSet set,
         ReviewParameterSnapshot snapshot,
         FireRatingUnit bareNumberUnit = FireRatingUnit.Minute,
-        RuleFieldCatalog? catalog = null)
+        RuleFieldCatalog? catalog = null,
+        ReviewModelFacts? model = null)
     {
         if (set is null) throw new ArgumentNullException(nameof(set));
         if (snapshot is null) throw new ArgumentNullException(nameof(snapshot));
         catalog ??= RuleFieldCatalog.Default;
+        model ??= ReviewModelFacts.None;
 
         var building = new List<ReviewInput>();
+        if (model.BuildingHeightMeters is double height)
+        {
+            var field = catalog.Find("building.height");
+            if (field is not null)
+                building.Add(ReviewInput.Known(field.Name, height, field.Type.Unit, model.BuildingHeightSource));
+        }
+
         var zoneSources = new List<ReviewInputSource>();
         foreach (var source in ReviewInputSources.All)
         {

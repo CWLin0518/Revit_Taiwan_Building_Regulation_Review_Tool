@@ -70,20 +70,23 @@ public sealed class ReviewInputSource
 /// Areas are what the tool wrote for each 區劃 and what the user sees in the Area Plan. Fields the
 /// model itself provides (<c>zone.area</c>, <c>element.category</c>, <c>opening.kind</c>…) have no
 /// source here: they can never be typed in (spec 11.4 step 2: Revit Area is the actual value).
+/// <c>building.height</c> is one of those: the model's own extent is the height, so it comes from
+/// <see cref="ReviewModelFacts"/> and not from a Project Information parameter. 梁 carry no
+/// 設計防火時效 parameter — 建築技術規則第71～73條 gives 樑 no dimensional threshold, so a rating
+/// derived from the Type's size would be invented rather than read.
 /// </remarks>
 public static class ReviewInputSources
 {
     public const string FireResistiveConstruction = "防火檢討_防火構造建築物";
-    public const string BuildingUse = "防火檢討_建築物用途類組";
-    public const string FloorsAboveGround = "防火檢討_地上層數";
-    public const string BuildingHeight = "防火檢討_建築物高度";
+    public const string BuildingUse = "建築物用途類組";
+    public const string FloorsAboveGround = "地上層數";
     public const string ZoneUse = "防火檢討_區劃用途";
     public const string Sprinklered = "防火檢討_自動滅火設備";
     public const string FloorNumber = "防火檢討_所在樓層序";
 
     public static readonly IReadOnlyList<ReviewParameterHost> MemberHosts = new ReadOnlyCollection<ReviewParameterHost>(new[]
     {
-        ReviewParameterHost.Walls, ReviewParameterHost.Columns, ReviewParameterHost.StructuralFraming, ReviewParameterHost.Floors
+        ReviewParameterHost.Walls, ReviewParameterHost.Columns, ReviewParameterHost.Floors
     });
 
     public static readonly IReadOnlyList<ReviewParameterHost> OpeningHosts = new ReadOnlyCollection<ReviewParameterHost>(new[]
@@ -96,7 +99,6 @@ public static class ReviewInputSources
         new ReviewInputSource("building.fireResistiveConstruction", FireResistiveConstruction, ReviewParameterLevel.Instance, "是否為防火構造建築物", ReviewParameterHost.ProjectInformation),
         new ReviewInputSource("building.use", BuildingUse, ReviewParameterLevel.Instance, "建築物用途類組", ReviewParameterHost.ProjectInformation),
         new ReviewInputSource("building.floorsAboveGround", FloorsAboveGround, ReviewParameterLevel.Instance, "地上層數", ReviewParameterHost.ProjectInformation),
-        new ReviewInputSource("building.height", BuildingHeight, ReviewParameterLevel.Instance, "建築物高度", ReviewParameterHost.ProjectInformation),
         new ReviewInputSource("zone.use", ZoneUse, ReviewParameterLevel.Instance, "區劃用途", ReviewParameterHost.Areas),
         new ReviewInputSource("zone.sprinklered", Sprinklered, ReviewParameterLevel.Instance, "是否設有自動滅火設備", ReviewParameterHost.Areas),
         new ReviewInputSource("zone.floorNumber", FloorNumber, ReviewParameterLevel.Instance, "所在樓層序", ReviewParameterHost.Areas),

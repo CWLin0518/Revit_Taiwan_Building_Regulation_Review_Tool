@@ -1,10 +1,13 @@
 # This is a Revit shared parameter file.
-# 防火區劃檢討外掛（Phase 3）所需的專案參數定義。
+# 牆、柱、結構柱、樓板的「類型」參數：防火時效與其推定所需的結構材料、被覆厚度。
 # ENCODING: system ANSI (Big5/cp950 on zh-TW Windows), NOT UTF-8.
-# Revit 的 DefinitionFile parser 以 OS ANSI codepage 讀取，存成 UTF-8 會讓中文參數名變亂碼。
+# 綁定方式：類型參數（bindToInstance: false）。梁（結構構架）不綁——第71～73條的「樑」款未設尺寸門檻。
 *META	VERSION	MINVERSION
 META	2	1
 *GROUP	ID	NAME
 GROUP	1	防火區劃檢討
+GROUP	2	結構
 *PARAM	GUID	NAME	DATATYPE	DATACATEGORY	GROUP	VISIBLE	DESCRIPTION	USERMODIFIABLE	HIDEWHENNOVALUE
-PARAM	bcf10001-0000-4a00-9b00-000000000008	防火檢討_設計防火時效	TEXT		1	1	設計／認證防火時效，例如 60 min 或 1hr（牆柱梁樓板類型）	1	0
+PARAM	bcf10001-0000-4a00-9b00-000000000008	防火檢討_設計防火時效	TEXT		1	1	設計／認證防火時效，例如 60 min 或 1hr	1	0
+PARAM	bcf10001-0000-4a00-9b00-00000000000b	結構材料	TEXT		2	1	結構材料：RC／SRC／SC，用於推定防火時效	1	0
+PARAM	bcf10001-0000-4a00-9b00-00000000000c	防火被覆厚度	LENGTH		2	1	防火被覆單面厚度；僅 SC 鋼骨造需要	1	0

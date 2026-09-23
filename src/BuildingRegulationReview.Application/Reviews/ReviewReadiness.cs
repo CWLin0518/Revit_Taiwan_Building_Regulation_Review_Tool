@@ -352,10 +352,14 @@ public static class ReviewReadiness
 
     private static IEnumerable<ReviewParameterHost> UsedHosts(ReviewInputSource source, CandidateSet candidates)
     {
+        // Only the hosts the parameter is actually meant for: 梁 are candidates but carry no
+        // 設計防火時效 parameter, so an unbound 結構構架 is not a gap to report.
         if (source.Hosts.SequenceEqual(ReviewInputSources.MemberHosts))
-            return candidates.Members.Select(m => ReviewInputSources.HostOf(m.Observation.Category)).Distinct().OrderBy(x => x);
+            return candidates.Members.Select(m => ReviewInputSources.HostOf(m.Observation.Category))
+                .Where(source.Hosts.Contains).Distinct().OrderBy(x => x);
         if (source.Hosts.SequenceEqual(ReviewInputSources.OpeningHosts))
-            return candidates.Openings.Select(o => ReviewInputSources.HostOf(o.Observation.Category)).Distinct().OrderBy(x => x);
+            return candidates.Openings.Select(o => ReviewInputSources.HostOf(o.Observation.Category))
+                .Where(source.Hosts.Contains).Distinct().OrderBy(x => x);
         return Array.Empty<ReviewParameterHost>();
     }
 
