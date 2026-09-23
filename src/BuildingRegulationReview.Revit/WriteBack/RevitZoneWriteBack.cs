@@ -267,6 +267,37 @@ public sealed class RevitZoneWriteBack
         }
     }
 
+    /// <summary>
+    /// Moves an existing tag's head to <paramref name="head"/>, then takes the leader off again.
+    /// </summary>
+    /// <remarks>
+    /// Revit only constrains the head of a <em>leaderless</em> tag — 「Head position of the tag with
+    /// no leader could not be located outside of the host element」 — so moving one directly is
+    /// refused whenever Revit judges the destination to be outside the host, which it did even for
+    /// the Area's own location point. Lending the tag a leader for the move lifts that constraint;
+    /// <see cref="DropLeader"/> then takes it away again, and keeps it when Revit still objects.
+    /// </remarks>
+    private static void MoveHead(AreaTag tag, UV head, string? zoneName, ApplyResult.Builder log)
+    {
+        var target = new XYZ(head.U, head.V, tag.TagHeadPosition?.Z ?? 0);
+        var hadLeader = tag.HasLeader;
+
+        if (!hadLeader) tag.HasLeader = true;
+
+        try
+        {
+            tag.TagHeadPosition = target;
+        }
+        catch (RevitApplicationException)
+        {
+            // Put it back the way it was found rather than leaving a leader nobody asked for.
+            if (!hadLeader) tag.HasLeader = false;
+            throw;
+        }
+
+        DropLeader(tag, zoneName, log);
+    }
+
     private void Tag(ApplyPlan plan, ApplyStep step, ApplyResult.Builder log, ViewPlan view)
     {
         var planned = step.Planned!;
@@ -339,8 +370,7 @@ public sealed class RevitZoneWriteBack
                 return;
             }
 
-            DropLeader(tag, planned.ZoneName, log);
-            tag.TagHeadPosition = new XYZ(head.U, head.V, tag.TagHeadPosition?.Z ?? 0);
+            MoveHead(tag, head, planned.ZoneName, log);
             ManagedElementMark.Write(tag, step.Key, planned.Signature);
             Remember(step, tag);
             log.Updated(step, tag.UniqueId);
@@ -358,11 +388,21 @@ public sealed class RevitZoneWriteBack
     /// </summary>
     private static void Handback(ApplyStep step, PlannedElement planned, ApplyResult.Builder log, Exception exception)
     {
-        log.Skipped(step, "Revit 不接受在這個位置建立面積標註：" + exception.Message);
+        // An update failed on a tag that is still in the model; only an add leaves nothing behind.
+        // Telling the user to place one they already have is how duplicates get made.
+        var exists = step.Change != ApplyChangeKind.Add;
+
+        log.Skipped(step, (exists ? "Revit 不接受把面積標註移到這個位置：" : "Revit 不接受在這個位置建立面積標註：")
+            + exception.Message);
+
         log.Manual(
             planned.Description,
-            "Revit 拒絕在這個位置建立面積標註，該區劃的邊界與面積本身不受影響。",
-            "請在 Area Plan 中手動放置這個區劃的面積標註；改用帶引線的標註類型通常就能放。");
+            exists
+                ? "Revit 拒絕把這個面積標註移到計畫的位置，標註仍在原處，該區劃的邊界與面積不受影響。"
+                : "Revit 拒絕在這個位置建立面積標註，該區劃的邊界與面積本身不受影響。",
+            exists
+                ? "標註已經存在，不需要另外放置；若位置不理想，請在 Area Plan 中直接拖曳它，或改用帶引線的標註類型。"
+                : "請在 Area Plan 中手動放置這個區劃的面積標註；改用帶引線的標註類型通常就能放。");
     }
 
     /// <summary>
