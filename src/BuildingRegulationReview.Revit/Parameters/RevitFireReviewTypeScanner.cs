@@ -189,8 +189,10 @@ public sealed class RevitFireReviewTypeScanner
     /// </summary>
     private static double? ColumnShortSide(ElementType type)
     {
-        var width = PositiveLength(type, BuiltInParameter.STRUCTURAL_SECTION_COMMON_WIDTH, "b", "寬度", "Width");
-        var depth = PositiveLength(type, BuiltInParameter.STRUCTURAL_SECTION_COMMON_HEIGHT, "h", "深度", "Depth", "Height");
+        // Chinese-localised column families publish 柱寬／柱深 rather than the b／h a structural
+        // section family carries, so both spellings are tried before giving up.
+        var width = PositiveLength(type, BuiltInParameter.STRUCTURAL_SECTION_COMMON_WIDTH, "b", "柱寬", "寬度", "Width");
+        var depth = PositiveLength(type, BuiltInParameter.STRUCTURAL_SECTION_COMMON_HEIGHT, "h", "柱深", "深度", "Depth", "Height");
 
         if (width is null && depth is null) return null;
         var shorter = Math.Min(width ?? double.MaxValue, depth ?? double.MaxValue);
