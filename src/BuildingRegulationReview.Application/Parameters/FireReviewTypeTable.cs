@@ -15,10 +15,11 @@ namespace BuildingRegulationReview.Application.Parameters;
 /// <see cref="FireReviewParameterEdit"/> carries the result back.
 /// </summary>
 /// <remarks>
-/// A row is a Type, not an element: 防火檢討_設計防火時效, 結構材料 and 防火被覆厚度 are Type
-/// parameters, so one edit reaches every instance of that Type in the project — not only the ones
-/// visible in the view the list was collected from. <see cref="InstanceCount"/> is what the view
-/// showed; <see cref="ProjectInstanceCount"/> is what the edit actually affects.
+/// A row is a Type, not an element: 防火檢討_設計防火時效, 結構材料, 防火被覆厚度 and the openings'
+/// 防火檢討_設計防火保護 are all Type parameters, so one edit reaches every instance of that Type in
+/// the project — not only the ones visible in the view the list was collected from.
+/// <see cref="InstanceCount"/> is what the view showed; <see cref="ProjectInstanceCount"/> is what
+/// the edit actually affects.
 /// </remarks>
 public sealed class FireReviewTypeRow
 {
@@ -33,9 +34,8 @@ public sealed class FireReviewTypeRow
         string? material = null,
         double? coverMeters = null,
         string? providedRating = null,
-        string? providedProtection = null,
-        FireReviewTypeParameters present = FireReviewTypeParameters.None,
-        IEnumerable<string>? instanceUniqueIds = null)
+        bool? providedProtection = null,
+        FireReviewTypeParameters present = FireReviewTypeParameters.None)
     {
         if (string.IsNullOrWhiteSpace(typeUniqueId)) throw new ArgumentException("Type UniqueId is required.", nameof(typeUniqueId));
         if (instanceCount < 0) throw new ArgumentOutOfRangeException(nameof(instanceCount));
@@ -55,14 +55,8 @@ public sealed class FireReviewTypeRow
         Material = string.IsNullOrWhiteSpace(material) ? null : material!.Trim();
         CoverMeters = coverMeters;
         ProvidedRating = string.IsNullOrWhiteSpace(providedRating) ? null : providedRating!.Trim();
-        ProvidedProtection = string.IsNullOrWhiteSpace(providedProtection) ? null : providedProtection!.Trim();
+        ProvidedProtection = providedProtection;
         Present = present;
-        InstanceUniqueIds = new ReadOnlyCollection<string>(
-            (instanceUniqueIds ?? Array.Empty<string>())
-            .Where(id => !string.IsNullOrWhiteSpace(id))
-            .Select(id => id.Trim())
-            .Distinct(StringComparer.Ordinal)
-            .ToList());
     }
 
     public string TypeUniqueId { get; }
@@ -88,20 +82,16 @@ public sealed class FireReviewTypeRow
     /// <summary>防火檢討_設計防火時效 exactly as the parameter holds it.</summary>
     public string? ProvidedRating { get; }
 
-    /// <summary>防火檢討_設計防火保護 exactly as the parameter holds it (openings only).</summary>
-    public string? ProvidedProtection { get; }
+    /// <summary>
+    /// 防火檢討_設計防火保護 as the Type's Yes/No parameter holds it (openings only): true is ticked,
+    /// false is a box that exists but is not ticked, and null is a Type that does not carry the
+    /// parameter at all. The review reads false as 否, but null must stay null here so an untouched
+    /// row writes nothing back.
+    /// </summary>
+    public bool? ProvidedProtection { get; }
 
     /// <summary>Which of the review parameters this Type actually carries.</summary>
     public FireReviewTypeParameters Present { get; }
-
-    /// <summary>
-    /// The instances of this Type the collected view showed. Filled for openings only, because
-    /// 防火檢討_設計防火保護 is bound per instance — a Revit shared parameter has one binding, so it
-    /// cannot be both — and 「同一種門可能有的是防火門、有的不是」 is exactly why. Editing an opening
-    /// row therefore writes to these instances, not to the Type, and so reaches only what the view
-    /// showed.
-    /// </summary>
-    public IReadOnlyList<string> InstanceUniqueIds { get; }
 
     public bool IsOpening => CandidateCategories.IsOpening(Category);
 
@@ -148,47 +138,73 @@ public enum FireReviewTypeParameters
     Protection = 8
 }
 
-/// <summary>One parameter value to write to one Type. Text and length are kept apart so the adapter never guesses.</summary>
+/// <summary>What kind of value one edit carries, so the adapter never has to guess from the text.</summary>
+public enum FireReviewEditKind
+{
+    Text,
+    Length,
+    YesNo
+}
+
+/// <summary>One parameter value to write to one Type. The kinds are kept apart so the adapter never guesses.</summary>
 public sealed class FireReviewParameterEdit
 {
-    private FireReviewParameterEdit(string elementUniqueId, string parameterName, string? text, double? lengthMeters)
+    private FireReviewParameterEdit(FireReviewEditKind kind, string elementUniqueId, string parameterName, string? text, double? lengthMeters, bool yesNo)
     {
         if (string.IsNullOrWhiteSpace(elementUniqueId)) throw new ArgumentException("Element UniqueId is required.", nameof(elementUniqueId));
         if (string.IsNullOrWhiteSpace(parameterName)) throw new ArgumentException("Parameter name is required.", nameof(parameterName));
 
+        Kind = kind;
         ElementUniqueId = elementUniqueId.Trim();
         ParameterName = parameterName.Trim();
         Text = text;
         LengthMeters = lengthMeters;
+        YesNo = yesNo;
     }
 
     public static FireReviewParameterEdit OfText(string elementUniqueId, string parameterName, string? value)
     {
         if (FireRatingParameters.IsRequiredParameter(parameterName))
             throw new ArgumentException($"{FireRatingParameters.Required} 是規則回寫用的參數，面板不得寫入。", nameof(parameterName));
-        return new FireReviewParameterEdit(elementUniqueId, parameterName, value ?? string.Empty, null);
+        return new FireReviewParameterEdit(FireReviewEditKind.Text, elementUniqueId, parameterName, value ?? string.Empty, null, false);
     }
 
     public static FireReviewParameterEdit OfLength(string elementUniqueId, string parameterName, double? meters)
     {
         if (meters is double m && (double.IsNaN(m) || double.IsInfinity(m) || m < 0))
             throw new ArgumentOutOfRangeException(nameof(meters), "長度不能是負數或非有限值。");
-        return new FireReviewParameterEdit(elementUniqueId, parameterName, null, meters);
+        return new FireReviewParameterEdit(FireReviewEditKind.Length, elementUniqueId, parameterName, null, meters, false);
     }
 
+    /// <summary>A ticked or unticked checkbox. Unticked is written as 0, which the review reads as 否.</summary>
+    public static FireReviewParameterEdit OfYesNo(string elementUniqueId, string parameterName, bool value)
+    {
+        if (FireRatingParameters.IsRequiredParameter(parameterName))
+            throw new ArgumentException($"{FireRatingParameters.Required} 是規則回寫用的參數，面板不得寫入。", nameof(parameterName));
+        return new FireReviewParameterEdit(FireReviewEditKind.YesNo, elementUniqueId, parameterName, null, null, value);
+    }
+
+    public FireReviewEditKind Kind { get; }
     public string ElementUniqueId { get; }
     public string ParameterName { get; }
 
-    /// <summary>The text to write; null when this edit is a length. An empty string clears the parameter.</summary>
+    /// <summary>The text to write; null unless this edit is a text. An empty string clears the parameter.</summary>
     public string? Text { get; }
 
-    /// <summary>The length in metres; null when this edit is a text.</summary>
+    /// <summary>The length in metres; null unless this edit is a length.</summary>
     public double? LengthMeters { get; }
 
-    public bool IsLength => Text is null;
+    /// <summary>Whether the box is ticked; meaningful only when <see cref="Kind"/> is Yes/No.</summary>
+    public bool YesNo { get; }
 
-    public override string ToString() =>
-        $"{ParameterName} = {(IsLength ? LengthMeters?.ToString("0.###", CultureInfo.InvariantCulture) + " m" ?? "（清除）" : Text)}";
+    public bool IsLength => Kind == FireReviewEditKind.Length;
+
+    public override string ToString() => Kind switch
+    {
+        FireReviewEditKind.Length => $"{ParameterName} = {LengthMeters?.ToString("0.###", CultureInfo.InvariantCulture) + " m" ?? "（清除）"}",
+        FireReviewEditKind.YesNo => $"{ParameterName} = {(YesNo ? "是" : "否")}",
+        _ => $"{ParameterName} = {Text}"
+    };
 }
 
 /// <summary>The Types one view contributed, grouped and ordered the way the panel lists them.</summary>

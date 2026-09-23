@@ -230,7 +230,10 @@ public static class ReviewInputAssembler
 
             if (opening.TypeUniqueId is null || !typesDone.Add(opening.TypeUniqueId)) continue;
             var type = snapshot.Element(opening.TypeUniqueId, FireProtectionParameters.Provided);
-            if (type.HasValue)
+
+            // An unticked checkbox reads as Empty but is an answer (否), so the Type is taken
+            // whenever it carries the parameter at all — only Absent means nothing was bound.
+            if (type.Kind != ParameterReadingKind.Absent)
             {
                 protections.Add(OpeningFireProtection.ForType(
                     opening.TypeUniqueId, Protection(type), FireProtectionParameters.Provided + "（類型）"));
@@ -274,13 +277,19 @@ public static class ReviewInputAssembler
         };
     }
 
+    /// <summary>
+    /// 防火檢討_設計防火保護 as read. It is a Yes/No Type parameter, and Revit shows an unticked box
+    /// and a never-touched box the same way, so a bound-but-unset parameter is 否, not 資料不足 —
+    /// otherwise no model could ever say「這扇門不是防火門」and every opening would stay 待確認.
+    /// Only a parameter that is not bound at all is 資料不足, which is a setup problem, not an answer.
+    /// </summary>
     public static ProvidedFireProtection Protection(ParameterReading reading)
     {
         if (reading is null) throw new ArgumentNullException(nameof(reading));
         return reading.Kind switch
         {
             ParameterReadingKind.Absent => ProvidedFireProtection.Missing($"沒有參數 {FireProtectionParameters.Provided}"),
-            ParameterReadingKind.Empty => ProvidedFireProtection.Missing($"{FireProtectionParameters.Provided} 未填"),
+            ParameterReadingKind.Empty => ProvidedFireProtection.No("未勾選"),
             ParameterReadingKind.Text => FireProtectionText.Parse(reading.Text),
             ParameterReadingKind.YesNo or ParameterReadingKind.Integer => ProvidedFireProtection.FromInteger((int)reading.Number),
             _ => ProvidedFireProtection.Unreadable(reading.Raw, "數值或長度參數無法表示是否具防火保護")

@@ -140,6 +140,14 @@ public sealed class RevitFireReviewParameterWriter
 
     private static WriteOutcome Write(Parameter parameter, FireReviewParameterEdit edit)
     {
+        if (edit.Kind == FireReviewEditKind.YesNo)
+        {
+            if (parameter.StorageType != StorageType.Integer) return WriteOutcome.Rejected;
+            var ticked = edit.YesNo ? 1 : 0;
+            if (parameter.HasValue && parameter.AsInteger() == ticked) return WriteOutcome.Unchanged;
+            return parameter.Set(ticked) ? WriteOutcome.Written : WriteOutcome.Rejected;
+        }
+
         if (edit.IsLength)
         {
             if (parameter.StorageType != StorageType.Double) return WriteOutcome.Rejected;

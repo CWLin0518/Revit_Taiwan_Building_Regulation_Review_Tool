@@ -54,7 +54,7 @@
                         <StackPanel>
                             <TextBlock Text="這些是「類型參數」" FontWeight="SemiBold" Foreground="#8A5200" />
                             <TextBlock Margin="0,4,0,0" TextWrapping="Wrap" LineHeight="18" Foreground="#6B4A12"
-                                       Text="防火時效、結構材料與防火被覆厚度都掛在類型上，改一列會套用到整個專案中該類型的所有實體，不只目前視圖看得到的那些。「數量」欄的第二個數字就是專案中的實體數。門窗的防火保護是實體參數，只影響目前視圖裡的那些實體。" />
+                                       Text="防火時效、結構材料、防火被覆厚度與門窗的防火門窗勾選都掛在類型上，改一列會套用到整個專案中該類型的所有實體，不只目前視圖看得到的那些。「數量」欄的第二個數字就是專案中的實體數。" />
                         </StackPanel>
                     </Border>
 
@@ -143,21 +143,22 @@
                                 </DataGridTextColumn.CellStyle>
                             </DataGridTextColumn>
 
-                            <DataGridComboBoxColumn Header="防火保護" Width="84"
-                                                    SelectedItemBinding="{Binding Protection, UpdateSourceTrigger=PropertyChanged}">
-                                <DataGridComboBoxColumn.ElementStyle>
-                                    <Style TargetType="ComboBox">
-                                        <Setter Property="ItemsSource" Value="{Binding ProtectionChoices}" />
+                            <DataGridCheckBoxColumn Header="防火門窗" Width="84"
+                                                    Binding="{Binding Protection, UpdateSourceTrigger=PropertyChanged}">
+                                <DataGridCheckBoxColumn.ElementStyle>
+                                    <Style TargetType="CheckBox">
+                                        <Setter Property="HorizontalAlignment" Value="Center" />
+                                        <Setter Property="IsEnabled" Value="{Binding IsOpening}" />
+                                        <Setter Property="ToolTip" Value="勾選＝此門窗型號是防火門窗。未勾選＝不是，區劃邊界上的這個型號會判未符合。" />
+                                    </Style>
+                                </DataGridCheckBoxColumn.ElementStyle>
+                                <DataGridCheckBoxColumn.EditingElementStyle>
+                                    <Style TargetType="CheckBox">
+                                        <Setter Property="HorizontalAlignment" Value="Center" />
                                         <Setter Property="IsEnabled" Value="{Binding IsOpening}" />
                                     </Style>
-                                </DataGridComboBoxColumn.ElementStyle>
-                                <DataGridComboBoxColumn.EditingElementStyle>
-                                    <Style TargetType="ComboBox">
-                                        <Setter Property="ItemsSource" Value="{Binding ProtectionChoices}" />
-                                        <Setter Property="IsEnabled" Value="{Binding IsOpening}" />
-                                    </Style>
-                                </DataGridComboBoxColumn.EditingElementStyle>
-                            </DataGridComboBoxColumn>
+                                </DataGridCheckBoxColumn.EditingElementStyle>
+                            </DataGridCheckBoxColumn>
 
                             <DataGridTextColumn Header="依據／提醒" IsReadOnly="True" Width="3*"
                                                 Binding="{Binding DerivedBasis}">

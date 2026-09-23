@@ -634,6 +634,53 @@ public sealed class FireReviewIntegrationTests
         Assert.Equal(ProvidedFireProtectionKind.Unreadable, ReviewInputAssembler.Protection(ParameterReading.OfNumber(1)).Kind);
     }
 
+    /// <summary>
+    /// 防火檢討_設計防火保護 is a Yes/No Type parameter, and Revit draws an unticked box and a
+    /// never-touched box identically. So a bound-but-unset box is 否 — otherwise no model could ever
+    /// state「這個型號不是防火門窗」and every opening would stay 待確認 forever. An unbound parameter
+    /// stays 資料不足, because that is a setup problem and not an answer.
+    /// </summary>
+    [Fact]
+    public void An_unticked_checkbox_is_否_but_an_unbound_parameter_is_still_資料不足()
+    {
+        Assert.Equal(ProvidedFireProtectionKind.No, ReviewInputAssembler.Protection(ParameterReading.Empty).Kind);
+        Assert.Equal("未勾選", ReviewInputAssembler.Protection(ParameterReading.Empty).RawText);
+        Assert.Equal(ProvidedFireProtection.NoText, ReviewInputAssembler.Protection(ParameterReading.Empty).RuleText);
+        Assert.Equal(ProvidedFireProtectionKind.Missing, ReviewInputAssembler.Protection(ParameterReading.Absent).Kind);
+    }
+
+    /// <summary>
+    /// The Type carries the box but nobody ticked it, so the assembler must still take the Type —
+    /// skipping it would hand the check nothing and turn 未符合 back into 待確認.
+    /// </summary>
+    [Fact]
+    public void A_type_whose_checkbox_was_never_ticked_still_reaches_the_check_as_否()
+    {
+        var door = new OpeningObservation(Source("D-untouched"), CandidateCategory.Door, "W2-shared", P(10, 6), M(1), M(2.1), "type-plain", "一般門");
+        var set = CandidateResolver.Resolve(Observations(Zones().Take(2), Members(), new[] { door }));
+        var snapshot = new ReviewParameterSnapshot(AllBindings(), null, new Dictionary<string, IReadOnlyDictionary<string, ParameterReading>>
+        {
+            ["type-plain"] = new Dictionary<string, ParameterReading> { [FireProtectionParameters.Provided] = ParameterReading.Empty }
+        });
+
+        var protections = ReviewInputAssembler.Assemble(set, snapshot).Protection;
+
+        Assert.Equal(ProvidedFireProtectionKind.No, protections.For(door)!.Protection.Kind);
+        Assert.Equal(FireProtectionScope.Type, protections.For(door)!.Scope);
+    }
+
+    /// <summary>A Type with no such parameter bound at all is the one case that stays 資料不足.</summary>
+    [Fact]
+    public void A_type_without_the_parameter_bound_supplies_nothing()
+    {
+        var door = new OpeningObservation(Source("D-unbound"), CandidateCategory.Door, "W2-shared", P(10, 6), M(1), M(2.1), "type-none", "一般門");
+        var set = CandidateResolver.Resolve(Observations(Zones().Take(2), Members(), new[] { door }));
+
+        var protections = ReviewInputAssembler.Assemble(set, new ReviewParameterSnapshot(AllBindings(), null, null)).Protection;
+
+        Assert.Null(protections.For(door));
+    }
+
     [Fact]
     public void Assembly_fills_building_zone_type_and_opening_inputs_from_the_snapshot()
     {

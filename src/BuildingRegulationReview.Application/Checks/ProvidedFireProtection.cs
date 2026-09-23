@@ -7,7 +7,9 @@ namespace BuildingRegulationReview.Application.Checks;
 
 /// <summary>
 /// The parameter an opening's design fire protection is read from by default (spec 11.6 step 2
-/// <c>ProvidedFireProtection</c>). The review reads it and never writes it.
+/// <c>ProvidedFireProtection</c>). The review reads it and never writes it. It is a Yes/No
+/// parameter bound to the door／window／curtain panel <em>Type</em>: 防火門窗 is a property of the
+/// 型號, so ticking it once answers for every instance of that Type.
 /// </summary>
 public static class FireProtectionParameters
 {

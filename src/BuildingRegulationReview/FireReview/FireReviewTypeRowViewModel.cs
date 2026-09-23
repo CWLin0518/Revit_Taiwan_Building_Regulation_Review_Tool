@@ -24,7 +24,7 @@ namespace BuildingRegulationReview.FireReview
         private string _material;
         private string _coverCm;
         private string _rating;
-        private string _protection;
+        private bool _protection;
 
         public FireReviewTypeRowViewModel(FireReviewTypeRow source)
         {
@@ -32,7 +32,7 @@ namespace BuildingRegulationReview.FireReview
             _material = source.ParsedMaterial.HasValue ? StructuralMaterialText.Code(source.ParsedMaterial.Value) : source.Material ?? "";
             _coverCm = Centimetres(source.CoverMeters);
             _rating = source.ProvidedRating ?? "";
-            _protection = source.ProvidedProtection ?? "";
+            _protection = source.ProvidedProtection == true;
         }
 
         public FireReviewTypeRow Source { get; }
@@ -46,10 +46,9 @@ namespace BuildingRegulationReview.FireReview
             ? Source.InstanceCount.ToString(CultureInfo.InvariantCulture)
             : $"{Source.InstanceCount} / {Source.ProjectInstanceCount}";
 
-        public string CountsTooltip => IsOpening
-            ? $"此視圖有 {Source.InstanceCount} 個實體。防火保護是實體參數，寫入只會影響這些實體。"
-            : $"此視圖有 {Source.InstanceCount} 個實體，整個專案有 {Source.ProjectInstanceCount} 個。" +
-              "這些是類型參數，變更會套用到專案中所有實體。";
+        public string CountsTooltip =>
+            $"此視圖有 {Source.InstanceCount} 個實體，整個專案有 {Source.ProjectInstanceCount} 個。" +
+            "這些是類型參數，變更會套用到專案中所有實體。";
 
         /// <summary>牆厚／板厚／柱短邊 as the Type reports it, in centimetres.</summary>
         public string DimensionText => Source.DimensionMeters.HasValue
@@ -61,7 +60,6 @@ namespace BuildingRegulationReview.FireReview
         public IReadOnlyList<string> MaterialChoices { get; } =
             new[] { "" }.Concat(StructuralMaterialText.All.Select(StructuralMaterialText.Code)).ToList();
 
-        public IReadOnlyList<string> ProtectionChoices { get; } = new[] { "", "是", "否" };
 
         public string Material
         {
@@ -97,10 +95,20 @@ namespace BuildingRegulationReview.FireReview
             }
         }
 
-        public string Protection
+        /// <summary>
+        /// 防火檢討_設計防火保護 on the Type: ticked means this 型號 is a 防火門窗. A Type that never
+        /// carried the parameter shows unticked, and stays unwritten until the user ticks it, which
+        /// is why <see cref="FireReviewTypeRow.ProvidedProtection"/> keeps null apart from false.
+        /// </summary>
+        public bool Protection
         {
             get => _protection;
-            set => Set(ref _protection, value ?? "");
+            set
+            {
+                if (_protection == value) return;
+                _protection = value;
+                Raise(nameof(Protection));
+            }
         }
 
         /// <summary>What the clauses derive from what is currently typed in this row.</summary>
@@ -175,11 +183,13 @@ namespace BuildingRegulationReview.FireReview
         {
             if (IsOpening)
             {
-                // 設計防火保護 is an instance parameter, so an opening row writes to the instances the
-                // view showed — never to the Type, which does not carry it.
-                if (!Same(_protection, Source.ProvidedProtection))
-                    foreach (var instance in Source.InstanceUniqueIds)
-                        yield return FireReviewParameterEdit.OfText(instance, FireProtectionParameters.Provided, _protection);
+                // 設計防火保護 is a Type parameter: 防火門窗 is a property of the 型號, so one tick
+                // answers for every instance of it in the project.
+                // A Type that never carried the parameter reads as null; leaving such a row alone
+                // must write nothing, but ticking it still writes, so the failure names the missing
+                // binding instead of silently doing nothing.
+                if ((Source.ProvidedProtection ?? false) != _protection)
+                    yield return FireReviewParameterEdit.OfYesNo(Source.TypeUniqueId, FireProtectionParameters.Provided, _protection);
                 yield break;
             }
 

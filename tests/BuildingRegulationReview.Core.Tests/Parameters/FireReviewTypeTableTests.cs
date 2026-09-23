@@ -16,7 +16,7 @@ public sealed class FireReviewTypeTableTests
         string? material = "RC",
         double? coverCm = null,
         string? rating = null,
-        string? protection = null,
+        bool? protection = null,
         int inView = 3,
         int inProject = 9,
         FireReviewTypeParameters present = FireReviewTypeParameters.Rating | FireReviewTypeParameters.Material) =>
@@ -137,26 +137,46 @@ public sealed class FireReviewTypeTableTests
     [Fact]
     public void An_opening_row_derives_nothing_and_is_recognised_as_an_opening()
     {
-        var door = Row("T-door", CandidateCategory.Door, dimensionCm: null, material: null, protection: "是");
+        var door = Row("T-door", CandidateCategory.Door, dimensionCm: null, material: null, protection: true);
 
         Assert.True(door.IsOpening);
         Assert.Equal(FireRatingDerivationKind.NotDerivable, door.Derivation.Kind);
-        Assert.Equal("是", door.ProvidedProtection);
+        Assert.True(door.ProvidedProtection);
     }
 
-    /// <summary>防火保護 is bound per instance, so an opening row names the instances it will write to.</summary>
+    /// <summary>
+    /// 防火保護 is a Type parameter, so a row keeps 「沒有這個參數」 apart from 「有，但沒勾」: the
+    /// first must write nothing, the second is an answer（否）.
+    /// </summary>
     [Fact]
-    public void An_opening_row_keeps_the_instances_it_will_write_to()
+    public void An_opening_row_keeps_an_unbound_checkbox_apart_from_an_unticked_one()
     {
-        var door = new FireReviewTypeRow("T-door", CandidateCategory.Door, "FD-60",
-            instanceUniqueIds: new[] { "D-1", "D-2", " D-2 ", "", null!, "D-3" });
+        Assert.Null(Row("T-door", CandidateCategory.Door, protection: null).ProvidedProtection);
+        Assert.False(Row("T-door", CandidateCategory.Door, protection: false).ProvidedProtection);
+    }
 
-        Assert.Equal(new[] { "D-1", "D-2", "D-3" }, door.InstanceUniqueIds);
+    /// <summary>
+    /// The panel writes the tick to the Type, and unticking writes 0 rather than clearing — the
+    /// review reads 0 as 否, and there is no way to put a Yes/No box back to「沒填」anyway.
+    /// </summary>
+    [Fact]
+    public void A_checkbox_edit_names_the_type_and_carries_the_tick_as_a_yes_no()
+    {
+        var ticked = FireReviewParameterEdit.OfYesNo("T-door", FireProtectionParameters.Provided, true);
+
+        Assert.Equal(FireReviewEditKind.YesNo, ticked.Kind);
+        Assert.Equal("T-door", ticked.ElementUniqueId);
+        Assert.True(ticked.YesNo);
+        Assert.False(ticked.IsLength);
+        Assert.Contains("是", ticked.ToString());
+
+        Assert.False(FireReviewParameterEdit.OfYesNo("T-door", FireProtectionParameters.Provided, false).YesNo);
     }
 
     [Fact]
-    public void A_member_row_names_no_instances_because_it_writes_to_the_type()
+    public void A_checkbox_edit_may_not_target_the_write_back_parameter()
     {
-        Assert.Empty(Row().InstanceUniqueIds);
+        Assert.Throws<ArgumentException>(() =>
+            FireReviewParameterEdit.OfYesNo("T-door", FireRatingParameters.Required, true));
     }
 }

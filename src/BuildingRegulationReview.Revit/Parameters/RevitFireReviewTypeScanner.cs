@@ -105,7 +105,7 @@ public sealed class RevitFireReviewTypeScanner
             counts[typeId] = counts.TryGetValue(typeId, out var current) ? current + 1 : 1;
     }
 
-    /// <summary>Keeps the instances themselves, because an opening's 防火保護 is written per instance.</summary>
+    /// <summary>Groups the view's elements by Type, which is what a row is and how it is counted.</summary>
     private static void Gather(IEnumerable<Element> elements, Dictionary<ElementId, List<Element>> byType)
     {
         foreach (var element in elements)
@@ -138,7 +138,7 @@ public sealed class RevitFireReviewTypeScanner
         if (Find(type, FireRatingParameters.Provided) is not null) present |= FireReviewTypeParameters.Rating;
         if (Find(type, StructuralMaterialParameters.Material) is not null) present |= FireReviewTypeParameters.Material;
         if (Find(type, StructuralMaterialParameters.Cover) is not null) present |= FireReviewTypeParameters.Cover;
-        if (opening && instances.Any(i => Find(i, FireProtectionParameters.Provided) is not null))
+        if (opening && Find(type, FireProtectionParameters.Provided) is not null)
             present |= FireReviewTypeParameters.Protection;
 
         return new FireReviewTypeRow(
@@ -147,27 +147,24 @@ public sealed class RevitFireReviewTypeScanner
             type.Name,
             familyName: string.IsNullOrWhiteSpace(type.FamilyName) ? null : type.FamilyName,
             instanceCount: instances.Count,
-            // An opening row writes to the view's instances, so its reach is what the view showed.
-            projectInstanceCount: opening ? instances.Count : inProject,
+            projectInstanceCount: inProject,
             dimensionMeters: Dimension(type, category),
             material: Text(type, StructuralMaterialParameters.Material),
             coverMeters: Meters(type, StructuralMaterialParameters.Cover),
             providedRating: Text(type, FireRatingParameters.Provided),
-            providedProtection: opening ? SharedProtection(instances) : null,
-            present: present,
-            instanceUniqueIds: opening ? instances.Select(i => i.UniqueId) : null);
+            providedProtection: opening ? Ticked(type, FireProtectionParameters.Provided) : null,
+            present: present);
     }
 
     /// <summary>
-    /// The 防火保護 every instance of this Type agrees on, or null when they differ — the panel must
-    /// not show one door's value as if it were the whole Type's, and an untouched row writes nothing.
+    /// A Yes/No Type parameter: true when ticked, false when the box is there but not ticked, and
+    /// null when the Type does not carry the parameter — so an untouched row writes nothing back.
     /// </summary>
-    private static string? SharedProtection(IReadOnlyList<Element> instances)
+    private static bool? Ticked(ElementType type, string name)
     {
-        var values = instances.Select(i => Text(i, FireProtectionParameters.Provided) ?? string.Empty)
-            .Distinct(StringComparer.Ordinal).ToList();
-
-        return values.Count == 1 ? values[0] : null;
+        var parameter = Find(type, name);
+        if (parameter is null || parameter.StorageType != StorageType.Integer) return null;
+        return parameter.HasValue && parameter.AsInteger() == 1;
     }
 
     /// <summary>牆厚、板厚 or 柱短邊 in metres — the value the clause compares its threshold against.</summary>
