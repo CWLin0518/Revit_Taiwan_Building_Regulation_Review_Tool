@@ -237,9 +237,29 @@ namespace BuildingRegulationReview.RegionEditor
             void Refresh()
             {
                 var plan = ChosenPlan;
-                apply.IsEnabled = canApply && !plan.IsEmpty;
-                apply.ToolTip = plan.IsEmpty ? "模型已經與草稿一致，沒有需要寫入的變更。" : plan.Summary;
-                _rollBackOnAnyFailure.IsEnabled = apply.IsEnabled;
+
+                // A model that already matches the draft has nothing to write — but it still has to
+                // be able to run, because the run is what measures the Areas and lets the package
+                // reach「可開始檢討」. Disabling it here left a correct model stuck in 區劃草稿 with
+                // 防火區劃檢討 refusing it for boundaries that were never actually missing.
+                // Areas are what the run can measure, so they are what makes the button worth
+                // pressing: an empty plan whose unchanged rows are all boundary lines would run and
+                // report nothing, and the tooltip would have promised a status change that cannot
+                // happen.
+                var verifyOnly = plan.IsEmpty && plan.UnchangedAreas.Any();
+
+                apply.IsEnabled = canApply && (!plan.IsEmpty || verifyOnly);
+                apply.Content = verifyOnly ? "確認並更新狀態" : "套用到模型";
+                apply.ToolTip = verifyOnly
+                    ? "模型已經與草稿一致。執行後會重新量測各區劃面積，確認無誤即讓套件進入「可開始檢討」；模型不會被更動。"
+                    : plan.IsEmpty
+                        ? "這個草稿沒有任何區劃可以寫入。"
+                        : plan.Summary;
+
+                // Nothing is written, so there is nothing to roll back; leaving it ticked but greyed
+                // would suggest otherwise.
+                if (verifyOnly) _rollBackOnAnyFailure.IsChecked = false;
+                _rollBackOnAnyFailure.IsEnabled = apply.IsEnabled && !verifyOnly;
             }
 
             _rebuildEverything.IsEnabled = canApply && !_rebuildPlan.IsEmpty;

@@ -16,7 +16,15 @@ public enum AreaAgreementKind
     Differs,
 
     /// <summary>The draft computed nothing to compare against, so the question does not arise.</summary>
-    NotComparable
+    NotComparable,
+
+    /// <summary>
+    /// The Area the plan expected is not in the model to be measured — deleted, or no longer this
+    /// package's. Unlike <see cref="NotComparable"/> this is a gap in the evidence, not an absence
+    /// of the question, so it blocks Ready: a package may not be confirmed on a measurement that
+    /// could not be taken.
+    /// </summary>
+    Missing
 }
 
 /// <summary>
@@ -62,7 +70,10 @@ public sealed class AreaAgreementFinding
     /// True when this Area is a reason to refuse Ready (spec 10.6). A draft with nothing to compare
     /// is not: it says nothing about the boundary either way.
     /// </summary>
-    public bool BlocksReady => Kind == AreaAgreementKind.NotEnclosed || Kind == AreaAgreementKind.Differs;
+    public bool BlocksReady =>
+        Kind == AreaAgreementKind.NotEnclosed ||
+        Kind == AreaAgreementKind.Differs ||
+        Kind == AreaAgreementKind.Missing;
 
     public override string ToString() => Message ?? "面積相符。";
 }
@@ -128,6 +139,29 @@ public static class AreaAgreement
                 draftSquareMeters,
                 revitSquareMeters,
                 difference / draftSquareMeters * 100.0),
+            elementUniqueId);
+    }
+
+    /// <summary>
+    /// An Area the plan expected but that could not be measured, because it is no longer in the
+    /// model or no longer belongs to this package.
+    /// </summary>
+    /// <remarks>
+    /// This exists so such a gap cannot pass as silence. A verify-only run judges the package on the
+    /// findings it produced; an Area skipped without a word would simply not be counted, and a
+    /// package missing half its 區劃 would reach Ready on the strength of the half that was left.
+    /// </remarks>
+    public static AreaAgreementFinding Missing(
+        ManagedElementKey key,
+        string? zoneName,
+        double draftSquareMeters,
+        string? elementUniqueId = null)
+    {
+        var label = string.IsNullOrWhiteSpace(zoneName) ? "區劃" : "區劃「" + zoneName!.Trim() + "」";
+
+        return new AreaAgreementFinding(
+            key, zoneName, draftSquareMeters, 0, AreaAgreementKind.Missing,
+            label + "的面積已不在模型中（可能被刪除，或已不屬於這個檢討套件），無法確認邊界；請在「防火區劃編輯器」重新套用。",
             elementUniqueId);
     }
 

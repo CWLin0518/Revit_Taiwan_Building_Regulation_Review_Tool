@@ -45,10 +45,23 @@ public sealed class RevitZoneWriteBack
             throw new InvalidOperationException("Write-back owns its transaction group and requires an unmodified document.");
 
         var log = new ApplyResult.Builder(plan);
-        if (plan.IsEmpty) return log.Complete();
 
         if (!(_document.GetElement(request.AreaPlanUniqueId) is ViewPlan view) || view.ViewType != ViewType.AreaPlan)
-            return log.RolledBack("找不到這個檢討套件的 Area Plan，沒有寫入任何東西。");
+        {
+            return plan.IsEmpty
+                ? log.Complete()
+                : log.RolledBack("找不到這個檢討套件的 Area Plan，沒有寫入任何東西。");
+        }
+
+        // A plan with no steps still has something to report: the Areas the model already holds are
+        // measured against the draft, which is the evidence spec 10.6 asks for and the only thing
+        // that can let an already-correct package advance. Measuring opens no transaction.
+        if (plan.IsEmpty)
+        {
+            _placedAreas.Clear();
+            VerifyAreas(plan, log);
+            return log.Complete();
+        }
 
         var level = view.GenLevel;
         if (level is null) return log.RolledBack("這個 Area Plan 沒有對應的樓層，無法建立邊界線。");
@@ -78,7 +91,7 @@ public sealed class RevitZoneWriteBack
                         log.FailureCount));
                 }
 
-                VerifyPlacedAreas(log);
+                VerifyAreas(plan, log);
 
                 if (group.Assimilate() != TransactionStatus.Committed)
                     return log.RolledBack("Revit 無法提交寫回交易。");
@@ -442,28 +455,63 @@ public sealed class RevitZoneWriteBack
     }
 
     /// <summary>
-    /// Compares every Area written with what the drafts computed (spec 10.6). Read-only and after
-    /// the stages have committed, so Revit has regenerated and the numbers are the real ones.
+    /// Compares every one of this package's Areas with what the drafts computed (spec 10.6).
+    /// Read-only and after the stages have committed, so Revit has regenerated and the numbers are
+    /// the real ones.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// The verdict goes on the result rather than straight to the log, because it is the one thing
     /// that decides whether the package may reach Ready. <c>ReviewPackageProgress</c> reads it back;
     /// nothing here judges, so a disagreement never throws away boundaries that were written.
+    /// </para>
+    /// <para>
+    /// Both the Areas this run placed and the ones it left alone are measured. Measuring only what
+    /// was written meant a re-apply on an already-correct model reported no evidence at all, and
+    /// <c>ReviewPackageProgress.After</c> then left the package in 區劃草稿 — a package whose
+    /// boundaries were right could never reach Ready, because being right is exactly what left
+    /// nothing to write.
+    /// </para>
     /// </remarks>
-    private void VerifyPlacedAreas(ApplyResult.Builder log)
+    private void VerifyAreas(ApplyPlan plan, ApplyResult.Builder log)
     {
+        var measured = new HashSet<ElementId>();
+
         foreach (var placed in _placedAreas)
         {
             if (!(_document.GetElement(placed.ElementId) is Autodesk.Revit.DB.Area area)) continue;
+            if (!measured.Add(area.Id)) continue;
 
-            log.Area(AreaAgreement.Compare(
-                placed.Planned.Key,
-                placed.Planned.ZoneName,
-                placed.Planned.NetAreaSquareMeters,
-                PlanUnits.SquareFeetToSquareMeters(area.Area),
-                elementUniqueId: area.UniqueId));
+            log.Area(Compare(placed.Planned, area));
+        }
+
+        foreach (var item in plan.UnchangedAreas)
+        {
+            // Only this package's own Areas: one that lost its mark, or that now belongs to somebody
+            // else, is not ours to vouch for. The editor is modeless, so an Area can be deleted
+            // between the preview and the run — reported rather than skipped, because a verdict is
+            // only as good as the measurements it was given.
+            var area = _document.GetElement(item.ElementUniqueId) as Autodesk.Revit.DB.Area;
+            if (area is null || !ManagedElementMark.IsOwnedBy(area, plan.PackageId))
+            {
+                log.Area(AreaAgreement.Missing(
+                    item.Planned!.Key, item.Planned.ZoneName, item.Planned.NetAreaSquareMeters, item.ElementUniqueId));
+                continue;
+            }
+
+            if (!measured.Add(area.Id)) continue;
+
+            log.Area(Compare(item.Planned!, area));
         }
     }
+
+    private static AreaAgreementFinding Compare(PlannedElement planned, Autodesk.Revit.DB.Area area) =>
+        AreaAgreement.Compare(
+            planned.Key,
+            planned.ZoneName,
+            planned.NetAreaSquareMeters,
+            PlanUnits.SquareFeetToSquareMeters(area.Area),
+            elementUniqueId: area.UniqueId);
 
     // ---- helpers -----------------------------------------------------------------------------
 

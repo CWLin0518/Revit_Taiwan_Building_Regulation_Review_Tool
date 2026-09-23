@@ -117,7 +117,7 @@ public sealed class ApplyPlan
         IEnumerable<string> warnings,
         IDictionary<ManagedElementKey, string> existingElementIds,
         ColorSchemeEntries colorEntries,
-        int unchangedCount,
+        IEnumerable<ApplyPreviewItem> unchanged,
         int untouchedElementCount)
     {
         PackageId = packageId;
@@ -126,7 +126,7 @@ public sealed class ApplyPlan
         Warnings = new ReadOnlyCollection<string>(warnings.ToList());
         ExistingElementIds = new ReadOnlyDictionary<ManagedElementKey, string>(existingElementIds);
         ColorEntries = colorEntries;
-        UnchangedCount = unchangedCount;
+        Unchanged = new ReadOnlyCollection<ApplyPreviewItem>(unchanged.ToList());
         UntouchedElementCount = untouchedElementCount;
     }
 
@@ -158,7 +158,22 @@ public sealed class ApplyPlan
     /// </summary>
     public IReadOnlyDictionary<ManagedElementKey, string> ExistingElementIds { get; }
 
-    public int UnchangedCount { get; }
+    /// <summary>
+    /// Rows the draft and the model already agree on, so no step writes them. They are carried
+    /// rather than counted away because a run that writes nothing still has to be able to prove the
+    /// boundaries are sound: spec 10.6's area cross-check is what decides whether the package may
+    /// reach Ready, and on a model that is already correct these are the only Areas there are to
+    /// measure. Without them such a run reports no evidence at all and the package can never leave
+    /// 區劃草稿, however right the model is.
+    /// </summary>
+    public IReadOnlyList<ApplyPreviewItem> Unchanged { get; }
+
+    public int UnchangedCount => Unchanged.Count;
+
+    /// <summary>The unchanged Areas, which is what the area cross-check can still measure.</summary>
+    public IEnumerable<ApplyPreviewItem> UnchangedAreas =>
+        Unchanged.Where(item => item.Kind == ManagedElementKind.Area && item.Planned is not null &&
+                                item.ElementUniqueId is not null);
 
     /// <summary>Elements in the views this package does not own, which will not be touched.</summary>
     public int UntouchedElementCount { get; }
@@ -235,7 +250,7 @@ public sealed class ApplyPlan
             preview.Warnings,
             existing,
             ColorSchemeEntries.From(preview),
-            preview.Unchanged.Count,
+            preview.Unchanged,
             preview.UntouchedElementCount);
     }
 

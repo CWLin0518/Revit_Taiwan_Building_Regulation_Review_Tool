@@ -121,6 +121,138 @@ public class ReviewPackageProgressTests
         Assert.Equal(2, outcome.BoundaryRevision);
     }
 
+    /// <summary>
+    /// The deadlock this guards against: a model that already matches the draft has nothing to
+    /// write, so demanding a write before advancing made 區劃草稿 the one state such a package could
+    /// never leave — 防火區劃檢討 then refused it with 「區劃範圍尚未完成寫入」 however correct the
+    /// model was. The write-back measures the Areas it left alone too, so the run arrives with
+    /// evidence and is judged on it.
+    /// </summary>
+    [Fact]
+    public void AModelThatAlreadyMatchesTheDraftStillReachesReady()
+    {
+        var package = Package(ReviewPackageStatus.BoundaryDraft, boundaryRevision: 2);
+
+        var outcome = ReviewPackageProgress.After(package, NothingToWrite(agreeing: true), At);
+
+        Assert.True(outcome.IsReady);
+        Assert.Equal(ReviewPackageStatus.Ready, outcome.Status);
+        Assert.Empty(outcome.Blockers);
+        // Nothing moved, so the boundaries are the same ones as before.
+        Assert.Equal(2, outcome.BoundaryRevision);
+    }
+
+    [Fact]
+    public void AModelThatWroteNothingButDisagreesOnAreaIsStillKeptOutOfReady()
+    {
+        var outcome = ReviewPackageProgress.After(
+            Package(ReviewPackageStatus.BoundaryDraft), NothingToWrite(agreeing: false), At);
+
+        Assert.False(outcome.IsReady);
+        Assert.Equal(ReviewPackageStatus.BoundaryDraft, outcome.Status);
+        Assert.NotEmpty(outcome.Blockers);
+    }
+
+    /// <summary>
+    /// A run that moved nothing invalidated nothing, so it must not throw away a review or a set of
+    /// drawings just because it re-measured the same Areas.
+    /// </summary>
+    [Theory]
+    [InlineData(ReviewPackageStatus.Reviewed)]
+    [InlineData(ReviewPackageStatus.Documented)]
+    public void AVerifyOnlyRunNeverDemotesAPackageThatIsAlreadyPastReady(ReviewPackageStatus status)
+    {
+        var package = Package(status, boundaryRevision: 3);
+
+        var outcome = ReviewPackageProgress.After(package, NothingToWrite(agreeing: true), At);
+
+        Assert.Equal(status, outcome.Status);
+        Assert.False(outcome.Changed);
+        Assert.Equal(3, outcome.BoundaryRevision);
+    }
+
+    /// <summary>
+    /// 已失效 is ReviewStaleness's verdict, given for things one area measurement says nothing about
+    /// — a missing 單線圖 view, a swapped Area Scheme, a new rule version. Measuring must not clear it.
+    /// </summary>
+    [Fact]
+    public void AVerifyOnlyRunDoesNotClearStaleness()
+    {
+        var outcome = ReviewPackageProgress.After(
+            Package(ReviewPackageStatus.Stale), NothingToWrite(agreeing: true), At);
+
+        Assert.Equal(ReviewPackageStatus.Stale, outcome.Status);
+        Assert.False(outcome.Changed);
+    }
+
+    /// <summary>A boundary that really does disagree is worth dropping back for, written or not.</summary>
+    [Fact]
+    public void AVerifyOnlyRunThatFindsADisagreementStillDropsAReviewedPackageBack()
+    {
+        var outcome = ReviewPackageProgress.After(
+            Package(ReviewPackageStatus.Reviewed), NothingToWrite(agreeing: false), At);
+
+        Assert.Equal(ReviewPackageStatus.BoundaryDraft, outcome.Status);
+        Assert.NotEmpty(outcome.Blockers);
+    }
+
+    /// <summary>
+    /// An Area the plan expected but that is no longer in the model is a gap in the evidence, not
+    /// silence: a package must not be confirmed on the Areas that happen to be left.
+    /// </summary>
+    [Fact]
+    public void AnAreaThatCouldNotBeMeasuredKeepsThePackageOutOfReady()
+    {
+        var plan = AppliedPlan();
+        var builder = new ApplyResult.Builder(plan);
+        foreach (var area in plan.UnchangedAreas)
+        {
+            builder.Area(AreaAgreement.Missing(
+                area.Planned!.Key, area.Planned.ZoneName, area.Planned.NetAreaSquareMeters, area.ElementUniqueId));
+        }
+
+        var outcome = ReviewPackageProgress.After(Package(ReviewPackageStatus.BoundaryDraft), builder.Complete(), At);
+
+        Assert.False(outcome.IsReady);
+        Assert.Equal(ReviewPackageStatus.BoundaryDraft, outcome.Status);
+        Assert.Contains(outcome.Blockers, b => b.Contains("已不在模型中", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AMissingAreaIsAVerdictThatBlocksReadyRatherThanAnAbsentQuestion()
+    {
+        var finding = AreaAgreement.Missing(AreaKey(), "A", 92.9, "gone");
+
+        Assert.Equal(AreaAgreementKind.Missing, finding.Kind);
+        Assert.True(finding.BlocksReady);
+        Assert.NotNull(finding.Message);
+    }
+
+    /// <summary>A verify-only run must not report that it wrote something.</summary>
+    [Fact]
+    public void AVerifyOnlyRunSaysTheModelWasNotChanged()
+    {
+        var outcome = ReviewPackageProgress.After(
+            Package(ReviewPackageStatus.BoundaryDraft), NothingToWrite(agreeing: true), At);
+
+        Assert.Contains("模型未變更", outcome.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("已寫入", outcome.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>An already-applied plan writes nothing, but still names the Areas that can be measured.</summary>
+    [Fact]
+    public void AnAlreadyAppliedPlanCarriesTheAreasTheCrossCheckCanMeasure()
+    {
+        var plan = AppliedPlan();
+
+        Assert.True(plan.IsEmpty);
+        Assert.NotEmpty(plan.Unchanged);
+        var area = Assert.Single(plan.UnchangedAreas);
+        Assert.Equal(ManagedElementKind.Area, area.Kind);
+        Assert.NotNull(area.Planned);
+        Assert.NotNull(area.ElementUniqueId);
+    }
+
     [Fact]
     public void ARunThatChangedTheModelAdvancesTheBoundaryRevision()
     {
@@ -228,6 +360,48 @@ public class ReviewPackageProgressTests
         foreach (var step in plan.Steps) builder.Created(step, "new-" + step.Key.ToToken());
         builder.Area(AreaAgreement.Compare(AreaKey(), "A", 92.9, agreeing ? 92.9 : 70.0));
         return builder.Complete();
+    }
+
+    /// <summary>
+    /// What the write-back reports for a model that already matches the draft: no step ran, but the
+    /// Areas it left alone were still measured (spec 10.6).
+    /// </summary>
+    private static ApplyResult NothingToWrite(bool agreeing)
+    {
+        var plan = AppliedPlan();
+        Assert.True(plan.IsEmpty);
+
+        var builder = new ApplyResult.Builder(plan);
+        foreach (var area in plan.UnchangedAreas)
+        {
+            builder.Area(AreaAgreement.Compare(
+                area.Planned!.Key,
+                area.Planned.ZoneName,
+                area.Planned.NetAreaSquareMeters,
+                agreeing ? area.Planned.NetAreaSquareMeters : area.Planned.NetAreaSquareMeters / 2,
+                elementUniqueId: area.ElementUniqueId));
+        }
+
+        return builder.Complete();
+    }
+
+    /// <summary>The same plan, but against a model that already holds every element it plans.</summary>
+    private static ApplyPlan AppliedPlan()
+    {
+        var map = Solve(Rectangle(0, 0, 10, 10, "OUTER"));
+        var zones = Succeeds(ZoneDraftSet.Empty.Add(new ZoneDraft(
+            ZoneId, "A", ZoneColorPalette.At(0), new[] { map.FaceAt(new Point2D(5, 5))!.Id })));
+
+        var fresh = ApplyPreview.Build(PackageId, map, zones);
+        var existing = fresh.Items
+            .Where(item => item.Planned is not null)
+            .Select(item => new ExistingManagedElement(
+                "existing-" + item.Planned!.Key.ToToken(),
+                item.Planned.Key.ToToken(),
+                item.Planned.Signature))
+            .ToList();
+
+        return ApplyPlan.Build(ApplyPreview.Build(PackageId, map, zones, existing), ApplyPlan.AllKinds);
     }
 
     private static ManagedElementKey AreaKey() =>
