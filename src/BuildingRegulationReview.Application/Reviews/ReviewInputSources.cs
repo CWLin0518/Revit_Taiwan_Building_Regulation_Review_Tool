@@ -71,9 +71,11 @@ public sealed class ReviewInputSource
 /// model itself provides (<c>zone.area</c>, <c>element.category</c>, <c>opening.kind</c>…) have no
 /// source here: they can never be typed in (spec 11.4 step 2: Revit Area is the actual value).
 /// <c>building.height</c> is one of those: the model's own extent is the height, so it comes from
-/// <see cref="ReviewModelFacts"/> and not from a Project Information parameter. 梁 carry no
-/// 設計防火時效 parameter — 建築技術規則第71～73條 gives 樑 no dimensional threshold, so a rating
-/// derived from the Type's size would be invented rather than read.
+/// <see cref="ReviewModelFacts"/> and not from a Project Information parameter. 梁 carry
+/// 設計防火時效 like the other 主要構造, because 第70條 states a required rating for them; what 梁
+/// have no answer for is <em>deriving</em> that design value from the Type's size, since 第71～73條
+/// give 樑 no dimensional threshold. The batch panel therefore lists 梁 but leaves their 推定時效
+/// empty for the user to fill in.
 /// </remarks>
 public static class ReviewInputSources
 {
@@ -86,7 +88,8 @@ public static class ReviewInputSources
 
     public static readonly IReadOnlyList<ReviewParameterHost> MemberHosts = new ReadOnlyCollection<ReviewParameterHost>(new[]
     {
-        ReviewParameterHost.Walls, ReviewParameterHost.Columns, ReviewParameterHost.Floors
+        ReviewParameterHost.Walls, ReviewParameterHost.Columns, ReviewParameterHost.StructuralFraming,
+        ReviewParameterHost.Floors
     });
 
     public static readonly IReadOnlyList<ReviewParameterHost> OpeningHosts = new ReadOnlyCollection<ReviewParameterHost>(new[]

@@ -27,7 +27,7 @@ namespace BuildingRegulationReview.Core.Tests.Reviews;
 public sealed class FireReviewIntegrationTests
 {
     private const string RuleSetId = "tw-bcr-fire";
-    private const string ShippedVersion = "2026.1-provisional";
+    private const string ShippedVersion = "2026.2-provisional";
     private static readonly DateTime Now = new(2026, 9, 22, 9, 0, 0, DateTimeKind.Utc);
     private static readonly RuleEvaluationContext Today = new(new DateTime(2026, 9, 22), "TW");
 
@@ -67,12 +67,25 @@ public sealed class FireReviewIntegrationTests
         public List<KeyValuePair<string, ReviewParameterHost>> Bindings { get; set; } = AllBindings().ToList();
         public Dictionary<string, ParameterReading> Project { get; } = new()
         {
-            [ReviewInputSources.FireResistiveConstruction] = ParameterReading.OfYesNo(1)
+            [ReviewInputSources.FireResistiveConstruction] = ParameterReading.OfYesNo(1),
+            // 第70條 decides a 主要構造's required rating from its storey counted from the top:
+            // 1F of a 10-storey building is the 10th from the top, so 柱／樑 need 2hr, 樓地板 2hr
+            // and 承重牆壁 1hr.
+            [ReviewInputSources.FloorsAboveGround] = ParameterReading.OfInteger(10)
         };
         public Dictionary<string, Dictionary<string, ParameterReading>> Elements { get; } = new()
         {
-            ["area-a"] = new() { [ReviewInputSources.Sprinklered] = ParameterReading.OfYesNo(0), [ReviewInputSources.ZoneUse] = ParameterReading.OfText("辦公") },
-            ["area-b"] = new() { [ReviewInputSources.Sprinklered] = ParameterReading.OfYesNo(1) },
+            ["area-a"] = new()
+            {
+                [ReviewInputSources.Sprinklered] = ParameterReading.OfYesNo(0),
+                [ReviewInputSources.ZoneUse] = ParameterReading.OfText("辦公"),
+                [ReviewInputSources.FloorNumber] = ParameterReading.OfInteger(1)
+            },
+            ["area-b"] = new()
+            {
+                [ReviewInputSources.Sprinklered] = ParameterReading.OfYesNo(1),
+                [ReviewInputSources.FloorNumber] = ParameterReading.OfInteger(1)
+            },
             ["type-rc200"] = new() { [FireRatingParameters.Provided] = ParameterReading.OfText("2 小時") },
             ["D1-shared"] = new() { [FireProtectionParameters.Provided] = ParameterReading.OfYesNo(1) },
             ["WN1-bottom"] = new() { [FireProtectionParameters.Provided] = ParameterReading.OfText("否") }
@@ -241,6 +254,60 @@ public sealed class FireReviewIntegrationTests
         Assert.Equal(ReviewStatus.InsufficientData, outcome.Status);
     }
 
+    /// <summary>
+    /// 第70條 sits above 第79條 on purpose. Where both reach the same element — a 承重 區劃牆壁, a
+    /// 區劃 樓地板 — 第70條's requirement is never the lower of the two, so letting it decide alone
+    /// cannot lose the 第79條 requirement. This pins the numbers that claim rests on.
+    /// </summary>
+    [Theory]
+    // 承重牆壁：第70條 自頂層≤14層 → 1hr、≥15層 → 2hr；第79條 區劃牆壁 → 1hr。
+    [InlineData("Walls", 20, 20, 60)]
+    [InlineData("Walls", 20, 6, 120)]
+    // 樓地板：第70條 自頂層≤4層 → 1hr、≥5層 → 2hr；第79條 區劃樓地板 → 1hr。
+    [InlineData("Floors", 20, 20, 60)]
+    [InlineData("Floors", 20, 16, 120)]
+    public void Article_70_governs_a_member_that_article_79_also_reaches_and_never_asks_for_less(
+        string category, int floorsAboveGround, int floorNumber, double expectedMinutes)
+    {
+        var facts = new RuleFacts(Rules().Catalog);
+        facts.Set("element.category", category);
+        facts.Set("element.isStructural", true);
+        facts.Set("element.isCompartmentBoundary", true);
+        facts.Set("element.providedFireRating", expectedMinutes, ReviewUnit.Minute);
+        facts.Set("building.fireResistiveConstruction", true);
+        facts.Set("building.floorsAboveGround", floorsAboveGround, ReviewUnit.None);
+        facts.Set("zone.floorNumber", floorNumber, ReviewUnit.None);
+
+        var outcome = new RuleEngine(Rules()).Evaluate(RuleCategory.FireResistance, facts, Today);
+
+        Assert.Equal(ReviewStatus.Pass, outcome.Status);
+        Assert.Equal(ReviewValue.Quantity(expectedMinutes, ReviewUnit.Minute), outcome.RequiredValue);
+        Assert.Contains("第70條", outcome.LegalReference);
+        // 第79條 asks for 60 min, so 第70條 deciding alone never lowers the bar.
+        Assert.True(expectedMinutes >= 60);
+    }
+
+    /// <summary>
+    /// A 區劃牆壁 that carries no load is not 主要構造, so 第70條 does not reach it and 第79條 —
+    /// which does — decides at the lower priority instead of the element falling through unchecked.
+    /// </summary>
+    [Fact]
+    public void A_non_bearing_compartment_wall_falls_through_to_article_79()
+    {
+        var facts = new RuleFacts(Rules().Catalog);
+        facts.Set("element.category", "Walls");
+        facts.Set("element.isStructural", false);
+        facts.Set("element.isCompartmentBoundary", true);
+        facts.Set("element.providedFireRating", 60, ReviewUnit.Minute);
+        facts.Set("building.fireResistiveConstruction", true);
+
+        var outcome = new RuleEngine(Rules()).Evaluate(RuleCategory.FireResistance, facts, Today);
+
+        Assert.Equal(ReviewStatus.Pass, outcome.Status);
+        Assert.Contains("第79條", outcome.LegalReference);
+        Assert.Equal(ReviewValue.Quantity(60, ReviewUnit.Minute), outcome.RequiredValue);
+    }
+
     private static RuleFacts ColumnFacts(double providedMinutes, bool structural)
     {
         var facts = new RuleFacts(Rules().Catalog);
@@ -386,8 +453,8 @@ public sealed class FireReviewIntegrationTests
         Assert.Contains("柱", warning.Message);
         Assert.Contains("樓板", warning.Message);
         Assert.DoesNotContain("牆", warning.Message.Split('到')[1].Split('，')[0]);
-        // 梁 are candidates but carry no rating parameter, so they are never reported as a gap.
-        Assert.DoesNotContain("結構構架", warning.Message);
+        // 梁 are 主要構造 under 第70條, so an unbound 結構構架 is a gap like 柱 and 樓板.
+        Assert.Contains("結構構架", warning.Message);
     }
 
     [Fact]
@@ -435,14 +502,21 @@ public sealed class FireReviewIntegrationTests
                     name.StartsWith("防火檢討_地上層數", StringComparison.Ordinal));
     }
 
-    /// <summary>第71～73條 give 樑 no dimensional threshold, so beams carry no 設計防火時效 parameter.</summary>
+    /// <summary>
+    /// 樑 are 主要構造 and 第70條 states a required rating for them, so they carry 設計防火時效 like
+    /// 柱、承重牆壁 and 樓地板. What they have no answer for is deriving that design value from the
+    /// Type's size — 第71～73條 give 樑 no dimensional threshold — which is the panel's business,
+    /// not the review's.
+    /// </summary>
     [Fact]
-    public void Beams_are_not_asked_to_carry_the_rating_parameter()
+    public void Beams_carry_the_rating_parameter_because_article_70_requires_one_of_them()
     {
-        Assert.DoesNotContain(ReviewParameterHost.StructuralFraming, ReviewInputSources.MemberHosts);
+        Assert.Contains(ReviewParameterHost.StructuralFraming, ReviewInputSources.MemberHosts);
 
         var source = ReviewInputSources.For("element.providedFireRating")!;
-        Assert.DoesNotContain(ReviewParameterHost.StructuralFraming, source.Hosts);
+        Assert.Contains(ReviewParameterHost.StructuralFraming, source.Hosts);
+
+        Assert.False(FireRatingDeriver.IsDerivable(CandidateCategory.StructuralFraming));
     }
 
     [Fact]
@@ -565,11 +639,14 @@ public sealed class FireReviewIntegrationTests
     {
         var assembly = ReviewInputAssembler.Assemble(Set(), new Parameters().Snapshot());
 
-        var building = Assert.Single(assembly.Area.Building);
-        Assert.Equal("building.fireResistiveConstruction", building.Field);
+        Assert.Equal(new[] { "building.fireResistiveConstruction", "building.floorsAboveGround" },
+            assembly.Area.Building.Select(i => i.Field));
+        var building = assembly.Area.Building.Single(i => i.Field == "building.fireResistiveConstruction");
         Assert.Equal("專案資訊：" + ReviewInputSources.FireResistiveConstruction, building.Source);
-        Assert.Equal(new[] { "zone.sprinklered", "zone.use" }, assembly.Area.ForZone(ZoneA).Select(i => i.Field));
-        Assert.Single(assembly.Area.ForZone(ZoneB));
+        Assert.Equal(new[] { "zone.floorNumber", "zone.sprinklered", "zone.use" },
+            assembly.Area.ForZone(ZoneA).Select(i => i.Field));
+        Assert.Equal(new[] { "zone.floorNumber", "zone.sprinklered" },
+            assembly.Area.ForZone(ZoneB).Select(i => i.Field));
         Assert.Same(assembly.Area, assembly.Rating.Context);
         Assert.Same(assembly.Area, assembly.Protection.Context);
 
@@ -667,12 +744,12 @@ public sealed class FireReviewIntegrationTests
         Assert.Equal(ReviewStatus.Pass, run.Results.Single(r => r.CheckType == ReviewCheckTypes.CompartmentArea && r.ZoneId == ZoneA.ToString("D")).Status);
         Assert.Equal(ReviewStatus.Pass, run.Results.Single(r => r.CheckType == ReviewCheckTypes.CompartmentArea && r.ZoneId == ZoneB.ToString("D")).Status);
 
-        // 邊界牆 RC200 = 2 小時 ≥ 60 min
+        // 承重牆 RC200 = 2 小時 ≥ 第70條在自頂層第 10 層要求的 1 小時
         Assert.Equal(ReviewStatus.Pass, ResultOf(run, ReviewCheckTypes.FireResistance, "W1-bottom", ZoneA).Status);
         // 樓板沒有 Type 時效 → 資料不足（spec 16.3 情境 6：缺值不是未符合）
         Assert.Equal(ReviewStatus.InsufficientData, ResultOf(run, ReviewCheckTypes.FireResistance, "F1-slab", ZoneA).Status);
-        // 柱、梁沒有規則 → 不適用
-        Assert.Equal(ReviewStatus.NotApplicable, ResultOf(run, ReviewCheckTypes.FireResistance, "B1-shared", ZoneA).Status);
+        // 梁自第70條起受檢，但這個 fixture 的梁沒有 Type，讀不到設計時效 → 資料不足，不是未符合
+        Assert.Equal(ReviewStatus.InsufficientData, ResultOf(run, ReviewCheckTypes.FireResistance, "B1-shared", ZoneA).Status);
 
         // 門窗：是 → 符合；否 → 未符合；帷幕嵌板與非 Hosted → 人工覆核（spec 16.3 情境 7）
         Assert.Equal(ReviewStatus.Pass, ResultOf(run, ReviewCheckTypes.OpeningProtection, "D1-shared", ZoneA).Status);
