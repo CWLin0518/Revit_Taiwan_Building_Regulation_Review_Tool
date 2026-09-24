@@ -86,6 +86,9 @@ public static class ReviewInputSources
     public const string Sprinklered = "防火檢討_自動滅火設備";
     public const string FloorNumber = "防火檢討_所在樓層序";
 
+    /// <summary>第83條第一至三款的區劃面積上限依這個等級而定：無／耐燃一級／耐燃一級含底材.</summary>
+    public const string InteriorFinish = "防火檢討_室內裝修等級";
+
     public static readonly IReadOnlyList<ReviewParameterHost> MemberHosts = new ReadOnlyCollection<ReviewParameterHost>(new[]
     {
         ReviewParameterHost.Walls, ReviewParameterHost.Columns, ReviewParameterHost.StructuralFraming,
@@ -116,6 +119,7 @@ public static class ReviewInputSources
         new ReviewInputSource("zone.use", ZoneUse, ReviewParameterLevel.Instance, "區劃用途", ReviewParameterHost.Areas),
         new ReviewInputSource("zone.sprinklered", Sprinklered, ReviewParameterLevel.Instance, "是否設有自動滅火設備", ReviewParameterHost.Areas),
         new ReviewInputSource("zone.floorNumber", FloorNumber, ReviewParameterLevel.Instance, "所在樓層序", ReviewParameterHost.Areas),
+        new ReviewInputSource("zone.interiorFinish", InteriorFinish, ReviewParameterLevel.Instance, "室內裝修等級", ReviewParameterHost.Areas),
         new ReviewInputSource("element.providedFireRating", FireRatingParameters.Provided, ReviewParameterLevel.Type, "設計／認證防火時效", FireRatingHosts.ToArray()),
         new ReviewInputSource("opening.providedFireProtection", FireProtectionParameters.Provided, ReviewParameterLevel.Type, "設計防火保護", OpeningHosts.ToArray())
     });

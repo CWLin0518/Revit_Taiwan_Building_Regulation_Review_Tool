@@ -29,7 +29,7 @@ namespace BuildingRegulationReview.Core.Tests.Reviews;
 public sealed class FireReviewIntegrationTests
 {
     private const string RuleSetId = "tw-bcr-fire";
-    private const string ShippedVersion = "2026.3-provisional";
+    private const string ShippedVersion = "2026.4-provisional";
     private static readonly DateTime Now = new(2026, 9, 22, 9, 0, 0, DateTimeKind.Utc);
     private static readonly RuleEvaluationContext Today = new(new DateTime(2026, 9, 22), "TW");
 
@@ -197,14 +197,18 @@ public sealed class FireReviewIntegrationTests
         // 第70條 decides a column's required rating from where its storey sits, counted from the top.
         Assert.Contains("building.floorsAboveGround", fields);
         Assert.Contains("zone.floorNumber", fields);
+        // 第83條 reads the 用途類組 for its H-2 但書 and the 裝修等級 for its 100／200／500 ㎡ tiers.
+        Assert.Contains("building.use", fields);
+        Assert.Contains("zone.interiorFinish", fields);
         Assert.DoesNotContain("element.typeName", fields); // evidence only
 
         var needed = ReviewInputSources.NeededBy(Rules()).Select(s => s.ParameterName).ToList();
         Assert.Equal(new[]
         {
             ReviewInputSources.FireResistiveConstruction, ReviewInputSources.FloorsAboveGround,
-            FireRatingParameters.Provided, FireProtectionParameters.Provided,
-            ReviewInputSources.FloorNumber, ReviewInputSources.Sprinklered, ReviewInputSources.ZoneUse
+            ReviewInputSources.BuildingUse, FireRatingParameters.Provided, FireProtectionParameters.Provided,
+            ReviewInputSources.FloorNumber, ReviewInputSources.InteriorFinish, ReviewInputSources.Sprinklered,
+            ReviewInputSources.ZoneUse
         }, needed);
         Assert.DoesNotContain(needed, n => n == FireRatingParameters.Required);
     }
@@ -552,14 +556,41 @@ public sealed class FireReviewIntegrationTests
         Assert.DoesNotContain(ReviewParameterHost.Walls, protection.Hosts);
     }
 
+    /// <summary>
+    /// A field no rule reads needs no parameter, and there is no parameter to bind for it either:
+    /// 構件 Type 名稱, 區劃 Zone ID and Host 牆 UniqueId are carried as evidence and come from the model.
+    /// </summary>
     [Fact]
-    public void Evidence_only_fields_do_not_require_parameters()
+    public void Evidence_only_fields_require_neither_a_rule_nor_a_parameter()
+    {
+        var fields = ReviewInputSources.FieldsUsedBy(Rules()).Select(f => f.Name).ToList();
+
+        foreach (var name in new[] { "element.typeName", "zone.id", "opening.hostUniqueId" })
+        {
+            Assert.NotNull(RuleFieldCatalog.Default.Find(name));
+            Assert.DoesNotContain(name, fields);
+            Assert.Null(ReviewInputSources.For(name));
+        }
+    }
+
+    /// <summary>
+    /// 建築物用途類組 used to be evidence only. 第83條第一款但書 raises the 區劃 limit to 二○○平方公尺
+    /// for Ｈ－２組, so the rules read it now and the project has to carry it — 所在樓層序 went the same
+    /// way when 第70條 started counting storeys from the top.
+    /// </summary>
+    [Fact]
+    public void Building_use_is_a_required_parameter_now_that_a_rule_reads_it()
     {
         var parameters = new Parameters();
-        // 建築物用途類組 is reported but read by no rule; 所在樓層序 is not in this list any more,
-        // because 第70條 decides a column's required rating from it.
         parameters.Bindings.RemoveAll(b => b.Key == ReviewInputSources.BuildingUse);
-        Assert.True(Readiness(parameters: parameters).CanRun);
+
+        var report = Readiness(parameters: parameters);
+
+        Assert.False(report.CanRun);
+        var item = Assert.Single(report.Blocking);
+        Assert.Equal(ReviewErrorCode.ParameterMissing, item.Code);
+        Assert.Contains(ReviewInputSources.BuildingUse, item.Message);
+        Assert.Contains("專案資訊", item.Fix);
     }
 
     /// <summary>建築物高度 is measured, not typed: no Project Information parameter supplies it.</summary>

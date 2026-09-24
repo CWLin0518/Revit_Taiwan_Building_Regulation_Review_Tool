@@ -111,6 +111,12 @@ public sealed class RuleFieldCatalog
             new RuleFieldDefinition("zone.levelName", text, "所在樓層名稱", all),
             new RuleFieldDefinition("zone.floorNumber", number, "所在樓層序（地上為正、地下為負）", all),
 
+            // 第83條 第一款至第三款以室內裝修的耐燃等級決定區劃面積上限（100／200／500 ㎡）。等級是
+            // 設計者宣告的事實，不是模型量得的，所以是一個輸入欄位；寫不出等級的區劃落回第一款的
+            // 100 ㎡，沒有填的區劃則是資料不足，不會被當成符合第一款（規格 11.3）。
+            new RuleFieldDefinition("zone.interiorFinish", text,
+                "室內裝修等級（第83條第一至三款：無／耐燃一級／耐燃一級含底材）", all),
+
             new RuleFieldDefinition("element.category", text, "構件類別（Walls／Columns／StructuralFraming／Floors）", element),
             new RuleFieldDefinition("element.typeName", text, "構件 Type 名稱", element),
             new RuleFieldDefinition("element.isCompartmentBoundary", boolean, "是否構成區劃邊界", element),
