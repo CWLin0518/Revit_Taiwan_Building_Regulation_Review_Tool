@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Threading;
+using BuildingRegulationReview.Application.Abstractions;
 using BuildingRegulationReview.Application.Candidates;
 using BuildingRegulationReview.Application.Checks;
 using BuildingRegulationReview.Application.Diagnostics;
@@ -27,7 +28,10 @@ public sealed class FireReviewRequest
         ReviewEnvironment? environment = null,
         ReviewRun? previousRun = null,
         TimeSpan prescanElapsed = default,
-        CompartmentAreaOptions? areaOptions = null)
+        CompartmentAreaOptions? areaOptions = null,
+        ICurtainWallGeometryReader? curtainWallReader = null,
+        CurtainWallJunctionOptions? junctionOptions = null,
+        FireRatingUnit bareNumberUnit = FireRatingUnit.Minute)
     {
         Package = package ?? throw new ArgumentNullException(nameof(package));
         RuleSet = ruleSet ?? throw new ArgumentNullException(nameof(ruleSet));
@@ -44,6 +48,9 @@ public sealed class FireReviewRequest
         PreviousRun = previousRun;
         PrescanElapsed = prescanElapsed;
         AreaOptions = areaOptions ?? CompartmentAreaOptions.Default;
+        CurtainWallReader = curtainWallReader;
+        JunctionOptions = junctionOptions ?? CurtainWallJunctionOptions.Default;
+        BareNumberUnit = bareNumberUnit;
     }
 
     public ReviewPackage Package { get; }
@@ -60,6 +67,19 @@ public sealed class FireReviewRequest
     public TimeSpan PrescanElapsed { get; }
 
     public CompartmentAreaOptions AreaOptions { get; }
+
+    /// <summary>
+    /// Reads the curtain walls of the package's storey. It is the only part of a run that reads the
+    /// model while the run is under way: the 交接帶 can only be measured against the ratings 第70條 and
+    /// 第79條 require, which the 構件防火時效 check works out in the run itself (帷幕牆規格 §4.1). Null
+    /// leaves 帷幕牆區劃交接 未檢討 — nothing is guessed from the model without reading it.
+    /// </summary>
+    public ICurtainWallGeometryReader? CurtainWallReader { get; }
+
+    public CurtainWallJunctionOptions JunctionOptions { get; }
+
+    /// <summary>What a bare number in 防火檢討_設計防火時效 means, as the project declared it.</summary>
+    public FireRatingUnit BareNumberUnit { get; }
 }
 
 public enum FireReviewStep
@@ -67,6 +87,7 @@ public enum FireReviewStep
     CompartmentArea,
     FireResistance,
     OpeningProtection,
+    CurtainWallJunction,
     Evidence
 }
 
@@ -203,8 +224,10 @@ public sealed class ReviewPerformance
 }
 
 /// <summary>
-/// P3-T09: runs 區劃面積, 構件防火時效 and 防火門窗 as one review (spec 11), on data the adapter has
-/// already read. Between checks is a safe point: a cancellation there returns without a run, so
+/// P3-T09: runs 區劃面積, 構件防火時效, 防火門窗 and 帷幕牆區劃交接 as one review (spec 11, 帷幕牆規格
+/// §8), on data the adapter has already read — except the curtain walls, which can only be measured
+/// once the required ratings are known and are therefore read in the step itself
+/// (<see cref="FireReviewRequest.CurtainWallReader"/>). Between checks is a safe point: a cancellation there returns without a run, so
 /// nothing is stored and the model is not touched. A completed run carries its evidence baseline
 /// (spec 13.1), the previous run's overrides as far as they still hold (spec 11.8), and leaves the
 /// package Reviewed with the rule set version locked.
@@ -239,7 +262,7 @@ public static class FireReviewRunner
         var run = new ReviewRun(runId, request.Package.PackageId, ruleSet.RuleSetId, ruleSet.Version,
             request.Package.BoundaryRevision, started);
         var engine = new RuleEngine(request.RuleSet);
-        const int total = 4;
+        const int total = 5;
 
         if (cancellation.IsCancellationRequested) return Cancelled(request, log, Performance());
 
@@ -265,9 +288,19 @@ public static class FireReviewRunner
         if (cancellation.IsCancellationRequested) return Cancelled(request, log, Performance());
 
         watch.Restart();
-        var baseline = ReviewBaselineBuilder.Build(set, request.Environment,
-            request.Inputs.Area, request.Inputs.Rating, request.Inputs.Protection);
-        var results = area.Value.Results.Concat(rating.Value.Results).Concat(opening.Value.Results).ToList();
+        var junction = Junctions(request, area.Value, rating.Value, engine, runId, log, newId);
+        stages.Add(Stage(FireReviewStep.CurtainWallJunction, watch));
+        if (junction.IsFailure) return Failed(request, log, Performance(), junction.Error, FireReviewStep.CurtainWallJunction);
+        progress?.Report(new FireReviewProgress(FireReviewStep.CurtainWallJunction, 4, total));
+        if (cancellation.IsCancellationRequested) return Cancelled(request, log, Performance());
+
+        watch.Restart();
+        var baseline = ReviewBaselineBuilder.Build(set, request.Environment, request.Inputs);
+        var results = area.Value.Results
+            .Concat(rating.Value.Results)
+            .Concat(opening.Value.Results)
+            .Concat(junction.Value.Results)
+            .ToList();
         var completedAt = clock().ToUniversalTime();
         if (completedAt < started) completedAt = started;
         var completed = run.Complete(results, completedAt, ReviewRunState.Completed, baseline);
@@ -279,12 +312,12 @@ public static class FireReviewRunner
             completed = carryOver.Run;
         }
         stages.Add(Stage(FireReviewStep.Evidence, watch));
-        progress?.Report(new FireReviewProgress(FireReviewStep.Evidence, 4, total));
+        progress?.Report(new FireReviewProgress(FireReviewStep.Evidence, 5, total));
 
         var package = request.Package.WithReviewRun(ruleSet.RuleSetId, ruleSet.Version, runId,
             ReviewPackageStatus.Reviewed, completedAt);
 
-        Findings(log, area.Value, rating.Value, opening.Value);
+        Findings(log, area.Value, rating.Value, opening.Value, junction.Value);
         if (carryOver is not null) CarryOverLog(log, carryOver);
         var table = ReviewTable.Build(completed);
         log.Add(ReviewErrorCode.ReviewCompleted, ReviewStage.Review,
@@ -303,6 +336,7 @@ public static class FireReviewRunner
         FireReviewStep.CompartmentArea => "防火區劃面積",
         FireReviewStep.FireResistance => "構件防火時效",
         FireReviewStep.OpeningProtection => "防火門窗",
+        FireReviewStep.CurtainWallJunction => "帷幕牆區劃交接",
         FireReviewStep.Evidence => "保存證據與人工覆寫",
         _ => step.ToString()
     };
@@ -310,14 +344,121 @@ public static class FireReviewRunner
     private static KeyValuePair<string, TimeSpan> Stage(FireReviewStep step, Stopwatch watch) =>
         new(step.ToString(), watch.Elapsed);
 
-    private static void Findings(ReviewLog.Builder log, CompartmentAreaReview area, FireResistanceReview rating, OpeningProtectionReview opening)
+    /// <summary>
+    /// 帷幕牆區劃交接 (帷幕牆規格 §4、§8). The compartment boundaries are the ones candidate resolution
+    /// decided, and the rating each one must reach is what the 構件防火時效 check just required of it —
+    /// which is why this is the one step that reads the model while the run is under way. The reader
+    /// only converts: the junctions are the resolver's, the verdicts the rules'.
+    /// </summary>
+    /// <remarks>
+    /// A read that fails stops the whole run, like any check that refuses (see the type's remarks). No
+    /// reader at all is not a failure: 帷幕牆區劃交接 is simply 未檢討, and the log says so.
+    /// </remarks>
+    private static Result<CurtainWallJunctionReview> Junctions(
+        FireReviewRequest request,
+        CompartmentAreaReview area,
+        FireResistanceReview rating,
+        RuleEngine engine,
+        Guid runId,
+        ReviewLog.Builder log,
+        Func<Guid> newId)
     {
-        foreach (var warning in area.Warnings.Concat(rating.Warnings).Concat(opening.Warnings).Distinct(StringComparer.Ordinal))
+        var set = request.Candidates;
+        if (request.CurtainWallReader is null || request.Package.AreaPlanUniqueId is null)
+        {
+            log.Add(ReviewErrorCode.ReviewCompleted, ReviewStage.Review, ReviewSeverity.Info,
+                request.CurtainWallReader is null
+                    ? "本次檢討沒有讀取帷幕牆幾何，帷幕牆區劃交接未檢討。"
+                    : "這個工作包沒有 Area Plan，無法讀取帷幕牆幾何，帷幕牆區劃交接未檢討。");
+            return Result.Success(new CurtainWallJunctionReview(
+                Array.Empty<CurtainWallJunctionFinding>(), Array.Empty<string>()));
+        }
+
+        var references = HostLegalReferences(set, area);
+        var read = request.CurtainWallReader.Read(new CurtainWallReadRequest(
+            set.PackageId, request.Package.AreaPlanUniqueId,
+            RequiredRatings(rating, references.Keys), references, request.BareNumberUnit, request.JunctionOptions));
+        if (read.IsFailure) return Result.Failure<CurtainWallJunctionReview>(read.Error);
+
+        foreach (var warning in read.Value.Warnings)
+            log.Add(ReviewErrorCode.ReviewCompleted, ReviewStage.Review, ReviewSeverity.Warning, warning);
+
+        var junctions = CurtainWallJunctionResolver.Resolve(read.Value, request.JunctionOptions);
+        return CurtainWallJunctionCheck.Review(set, new CurtainWallJunctionInputs(request.Inputs.Area, junctions),
+            engine, request.Context, runId, request.JunctionOptions, newId);
+    }
+
+    /// <summary>
+    /// What each host must achieve, as the rules required it of that element. A host reviewed in more
+    /// than one 區劃 keeps the most onerous of them: the 交接帶 has to satisfy both sides. Only the
+    /// hosts are listed — naming anything else would have the reader read a 柱 or an interior wall as a
+    /// 區劃 boundary, which is not what 第70條 required a rating of it for.
+    /// </summary>
+    private static IReadOnlyDictionary<string, double> RequiredRatings(FireResistanceReview rating, IEnumerable<string> hosts)
+    {
+        var wanted = new HashSet<string>(hosts, StringComparer.Ordinal);
+        var required = new Dictionary<string, double>(StringComparer.Ordinal);
+        foreach (var finding in rating.Findings)
+        {
+            if (finding.RequiredMinutes is not double minutes || !wanted.Contains(finding.ElementUniqueId)) continue;
+            if (!required.TryGetValue(finding.ElementUniqueId, out var current) || minutes > current)
+                required[finding.ElementUniqueId] = minutes;
+        }
+        return required;
+    }
+
+    /// <summary>
+    /// The 區劃 boundaries to read, each with the clause it comes from (帷幕牆規格 §2.5). Naming a host
+    /// here is what makes the reader read it as a compartment boundary, so every boundary wall and every
+    /// 樓地板 of the storey is listed, whether or not a required rating was worked out for it.
+    /// </summary>
+    /// <remarks>
+    /// 第83條 is not read from the model: a 區劃 is 第83條's when that is the clause the 區劃面積 rule
+    /// decided it under, which is the rule engine's answer and no one else's. A wall between a 第79條
+    /// 區劃 and a 第83條 one is recorded as 第79條, the general clause — one junction yields one result,
+    /// and it must read the same on every rerun.
+    /// </remarks>
+    private static IReadOnlyDictionary<string, string> HostLegalReferences(CandidateSet set, CompartmentAreaReview area)
+    {
+        var article83 = new HashSet<Guid>(area.Findings
+            .Where(f => f.Result.LegalReference.IndexOf(CurtainWallJunctionReferences.Article83, StringComparison.Ordinal) >= 0)
+            .Select(f => f.ZoneId));
+
+        var references = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var member in set.Members)
+        {
+            var uniqueId = member.Observation.Source.ElementUniqueId;
+            if (member.Category == CandidateCategory.Floor)
+            {
+                references[uniqueId] = CurtainWallJunctionReferences.Article79_3;
+                continue;
+            }
+
+            if (member.Category != CandidateCategory.Wall) continue;
+            var zones = member.Relations.Where(r => r.IsBoundary).Select(r => r.ZoneId).ToList();
+            if (zones.Count == 0) continue;
+            references[uniqueId] = zones.All(article83.Contains)
+                ? CurtainWallJunctionReferences.Article83
+                : CurtainWallJunctionReferences.Article79;
+        }
+        return references;
+    }
+
+    private static void Findings(
+        ReviewLog.Builder log,
+        CompartmentAreaReview area,
+        FireResistanceReview rating,
+        OpeningProtectionReview opening,
+        CurtainWallJunctionReview junction)
+    {
+        foreach (var warning in area.Warnings.Concat(rating.Warnings).Concat(opening.Warnings).Concat(junction.Warnings)
+                     .Distinct(StringComparer.Ordinal))
             log.Add(ReviewErrorCode.ReviewCompleted, ReviewStage.Review, ReviewSeverity.Warning, warning);
 
         var findings = area.Findings.Select(f => (f.Result, f.ErrorCode, Element: (string?)f.Zone.AreaUniqueIds.FirstOrDefault()))
             .Concat(rating.Findings.Select(f => (f.Result, f.ErrorCode, Element: (string?)f.ElementUniqueId)))
-            .Concat(opening.Findings.Select(f => (f.Result, f.ErrorCode, Element: (string?)f.ElementUniqueId)));
+            .Concat(opening.Findings.Select(f => (f.Result, f.ErrorCode, Element: (string?)f.ElementUniqueId)))
+            .Concat(junction.Findings.Select(f => (f.Result, f.ErrorCode, Element: (string?)f.Junction.CurtainWallUniqueId)));
         foreach (var (result, code, element) in findings)
         {
             if (code is null && result.Status != ReviewStatus.Fail) continue;

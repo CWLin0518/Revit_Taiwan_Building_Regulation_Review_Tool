@@ -1,6 +1,6 @@
 # 防火區劃與帷幕牆交接：第 79 條、第 79-3 條、第 79-4 條
 
-> 狀態：**實作中**。§12 的步驟 1–5 已完成（規則類別、`junction.*` 欄位、三條規則、`CurtainWallJunctionInputs`／`Options`／`Check`，`ICurtainWallGeometryReader`／`CurtainWallJunctionResolver`／`RevitCurtainWallGeometryReader`，以及 Curtain Panels 的 `防火檢討_設計防火時效` 綁定與前置檢查，共 86 個規則層、Check 層、幾何層與參數層測試）；步驟 6（`FireReviewRunner`、`ReviewMarkup`、檢討表串接）尚未開始，Revit 端尚未實機驗證。
+> 狀態：**實作中**。§12 的步驟 1–5 與 6a 已完成（規則類別、`junction.*` 欄位、三條規則、`CurtainWallJunctionInputs`／`Options`／`Check`，`ICurtainWallGeometryReader`／`CurtainWallJunctionResolver`／`RevitCurtainWallGeometryReader`，Curtain Panels 的 `防火檢討_設計防火時效` 綁定與前置檢查，以及 `FireReviewRunner` 的第四類檢查與檢討表第四列，共 91 個規則層、Check 層、幾何層、參數層與串接層測試）；步驟 6b（§7.1 的檢討視圖標示與案例 19）尚未開始，Revit 端尚未實機驗證。
 
 ## 1. 功能摘要
 
@@ -415,7 +415,8 @@ junction.projectionDepth >= 500 mm || (junction.continuousFireRatedLength >= 900
 | 3 | `CurtainWallJunctionInputs` / `Options` / `Check`（純 Domain 與 Application，以 fixture 跑完 §10 全部案例） | **已完成** |
 | 4 | `ICurtainWallGeometryReader` 介面、`CurtainWallJunctionResolver` 與 `RevitCurtainWallGeometryReader` 實作 | **已完成**（Revit 端待實機驗證） |
 | 5 | `FireReviewSetupFeature` 加入 Curtain Panels 綁定 | **已完成** |
-| 6 | `FireReviewRunner`、`ReviewMarkup`、檢討表串接 | 未開始 |
+| 6a | `FireReviewRunner` 第四類檢查與檢討表第四列（含案例 20 的失效判定） | **已完成**（Revit 端待實機驗證） |
+| 6b | `ReviewMarkup`：§7.1 的三種標示與案例 19 的覆蓋 | 未開始 |
 
 ### 步驟 1、2 的驗證
 
@@ -523,3 +524,45 @@ CW-H 的長度與 CW-V 的高度都留空，由引擎判 `InsufficientData`。�
 案例 15 在幾何層與 Check 層是同一條路徑：`ReviewInputAssembler.Rating(ParameterReading.Absent)` 與
 空白值都得到 `ProvidedFireRating.Missing`，差別只在訊息。這是刻意的——「沒綁參數」與「綁了沒填」
 對判定而言都是不知道，不是 0。
+
+### 步驟 6a 的產出與驗證
+
+第四類檢查接在防火門窗之後，是一次檢討裡**唯一在執行中讀模型**的一步：交接帶要量的是「具與區劃
+同等以上防火時效」，那個門檻是同一次檢討的構件防火時效檢查算出來的，所以幾何不能在前置掃描時就
+讀完。`FireReviewRequest` 因此多收一個 `ICurtainWallGeometryReader`（Application 的介面，Revit 型別
+沒有滲進判定路徑），沒有給讀取器時帷幕牆那一列就是「未檢討」，日誌明說原因，不猜。
+
+- `FireReviewRunner`：新增 `FireReviewStep.CurtainWallJunction`（步驟總數 4 → 5），
+  `Junctions()` 組出 `CurtainWallReadRequest` → `ICurtainWallGeometryReader.Read` →
+  `CurtainWallJunctionResolver.Resolve` → `CurtainWallJunctionCheck.Review`，結果併入同一個 Run。
+  讀取失敗與其他檢查一樣中止整次檢討（理由見該類別的備註）；讀取器回報的警告逐條進日誌。
+- **要求時效**（`RequiredFireRatingMinutes`）取自構件防火時效檢查的 `RequiredMinutes`，同一元素跨
+  兩個區劃時取最嚴者。**只列 host**：這份字典與 `LegalReferences` 的 key 聯集就是讀取器要讀的區劃
+  邊界，若把柱或區劃內部的牆也列進去，它們會被當成區劃邊界讀取。
+- **區劃來源條文**（`LegalReferences`）：牆為第79條／第83條，樓地板為第79條之3。第83條不從模型判
+  斷，而是看該區劃的面積結果是由哪一條規則判的（`LegalReference` 含「第83條」）——這是規則引擎的
+  答案，不是程式的。一道牆兩側分屬第79條與第83條區劃時記為第79條（一般條文），確保每次重跑一致。
+  目前出貨規則集沒有第83條的面積規則，所以實際上全為第79條；規則集加上之後不必改程式。
+- `ReviewTable`：新增第四列 `CompartmentContinuity`「帷幕牆區劃交接」。§7.2 的三列以
+  `ReviewTableGrouping.JunctionKind` 呈現（水平／層間／其他部分），CW-H 分列第79／83條則是
+  `JunctionLegalReference`，與構件防火時效「類別 + Type」的雙層統計同一個機制。表格是從已儲存的
+  結果重建的，所以 `junction.hostLegalReference` 一律寫進證據（連沒有規則判定的交接處也寫）。
+  空的第四列狀態為「未檢討」，不影響總狀態——總狀態數的是結果，不是列。
+- **案例 20**：嵌板型別時效改變要讓舊 Run 失效。它不是任何 Check 的輸入（決策 2 不變，仍只由
+  `RevitCurtainWallGeometryReader` 直接讀），但證據基準必須知道它，否則改了型別沒人發現：
+  `ReviewInputAssembly.PanelRatings`（由參數快照組出，與讀取器讀的是同一個型別參數）進入
+  `ReviewBaselineBuilder`，寫成該嵌板 subject 的 `panelRating|` 一行。副作用是同一片嵌板的防火門窗
+  結果也會一起被標為需更新——基準的粒度是 subject，構件的時效同樣寫在構件那一行，一致。
+- **基準必須用同一個多載**：`ReviewBaselineBuilder.Build(set, environment, inputs)` 是給執行檢討與
+  前置掃描兩邊共用的。少傳一項（例如只傳三份 inputs）會得到不同的指紋，模型什麼都沒動也會顯示
+  「需更新」。`FireReviewModel.ReadStoredRun` 與測試的 `CurrentBaseline` 都已改用這個多載。
+- **執行緒**：檢討改在 Revit API context 執行（`FireReviewWindow.Start` 以 `Post` 包住整段，取代
+  `Task.Run`），因為這一步要讀模型。前置掃描本來就是這樣跑的；取消仍然有效——token 由 UI 執行緒
+  設定，檢討在每個安全點檢查。進度條上限改由回報的 `Total` 決定。
+
+新增 5 個測試：`Reviews/FireReviewIntegrationTests.cs` 4 項（讀取請求列出的 host 與要求時效、
+交接處成為檢討表第四列、讀取失敗中止整次檢討、案例 20 的失效與新值）與
+`Reviews/ReviewTableTests.cs` 1 項（§7.2 三列與第79／83條分列）。全套 1179 個測試通過，
+`BuildingRegulationReview.sln` 與 WPF 外掛專案皆 0 警告 0 錯誤。
+
+未涵蓋：§7.1 的檢討視圖標示與案例 19（步驟 6b），以及 Revit 端實機驗證。

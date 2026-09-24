@@ -101,15 +101,28 @@ public static class ReviewBaselineKeys
 /// </remarks>
 public static class ReviewBaselineBuilder
 {
+    /// <summary>
+    /// The baseline of one run's inputs. Every caller — the run itself and the pre-scan that judges a
+    /// stored run against the model — must build it from the same assembly, or the two fingerprints
+    /// differ for no reason and every result reads 需更新.
+    /// </summary>
+    public static ReviewBaseline Build(CandidateSet set, ReviewEnvironment? environment, ReviewInputAssembly inputs)
+    {
+        if (inputs is null) throw new ArgumentNullException(nameof(inputs));
+        return Build(set, environment, inputs.Area, inputs.Rating, inputs.Protection, inputs.PanelRatings);
+    }
+
     public static ReviewBaseline Build(
         CandidateSet set,
         ReviewEnvironment? environment = null,
         CompartmentAreaInputs? areaInputs = null,
         FireResistanceInputs? ratingInputs = null,
-        OpeningProtectionInputs? protectionInputs = null)
+        OpeningProtectionInputs? protectionInputs = null,
+        IEnumerable<TypeFireRating>? curtainPanelRatings = null)
     {
         if (set is null) throw new ArgumentNullException(nameof(set));
         var env = environment ?? ReviewEnvironment.Empty;
+        var panelRatings = curtainPanelRatings?.ToDictionary(x => x.TypeUniqueId, StringComparer.Ordinal);
         var contexts = new (string Name, CompartmentAreaInputs? Inputs)[]
         {
             ("area", areaInputs),
@@ -174,6 +187,15 @@ public static class ReviewBaselineBuilder
                 .Append("|w=").Append(Length(o.WidthFeet)).Append("|h=").Append(Length(o.HeightFeet)).Append('\n');
             AppendRelations(text, opening.Relations);
             if (protectionInputs is not null) text.Append("protection|").Append(Protection(protectionInputs.For(o))).Append('\n');
+
+            // A 帷幕嵌板's 設計防火時效 decides the 90 cm 交接帶 (帷幕牆規格 §4), so a panel whose Type
+            // rating changed is a changed subject and the junction results that named it go stale.
+            if (panelRatings is not null && o.Category == CandidateCategory.CurtainPanel)
+            {
+                text.Append("panelRating|")
+                    .Append(o.TypeUniqueId is not null && panelRatings.TryGetValue(o.TypeUniqueId, out var panel) ? Rating(panel) : "-")
+                    .Append('\n');
+            }
         }
 
         foreach (var ambiguity in set.Ambiguities)

@@ -133,19 +133,35 @@ public sealed class ReviewParameterSnapshot
 /// <summary>The check inputs one review runs on, built from the model's parameters.</summary>
 public sealed class ReviewInputAssembly
 {
+    private readonly Dictionary<string, TypeFireRating> _panels;
+
     internal ReviewInputAssembly(
         CompartmentAreaInputs area,
         FireResistanceInputs rating,
-        OpeningProtectionInputs protection)
+        OpeningProtectionInputs protection,
+        IEnumerable<TypeFireRating>? panelRatings = null)
     {
         Area = area;
         Rating = rating;
         Protection = protection;
+        PanelRatings = new ReadOnlyCollection<TypeFireRating>((panelRatings ?? Array.Empty<TypeFireRating>()).ToList());
+        _panels = PanelRatings.ToDictionary(x => x.TypeUniqueId, StringComparer.Ordinal);
     }
 
     public CompartmentAreaInputs Area { get; }
     public FireResistanceInputs Rating { get; }
     public OpeningProtectionInputs Protection { get; }
+
+    /// <summary>
+    /// 設計防火時效 as read on every 帷幕嵌板 Type of the package. No check reads it — the 帷幕牆 geometry
+    /// reader reads the panels' ratings itself (帷幕牆規格 §12 步驟 5 決策 2) — but the evidence baseline
+    /// has to know it, or changing a panel Type's rating would not make the stored run 需更新
+    /// (spec 13.1, docs §10 案例 20).
+    /// </summary>
+    public IReadOnlyList<TypeFireRating> PanelRatings { get; }
+
+    public TypeFireRating? PanelRating(string? typeUniqueId) =>
+        typeUniqueId is not null && _panels.TryGetValue(typeUniqueId, out var rating) ? rating : null;
 }
 
 /// <summary>
@@ -240,10 +256,25 @@ public static class ReviewInputAssembler
             }
         }
 
+        // Panel ratings stay out of FireResistanceInputs on purpose: a 帷幕嵌板 is no 主要構造, and
+        // feeding it to 第70條's check would change what that check reviews (帷幕牆規格 §12 步驟 5 決策 2).
+        var panelRatings = set.Openings
+            .Select(o => o.Observation)
+            .Where(o => o.Category == CandidateCategory.CurtainPanel && o.TypeUniqueId is not null)
+            .GroupBy(o => o.TypeUniqueId!, StringComparer.Ordinal)
+            .OrderBy(g => g.Key, StringComparer.Ordinal)
+            .Select(g => new TypeFireRating(
+                g.Key,
+                Rating(snapshot.Element(g.Key, FireRatingParameters.Provided), bareNumberUnit),
+                FireRatingParameters.Provided,
+                g.First().TypeName))
+            .ToList();
+
         return new ReviewInputAssembly(
             context,
             new FireResistanceInputs(context, ratings),
-            new OpeningProtectionInputs(context, protections));
+            new OpeningProtectionInputs(context, protections),
+            panelRatings);
     }
 
     /// <summary>

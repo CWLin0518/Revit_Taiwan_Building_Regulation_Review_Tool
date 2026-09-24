@@ -4,12 +4,14 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
+using BuildingRegulationReview.Application.Abstractions;
 using BuildingRegulationReview.Application.Candidates;
 using BuildingRegulationReview.Application.Checks;
 using BuildingRegulationReview.Application.Diagnostics;
 using BuildingRegulationReview.Application.Reviews;
 using BuildingRegulationReview.Application.Rules;
 using BuildingRegulationReview.Domain.Common;
+using BuildingRegulationReview.Domain.Geometry;
 using BuildingRegulationReview.Domain.ReviewPackages;
 using BuildingRegulationReview.Domain.Reviews;
 using BuildingRegulationReview.Domain.Rules;
@@ -56,8 +58,19 @@ public sealed class FireReviewIntegrationTests
         new(PackageId, "floor-plan", "level-1F", "scheme-fire", areaPlan, boundaryRevision: boundaryRevision,
             ruleSetId: ruleSetId, ruleSetVersion: ruleSetVersion, status: status, updatedAtUtc: Now);
 
-    private static CandidateSet Set(IEnumerable<MemberObservation>? members = null) =>
-        CandidateResolver.Resolve(Observations(Zones().Take(2), members ?? Members(), Openings()));
+    private static CandidateSet Set(
+        IEnumerable<MemberObservation>? members = null,
+        IEnumerable<OpeningObservation>? openings = null) =>
+        CandidateResolver.Resolve(Observations(Zones().Take(2), members ?? Members(), openings ?? Openings()));
+
+    /// <summary>The fixed model plus a 帷幕嵌板 whose Type carries 設計防火時效 (docs §10 案例 20).</summary>
+    private static IReadOnlyList<OpeningObservation> WithPanelType() => Openings()
+        .Concat(new[]
+        {
+            new OpeningObservation(Source("P2-panel"), CandidateCategory.CurtainPanel, "CW-right", P(20, 6),
+                M(1.5), M(3.0), "type-panel", "帷幕嵌板 1500")
+        })
+        .ToList();
 
     private static IEnumerable<KeyValuePair<string, ReviewParameterHost>> AllBindings() =>
         ReviewInputSources.All.SelectMany(s => s.Hosts.Select(h => new KeyValuePair<string, ReviewParameterHost>(s.ParameterName, h)));
@@ -115,12 +128,14 @@ public sealed class FireReviewIntegrationTests
         Parameters? parameters = null,
         ReviewRun? previous = null,
         CompiledRuleSet? rules = null,
-        IEnumerable<MemberObservation>? members = null)
+        IEnumerable<MemberObservation>? members = null,
+        IEnumerable<OpeningObservation>? openings = null,
+        ICurtainWallGeometryReader? curtainWalls = null)
     {
-        var set = Set(members);
+        var set = Set(members, openings);
         var inputs = ReviewInputAssembler.Assemble(set, (parameters ?? new Parameters()).Snapshot());
         return new FireReviewRequest(package ?? Package(), rules ?? Rules(), Today, set, inputs, Environment(), previous,
-            TimeSpan.FromSeconds(1));
+            TimeSpan.FromSeconds(1), curtainWallReader: curtainWalls);
     }
 
     private static FireReviewOutcome Run(FireReviewRequest request, int prefix = 1, CancellationToken token = default,
@@ -847,9 +862,15 @@ public sealed class FireReviewIntegrationTests
         Assert.Equal(RuleSetId, run.RuleSetId);
         Assert.Equal(ShippedVersion, run.RuleSetVersion);
         Assert.True(run.Baseline.IsRecorded);
-        Assert.All(ReviewTable.CheckTypes, type => Assert.Contains(run.Results, r => r.CheckType == type));
-        Assert.All(outcome.Table!.Sections, s => Assert.NotEqual(ReviewStatus.NotRun, s.Status));
+        Assert.All(new[] { ReviewCheckTypes.CompartmentArea, ReviewCheckTypes.FireResistance, ReviewCheckTypes.OpeningProtection },
+            type => Assert.Contains(run.Results, r => r.CheckType == type));
+        Assert.All(outcome.Table!.Sections.Where(s => s.CheckType != ReviewCheckTypes.CompartmentContinuity),
+            s => Assert.NotEqual(ReviewStatus.NotRun, s.Status));
         Assert.Empty(outcome.Table.OtherEntries);
+
+        // No 帷幕牆 geometry reader: the fourth row is 未檢討, and the log says why (帷幕牆規格 §8).
+        Assert.Equal(ReviewStatus.NotRun, outcome.Table.Section(ReviewCheckTypes.CompartmentContinuity).Status);
+        Assert.Contains(outcome.Log.Entries, e => e.UserMessage.Contains("帷幕牆區劃交接未檢討"));
 
         Assert.Equal(ReviewPackageStatus.Reviewed, outcome.Package.Status);
         Assert.Equal(RuleSetId, outcome.Package.RuleSetId);
@@ -857,7 +878,7 @@ public sealed class FireReviewIntegrationTests
         Assert.Equal(run.RunId.ToString("D"), outcome.Package.LastReviewRunId);
         Assert.Equal(1, outcome.Package.BoundaryRevision);
 
-        Assert.Equal(new[] { FireReviewStep.CompartmentArea, FireReviewStep.FireResistance, FireReviewStep.OpeningProtection, FireReviewStep.Evidence },
+        Assert.Equal(new[] { FireReviewStep.CompartmentArea, FireReviewStep.FireResistance, FireReviewStep.OpeningProtection, FireReviewStep.CurtainWallJunction, FireReviewStep.Evidence },
             progress.Reports.Select(p => p.Step));
         Assert.Contains(outcome.Log.Entries, e => e.Code == ReviewErrorCode.ReviewCompleted && e.UserMessage.StartsWith("檢討完成"));
     }
@@ -1034,13 +1055,168 @@ public sealed class FireReviewIntegrationTests
         Assert.Contains(moved.Log.Entries, e => e.Code == ReviewErrorCode.OverrideNeedsReconfirmation);
     }
 
+    // --- 帷幕牆區劃交接（帷幕牆規格 §8、§10 案例 19、20）----------------------------------------
+
+    /// <summary>
+    /// Stands in for the Revit 帷幕牆 reader (帷幕牆規格 §4.1): it keeps the request the run built and
+    /// hands back one straight 12 m curtain wall whose outside face looks south, with a 區劃牆 reaching
+    /// it at 5 m and stopping flush with that face — so the 但書 decides, not the 50 cm projection.
+    /// The 交接帶 panel's rating is what its Type carries, so changing that Type changes what the
+    /// junctions measure, as it does in the model.
+    /// </summary>
+    private sealed class CurtainWalls : ICurtainWallGeometryReader
+    {
+        private const double WallMm = 12000;
+        private const double StoreyMm = 3600;
+        private const double OffsetMm = 75;
+
+        private readonly double _bandMinutes;
+        private readonly Error? _failure;
+
+        public CurtainWalls(double bandMinutes = 60, Error? failure = null)
+        {
+            _bandMinutes = bandMinutes;
+            _failure = failure;
+        }
+
+        /// <summary>What the run asked for: the hosts, their required ratings and their clauses.</summary>
+        public CurtainWallReadRequest? Asked { get; private set; }
+
+        public Result<CurtainWallObservationSet> Read(CurtainWallReadRequest request)
+        {
+            Asked = request;
+            if (_failure is not null) return Result.Failure<CurtainWallObservationSet>(_failure);
+
+            var zone = new CurtainWallZoneObservation(ZoneA, "A 區",
+                new[] { Loop(-2000, 1, WallMm + 2000, 20000) });
+            var wall = new CurtainWallObservation("CW-right", new Point2D(0, 0), new Point2D(WallMm, 0),
+                new Point2D(0, -1), OffsetMm, 0, StoreyMm,
+                new[]
+                {
+                    Panel("P-glass-left", 0, 4000, 30),
+                    Panel("P2-panel", 4000, 6000, _bandMinutes),
+                    Panel("P-glass-right", 6000, WallMm, 30)
+                },
+                typeName: "帷幕牆");
+
+            var host = new CompartmentWallObservation("W1-bottom",
+                new Point2D(5000, 3000), new Point2D(5000, -OffsetMm), 0, StoreyMm,
+                request.LegalReferenceOf("W1-bottom"), request.RequiredRatingOf("W1-bottom"));
+
+            return Result.Success(new CurtainWallObservationSet(request.PackageId, "level-1F", "1F", 0,
+                new[] { zone }, new[] { wall }, new[] { host }, levelElevationsMm: new[] { 0.0, StoreyMm }));
+        }
+
+        private static CurtainPanelObservation Panel(string uniqueId, double startMm, double endMm, double minutes) =>
+            new(uniqueId, startMm, endMm, 0, StoreyMm, ProvidedFireRating.Rated(minutes, minutes.ToString("0")), false, null);
+
+        private static IReadOnlyList<Point2D> Loop(double x0, double y0, double x1, double y1) =>
+            new[] { new Point2D(x0, y0), new Point2D(x1, y0), new Point2D(x1, y1), new Point2D(x0, y1) };
+    }
+
+    [Fact]
+    public void The_curtain_wall_read_names_every_compartment_boundary_with_what_the_rules_required_of_it()
+    {
+        var reader = new CurtainWalls();
+        Run(Request(curtainWalls: reader));
+
+        var asked = reader.Asked!;
+        Assert.Equal("area-plan", asked.AreaPlanUniqueId);
+
+        // 第70條 requires 1 hr of a 承重牆壁 on this storey and 2 hr of the 樓地板; the junction is
+        // measured against the same numbers, and against the most onerous one where a host bounds two 區劃.
+        Assert.Equal(60, asked.RequiredRatingOf("W1-bottom"));
+        Assert.Equal(120, asked.RequiredRatingOf("F1-slab"));
+
+        // Naming a host is what has it read as a 區劃 boundary, so both dictionaries say which clause.
+        Assert.Equal(CurtainWallJunctionReferences.Article79, asked.LegalReferenceOf("W1-bottom"));
+        Assert.Equal(CurtainWallJunctionReferences.Article79_3, asked.LegalReferences["F1-slab"]);
+
+        // A wall inside a 區劃 is no boundary and is not read as one (docs §3.1).
+        Assert.DoesNotContain("W3-partition", asked.LegalReferences.Keys);
+        Assert.DoesNotContain("W3-partition", asked.RequiredFireRatingMinutes.Keys);
+    }
+
+    [Fact]
+    public void Curtain_wall_junctions_are_the_fourth_row_of_the_review_table()
+    {
+        var outcome = Run(Request(curtainWalls: new CurtainWalls()));
+        var section = outcome.Table!.Section(ReviewCheckTypes.CompartmentContinuity);
+
+        // 交接帶 900 mm 以上且達要求時效 → 得免突出（案例 3）; the remaining glazing is 第79條之4's 其他部分.
+        var wall = Assert.Single(section.Entries, e => e.JunctionKind == CurtainWallJunctionKind.WallToCurtainWall);
+        Assert.Equal(ReviewStatus.NotApplicable, wall.EffectiveStatus);
+        Assert.Equal(CurtainWallJunctionReferences.Article79, wall.JunctionLegalReference);
+        Assert.Equal("帷幕牆區劃交接（水平）", wall.CategoryLabel);
+
+        var other = Assert.Single(section.Entries, e => e.JunctionKind == CurtainWallJunctionKind.CurtainPanelOther);
+        Assert.Equal(ReviewStatus.Pass, other.EffectiveStatus);
+        Assert.Equal(ReviewStatus.Pass, section.Status);
+        Assert.Empty(outcome.Table.OtherEntries);
+        Assert.Equal(new[] { "帷幕牆區劃交接（水平）：第79條" },
+            section.GroupsBy(ReviewTableGrouping.JunctionLegalReference).Select(g => g.Label));
+    }
+
+    [Fact]
+    public void A_curtain_wall_read_that_fails_stops_the_whole_run()
+    {
+        var error = new Error("curtainWall.areaPlanMissing", "找不到此檢討封包的 Area Plan。", "areaPlanUniqueId=area-plan");
+        var outcome = Run(Request(curtainWalls: new CurtainWalls(failure: error)));
+
+        Assert.Equal(FireReviewOutcomeKind.Failed, outcome.Kind);
+        Assert.Null(outcome.Run);
+        Assert.Equal(error.Code, outcome.Error!.Code);
+        Assert.Contains(outcome.Log.Entries, e => e.UserMessage.StartsWith("帷幕牆區劃交接無法檢討"));
+    }
+
+    [Fact]
+    public void Changing_a_panel_types_rating_makes_the_stored_run_stale_and_the_next_one_say_the_new_value()
+    {
+        // 案例 20。The panel Type's 設計防火時效 is no check's input — the 帷幕牆 reader reads it — but the
+        // evidence baseline records it, so the stored run knows the model moved under it (spec 13.1).
+        var before = new Parameters();
+        before.Elements["type-panel"] = new Dictionary<string, ParameterReading>
+        {
+            [FireRatingParameters.Provided] = ParameterReading.OfText("60 min")
+        };
+        var first = Run(Request(parameters: before, openings: WithPanelType(), curtainWalls: new CurtainWalls()));
+        var junction = first.Table!.Section(ReviewCheckTypes.CompartmentContinuity).Entries
+            .Single(e => e.JunctionKind == CurtainWallJunctionKind.WallToCurtainWall);
+        Assert.Equal(ReviewStatus.NotApplicable, junction.EffectiveStatus);
+
+        var after = new Parameters();
+        after.Elements["type-panel"] = new Dictionary<string, ParameterReading>
+        {
+            [FireRatingParameters.Provided] = ParameterReading.OfText("20 min")
+        };
+        var inspection = StoredRunInspection.Inspect(first.Package, first.Run!,
+            CurrentBaseline(after, openings: WithPanelType()), RuleSetId, ShippedVersion, Now);
+
+        Assert.True(inspection.Freshness.IsStale);
+        Assert.Contains("P2-panel", inspection.Freshness.ChangedSubjects);
+        Assert.Contains(inspection.Freshness.StaleResultIds, id => id == junction.ResultId);
+        Assert.Equal(ReviewPackageStatus.Stale, inspection.Package.Status);
+        Assert.Equal(ReviewVerdict.NeedsUpdate, inspection.Table.Verdict);
+
+        // 20 min 達不到區劃牆要求的 60 min，交接帶湊不到 900 mm，且樓板不突出 → 未符合，反映新值。
+        var second = Run(Request(parameters: after, openings: WithPanelType(), previous: first.Run,
+            curtainWalls: new CurtainWalls(bandMinutes: 20)), prefix: 2);
+        var again = second.Table!.Section(ReviewCheckTypes.CompartmentContinuity).Entries
+            .Single(e => e.JunctionKind == CurtainWallJunctionKind.WallToCurtainWall);
+        Assert.Equal(ReviewStatus.Fail, again.EffectiveStatus);
+    }
+
     // --- a stored run judged again (spec 13.1, 16.3 情境 8) -------------------------------------
 
-    private static ReviewBaseline CurrentBaseline(Parameters parameters, string phase = "新建")
+    private static ReviewBaseline CurrentBaseline(
+        Parameters parameters, string phase = "新建", IEnumerable<OpeningObservation>? openings = null)
     {
-        var set = Set();
+        var set = Set(openings: openings);
         var inputs = ReviewInputAssembler.Assemble(set, parameters.Snapshot());
-        return ReviewBaselineBuilder.Build(set, Environment(phase), inputs.Area, inputs.Rating, inputs.Protection);
+
+        // The same overload the run uses: a baseline built from less than the whole assembly gives a
+        // different fingerprint and reads as 需更新 although nothing moved (ReviewBaselineBuilder.Build).
+        return ReviewBaselineBuilder.Build(set, Environment(phase), inputs);
     }
 
     [Fact]
@@ -1162,7 +1338,7 @@ public sealed class FireReviewIntegrationTests
         var set = Set();
         Assert.Equal(set.Members.Count + set.Openings.Count + set.UnrelatedMemberCount + set.UnrelatedOpeningCount, outcome.Performance.CandidateCount);
         Assert.Equal(TimeSpan.FromSeconds(1), outcome.Performance.Prescan);
-        Assert.Equal(4, outcome.Performance.Stages.Count);
+        Assert.Equal(5, outcome.Performance.Stages.Count);
     }
 
     // --- domain ---------------------------------------------------------------------------------

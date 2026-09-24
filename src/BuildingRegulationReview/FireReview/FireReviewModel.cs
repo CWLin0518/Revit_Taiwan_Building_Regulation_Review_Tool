@@ -164,8 +164,7 @@ namespace BuildingRegulationReview.FireReview
             }
 
             var rules = scan.RuleSet.Value.RuleSet;
-            var baseline = ReviewBaselineBuilder.Build(scan.Candidates, scan.Environment,
-                scan.Inputs.Area, scan.Inputs.Rating, scan.Inputs.Protection);
+            var baseline = ReviewBaselineBuilder.Build(scan.Candidates, scan.Environment, scan.Inputs);
             scan.CurrentBaseline = baseline;
             var inspection = StoredRunInspection.Inspect(scan.Package, latest, baseline, rules.RuleSetId, rules.Version, now);
             log.AddRange(inspection.Log);

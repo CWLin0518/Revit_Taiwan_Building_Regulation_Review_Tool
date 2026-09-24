@@ -124,8 +124,13 @@ public sealed class ReviewTableTests
     {
         var table = ReviewTable.Build(ReviewAll(new Model()));
 
-        Assert.Equal(new[] { "防火區劃面積", "構件防火時效", "防火門窗" }, table.Sections.Select(s => s.Title));
-        Assert.All(table.Sections, s => Assert.Equal(ReviewStatus.Pass, s.Status));
+        Assert.Equal(new[] { "防火區劃面積", "構件防火時效", "防火門窗", "帷幕牆區劃交接" }, table.Sections.Select(s => s.Title));
+        Assert.All(table.Sections.Where(s => s.CheckType != ReviewCheckTypes.CompartmentContinuity),
+            s => Assert.Equal(ReviewStatus.Pass, s.Status));
+
+        // 帷幕牆區劃交接 has no result in this model: an empty row is 未檢討 and adds nothing to the
+        // verdict — the table counts results, not rows (spec 11.7).
+        Assert.Equal(ReviewStatus.NotRun, table.Section(ReviewCheckTypes.CompartmentContinuity).Status);
         Assert.Equal(ReviewVerdict.Pass, table.Verdict);
         Assert.False(table.IsStale);
         Assert.Empty(table.OtherEntries);
@@ -212,6 +217,48 @@ public sealed class ReviewTableTests
         Assert.Equal(ReviewStatus.Fail, groups["幕牆"].Status);
         Assert.Equal(1, groups["窗"].Counts.Pass);
         Assert.Equal(ReviewStatus.ManualReview, groups["未分類"].Status);
+    }
+
+    /// <summary>帷幕牆規格 §7.2: the 帷幕牆 row breaks down into the three kinds, CW-H per 區劃來源條文.</summary>
+    [Fact]
+    public void Curtain_wall_junctions_are_counted_by_kind_and_CW_H_by_the_clause_its_compartment_came_from()
+    {
+        var run = HandRun(
+            Junction(ReviewStatus.NotApplicable, CurtainWallJunctionKind.WallToCurtainWall, "cw-1",
+                CurtainWallJunctionReferences.Article79),
+            Junction(ReviewStatus.Fail, CurtainWallJunctionKind.WallToCurtainWall, "cw-2",
+                CurtainWallJunctionReferences.Article83),
+            Junction(ReviewStatus.InsufficientData, CurtainWallJunctionKind.FloorToCurtainWall, "cw-3",
+                CurtainWallJunctionReferences.Article79_3),
+            Junction(ReviewStatus.Pass, CurtainWallJunctionKind.CurtainPanelOther, "cw-4", reference: null));
+
+        var section = ReviewTable.Build(run).Section(ReviewCheckTypes.CompartmentContinuity);
+        Assert.Equal("帷幕牆區劃交接", section.Title);
+        Assert.Equal(ReviewStatus.Fail, section.Status);
+
+        var kinds = section.GroupsBy(ReviewTableGrouping.JunctionKind).ToDictionary(g => g.Label);
+        Assert.Equal(new[] { "帷幕牆區劃交接（水平）", "帷幕牆區劃交接（層間）", "帷幕牆其他部分時效" }, kinds.Keys);
+        Assert.Equal(2, kinds["帷幕牆區劃交接（水平）"].Counts.Total);
+        Assert.Equal(ReviewStatus.InsufficientData, kinds["帷幕牆區劃交接（層間）"].Status);
+        Assert.Equal(1, kinds["帷幕牆其他部分時效"].Counts.Pass);
+
+        // 第79條 and 第83條 are counted apart (docs §2.5); 第79條之4's 其他部分 has no compartment of its
+        // own, so it appears in its kind row only.
+        var clauses = section.GroupsBy(ReviewTableGrouping.JunctionLegalReference).Select(g => g.Label).ToList();
+        Assert.Equal(new[]
+        {
+            "帷幕牆區劃交接（水平）：第79條", "帷幕牆區劃交接（水平）：第83條", "帷幕牆區劃交接（層間）：第79條之3"
+        }, clauses);
+    }
+
+    private static ReviewResult Junction(ReviewStatus status, CurtainWallJunctionKind kind, string subject, string? reference)
+    {
+        var evidence = new List<(string, ReviewValue)>
+        {
+            ("junction.kind", ReviewValue.OfText(CurtainWallJunctionKinds.RuleText(kind)))
+        };
+        if (reference is not null) evidence.Add(("junction.hostLegalReference", ReviewValue.OfText(reference)));
+        return Hand(status, ReviewCheckTypes.CompartmentContinuity, subject, evidence.ToArray());
     }
 
     [Fact]

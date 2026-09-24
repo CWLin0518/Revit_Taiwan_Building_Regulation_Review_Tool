@@ -16,6 +16,7 @@ using BuildingRegulationReview.Application.ReviewPackages;
 using BuildingRegulationReview.Application.Reviews;
 using BuildingRegulationReview.Domain.Reviews;
 using BuildingRegulationReview.Domain.Rules;
+using BuildingRegulationReview.Revit.Geometry;
 
 namespace BuildingRegulationReview.FireReview
 {
@@ -46,7 +47,7 @@ namespace BuildingRegulationReview.FireReview
         private readonly Button _rescan = new Button { Content = "重新檢查", Padding = new Thickness(10, 2, 10, 2), Margin = new Thickness(0, 0, 6, 0) };
         private readonly Button _start = new Button { Content = "開始檢討", Padding = new Thickness(10, 2, 10, 2), Margin = new Thickness(0, 0, 6, 0), IsEnabled = false };
         private readonly Button _cancel = new Button { Content = "取消", Padding = new Thickness(10, 2, 10, 2), Margin = new Thickness(0, 0, 6, 0), IsEnabled = false };
-        private readonly ProgressBar _progress = new ProgressBar { Width = 180, Height = 14, Maximum = 4, Margin = new Thickness(6, 0, 6, 0) };
+        private readonly ProgressBar _progress = new ProgressBar { Width = 180, Height = 14, Maximum = 5, Margin = new Thickness(6, 0, 6, 0) };
         private readonly TextBlock _status = new TextBlock { VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
         private readonly TreeView _tree = new TreeView();
         private readonly TextBox _detail = new TextBox { IsReadOnly = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, FontFamily = new FontFamily("Microsoft JhengHei UI") };
@@ -116,7 +117,7 @@ namespace BuildingRegulationReview.FireReview
 
             _rescan.Click += (_, __) => RequestScan();
             _acceptUpdate.Click += (_, __) => RequestScan();
-            _start.Click += async (_, __) => await StartAsync();
+            _start.Click += (_, __) => Start();
             _cancel.Click += (_, __) => _cancellation?.Cancel();
             _tree.SelectedItemChanged += (_, __) => ShowSelection();
             _locate.Click += (_, __) => LocateSelected();
@@ -196,61 +197,92 @@ namespace BuildingRegulationReview.FireReview
             UpdateButtons();
         }
 
-        private async Task StartAsync()
+        /// <summary>
+        /// Runs the review and stores it. It all happens in Revit's API context, like the pre-scan: the
+        /// 帷幕牆區劃交接 step reads the curtain walls while the run is under way (帷幕牆規格 §8), and the
+        /// Revit API may only be read there. Cancelling still works — the token is set from the UI
+        /// thread and the run tests it at every safe point.
+        /// </summary>
+        private void Start()
         {
             var scan = _scan;
             if (_busy || scan?.Readiness == null || !scan.Readiness.CanRun || scan.Candidates == null || scan.Inputs == null) return;
 
-            var request = new FireReviewRequest(scan.Package, scan.Readiness.RuleSet, new RuleEvaluationContext(DateTime.Today, FireReviewRuleSetSource.Jurisdiction),
-                scan.Candidates, scan.Inputs, scan.Environment, scan.PreviousRun, scan.Prescan);
-
             _cancellation = new CancellationTokenSource();
             SetBusy(true, "檢討中…", cancellable: true);
+            var token = _cancellation.Token;
+
+            // Created on the UI thread, so its callbacks come back to the UI thread by themselves.
             var progress = new Progress<FireReviewProgress>(p =>
             {
+                _progress.Maximum = p.Total;
                 _progress.Value = p.Completed;
                 _status.Text = "檢討中：" + p.Message;
             });
 
-            FireReviewOutcome outcome;
-            try
-            {
-                var token = _cancellation.Token;
-                outcome = await Task.Run(() => FireReviewRunner.Run(request, token, progress));
-            }
-            catch (Exception exception)
-            {
-                SetBusy(false, "檢討發生錯誤：" + exception.Message, FailBrush);
-                return;
-            }
-            finally
-            {
-                _cancellation.Dispose();
-                _cancellation = null;
-            }
-
-            AppendLog(outcome.Log);
-            if (!outcome.IsCompleted)
-            {
-                SetBusy(false, outcome.Message, outcome.Kind == FireReviewOutcomeKind.Cancelled ? PendingBrush : FailBrush);
-                return;
-            }
-
-            _status.Text = "寫入檢討結果並標示檢討視圖…";
             var candidates = scan.Candidates;
             Post(application =>
             {
+                var document = application.ActiveUIDocument.Document;
+                FireReviewOutcome outcome;
+                try
+                {
+                    var request = new FireReviewRequest(scan.Package, scan.Readiness.RuleSet,
+                        new RuleEvaluationContext(DateTime.Today, FireReviewRuleSetSource.Jurisdiction),
+                        candidates, scan.Inputs, scan.Environment, scan.PreviousRun, scan.Prescan,
+                        curtainWallReader: new RevitCurtainWallGeometryReader(document));
+                    outcome = FireReviewRunner.Run(request, token, progress);
+                }
+                catch (Exception exception)
+                {
+                    Dispatcher.Invoke(() => Finished("檢討發生錯誤：" + exception.Message, FailBrush));
+                    return;
+                }
+
+                if (!outcome.IsCompleted)
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        AppendLog(outcome.Log);
+                        Finished(outcome.Message, outcome.Kind == FireReviewOutcomeKind.Cancelled ? PendingBrush : FailBrush);
+                    });
+                    return;
+                }
+
+                Dispatcher.Invoke(() =>
+                {
+                    AppendLog(outcome.Log);
+                    _status.Text = "寫入檢討結果並標示檢討視圖…";
+                });
+
                 FireReviewSaveResult saved;
                 try
                 {
-                    saved = FireReviewModel.Save(application.ActiveUIDocument.Document, outcome.Package, outcome.Run, candidates, null);
+                    saved = FireReviewModel.Save(document, outcome.Package, outcome.Run, candidates, null);
                 }
                 catch (Exception exception)
                 {
                     saved = new FireReviewSaveResult { Saved = false, Error = exception.Message };
                 }
-                Dispatcher.Invoke(() => ShowSaved(outcome, saved));
+
+                Dispatcher.Invoke(() =>
+                {
+                    ForgetCancellation();
+                    ShowSaved(outcome, saved);
+                });
             });
+        }
+
+        private void Finished(string message, Brush brush)
+        {
+            ForgetCancellation();
+            SetBusy(false, message, brush);
+        }
+
+        private void ForgetCancellation()
+        {
+            _cancellation?.Dispose();
+            _cancellation = null;
         }
 
         private void ShowSaved(FireReviewOutcome outcome, FireReviewSaveResult saved)
@@ -340,6 +372,7 @@ namespace BuildingRegulationReview.FireReview
         {
             ReviewCheckTypes.CompartmentArea => ReviewTableGrouping.Zone,
             ReviewCheckTypes.FireResistance => ReviewTableGrouping.Type,
+            ReviewCheckTypes.CompartmentContinuity => ReviewTableGrouping.JunctionKind,
             _ => ReviewTableGrouping.OpeningKind
         };
 

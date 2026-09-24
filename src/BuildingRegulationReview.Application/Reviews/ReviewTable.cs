@@ -142,7 +142,13 @@ public enum ReviewTableGrouping
     Type,
 
     /// <summary>防火門窗: 門、窗、幕牆.</summary>
-    OpeningKind
+    OpeningKind,
+
+    /// <summary>帷幕牆區劃交接: the three rows of 帷幕牆規格 §7.2 — 水平、層間、其他部分.</summary>
+    JunctionKind,
+
+    /// <summary>帷幕牆區劃交接: one group per kind and 區劃來源條文, which is how CW-H splits 第79條 from 第83條.</summary>
+    JunctionLegalReference
 }
 
 /// <summary>One line of a row's statistics.</summary>
@@ -194,6 +200,8 @@ public sealed class ReviewTableEntry
         string? typeKey,
         string? typeName,
         string? openingKind,
+        CurtainWallJunctionKind? junctionKind,
+        string? junctionLegalReference,
         bool isLinked)
     {
         Result = result;
@@ -205,6 +213,8 @@ public sealed class ReviewTableEntry
         TypeKey = typeKey;
         TypeName = typeName;
         OpeningKind = openingKind;
+        JunctionKind = junctionKind;
+        JunctionLegalReference = junctionLegalReference;
         IsLinked = isLinked;
     }
 
@@ -239,6 +249,12 @@ public sealed class ReviewTableEntry
 
     /// <summary>門、窗 or 幕牆, for an opening result.</summary>
     public string? OpeningKind { get; }
+
+    /// <summary>Which of the three 帷幕牆 checks this is, for a 帷幕牆區劃交接 result; null otherwise.</summary>
+    public CurtainWallJunctionKind? JunctionKind { get; }
+
+    /// <summary>第79條／第83條／第79條之3 — the clause the junction's compartment came from (docs §2.5).</summary>
+    public string? JunctionLegalReference { get; }
 
     /// <summary>The subject lives in a linked model, which the host view cannot select or override by element.</summary>
     public bool IsLinked { get; }
@@ -326,10 +342,15 @@ public sealed class ReviewTableSection
 /// </remarks>
 public sealed class ReviewTable
 {
-    /// <summary>The three rows, in the order spec 11.7 lists them. They are always present, empty or not.</summary>
+    /// <summary>
+    /// The rows, in the order spec 11.7 lists them, with 帷幕牆區劃交接 after them (帷幕牆規格 §7.2).
+    /// They are always present, empty or not: a row with nothing in it reads 未檢討, which is what a
+    /// package with no curtain wall — or one reviewed without reading its geometry — actually is.
+    /// </summary>
     public static readonly IReadOnlyList<string> CheckTypes = new ReadOnlyCollection<string>(new[]
     {
-        ReviewCheckTypes.CompartmentArea, ReviewCheckTypes.FireResistance, ReviewCheckTypes.OpeningProtection
+        ReviewCheckTypes.CompartmentArea, ReviewCheckTypes.FireResistance, ReviewCheckTypes.OpeningProtection,
+        ReviewCheckTypes.CompartmentContinuity
     });
 
     internal const string CurtainWallKind = "幕牆";
@@ -409,6 +430,7 @@ public sealed class ReviewTable
         ReviewCheckTypes.CompartmentArea => "防火區劃面積",
         ReviewCheckTypes.FireResistance => "構件防火時效",
         ReviewCheckTypes.OpeningProtection => "防火門窗",
+        ReviewCheckTypes.CompartmentContinuity => "帷幕牆區劃交接",
         _ => checkType
     };
 
@@ -427,6 +449,15 @@ public sealed class ReviewTable
 
             case ReviewCheckTypes.OpeningProtection:
                 return Group(ReviewTableGrouping.OpeningKind, entries, e => e.OpeningKind ?? Unclassified, e => e.OpeningKind ?? Unclassified);
+
+            // 帷幕牆規格 §7.2: the three kinds are the rows, and CW-H is counted per 區劃來源條文 so a
+            // reviewer can tell a 第79條 junction from a 第83條 one (docs §2.5).
+            case ReviewCheckTypes.CompartmentContinuity:
+                return Group(ReviewTableGrouping.JunctionKind, entries, e => e.CategoryLabel, e => e.CategoryLabel)
+                    .Concat(Group(ReviewTableGrouping.JunctionLegalReference,
+                        entries.Where(e => e.JunctionLegalReference is not null).ToList(),
+                        e => e.CategoryLabel + "/" + e.JunctionLegalReference,
+                        e => e.CategoryLabel + "：" + e.JunctionLegalReference));
 
             default:
                 return Enumerable.Empty<ReviewTableGroup>();
@@ -463,6 +494,7 @@ public sealed class ReviewTable
         var evidence = result.Evidence;
         var category = CategoryOf(evidence);
         var isArea = string.Equals(result.CheckType, ReviewCheckTypes.CompartmentArea, StringComparison.Ordinal);
+        var junctionKind = JunctionKindOf(evidence);
 
         var typeUniqueId = TextOf(evidence, "source.typeUniqueId");
         var typeName = TextOf(evidence, "source.typeName");
@@ -479,11 +511,26 @@ public sealed class ReviewTable
             run.CurrentOverrideFor(result.ResultId),
             freshness is not null && (freshness.InvalidatesAll || freshness.IsResultStale(result.ResultId)),
             result.ZoneId is not null && zoneNames.TryGetValue(result.ZoneId, out var zoneName) ? zoneName : null,
-            isArea ? ZoneCategory : category is CandidateCategory known ? CandidateCategories.Label(known) : Unclassified,
+            isArea ? ZoneCategory
+                : junctionKind is CurtainWallJunctionKind kind ? CurtainWallJunctionKinds.Label(kind)
+                : category is CandidateCategory known ? CandidateCategories.Label(known)
+                : Unclassified,
             isArea ? null : typeUniqueId ?? typeName,
             isArea ? null : typeName,
             openingKind,
+            junctionKind,
+            TextOf(evidence, "junction.hostLegalReference"),
             evidence.Has("source.linkInstanceUniqueId"));
+    }
+
+    /// <summary>The 帷幕牆 check a result belongs to, as its evidence recorded <c>junction.kind</c>.</summary>
+    private static CurtainWallJunctionKind? JunctionKindOf(ReviewEvidence evidence)
+    {
+        var text = TextOf(evidence, "junction.kind");
+        if (text is null) return null;
+        foreach (var kind in CurtainWallJunctionKinds.All)
+            if (string.Equals(CurtainWallJunctionKinds.RuleText(kind), text, StringComparison.Ordinal)) return kind;
+        return null;
     }
 
     private static CandidateCategory? CategoryOf(ReviewEvidence evidence)
