@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using BuildingRegulationReview.Application.Candidates;
 using BuildingRegulationReview.Application.Checks;
+using BuildingRegulationReview.Application.Reviews;
 using BuildingRegulationReview.Domain.Geometry;
 using BuildingRegulationReview.Domain.Reviews;
 using Xunit;
@@ -125,6 +126,37 @@ public sealed class CurtainWallJunctionResolverTests
         Assert.Null(junction.ContinuousFireRatedLengthMm);
         Assert.Equal(ProvidedFireRatingKind.Missing, junction.MinFireRating!.Kind);
         Assert.Equal(0.0, junction.ProjectionDepthMm!.Value);
+    }
+
+    /// <summary>
+    /// 案例 15：嵌板類別根本沒綁 防火檢討_設計防火時效。The adapter reads that as an absent parameter,
+    /// which is the same 「不知道」 as a blank one — both 90 cm 但書 withhold their measurement rather
+    /// than reading it as 0, so the engine lands on 資料不足 and not 未符合.
+    /// </summary>
+    [Fact]
+    public void An_unbound_panel_category_withholds_both_the_length_and_the_height()
+    {
+        var unbound = ReviewInputAssembler.Rating(ParameterReading.Absent);
+        Assert.Equal(ProvidedFireRatingKind.Missing, unbound.Kind);
+
+        var horizontal = Single(
+            Resolve(Set(Wall(new[] { Unrated("P-band", 3000, 7000, 0, StoreyMm, unbound) }), hosts: new[] { Host(5000) })),
+            CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Null(horizontal.ContinuousFireRatedLengthMm);
+        Assert.Equal(0.0, horizontal.ProjectionDepthMm!.Value);
+
+        var vertical = Single(
+            Resolve(SpandrelSet(new[]
+            {
+                Unrated("S", 0, WallLengthMm, StoreyMm - 450, StoreyMm + 450, unbound),
+                Panel("G-low", 0, WallLengthMm, 0, bottom: 0, top: StoreyMm - 450),
+                Panel("G-high", 0, WallLengthMm, 0, bottom: StoreyMm + 450, top: StoreyMm * 2)
+            })),
+            CurtainWallJunctionKind.FloorToCurtainWall);
+
+        Assert.Null(vertical.ContinuousFireRatedHeightMm);
+        Assert.Equal(0.0, vertical.ProjectionDepthMm!.Value);
     }
 
     [Fact]
@@ -407,6 +439,11 @@ public sealed class CurtainWallJunctionResolverTests
         new(uniqueId, startMm, endMm, bottom, top,
             minutes is double m ? ProvidedFireRating.Rated(m, m.ToString("0")) : ProvidedFireRating.Missing("參數值為空白"),
             isOpening, protection);
+
+    /// <summary>A panel whose rating is whatever the adapter made of the parameter — absent, blank or a value.</summary>
+    private static CurtainPanelObservation Unrated(
+        string uniqueId, double startMm, double endMm, double bottom, double top, ProvidedFireRating rating) =>
+        new(uniqueId, startMm, endMm, bottom, top, rating, false, null);
 
     private static CurtainGridLineObservation Grid(string uniqueId, CurtainGridLineDirection direction, double positionMm) =>
         new(uniqueId, direction, positionMm);

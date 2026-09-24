@@ -95,6 +95,16 @@ public sealed class FireReviewTypeRow
 
     public bool IsOpening => CandidateCategories.IsOpening(Category);
 
+    /// <summary>
+    /// Whether this Type answers 設計防火時效. Every 主要構造 does; among the openings only 帷幕嵌板,
+    /// because 第79條第4項 and 第79條之3第2項 measure the 交接帶 by the panels' own rating (帷幕牆規格
+    /// §6). 門窗 answer 防火門窗 instead, which is a different question.
+    /// </summary>
+    public bool CarriesRating => !IsOpening || Category == CandidateCategory.CurtainPanel;
+
+    /// <summary>防火門窗 is asked of the openings, 可開啟嵌板 included.</summary>
+    public bool CarriesProtection => IsOpening;
+
     public StructuralMaterial? ParsedMaterial => StructuralMaterialText.Parse(Material);
 
     public string CategoryLabel => CandidateCategories.Label(Category);

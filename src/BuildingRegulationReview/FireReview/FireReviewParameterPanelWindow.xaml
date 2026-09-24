@@ -134,7 +134,7 @@
                                                 <Setter Property="Background" Value="#FFF8E1" />
                                                 <Setter Property="ToolTip" Value="目前填的值與推定值不同。" />
                                             </DataTrigger>
-                                            <DataTrigger Binding="{Binding IsOpening}" Value="True">
+                                            <DataTrigger Binding="{Binding CarriesRating}" Value="False">
                                                 <Setter Property="IsEnabled" Value="False" />
                                                 <Setter Property="Background" Value="#F0F1F2" />
                                             </DataTrigger>
@@ -148,14 +148,14 @@
                                 <DataGridCheckBoxColumn.ElementStyle>
                                     <Style TargetType="CheckBox">
                                         <Setter Property="HorizontalAlignment" Value="Center" />
-                                        <Setter Property="IsEnabled" Value="{Binding IsOpening}" />
+                                        <Setter Property="IsEnabled" Value="{Binding CarriesProtection}" />
                                         <Setter Property="ToolTip" Value="勾選＝此門窗型號是防火門窗。未勾選＝不是，區劃邊界上的這個型號會判未符合。" />
                                     </Style>
                                 </DataGridCheckBoxColumn.ElementStyle>
                                 <DataGridCheckBoxColumn.EditingElementStyle>
                                     <Style TargetType="CheckBox">
                                         <Setter Property="HorizontalAlignment" Value="Center" />
-                                        <Setter Property="IsEnabled" Value="{Binding IsOpening}" />
+                                        <Setter Property="IsEnabled" Value="{Binding CarriesProtection}" />
                                     </Style>
                                 </DataGridCheckBoxColumn.EditingElementStyle>
                             </DataGridCheckBoxColumn>

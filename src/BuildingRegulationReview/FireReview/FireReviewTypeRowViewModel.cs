@@ -41,6 +41,11 @@ namespace BuildingRegulationReview.FireReview
         public string DisplayName => Source.DisplayName;
         public bool IsOpening => Source.IsOpening;
 
+        /// <summary>帷幕嵌板 fill in 設計防火時效 like the 主要構造 do; 門窗 do not (帷幕牆規格 §6).</summary>
+        public bool CarriesRating => Source.CarriesRating;
+
+        public bool CarriesProtection => Source.CarriesProtection;
+
         /// <summary>「視圖 3 / 專案 12」 — the second number is the real reach of an edit.</summary>
         public string Counts => Source.InstanceCount == Source.ProjectInstanceCount
             ? Source.InstanceCount.ToString(CultureInfo.InvariantCulture)
@@ -154,13 +159,12 @@ namespace BuildingRegulationReview.FireReview
             get
             {
                 var missing = new List<string>();
-                if (IsOpening)
+                if (CarriesProtection && (Source.Present & FireReviewTypeParameters.Protection) == 0)
+                    missing.Add(FireProtectionParameters.Provided);
+                if (CarriesRating && (Source.Present & FireReviewTypeParameters.Rating) == 0)
+                    missing.Add(FireRatingParameters.Provided);
+                if (!IsOpening)
                 {
-                    if ((Source.Present & FireReviewTypeParameters.Protection) == 0) missing.Add(FireProtectionParameters.Provided);
-                }
-                else
-                {
-                    if ((Source.Present & FireReviewTypeParameters.Rating) == 0) missing.Add(FireRatingParameters.Provided);
                     if ((Source.Present & FireReviewTypeParameters.Material) == 0) missing.Add(StructuralMaterialParameters.Material);
                     if (NeedsCover && (Source.Present & FireReviewTypeParameters.Cover) == 0) missing.Add(StructuralMaterialParameters.Cover);
                 }
@@ -181,20 +185,20 @@ namespace BuildingRegulationReview.FireReview
         /// <summary>Only the values that differ from what the model held — nothing is rewritten for its own sake.</summary>
         public IEnumerable<FireReviewParameterEdit> Edits()
         {
-            if (IsOpening)
-            {
-                // 設計防火保護 is a Type parameter: 防火門窗 is a property of the 型號, so one tick
-                // answers for every instance of it in the project.
-                // A Type that never carried the parameter reads as null; leaving such a row alone
-                // must write nothing, but ticking it still writes, so the failure names the missing
-                // binding instead of silently doing nothing.
-                if ((Source.ProvidedProtection ?? false) != _protection)
-                    yield return FireReviewParameterEdit.OfYesNo(Source.TypeUniqueId, FireProtectionParameters.Provided, _protection);
-                yield break;
-            }
+            // 設計防火保護 is a Type parameter: 防火門窗 is a property of the 型號, so one tick
+            // answers for every instance of it in the project.
+            // A Type that never carried the parameter reads as null; leaving such a row alone
+            // must write nothing, but ticking it still writes, so the failure names the missing
+            // binding instead of silently doing nothing.
+            if (CarriesProtection && (Source.ProvidedProtection ?? false) != _protection)
+                yield return FireReviewParameterEdit.OfYesNo(Source.TypeUniqueId, FireProtectionParameters.Provided, _protection);
 
-            if (!Same(_rating, Source.ProvidedRating))
+            // 帷幕嵌板 answer both: 防火門窗 for an openable panel, and 設計防火時效 because the 交接帶
+            // of 第79條第4項／第79條之3第2項 is measured by the panels' own rating (帷幕牆規格 §6).
+            if (CarriesRating && !Same(_rating, Source.ProvidedRating))
                 yield return FireReviewParameterEdit.OfText(Source.TypeUniqueId, FireRatingParameters.Provided, _rating);
+
+            if (IsOpening) yield break;
 
             if (!Same(_material, Source.Material))
                 yield return FireReviewParameterEdit.OfText(Source.TypeUniqueId, StructuralMaterialParameters.Material, _material);

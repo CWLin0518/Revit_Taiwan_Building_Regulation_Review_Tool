@@ -351,22 +351,31 @@ public static class ReviewReadiness
             var used = UsedHosts(source, candidates).Where(h => !bound.Contains(h)).ToList();
             if (used.Count == 0) continue;
             items.Add(new ReadinessItem(ReadinessCondition.Parameters, ReadinessSeverity.Warning, ReviewErrorCode.ParameterMissing,
-                $"參數 {source.ParameterName} 沒有綁定到 {string.Join("、", used.Select(ReviewInputSources.Label))}，這些元素的「{source.Label}」會是資料不足。",
+                $"參數 {source.ParameterName} 沒有綁定到 {string.Join("、", used.Select(ReviewInputSources.Label))}，這些元素的「{source.Label}」會是資料不足。" +
+                CurtainPanelNote(source, used),
                 $"請把 {source.ParameterName} 的類別加上 {string.Join("、", used.Select(ReviewInputSources.Label))}。", null));
         }
     }
 
+    /// <summary>
+    /// 帷幕牆規格 §6: an unbound Curtain Panels category is not just one more gap in a list — it is
+    /// what decides whether the 90 cm 但書 of 第79條第4項／第79條之3第2項 can be measured at all, so it
+    /// is spelled out instead of left to the reader of the category list.
+    /// </summary>
+    private static string CurtainPanelNote(ReviewInputSource source, IReadOnlyList<ReviewParameterHost> unbound) =>
+        string.Equals(source.Field, "element.providedFireRating", StringComparison.Ordinal) &&
+        unbound.Contains(ReviewParameterHost.CurtainPanels)
+            ? "帷幕嵌板未綁定設計防火時效，層間交接無法判定。"
+            : "";
+
     private static IEnumerable<ReviewParameterHost> UsedHosts(ReviewInputSource source, CandidateSet candidates)
     {
         // Only the hosts the parameter is actually meant for: 梁 are candidates but carry no
-        // 設計防火時效 parameter, so an unbound 結構構架 is not a gap to report.
-        if (source.Hosts.SequenceEqual(ReviewInputSources.MemberHosts))
-            return candidates.Members.Select(m => ReviewInputSources.HostOf(m.Observation.Category))
-                .Where(source.Hosts.Contains).Distinct().OrderBy(x => x);
-        if (source.Hosts.SequenceEqual(ReviewInputSources.OpeningHosts))
-            return candidates.Openings.Select(o => ReviewInputSources.HostOf(o.Observation.Category))
-                .Where(source.Hosts.Contains).Distinct().OrderBy(x => x);
-        return Array.Empty<ReviewParameterHost>();
+        // 設計防火時效 parameter, so an unbound 結構構架 is not a gap to report. 設計防火時效 spans both
+        // halves — 主要構造 and 帷幕嵌板 — so the candidates are read as one list and filtered.
+        return candidates.Members.Select(m => ReviewInputSources.HostOf(m.Observation.Category))
+            .Concat(candidates.Openings.Select(o => ReviewInputSources.HostOf(o.Observation.Category)))
+            .Where(source.Hosts.Contains).Distinct().OrderBy(x => x);
     }
 
     private static void Spatial(ReviewReadinessInput input, List<ReadinessItem> items)

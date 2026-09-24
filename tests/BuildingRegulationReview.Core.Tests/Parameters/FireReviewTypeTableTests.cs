@@ -179,4 +179,53 @@ public sealed class FireReviewTypeTableTests
         Assert.Throws<ArgumentException>(() =>
             FireReviewParameterEdit.OfYesNo("T-door", FireRatingParameters.Required, true));
     }
+
+    // --- 帷幕嵌板（帷幕牆規格 §6、§12 步驟 5）-----------------------------------------------------
+
+    /// <summary>
+    /// A 帷幕嵌板 is the one opening that answers 設計防火時效 as well: 第79條第4項 and 第79條之3第2項
+    /// measure the 交接帶 by the panels' own rating, so the batch panel has to let it be typed in.
+    /// </summary>
+    [Fact]
+    public void A_curtain_panel_answers_both_the_rating_and_the_protection()
+    {
+        var panel = Row("T-panel", CandidateCategory.CurtainPanel);
+
+        Assert.True(panel.IsOpening);
+        Assert.True(panel.CarriesRating);
+        Assert.True(panel.CarriesProtection);
+    }
+
+    [Fact]
+    public void A_door_or_a_window_answers_the_protection_only()
+    {
+        foreach (var category in new[] { CandidateCategory.Door, CandidateCategory.Window })
+        {
+            var row = Row("T-" + category, category);
+            Assert.False(row.CarriesRating);
+            Assert.True(row.CarriesProtection);
+        }
+    }
+
+    [Fact]
+    public void A_structural_member_answers_the_rating_only()
+    {
+        foreach (var category in CandidateCategories.Members)
+        {
+            var row = Row("T-" + category, category);
+            Assert.True(row.CarriesRating);
+            Assert.False(row.CarriesProtection);
+        }
+    }
+
+    /// <summary>
+    /// 第71～73條 give a panel no dimensional threshold, so nothing is derived for it — the rating is
+    /// the designer's, typed in, exactly like a 梁.
+    /// </summary>
+    [Fact]
+    public void A_curtain_panel_derives_no_rating_of_its_own()
+    {
+        Assert.False(FireRatingDeriver.IsDerivable(CandidateCategory.CurtainPanel));
+        Assert.False(Row("T-panel", CandidateCategory.CurtainPanel, dimensionCm: 8).WouldChangeRating);
+    }
 }

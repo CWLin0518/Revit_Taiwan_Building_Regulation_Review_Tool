@@ -1,6 +1,6 @@
 # 防火區劃與帷幕牆交接：第 79 條、第 79-3 條、第 79-4 條
 
-> 狀態：**實作中**。§12 的步驟 1–4 已完成（規則類別、`junction.*` 欄位、三條規則、`CurtainWallJunctionInputs`／`Options`／`Check`，以及 `ICurtainWallGeometryReader`／`CurtainWallJunctionResolver`／`RevitCurtainWallGeometryReader`，共 76 個規則層、Check 層與幾何層測試）；步驟 5 起尚未開始，Revit 端尚未實機驗證。
+> 狀態：**實作中**。§12 的步驟 1–5 已完成（規則類別、`junction.*` 欄位、三條規則、`CurtainWallJunctionInputs`／`Options`／`Check`，`ICurtainWallGeometryReader`／`CurtainWallJunctionResolver`／`RevitCurtainWallGeometryReader`，以及 Curtain Panels 的 `防火檢討_設計防火時效` 綁定與前置檢查，共 86 個規則層、Check 層、幾何層與參數層測試）；步驟 6（`FireReviewRunner`、`ReviewMarkup`、檢討表串接）尚未開始，Revit 端尚未實機驗證。
 
 ## 1. 功能摘要
 
@@ -414,7 +414,7 @@ junction.projectionDepth >= 500 mm || (junction.continuousFireRatedLength >= 900
 | 2 | `fire-review-rules.json` 三條規則，規則集版本升至 `2026.3-provisional` | **已完成** |
 | 3 | `CurtainWallJunctionInputs` / `Options` / `Check`（純 Domain 與 Application，以 fixture 跑完 §10 全部案例） | **已完成** |
 | 4 | `ICurtainWallGeometryReader` 介面、`CurtainWallJunctionResolver` 與 `RevitCurtainWallGeometryReader` 實作 | **已完成**（Revit 端待實機驗證） |
-| 5 | `FireReviewSetupFeature` 加入 Curtain Panels 綁定 | 未開始 |
+| 5 | `FireReviewSetupFeature` 加入 Curtain Panels 綁定 | **已完成** |
 | 6 | `FireReviewRunner`、`ReviewMarkup`、檢討表串接 | 未開始 |
 
 ### 步驟 1、2 的驗證
@@ -492,3 +492,34 @@ Revit 只負責轉換，所有判定都在可用 fixture 驗證的地方。
    歸在哪一區劃必須每次重跑都一樣。
 5. **`hostRequiredFireRating` 為 null 時不供給連續段**：沒有門檻就沒有「具同等以上防火時效」可比，
    供 0 會讓沒量過的帶被判成未符合。
+
+### 步驟 5 的產出與驗證
+
+「綁定」在本工具裡是一句宣告：`ReviewInputSources.All` 說某個欄位由哪個參數、綁在哪些類別上供給，
+前置檢查、參數讀取器與批次填寫面板都照著這句宣告走。步驟 5 就是把 Curtain Panels 加進
+`element.providedFireRating` 的宣告，再讓三個跟著這句宣告走的地方都正確：
+
+- `ReviewInputSources.FireRatingHosts`（新增）＝ `MemberHosts` + `CurtainPanels`，
+  `element.providedFireRating` 改用它。`opening.providedFireProtection` 的 `OpeningHosts` 不動——
+  兩份清單在帷幕嵌板上重疊，但各自回答不同的問題（時效 vs 防火門窗）。豎框不列入。
+- `ReviewReadiness`：`UsedHosts` 原本以 `SequenceEqual(MemberHosts)`／`SequenceEqual(OpeningHosts)`
+  分流，設計防火時效橫跨兩邊之後這個分流不再成立，改為把構件與開口併成一份候選清單再用
+  `source.Hosts.Contains` 過濾——對既有兩個來源行為完全相同。未綁定 Curtain Panels 時，警告訊息
+  額外附上 §6 要求的明示句「帷幕嵌板未綁定設計防火時效，層間交接無法判定。」；此句只加在
+  設計防火時效上，其他類別的缺口仍是單純的一行。
+- `RevitReviewParameterReader`：開口原本一律以 Doors 的參數清單讀取，帷幕嵌板多一個參數之後這個
+  捷徑就是錯的，改為依每個開口自己的類別取參數名。
+- `FireReviewTypeRow.CarriesRating`／`CarriesProtection`（新增）取代面板裡的 `IsOpening` 分流：
+  帷幕嵌板兩者皆真，門窗只有保護，構件只有時效。批次填寫面板的「設計防火時效」欄位因此對帷幕嵌板
+  可編輯、`Edits()` 會寫回，`MissingParameters` 也會指出嵌板型別缺這個參數。
+  第 71～73 條沒給嵌板尺寸門檻，所以「推定時效」對嵌板仍是空的，值由設計者填。
+
+`tests/BuildingRegulationReview.Core.Tests/Reviews/FireReviewIntegrationTests.cs`（5 項）、
+`Parameters/FireReviewTypeTableTests.cs`（4 項）與 `Candidates/CurtainWallJunctionResolverTests.cs`（1 項）
+新增 10 個測試，涵蓋宣告本身、未綁定時的明示訊息與其邊界（不得加到其他類別）、面板的欄位歸屬，
+以及 §10 案例 15：類別未綁定時讀到的是「沒有這個參數」，與空白值同樣不供給連續段，
+CW-H 的長度與 CW-V 的高度都留空，由引擎判 `InsufficientData`。全套 1174 個測試通過，全方案 0 警告 0 錯誤。
+
+案例 15 在幾何層與 Check 層是同一條路徑：`ReviewInputAssembler.Rating(ParameterReading.Absent)` 與
+空白值都得到 `ProvidedFireRating.Missing`，差別只在訊息。這是刻意的——「沒綁參數」與「綁了沒填」
+對判定而言都是不知道，不是 0。

@@ -457,6 +457,86 @@ public sealed class FireReviewIntegrationTests
         Assert.Contains("結構構架", warning.Message);
     }
 
+    // --- 帷幕嵌板的綁定（帷幕牆規格 §6、§12 步驟 5）-----------------------------------------------
+
+    /// <summary>
+    /// 帷幕嵌板 carry 設計防火時效 like the 主要構造 do — not because 第70條 reaches them, but because
+    /// 第79條第4項 and 第79條之3第2項 measure the 交接帶 by the panels' own rating. 豎框 carry no rating
+    /// of their own and are no host at all.
+    /// </summary>
+    [Fact]
+    public void Curtain_panels_carry_the_rating_parameter_so_the_junction_band_can_be_measured()
+    {
+        var source = ReviewInputSources.For("element.providedFireRating")!;
+
+        Assert.Contains(ReviewParameterHost.CurtainPanels, source.Hosts);
+        Assert.Equal(ReviewParameterLevel.Type, source.Level);
+        foreach (var host in ReviewInputSources.MemberHosts) Assert.Contains(host, source.Hosts);
+        Assert.DoesNotContain(ReviewParameterHost.Doors, source.Hosts);
+        Assert.DoesNotContain(ReviewParameterHost.Windows, source.Hosts);
+    }
+
+    /// <summary>The required-binding list the setup flow shows names 帷幕嵌板 too (帷幕牆規格 §6).</summary>
+    [Fact]
+    public void The_missing_rating_parameter_is_reported_as_needed_on_curtain_panels_as_well()
+    {
+        var parameters = new Parameters();
+        parameters.Bindings.RemoveAll(b => b.Key == FireRatingParameters.Provided);
+
+        var item = Assert.Single(Readiness(parameters: parameters).Blocking);
+
+        Assert.Equal(ReviewErrorCode.ParameterMissing, item.Code);
+        Assert.Contains("帷幕嵌板", item.Fix);
+    }
+
+    /// <summary>
+    /// 案例 15: with the category unbound, the 90 cm 但書 cannot be measured at all, so the pre-review
+    /// check says so in as many words instead of leaving it as one more name in a category list.
+    /// </summary>
+    [Fact]
+    public void An_unbound_curtain_panel_category_says_the_spandrel_junction_cannot_be_judged()
+    {
+        var parameters = new Parameters();
+        parameters.Bindings.RemoveAll(b =>
+            b.Key == FireRatingParameters.Provided && b.Value == ReviewParameterHost.CurtainPanels);
+
+        var report = Readiness(parameters: parameters);
+
+        Assert.True(report.CanRun);
+        var warning = Assert.Single(report.Warnings, i => i.Code == ReviewErrorCode.ParameterMissing);
+        Assert.Contains("帷幕嵌板", warning.Message);
+        Assert.Contains("帷幕嵌板未綁定設計防火時效，層間交接無法判定。", warning.Message);
+        Assert.Contains("帷幕嵌板", warning.Fix);
+    }
+
+    /// <summary>The note belongs to 設計防火時效 alone; an unbound 柱 is a plain gap.</summary>
+    [Fact]
+    public void The_spandrel_note_is_not_added_to_every_unbound_category()
+    {
+        var parameters = new Parameters();
+        parameters.Bindings.RemoveAll(b =>
+            b.Key == FireRatingParameters.Provided && b.Value == ReviewParameterHost.Columns);
+
+        var warning = Assert.Single(Readiness(parameters: parameters).Warnings, i => i.Code == ReviewErrorCode.ParameterMissing);
+
+        Assert.Contains("柱", warning.Message);
+        Assert.DoesNotContain("層間交接無法判定", warning.Message);
+    }
+
+    /// <summary>
+    /// 設計防火保護 keeps its own hosts: an opening is a 門、窗 or 可開啟嵌板, and the two lists overlap
+    /// on 帷幕嵌板 without either swallowing the other.
+    /// </summary>
+    [Fact]
+    public void The_protection_parameter_still_belongs_to_the_openings_only()
+    {
+        var protection = ReviewInputSources.For("opening.providedFireProtection")!;
+
+        Assert.Equal(ReviewInputSources.OpeningHosts, protection.Hosts);
+        Assert.Contains(ReviewParameterHost.CurtainPanels, protection.Hosts);
+        Assert.DoesNotContain(ReviewParameterHost.Walls, protection.Hosts);
+    }
+
     [Fact]
     public void Evidence_only_fields_do_not_require_parameters()
     {

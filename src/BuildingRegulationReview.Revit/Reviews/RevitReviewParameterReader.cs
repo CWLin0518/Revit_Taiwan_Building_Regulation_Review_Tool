@@ -57,11 +57,15 @@ public sealed class RevitReviewParameterReader
             foreach (var uid in candidates.Members.Select(m => m.Observation.TypeUniqueId).Where(x => x is not null))
                 Add(elements, uid!, memberNames);
 
-            var openingNames = Names(ReviewParameterHost.Doors);
+            // Openings do not all read the same parameters any more: a 帷幕嵌板 carries 設計防火時效
+            // as well as 設計防火保護 (帷幕牆規格 §6), so the names follow each opening's own category.
+            var openingNames = new Dictionary<ReviewParameterHost, IReadOnlyList<string>>();
             foreach (var opening in candidates.Openings.Select(o => o.Observation))
             {
-                Add(elements, opening.Source.ElementUniqueId, openingNames);
-                if (opening.TypeUniqueId is not null) Add(elements, opening.TypeUniqueId, openingNames);
+                var host = ReviewInputSources.HostOf(opening.Category);
+                if (!openingNames.TryGetValue(host, out var forHost)) openingNames[host] = forHost = Names(host);
+                Add(elements, opening.Source.ElementUniqueId, forHost);
+                if (opening.TypeUniqueId is not null) Add(elements, opening.TypeUniqueId, forHost);
             }
         }
 

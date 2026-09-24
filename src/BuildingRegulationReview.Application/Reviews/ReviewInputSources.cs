@@ -97,6 +97,17 @@ public static class ReviewInputSources
         ReviewParameterHost.Doors, ReviewParameterHost.Windows, ReviewParameterHost.CurtainPanels
     });
 
+    /// <summary>
+    /// Who answers 設計防火時效: the 主要構造, and 帷幕嵌板 as well. A panel is no 主要構造 — 第70條 does
+    /// not reach it — but 第79條第4項 and 第79條之3第2項 measure the 交接帶 by the rating of the panels
+    /// themselves, so the parameter has to be bound to Curtain Panels for a curtain wall to be
+    /// reviewable at all (帷幕牆規格 §6). Curtain Wall Mullions carry no rating of their own and are
+    /// deliberately left out.
+    /// </summary>
+    public static readonly IReadOnlyList<ReviewParameterHost> FireRatingHosts =
+        new ReadOnlyCollection<ReviewParameterHost>(
+            MemberHosts.Concat(new[] { ReviewParameterHost.CurtainPanels }).ToArray());
+
     public static IReadOnlyList<ReviewInputSource> All { get; } = new ReadOnlyCollection<ReviewInputSource>(new[]
     {
         new ReviewInputSource("building.fireResistiveConstruction", FireResistiveConstruction, ReviewParameterLevel.Instance, "是否為防火構造建築物", ReviewParameterHost.ProjectInformation),
@@ -105,7 +116,7 @@ public static class ReviewInputSources
         new ReviewInputSource("zone.use", ZoneUse, ReviewParameterLevel.Instance, "區劃用途", ReviewParameterHost.Areas),
         new ReviewInputSource("zone.sprinklered", Sprinklered, ReviewParameterLevel.Instance, "是否設有自動滅火設備", ReviewParameterHost.Areas),
         new ReviewInputSource("zone.floorNumber", FloorNumber, ReviewParameterLevel.Instance, "所在樓層序", ReviewParameterHost.Areas),
-        new ReviewInputSource("element.providedFireRating", FireRatingParameters.Provided, ReviewParameterLevel.Type, "設計／認證防火時效", MemberHosts.ToArray()),
+        new ReviewInputSource("element.providedFireRating", FireRatingParameters.Provided, ReviewParameterLevel.Type, "設計／認證防火時效", FireRatingHosts.ToArray()),
         new ReviewInputSource("opening.providedFireProtection", FireProtectionParameters.Provided, ReviewParameterLevel.Type, "設計防火保護", OpeningHosts.ToArray())
     });
 
