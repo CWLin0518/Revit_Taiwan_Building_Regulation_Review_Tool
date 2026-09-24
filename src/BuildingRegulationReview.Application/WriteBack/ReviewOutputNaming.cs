@@ -40,6 +40,25 @@ public static class ReviewOutputNaming
         Clean(sourceFloorPlanName),
         ReviewViewSuffix);
 
+    /// <summary>The trailing part of a 帷幕牆 elevation's name (帷幕牆規格 §7.1).</summary>
+    public const string CurtainWallElevationSuffix = "帷幕牆立面";
+
+    /// <summary>
+    /// Builds <c>{ReviewView}_{CurtainWall}_帷幕牆立面</c>, the default name of the elevation a 層間帶
+    /// is drawn red in. It is named after the review view rather than the Area Scheme because that is
+    /// what it belongs to: one review view, one elevation per curtain wall that failed.
+    /// </summary>
+    /// <remarks>
+    /// The review view's name is kept whole, separators and all. It is a name the user has already seen
+    /// and may have chosen, not a part assembled here, and the two pieces that follow are enough to see
+    /// where it ends.
+    /// </remarks>
+    public static string CurtainWallElevation(string? reviewViewName, string? curtainWallLabel) => string.Join(
+        Separator.ToString(),
+        Clean(reviewViewName, keepSeparator: true),
+        Clean(curtainWallLabel),
+        CurtainWallElevationSuffix);
+
     /// <summary>Builds <c>{AreaScheme}_{SourceFloorPlan}_防火區劃</c>.</summary>
     public static string Default(string? areaSchemeName, string? sourceFloorPlanName) => string.Join(
         Separator.ToString(),
@@ -75,12 +94,12 @@ public static class ReviewOutputNaming
     /// One part of a name: trimmed, with prohibited characters and the separator itself replaced, so
     /// a floor plan called "1F|東棟" cannot break the name into pieces that no longer parse by eye.
     /// </summary>
-    private static string Clean(string? part)
+    private static string Clean(string? part, bool keepSeparator = false)
     {
         if (string.IsNullOrWhiteSpace(part)) return Unnamed;
 
         var cleaned = new string(part!.Trim()
-            .Select(c => Prohibited.Contains(c) || c == Separator ? '-' : c)
+            .Select(c => Prohibited.Contains(c) || (c == Separator && !keepSeparator) ? '-' : c)
             .ToArray())
             .Trim();
 

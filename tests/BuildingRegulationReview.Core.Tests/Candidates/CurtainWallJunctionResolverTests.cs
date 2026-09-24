@@ -474,6 +474,25 @@ public sealed class CurtainWallJunctionResolverTests
     }
 
     [Fact]
+    public void A_band_walks_its_rectangle_once_so_the_adapter_can_draw_it_without_sorting_anything()
+    {
+        // 步驟 6b-2: the Filled Region the elevation shows is built straight from these four corners,
+        // so the order has to close the rectangle — bottom along the façade, then up and back.
+        var placement = Single(Resolve(Spandrel(spandrelMinutes: 30)), CurtainWallJunctionKind.FloorToCurtainWall).Placement!;
+
+        var corners = placement.Corners();
+
+        Assert.Equal(4, corners.Count);
+        Assert.Equal(new[]
+        {
+            new PlacementCorner(placement.StartMm, placement.BottomElevationMm),
+            new PlacementCorner(placement.EndMm, placement.BottomElevationMm),
+            new PlacementCorner(placement.EndMm, placement.TopElevationMm),
+            new PlacementCorner(placement.StartMm, placement.TopElevationMm)
+        }, corners);
+    }
+
+    [Fact]
     public void Other_panels_have_no_placement_because_they_are_a_set_of_panels_not_a_place()
     {
         var junction = Single(Resolve(Set(Wall(Glazing()), hosts: new[] { Host(5000) })),

@@ -14,16 +14,74 @@ public class ManagedOutputTests
     private static readonly Guid PackageId = Guid.Parse("11111111-2222-3333-4444-555555555555");
     private static readonly Guid OtherPackageId = Guid.Parse("22222222-3333-4444-5555-666666666666");
     private static readonly Guid ZoneId = Guid.Parse("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+    private const string CurtainWallUniqueId = "7f3a1c9e-0b42-4d18-9c5a-2e6d8f4b1a70-000a1b2c";
+    private const string OtherCurtainWallUniqueId = "7f3a1c9e-0b42-4d18-9c5a-2e6d8f4b1a70-000a1b2d";
 
     [Theory]
     [InlineData(ManagedOutputKind.DraftingView)]
     [InlineData(ManagedOutputKind.ColorFillScheme)]
+    [InlineData(ManagedOutputKind.ReviewView)]
     public void ATokenSurvivesTheRoundTrip(ManagedOutputKind kind)
     {
         var key = new ManagedOutputKey(PackageId, kind);
 
         Assert.True(ManagedOutputKey.TryParse(key.ToToken(), out var parsed));
         Assert.Equal(key, parsed);
+    }
+
+    [Fact]
+    public void AnElevationIsIdentifiedByTheCurtainWallItLooksAt()
+    {
+        // 帷幕牆規格 §7.1: a package has one review view but an elevation per curtain wall, so the
+        // subject is what keeps two walls' elevations apart when the next run comes looking for them.
+        var key = new ManagedOutputKey(PackageId, ManagedOutputKind.CurtainWallElevation, CurtainWallUniqueId);
+
+        Assert.True(ManagedOutputKey.TryParse(key.ToToken(), out var parsed));
+        Assert.Equal(key, parsed);
+        Assert.Equal(CurtainWallUniqueId, parsed.Subject);
+        Assert.NotEqual(key, new ManagedOutputKey(PackageId, ManagedOutputKind.CurtainWallElevation, OtherCurtainWallUniqueId));
+    }
+
+    [Fact]
+    public void TheContainersThereIsOneOfPerPackageKeepTheTokenTheyAlwaysHad()
+    {
+        // An output already marked in a model has a three-part token; adding a fourth part must not
+        // stop it parsing, or the tool would make a second Drafting View beside the one it owns.
+        Assert.True(ManagedOutputKey.TryParse("BCROUT/11111111222233334444555555555555/draftingview", out var parsed));
+        Assert.Equal(ManagedOutputKind.DraftingView, parsed.Kind);
+        Assert.Equal(string.Empty, parsed.Subject);
+    }
+
+    [Fact]
+    public void AnElevationWithoutACurtainWallIsNotAKeyAtAll()
+    {
+        Assert.Throws<ArgumentException>(() => new ManagedOutputKey(PackageId, ManagedOutputKind.CurtainWallElevation));
+        Assert.Throws<ArgumentException>(() => new ManagedOutputKey(PackageId, ManagedOutputKind.CurtainWallElevation, "  "));
+        Assert.False(ManagedOutputKey.TryParse("BCROUT/11111111222233334444555555555555/curtainwallelevation", out _));
+    }
+
+    [Fact]
+    public void AContainerThereIsOnlyOneOfCannotBeGivenASubject()
+    {
+        // Otherwise two keys could both claim to be the package's one colour scheme.
+        Assert.Throws<ArgumentException>(() => new ManagedOutputKey(PackageId, ManagedOutputKind.ColorFillScheme, "something"));
+        Assert.False(ManagedOutputKey.TryParse("BCROUT/11111111222233334444555555555555/colorscheme/something", out _));
+    }
+
+    [Fact]
+    public void ASubjectCannotCarryTheSeparatorThatWouldSplitTheTokenApart()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new ManagedOutputKey(PackageId, ManagedOutputKind.CurtainWallElevation, "a/b"));
+    }
+
+    [Fact]
+    public void OwnershipReadsAnElevationTooSoItsViewCanBeTakenOver()
+    {
+        var elevation = new ManagedOutputKey(PackageId, ManagedOutputKind.CurtainWallElevation, CurtainWallUniqueId).ToToken();
+
+        Assert.True(ManagedOwnership.BelongsTo(elevation, PackageId));
+        Assert.False(ManagedOwnership.BelongsTo(elevation, OtherPackageId));
     }
 
     [Fact]
@@ -99,6 +157,8 @@ public class ManagedOutputTests
     [Theory]
     [InlineData(ManagedOutputKind.DraftingView, "單線圖視圖")]
     [InlineData(ManagedOutputKind.ColorFillScheme, "面積色彩配置")]
+    [InlineData(ManagedOutputKind.ReviewView, "防火檢討視圖")]
+    [InlineData(ManagedOutputKind.CurtainWallElevation, "帷幕牆檢討立面")]
     public void EachKindHasANameTheUserWouldRecognise(ManagedOutputKind kind, string expected)
     {
         Assert.Equal(expected, ManagedOutputKey.Describe(kind));

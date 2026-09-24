@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.ExtensibleStorage;
+using BuildingRegulationReview.Application.Checks;
 using BuildingRegulationReview.Application.Reviews;
 using BuildingRegulationReview.Application.WriteBack;
 using BuildingRegulationReview.Domain.Geometry;
@@ -15,13 +17,23 @@ namespace BuildingRegulationReview.Revit.Reviews;
 /// <summary>
 /// Marks one review run in the package's dedicated review view (spec 11.4 item 4, 11.5 item 6, 11.6
 /// item 4): red Filled Regions over the failing 區劃, a red By Element Override on the failing members
-/// and openings, and the record of what each overridden element looked like before.
+/// and openings, the 帷幕牆 annotations and 層間帶 of 帷幕牆規格 §7.1, and the record of what each
+/// overridden element looked like before.
 /// </summary>
 /// <remarks>
 /// <para>
 /// The view is a duplicate of the source floor plan made once per package and found again by its
 /// ownership mark (<see cref="ManagedOutputKind.ReviewView"/>), so a user who renames it keeps it.
 /// Marking never touches the source plan, the Area Plan or any other view.
+/// </para>
+/// <para>
+/// A 層間帶 is a stretch of one façade rather than a plan outline, so it cannot be drawn in that plan:
+/// each curtain wall that has one gets an elevation of its own, owned the same way
+/// (<see cref="ManagedOutputKind.CurtainWallElevation"/>) and made by the tool so the user does not
+/// have to prepare anything. Where every mark goes comes from the placement the check wrote into the
+/// result's evidence, never from reading the model again: the plan is rebuilt from the stored run
+/// (spec 13.1), and re-reading would put the mark where the model is now while the result says what it
+/// was.
 /// </para>
 /// <para>
 /// Only the current package's regions and the elements this tool recorded are changed; everything
@@ -38,7 +50,19 @@ public sealed class RevitReviewViewMarker
 
     private const string HatchPatternName = "BCR_防火檢討_斜線";
 
+    /// <summary>How far from square two directions may be and still count as square, as a dot product.</summary>
+    private const double SquareTolerance = 1e-3;
+
+    /// <summary>Revit's own short curve tolerance in feet, for the places a document is not to hand.</summary>
+    private const double XyzTolerance = 1.0 / 256.0;
+
     private static readonly Color Red = new Color(255, 0, 0);
+
+    /// <summary>How much of the façade a 帷幕牆 elevation shows around the bands it was made for.</summary>
+    private static readonly double ElevationMarginFeet = UnitUtils.ConvertToInternalUnits(1000.0, UnitTypeId.Millimeters);
+
+    /// <summary>How deep into the model a 帷幕牆 elevation looks, so the wall itself is inside the cut.</summary>
+    private static readonly double ElevationDepthFeet = UnitUtils.ConvertToInternalUnits(3000.0, UnitTypeId.Millimeters);
 
     private readonly Document _document;
 
@@ -58,17 +82,45 @@ public sealed class RevitReviewViewMarker
             .FirstOrDefault(v => ManagedElementMark.TryRead(v, out var token, out _) && string.Equals(token, key, StringComparison.Ordinal));
     }
 
-    /// <summary>The red regions in the view that carry a review mark of any package, for the diff.</summary>
+    /// <summary>
+    /// The marks of any package the view already carries, for the diff: the red Filled Regions of a
+    /// 區劃 or a 層間帶, and the 帷幕牆 annotations. A text note left out here would be taken for missing
+    /// and drawn a second time on every re-run (帷幕牆規格 §10 案例 19).
+    /// </summary>
     public IReadOnlyList<ExistingReviewMark> ReadMarks(View view)
     {
         if (view is null) throw new ArgumentNullException(nameof(view));
 
         var found = new List<ExistingReviewMark>();
-        foreach (var region in new FilteredElementCollector(_document, view.Id).OfClass(typeof(FilledRegion)))
+        var marked = new FilteredElementCollector(_document, view.Id)
+            .WherePasses(new ElementMulticlassFilter(new List<Type> { typeof(FilledRegion), typeof(TextNote) }));
+
+        foreach (var element in marked)
         {
-            if (!ManagedElementMark.TryRead(region, out var token, out var signature)) continue;
+            if (!ManagedElementMark.TryRead(element, out var token, out var signature)) continue;
             if (!ReviewMarkKey.TryParse(token, out _)) continue;
-            found.Add(new ExistingReviewMark(region.UniqueId, token, signature));
+            found.Add(new ExistingReviewMark(element.UniqueId, token, signature));
+        }
+        return found;
+    }
+
+    /// <summary>
+    /// The package's 帷幕牆 elevations, by the UniqueId of the curtain wall each one looks at. Found by
+    /// the ownership mark, like every other output, so a user who renames one keeps it.
+    /// </summary>
+    public IReadOnlyDictionary<string, ViewSection> FindCurtainWallElevations(Guid packageId)
+    {
+        if (packageId == Guid.Empty) throw new ArgumentException("Package ID cannot be empty.", nameof(packageId));
+
+        var found = new Dictionary<string, ViewSection>(StringComparer.Ordinal);
+        foreach (var view in new FilteredElementCollector(_document).OfClass(typeof(ViewSection)).Cast<ViewSection>().Where(v => !v.IsTemplate))
+        {
+            if (!ManagedElementMark.TryRead(view, out var token, out _)) continue;
+            if (!ManagedOutputKey.TryParse(token, out var key)) continue;
+            if (key.PackageId != packageId || key.Kind != ManagedOutputKind.CurtainWallElevation) continue;
+
+            // Two views for one wall can only come from a copy; the first by Id is the one taken over.
+            if (!found.ContainsKey(key.Subject)) found.Add(key.Subject, view);
         }
         return found;
     }
@@ -111,12 +163,32 @@ public sealed class RevitReviewViewMarker
                     transaction.Commit();
                 }
 
-                var diff = ReviewMarkupDiff.Compute(plan, ReadMarks(view), ReadOverrides(view));
+                // Every view this package marks in, so a 層間帶 already drawn in an elevation is taken
+                // over instead of drawn again: marks the diff never sees look like marks that are gone.
+                var elevations = FindCurtainWallElevations(package.PackageId)
+                    .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+                var existing = ReadMarks(view).Concat(elevations.Values.SelectMany(ReadMarks)).ToList();
+                var diff = ReviewMarkupDiff.Compute(plan, existing, ReadOverrides(view));
+
+                // The elevations come first and in a transaction of their own: a view has to exist and
+                // be regenerated before anything can be drawn in it.
+                if (diff.Bands.Any(b => b.Action == ReviewMarkAction.Create || b.Action == ReviewMarkAction.Update))
+                {
+                    using (var transaction = new Transaction(_document, "建立帷幕牆檢討立面"))
+                    {
+                        transaction.Start();
+                        EnsureCurtainWallElevations(view, diff, elevations, items);
+                        transaction.Commit();
+                    }
+                }
+
                 using (var transaction = new Transaction(_document, "更新防火檢討標示"))
                 {
                     transaction.Start();
                     ApplyRegions(view, diff, items);
                     ApplyOverrides(view, diff, items);
+                    ApplyNotes(view, diff, items);
+                    ApplyBands(diff, elevations, items);
                     transaction.Commit();
                 }
 
@@ -189,6 +261,214 @@ public sealed class RevitReviewViewMarker
         }
     }
 
+    /// <summary>
+    /// One elevation per curtain wall that has a 層間帶 to draw (帷幕牆規格 §7.1). The tool makes it
+    /// itself, marked and named like every other output, so the user does not have to prepare a view
+    /// before running a review; an elevation an earlier run made is taken over and, when this run's
+    /// bands fall outside what it shows, widened rather than replaced.
+    /// </summary>
+    private void EnsureCurtainWallElevations(
+        View reviewView,
+        ReviewMarkupDiff diff,
+        Dictionary<string, ViewSection> elevations,
+        List<ReviewMarkupItem> items)
+    {
+        var groups = diff.Bands
+            .Where(b => b.Action == ReviewMarkAction.Create || b.Action == ReviewMarkAction.Update)
+            .Select(b => b.Planned!)
+            .GroupBy(b => b.CurtainWallUniqueId, StringComparer.Ordinal)
+            .OrderBy(g => g.Key, StringComparer.Ordinal)
+            .ToList();
+
+        ElementId? typeId = null;
+        foreach (var group in groups)
+        {
+            var bands = group.ToList();
+            if (group.Key.Length == 0)
+            {
+                Skip(bands, "結果沒有記錄層間帶所屬的帷幕牆，無法決定要畫在哪一面立面上", items);
+                continue;
+            }
+
+            var frame = SpandrelFrame.For(bands);
+            if (frame is null)
+            {
+                Skip(bands, "層間帶沒有長度，無法建立填滿區域", items);
+                continue;
+            }
+
+            if (elevations.TryGetValue(group.Key, out var existing))
+            {
+                EnsureVisible(existing, bands, items);
+                continue;
+            }
+
+            typeId ??= SectionTypeId();
+            if (typeId == ElementId.InvalidElementId)
+            {
+                foreach (var band in bands)
+                    items.Add(new ReviewMarkupItem(ApplyOutcome.Failed, band.Description, null,
+                        "這個專案沒有任何剖面視圖類型，無法建立帷幕牆檢討立面"));
+                continue;
+            }
+
+            var created = CreateCurtainWallElevation(reviewView, diff.Plan.PackageId, group.Key, frame, typeId, items);
+            if (created is not null) elevations[group.Key] = created;
+        }
+    }
+
+    private ViewSection? CreateCurtainWallElevation(
+        View reviewView,
+        Guid packageId,
+        string curtainWallUniqueId,
+        SpandrelFrame frame,
+        ElementId sectionTypeId,
+        List<ReviewMarkupItem> items)
+    {
+        var subject = ManagedOutputKey.Describe(ManagedOutputKind.CurtainWallElevation);
+        try
+        {
+            var section = ViewSection.CreateSection(_document, sectionTypeId, frame.SectionBox());
+            section.Name = ReviewOutputNaming.MakeUnique(
+                ReviewOutputNaming.CurtainWallElevation(reviewView.Name, CurtainWallLabel(curtainWallUniqueId)),
+                IsViewNameTaken);
+            ManagedElementMark.Write(
+                section,
+                new ManagedOutputKey(packageId, ManagedOutputKind.CurtainWallElevation, curtainWallUniqueId),
+                section.Name);
+
+            // The bands are drawn in the next transaction, but the view has to be complete first.
+            _document.Regenerate();
+            items.Add(new ReviewMarkupItem(ApplyOutcome.Created, subject + "「" + section.Name + "」", section.UniqueId));
+            return section;
+        }
+        catch (RevitApplicationException exception)
+        {
+            items.Add(new ReviewMarkupItem(ApplyOutcome.Failed, subject, null, "Revit 拒絕建立帷幕牆檢討立面：" + exception.Message));
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Widens an existing elevation's crop until this run's bands are inside it. Only ever widened: a
+    /// mark nobody can see is no mark, and a crop the user narrowed is still theirs everywhere else.
+    /// </summary>
+    private void EnsureVisible(ViewSection elevation, IReadOnlyList<PlannedSpandrelBand> bands, List<ReviewMarkupItem> items)
+    {
+        var subject = $"檢討立面「{elevation.Name}」的裁剪範圍";
+        if (!elevation.CropBoxActive) return;
+
+        try
+        {
+            var box = elevation.CropBox;
+            var inverse = box.Transform.Inverse;
+            double minX = box.Min.X, minY = box.Min.Y, maxX = box.Max.X, maxY = box.Max.Y;
+
+            foreach (var corner in bands.SelectMany(b => b.Placement.Corners()))
+            {
+                var local = inverse.OfPoint(ToFeet(corner));
+                minX = Math.Min(minX, local.X - ElevationMarginFeet);
+                minY = Math.Min(minY, local.Y - ElevationMarginFeet);
+                maxX = Math.Max(maxX, local.X + ElevationMarginFeet);
+                maxY = Math.Max(maxY, local.Y + ElevationMarginFeet);
+            }
+
+            if (minX >= box.Min.X && minY >= box.Min.Y && maxX <= box.Max.X && maxY <= box.Max.Y) return;
+
+            var widened = new BoundingBoxXYZ { Transform = box.Transform };
+            widened.Min = new XYZ(minX, minY, box.Min.Z);
+            widened.Max = new XYZ(maxX, maxY, box.Max.Z);
+            elevation.CropBox = widened;
+            items.Add(new ReviewMarkupItem(ApplyOutcome.Updated, subject, elevation.UniqueId, "放大以容納本次的層間帶"));
+        }
+        catch (RevitApplicationException exception)
+        {
+            items.Add(new ReviewMarkupItem(ApplyOutcome.Skipped, subject, elevation.UniqueId,
+                "Revit 拒絕調整裁剪範圍，層間帶仍會建立，但可能落在可見範圍外：" + exception.Message));
+        }
+    }
+
+    /// <summary>
+    /// The band as a closed rectangle on the elevation's own sketch plane. Null when the view no longer
+    /// looks along this façade, which is the one case where drawing would silently distort the band.
+    /// </summary>
+    private CurveLoop? BandLoop(ViewSection elevation, PlannedSpandrelBand band)
+    {
+        var tolerance = _document.Application.ShortCurveTolerance;
+        var along = ToFeet(band.Placement.EndMm, 0.0) - ToFeet(band.Placement.StartMm, 0.0);
+        if (along.GetLength() <= tolerance) return null;
+
+        var normal = elevation.ViewDirection.Normalize();
+        if (Math.Abs(along.Normalize().DotProduct(normal)) > SquareTolerance) return null;
+        if (Math.Abs(normal.DotProduct(XYZ.BasisZ)) > SquareTolerance) return null;
+
+        // Onto the plane the view sketches in. The band is already parallel to it — the test above says
+        // so — so the projection only slides the rectangle across, it does not change its shape.
+        var origin = elevation.Origin;
+        var corners = band.Placement.Corners()
+            .Select(ToFeet)
+            .Select(p => p - normal.Multiply(p.Subtract(origin).DotProduct(normal)))
+            .ToList();
+
+        var loop = new CurveLoop();
+        for (var i = 0; i < corners.Count; i++)
+        {
+            var from = corners[i];
+            var to = corners[(i + 1) % corners.Count];
+            if (from.DistanceTo(to) <= tolerance) return null;
+            loop.Append(Line.CreateBound(from, to));
+        }
+        return loop;
+    }
+
+    /// <summary>
+    /// What the elevation is called after. This reads the model, but only for a name: where the band
+    /// goes still comes from the result's evidence alone (帷幕牆規格 §7.1).
+    /// </summary>
+    private string CurtainWallLabel(string curtainWallUniqueId)
+    {
+        var element = _document.GetElement(curtainWallUniqueId);
+        if (element is null) return "帷幕牆";
+
+        var mark = element.get_Parameter(BuiltInParameter.ALL_MODEL_MARK)?.AsString();
+        return string.IsNullOrWhiteSpace(mark)
+            ? "帷幕牆 " + element.Id.Value.ToString(CultureInfo.InvariantCulture)
+            : mark!.Trim();
+    }
+
+    private ElementId TextNoteTypeId()
+    {
+        var preferred = _document.GetDefaultElementTypeId(ElementTypeGroup.TextNoteType);
+        if (preferred != ElementId.InvalidElementId && _document.GetElement(preferred) is TextNoteType) return preferred;
+
+        return new FilteredElementCollector(_document).OfClass(typeof(TextNoteType)).Cast<TextNoteType>()
+            .OrderBy(t => t.Id.Value).FirstOrDefault()?.Id ?? ElementId.InvalidElementId;
+    }
+
+    private ElementId SectionTypeId() =>
+        new FilteredElementCollector(_document).OfClass(typeof(ViewFamilyType)).Cast<ViewFamilyType>()
+            .Where(t => t.ViewFamily == ViewFamily.Section)
+            .OrderBy(t => t.Id.Value).FirstOrDefault()?.Id ?? ElementId.InvalidElementId;
+
+    private static void Skip(IEnumerable<PlannedSpandrelBand> bands, string reason, List<ReviewMarkupItem> items)
+    {
+        foreach (var band in bands)
+            items.Add(new ReviewMarkupItem(ApplyOutcome.Skipped, band.Description, null, reason));
+    }
+
+    private static XYZ ToFeet(PlacementCorner corner) => ToFeet(corner.PlanMm, corner.ElevationMm);
+
+    private static XYZ ToFeet(Point2D planMm, double elevationMm) => new XYZ(
+        UnitUtils.ConvertToInternalUnits(planMm.X, UnitTypeId.Millimeters),
+        UnitUtils.ConvertToInternalUnits(planMm.Y, UnitTypeId.Millimeters),
+        UnitUtils.ConvertToInternalUnits(elevationMm, UnitTypeId.Millimeters));
+
+    /// <summary>A plan point in millimetres, at an elevation Revit already gave us in feet.</summary>
+    private static XYZ AtElevation(Point2D planMm, double elevationFeet) => new XYZ(
+        UnitUtils.ConvertToInternalUnits(planMm.X, UnitTypeId.Millimeters),
+        UnitUtils.ConvertToInternalUnits(planMm.Y, UnitTypeId.Millimeters),
+        elevationFeet);
+
     private void ApplyRegions(View view, ReviewMarkupDiff diff, List<ReviewMarkupItem> items)
     {
         ElementId? typeId = null;
@@ -202,7 +482,7 @@ public sealed class RevitReviewViewMarker
                     continue;
 
                 case ReviewMarkAction.Remove:
-                    Remove(change.Existing!, diff.Plan.PackageId, items);
+                    Remove(change.Existing!, diff.Plan.PackageId, items, "已不需要的未符合區劃標示");
                     continue;
 
                 case ReviewMarkAction.Create:
@@ -253,9 +533,8 @@ public sealed class RevitReviewViewMarker
         }
     }
 
-    private void Remove(ExistingReviewMark mark, Guid packageId, List<ReviewMarkupItem> items)
+    private void Remove(ExistingReviewMark mark, Guid packageId, List<ReviewMarkupItem> items, string description)
     {
-        const string description = "已不需要的未符合區劃標示";
         var element = _document.GetElement(mark.ElementUniqueId);
         if (element is null) return;
 
@@ -274,6 +553,165 @@ public sealed class RevitReviewViewMarker
         catch (RevitApplicationException exception)
         {
             items.Add(new ReviewMarkupItem(ApplyOutcome.Failed, description, mark.ElementUniqueId, "Revit 拒絕刪除：" + exception.Message));
+        }
+    }
+
+    /// <summary>
+    /// 帷幕牆規格 §7.1: the measurements a failing junction was judged on, written at the junction in the
+    /// review plan. A note is updated where it stands rather than redrawn, because its text and its
+    /// position are both writable — unlike a Filled Region's boundary — so a leader somebody added to it
+    /// survives the next run.
+    /// </summary>
+    private void ApplyNotes(View view, ReviewMarkupDiff diff, List<ReviewMarkupItem> items)
+    {
+        ElementId? typeId = null;
+        var elevation = (view as ViewPlan)?.GenLevel?.Elevation ?? 0.0;
+
+        foreach (var change in diff.Notes)
+        {
+            switch (change.Action)
+            {
+                case ReviewMarkAction.Unchanged:
+                    continue;
+
+                case ReviewMarkAction.Remove:
+                    Remove(change.Existing!, diff.Plan.PackageId, items, "已不需要的帷幕牆交接處標註");
+                    continue;
+
+                case ReviewMarkAction.Create:
+                case ReviewMarkAction.Update:
+                    typeId ??= TextNoteTypeId();
+                    if (typeId == ElementId.InvalidElementId)
+                    {
+                        items.Add(new ReviewMarkupItem(ApplyOutcome.Failed, change.Planned!.Description, null,
+                            "這個專案沒有任何文字類型，無法建立交接處標註"));
+                        continue;
+                    }
+                    WriteNote(view, change, diff.Plan.PackageId, typeId, elevation, items);
+                    continue;
+            }
+        }
+    }
+
+    private void WriteNote(
+        View view,
+        ReviewMarkChange<PlannedReviewNote> change,
+        Guid packageId,
+        ElementId typeId,
+        double elevation,
+        List<ReviewMarkupItem> items)
+    {
+        var planned = change.Planned!;
+        var old = change.Existing is null ? null : _document.GetElement(change.Existing.ElementUniqueId);
+        if (old is not null && !ManagedElementMark.IsOwnedBy(old, packageId))
+        {
+            items.Add(new ReviewMarkupItem(ApplyOutcome.Skipped, planned.Description, old.UniqueId,
+                "既有元素的擁有權標記已不屬於本工作包，保留不動"));
+            return;
+        }
+
+        var origin = AtElevation(planned.Placement.MidpointMm, elevation);
+        try
+        {
+            if (old is TextNote existing)
+            {
+                existing.Text = planned.Text;
+                existing.Coord = origin;
+                ManagedElementMark.Write(existing, planned.Key, planned.Signature);
+                WriteComment(existing, planned.Key.ToLabel());
+                items.Add(new ReviewMarkupItem(ApplyOutcome.Updated, planned.Description, existing.UniqueId, change.Reason));
+                return;
+            }
+
+            var note = TextNote.Create(_document, view.Id, origin, planned.Text, typeId);
+            ManagedElementMark.Write(note, planned.Key, planned.Signature);
+            WriteComment(note, planned.Key.ToLabel());
+
+            if (old is not null) _document.Delete(old.Id);
+            items.Add(new ReviewMarkupItem(old is null ? ApplyOutcome.Created : ApplyOutcome.Updated, planned.Description,
+                note.UniqueId, old is null ? null : change.Reason));
+        }
+        catch (RevitApplicationException exception)
+        {
+            items.Add(new ReviewMarkupItem(ApplyOutcome.Failed, planned.Description, old?.UniqueId, "Revit 拒絕建立文字標註：" + exception.Message));
+        }
+    }
+
+    /// <summary>
+    /// 帷幕牆規格 §7.1 (CW-V): the 層間帶 in red, in the elevation of the curtain wall it lies on. The
+    /// elevation was found or made beforehand; a band with none left is reported rather than dropped.
+    /// </summary>
+    private void ApplyBands(ReviewMarkupDiff diff, IReadOnlyDictionary<string, ViewSection> elevations, List<ReviewMarkupItem> items)
+    {
+        ElementId? typeId = null;
+
+        foreach (var change in diff.Bands)
+        {
+            switch (change.Action)
+            {
+                case ReviewMarkAction.Unchanged:
+                    continue;
+
+                case ReviewMarkAction.Remove:
+                    Remove(change.Existing!, diff.Plan.PackageId, items, "已不需要的層間帶標示");
+                    continue;
+
+                case ReviewMarkAction.Create:
+                case ReviewMarkAction.Update:
+                {
+                    var planned = change.Planned!;
+                    if (!elevations.TryGetValue(planned.CurtainWallUniqueId, out var elevation))
+                    {
+                        // EnsureCurtainWallElevations already said why, on this same band.
+                        continue;
+                    }
+
+                    typeId ??= RegionType();
+                    DrawBand(elevation, change, diff.Plan.PackageId, typeId, items);
+                    continue;
+                }
+            }
+        }
+    }
+
+    private void DrawBand(
+        ViewSection elevation,
+        ReviewMarkChange<PlannedSpandrelBand> change,
+        Guid packageId,
+        ElementId typeId,
+        List<ReviewMarkupItem> items)
+    {
+        var planned = change.Planned!;
+        var old = change.Existing is null ? null : _document.GetElement(change.Existing.ElementUniqueId);
+        if (old is not null && !ManagedElementMark.IsOwnedBy(old, packageId))
+        {
+            items.Add(new ReviewMarkupItem(ApplyOutcome.Skipped, planned.Description, old.UniqueId,
+                "既有元素的擁有權標記已不屬於本工作包，保留不動"));
+            return;
+        }
+
+        try
+        {
+            var loop = BandLoop(elevation, planned);
+            if (loop is null)
+            {
+                items.Add(new ReviewMarkupItem(ApplyOutcome.Skipped, planned.Description, elevation.UniqueId,
+                    $"檢討立面「{elevation.Name}」的視圖方向已不沿著這面帷幕牆，無法在其中畫出層間帶。" +
+                    "請刪除該立面後重新標示"));
+                return;
+            }
+
+            var region = FilledRegion.Create(_document, typeId, elevation.Id, new List<CurveLoop> { loop });
+            ManagedElementMark.Write(region, planned.Key, planned.Signature);
+            WriteComment(region, planned.Key.ToLabel());
+
+            if (old is not null) _document.Delete(old.Id);
+            items.Add(new ReviewMarkupItem(old is null ? ApplyOutcome.Created : ApplyOutcome.Updated, planned.Description,
+                region.UniqueId, old is null ? null : change.Reason));
+        }
+        catch (RevitApplicationException exception)
+        {
+            items.Add(new ReviewMarkupItem(ApplyOutcome.Failed, planned.Description, old?.UniqueId, "Revit 拒絕建立填滿區域：" + exception.Message));
         }
     }
 
@@ -419,6 +857,77 @@ public sealed class RevitReviewViewMarker
         .OfClass(typeof(View))
         .Cast<View>()
         .Any(view => string.Equals(view.Name, name, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Which way a 帷幕牆 elevation looks and how much of the façade it has to show: the frame the section
+    /// is cut on, worked out from the bands one curtain wall needs drawn.
+    /// </summary>
+    /// <remarks>
+    /// Every band of one curtain wall sits on that wall's plan location line — the geometry layer puts
+    /// them there with <c>PointAt</c> — so one plane holds all of them, whichever storey they are on, and
+    /// one elevation per wall is enough. The frame comes from the placements alone, which is what lets a
+    /// band be marked from a stored result without reading the model again (spec 13.1).
+    /// </remarks>
+    private sealed class SpandrelFrame
+    {
+        private SpandrelFrame(Transform transform, double halfLengthFeet, double halfHeightFeet)
+        {
+            Transform = transform;
+            HalfLengthFeet = halfLengthFeet;
+            HalfHeightFeet = halfHeightFeet;
+        }
+
+        public Transform Transform { get; }
+        public double HalfLengthFeet { get; }
+        public double HalfHeightFeet { get; }
+
+        /// <summary>Null when no band has a direction to look at, which leaves nothing to cut a section on.</summary>
+        public static SpandrelFrame? For(IReadOnlyList<PlannedSpandrelBand> bands)
+        {
+            var directed = bands.FirstOrDefault(b => !b.Placement.IsPoint);
+            if (directed is null) return null;
+
+            var along = ToFeet(directed.Placement.EndMm, 0.0) - ToFeet(directed.Placement.StartMm, 0.0);
+            if (along.GetLength() <= XyzTolerance) return null;
+
+            var basisX = along.Normalize();
+            var basisY = XYZ.BasisZ;
+            var anchor = ToFeet(directed.Placement.StartMm, 0.0);
+
+            double alongMin = double.MaxValue, alongMax = double.MinValue, upMin = double.MaxValue, upMax = double.MinValue;
+            foreach (var corner in bands.SelectMany(b => b.Placement.Corners()))
+            {
+                var point = ToFeet(corner);
+                var offset = point.Subtract(anchor).DotProduct(basisX);
+                alongMin = Math.Min(alongMin, offset);
+                alongMax = Math.Max(alongMax, offset);
+                upMin = Math.Min(upMin, point.Z);
+                upMax = Math.Max(upMax, point.Z);
+            }
+
+            var transform = Transform.Identity;
+            transform.BasisX = basisX;
+            transform.BasisY = basisY;
+            transform.BasisZ = basisX.CrossProduct(basisY);
+            transform.Origin = anchor
+                .Add(basisX.Multiply((alongMin + alongMax) / 2.0))
+                .Add(basisY.Multiply((upMin + upMax) / 2.0));
+
+            return new SpandrelFrame(
+                transform,
+                ((alongMax - alongMin) / 2.0) + ElevationMarginFeet,
+                ((upMax - upMin) / 2.0) + ElevationMarginFeet);
+        }
+
+        /// <summary>The section box <see cref="ViewSection.CreateSection"/> cuts the elevation on.</summary>
+        public BoundingBoxXYZ SectionBox()
+        {
+            var box = new BoundingBoxXYZ { Transform = Transform };
+            box.Min = new XYZ(-HalfLengthFeet, -HalfHeightFeet, -ElevationDepthFeet);
+            box.Max = new XYZ(HalfLengthFeet, HalfHeightFeet, ElevationDepthFeet);
+            return box;
+        }
+    }
 }
 
 /// <summary>

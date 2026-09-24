@@ -191,6 +191,21 @@ public sealed class CurtainWallJunctionPlacement
     public Point2D MidpointMm => new((StartMm.X + EndMm.X) / 2.0, (StartMm.Y + EndMm.Y) / 2.0);
 
     /// <summary>
+    /// The placement as the closed rectangle on the curtain wall's plane that the 層間帶 Filled Region
+    /// is drawn from (docs §7.1): bottom start, bottom end, top end, top start. The order walks the
+    /// rectangle once, so the adapter can turn it straight into a boundary without sorting anything;
+    /// the caller closes it. Degenerate for a <see cref="IsPoint"/> placement, which is CW-H and gets
+    /// a note rather than a band.
+    /// </summary>
+    public IReadOnlyList<PlacementCorner> Corners() => new ReadOnlyCollection<PlacementCorner>(new[]
+    {
+        new PlacementCorner(StartMm, BottomElevationMm),
+        new PlacementCorner(EndMm, BottomElevationMm),
+        new PlacementCorner(EndMm, TopElevationMm),
+        new PlacementCorner(StartMm, TopElevationMm)
+    });
+
+    /// <summary>
     /// The six numbers of the placement in metres, comma separated: start X, start Y, end X, end Y,
     /// bottom, top. One evidence field rather than six, the way <c>junction.panels</c> is one field.
     /// </summary>
@@ -231,6 +246,41 @@ public sealed class CurtainWallJunctionPlacement
         if (double.IsNaN(value) || double.IsInfinity(value))
             throw new ArgumentOutOfRangeException(name, "A placement must be made of finite numbers.");
     }
+}
+
+/// <summary>
+/// One corner of a <see cref="CurtainWallJunctionPlacement"/>: where it is in plan and how high it is,
+/// both in millimetres in host project coordinates.
+/// </summary>
+public readonly struct PlacementCorner : IEquatable<PlacementCorner>
+{
+    public PlacementCorner(Point2D planMm, double elevationMm)
+    {
+        PlanMm = planMm;
+        ElevationMm = elevationMm;
+    }
+
+    public Point2D PlanMm { get; }
+    public double ElevationMm { get; }
+
+    public bool Equals(PlacementCorner other) =>
+        PlanMm.Equals(other.PlanMm) && ElevationMm.Equals(other.ElevationMm);
+
+    public override bool Equals(object? obj) => obj is PlacementCorner other && Equals(other);
+
+    public override int GetHashCode()
+    {
+        unchecked
+        {
+            return (PlanMm.GetHashCode() * 31) + ElevationMm.GetHashCode();
+        }
+    }
+
+    public static bool operator ==(PlacementCorner left, PlacementCorner right) => left.Equals(right);
+    public static bool operator !=(PlacementCorner left, PlacementCorner right) => !left.Equals(right);
+
+    public override string ToString() => string.Format(
+        CultureInfo.InvariantCulture, "({0:0.#}, {1:0.#}) @ {2:0.#} mm", PlanMm.X, PlanMm.Y, ElevationMm);
 }
 
 /// <summary>

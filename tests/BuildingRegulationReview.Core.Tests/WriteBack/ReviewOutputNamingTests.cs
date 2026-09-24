@@ -50,6 +50,30 @@ public class ReviewOutputNamingTests
     }
 
     [Fact]
+    public void AnElevationIsNamedAfterTheReviewViewAndTheWallItShows()
+    {
+        // 帷幕牆規格 §7.1: the 層間帶 goes in an elevation of one curtain wall, and the name says which
+        // review view it belongs to so the two sort together in the browser.
+        Assert.Equal("面積_1F_防火檢討_CW-01_帷幕牆立面",
+            ReviewOutputNaming.CurtainWallElevation("面積_1F_防火檢討", "CW-01"));
+    }
+
+    [Fact]
+    public void AnElevationOfAWallWithNoMarkStillGetsAName()
+    {
+        Assert.Equal("面積_1F_防火檢討_未命名_帷幕牆立面", ReviewOutputNaming.CurtainWallElevation("面積_1F_防火檢討", null));
+    }
+
+    [Fact]
+    public void AnElevationStillReplacesCharactersRevitRefusesInTheViewItIsNamedAfter()
+    {
+        // The separator is kept — the review view's name is a name, not a part — but a character Revit
+        // will not accept would make the creation fail, so it goes.
+        Assert.Equal("面積_1F-東棟_防火檢討_CW-01_帷幕牆立面",
+            ReviewOutputNaming.CurtainWallElevation("面積_1F|東棟_防火檢討", "CW-01"));
+    }
+
+    [Fact]
     public void KeepsTheNameWhenNothingElseHasIt()
     {
         Assert.Equal("面積_1F_防火區劃", ReviewOutputNaming.MakeUnique("面積_1F_防火區劃", _ => false));
