@@ -1,6 +1,6 @@
 # 防火區劃與帷幕牆交接：第 79 條、第 79-3 條、第 79-4 條
 
-> 狀態：**實作中**。§12 的步驟 1、2 已完成（規則類別、`junction.*` 欄位、三條規則、15 個規則層測試）；步驟 3 起尚未開始。
+> 狀態：**實作中**。§12 的步驟 1–3 已完成（規則類別、`junction.*` 欄位、三條規則，以及 `CurtainWallJunctionInputs`／`Options`／`Check` 與 49 個規則層與 Check 層測試）；步驟 4 起尚未開始。
 
 ## 1. 功能摘要
 
@@ -124,6 +124,10 @@ Pass ⟺ panelMinFireRating >= 30 min
 | 該處為連跨複數樓層之挑空帷幕牆 | `NotApplicable`（改由第 79-2 條垂直區劃處理，證據須記錄轉出原因） |
 
 判定式不成立時，不得因「現場可能另有補強」而放寬為 `ManualReview`；90 cm／50 cm 是幾何可量測的門檻，量測結果不足就是 `Fail`。
+
+嵌板的 `防火檢討_設計防火時效` 若填成複合構造（例如 `1hr/2hr`），且那是唯一缺口，則判 `ManualReview`
+（錯誤碼 `BCR-RATE-001`）而非 `InsufficientData`：這與 `FireResistanceCheck` 對同一個參數的處置一致——
+值不是缺，是要由人決定哪一層作數，使用者補不了這個「缺口」。
 
 ## 4. 幾何解析
 
@@ -403,16 +407,40 @@ junction.projectionDepth >= 500 mm || (junction.continuousFireRatedLength >= 900
 | --- | --- | --- |
 | 1 | `RuleCategory.CompartmentContinuity` 與 `RuleFieldCatalog` 的 `junction.*` 欄位（含 `hostLegalReference`） | **已完成** |
 | 2 | `fire-review-rules.json` 三條規則，規則集版本升至 `2026.3-provisional` | **已完成** |
-| 3 | `CurtainWallJunctionInputs` / `Options` / `Check`（純 Domain 與 Application，以 fixture 跑完 §10 全部案例） | 未開始 |
+| 3 | `CurtainWallJunctionInputs` / `Options` / `Check`（純 Domain 與 Application，以 fixture 跑完 §10 全部案例） | **已完成** |
 | 4 | `ICurtainWallGeometryReader` 介面與 `RevitCurtainWallGeometryReader` 實作 | 未開始 |
 | 5 | `FireReviewSetupFeature` 加入 Curtain Panels 綁定 | 未開始 |
 | 6 | `FireReviewRunner`、`ReviewMarkup`、檢討表串接 | 未開始 |
 
 ### 步驟 1、2 的驗證
 
-`tests/BuildingRegulationReview.Core.Tests/Rules/CurtainWallJunctionRuleTests.cs`，15 個測試涵蓋：規則集編譯、`junction.*` 的類別隔離、CW-H／CW-V／CW-O 的 `Pass`／`NotApplicable`／`Fail`／`InsufficientData` 四態與邊界值、三種 `junction.kind` 互斥不衝突。全套 1103 個測試通過。
+`tests/BuildingRegulationReview.Core.Tests/Rules/CurtainWallJunctionRuleTests.cs`，15 個測試涵蓋：規則集編譯、`junction.*` 的類別隔離、CW-H／CW-V／CW-O 的 `Pass`／`NotApplicable`／`Fail`／`InsufficientData` 四態與邊界值、三種 `junction.kind` 互斥不衝突。
 
 規則集版本異動會使既有工作包的檢討結果標示為需更新（spec 13.1），這是預期行為。
+
+### 步驟 3 的產出與驗證
+
+`src/BuildingRegulationReview.Application/Checks/`：
+
+- `CurtainWallJunctionInputs.cs`：`CurtainWallJunctionKind`、`CurtainWallJunctionDoubt`（四種幾何無法判定的情形）、
+  `CurtainWallJunction`（交接處事實，四個具名工廠 `WallJunction`／`Spandrel`／`OtherPanels`／`Doubtful`
+  在建構時就擋掉違反輸入契約的資料）、`CurtainWallJunctionInputs`、`CurtainWallJunctionOptions`。
+- `CurtainWallJunctionCheck.cs`：`CurtainWallJunctionCheck.Review(...)` 產生六態 `ReviewResult`，
+  以及 `CurtainWallJunctionFinding`、`CurtainWallJunctionGroupSummary`（§7.2 的三列，CW-H 分列第 79／83 條）、
+  `CurtainWallJunctionReview`。
+
+幾何層的長度一律以 **mm** 交給 `CurtainWallJunction`（屬性名即帶單位，如 `ProjectionDepthMm`），
+Check 在進入規則引擎前換算為欄位宣告的 m，交界只有這一處。
+
+新增錯誤碼 `BCR-CW-001`～`BCR-CW-004`（非平面、交點無法解析、被 grid line 分割、連跨複數樓層），
+與新的 `ReviewCheckTypes.CompartmentContinuity`。
+
+`tests/BuildingRegulationReview.Core.Tests/Checks/CurtainWallJunctionCheckTests.cs`，34 個測試，
+以 shipped 規則集跑完 §10 中不需要真實幾何的案例（1–7、8、8b、8c、9–18），另含結果證據、
+檢討表三列、順序可重現與輸入契約的防呆。全套 1137 個測試通過。
+
+尚未由 Check 層涵蓋的 §10 案例：19（重跑覆蓋標示元素）、20（改型別後重跑轉 Stale）屬步驟 6；
+案例 8、17、18 在此層以 `CurtainWallJunctionDoubt` 為輸入驗證，真正的偵測在步驟 4。
 
 ### 步驟 3 的輸入契約
 

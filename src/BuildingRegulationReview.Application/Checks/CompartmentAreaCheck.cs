@@ -18,6 +18,9 @@ public static class ReviewCheckTypes
     public const string CompartmentArea = "CompartmentArea";
     public const string FireResistance = "FireResistance";
     public const string OpeningProtection = "OpeningProtection";
+
+    /// <summary>防火區劃與帷幕牆交接（第79條第3、4項、第79條之3、第79條之4）.</summary>
+    public const string CompartmentContinuity = "CompartmentContinuity";
 }
 
 /// <summary>How Revit's Area and the measured boundary compared (spec 11.4 step 2).</summary>

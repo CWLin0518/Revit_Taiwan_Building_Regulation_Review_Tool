@@ -98,6 +98,12 @@ public static class ReviewErrorCode
     // 構件防火時效（spec 11.5 第 5 點：複合構造無法判定）
     public const string FireRatingUndetermined = "BCR-RATE-001";
 
+    // 帷幕牆區劃交接（docs/regulations/curtain-wall-fire-compartment.md §3.4）
+    public const string CurtainWallNotPlanar = "BCR-CW-001";
+    public const string CurtainWallJunctionUnresolved = "BCR-CW-002";
+    public const string CurtainWallJunctionSplitByGridLine = "BCR-CW-003";
+    public const string CurtainWallVerticalSpace = "BCR-CW-004";
+
     // 人工覆寫（spec 11.8）
     public const string OverrideRejected = "BCR-OVR-001";
     public const string OverrideNeedsReconfirmation = "BCR-OVR-002";
@@ -152,6 +158,10 @@ public static class ReviewErrorCode
             { StatusBlocked, "尚不得進入 Ready" },
             { StatusAdvanced, "套件狀態已更新" },
             { FireRatingUndetermined, "複合構造無法判定防火時效" },
+            { CurtainWallNotPlanar, "帷幕牆非平面，超出 MVP 範圍" },
+            { CurtainWallJunctionUnresolved, "帷幕牆與區劃的交接處無法唯一解析" },
+            { CurtainWallJunctionSplitByGridLine, "交接帶被 grid line 分割" },
+            { CurtainWallVerticalSpace, "連跨複數樓層之帷幕牆，改依第79條之2檢討" },
             { OverrideRejected, "人工覆寫不成立" },
             { OverrideNeedsReconfirmation, "人工覆寫需重新確認" },
             { ReviewRunUnreadable, "檢討紀錄無法讀取" },
