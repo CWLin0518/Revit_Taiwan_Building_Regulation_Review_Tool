@@ -29,7 +29,8 @@ public sealed class FireReviewZoneRow
         bool? sprinklered = null,
         int? floorNumber = null,
         FireReviewZoneParameters present = FireReviewZoneParameters.None,
-        string? levelId = null)
+        string? levelId = null,
+        string? interiorFinish = null)
     {
         if (string.IsNullOrWhiteSpace(elementUniqueId)) throw new ArgumentException("Element UniqueId is required.", nameof(elementUniqueId));
         if (areaSquareMeters is double a && (double.IsNaN(a) || double.IsInfinity(a) || a < 0))
@@ -45,6 +46,7 @@ public sealed class FireReviewZoneRow
         Use = Clean(use);
         Sprinklered = sprinklered;
         FloorNumber = floorNumber;
+        InteriorFinish = Clean(interiorFinish);
         Present = present;
     }
 
@@ -70,6 +72,12 @@ public sealed class FireReviewZoneRow
     /// <summary>防火檢討_所在樓層序.</summary>
     public int? FloorNumber { get; }
 
+    /// <summary>
+    /// 防火檢討_室內裝修等級 — 第83條's three tiers, read only from the eleventh storey up. See
+    /// <see cref="InteriorFinishGrades"/> for the values the rule recognises.
+    /// </summary>
+    public string? InteriorFinish { get; }
+
     public FireReviewZoneParameters Present { get; }
 
     public string DisplayName => Number is null ? Name : $"{Number} {Name}";
@@ -87,6 +95,7 @@ public sealed class FireReviewZoneRow
             if ((Present & FireReviewZoneParameters.Use) == 0) missing.Add(ReviewInputSources.ZoneUse);
             if ((Present & FireReviewZoneParameters.Sprinklered) == 0) missing.Add(ReviewInputSources.Sprinklered);
             if ((Present & FireReviewZoneParameters.FloorNumber) == 0) missing.Add(ReviewInputSources.FloorNumber);
+            if ((Present & FireReviewZoneParameters.InteriorFinish) == 0) missing.Add(ReviewInputSources.InteriorFinish);
             return missing;
         }
     }
@@ -102,7 +111,8 @@ public enum FireReviewZoneParameters
     None = 0,
     Use = 1,
     Sprinklered = 2,
-    FloorNumber = 4
+    FloorNumber = 4,
+    InteriorFinish = 8
 }
 
 /// <summary>
@@ -212,4 +222,13 @@ public sealed class FireReviewParameterSet
 
     public IEnumerable<FireReviewZoneRow> ZonesMissingSprinklers =>
         Zones.Where(z => z.Sprinklered is null);
+
+    /// <summary>
+    /// The zones 第83條 will report 資料不足 for: from the eleventh storey up it reads 室內裝修等級,
+    /// and an unfilled grade is neither a pass on 五○○平方公尺 nor a fail on 一○○ (spec 11.3).
+    /// A zone whose storey nobody has filled in yet is not listed here — 所在樓層序 is what decides
+    /// whether the grade is read at all, and the panel already asks for that one on its own.
+    /// </summary>
+    public IEnumerable<FireReviewZoneRow> ZonesMissingInteriorFinish =>
+        Zones.Where(z => z.FloorNumber >= 11 && z.InteriorFinish is null);
 }

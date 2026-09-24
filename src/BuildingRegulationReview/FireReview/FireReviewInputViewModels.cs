@@ -74,14 +74,19 @@ namespace BuildingRegulationReview.FireReview
         private string _use;
         private string _sprinklered;
         private string _floorNumber;
+        private string _interiorFinish;
+        private string _buildingUse;
 
-        public FireReviewZoneRowViewModel(FireReviewZoneRow source, int? derivedFloorNumber = null)
+        public FireReviewZoneRowViewModel(FireReviewZoneRow source, int? derivedFloorNumber = null, string buildingUse = null)
         {
             Source = source ?? throw new ArgumentNullException(nameof(source));
             DerivedFloorNumber = derivedFloorNumber;
             _use = source.Use ?? "";
             _sprinklered = TextOf(source.Sprinklered);
             _floorNumber = TextOf(source.FloorNumber);
+            _interiorFinish = source.InteriorFinish ?? "";
+            _buildingUse = buildingUse ?? "";
+            InteriorFinishChoices = FinishChoices(source.InteriorFinish);
         }
 
         public FireReviewZoneRow Source { get; }
@@ -115,7 +120,7 @@ namespace BuildingRegulationReview.FireReview
             set => Set(ref _use, value);
         }
 
-        /// <summary>防火檢討_自動滅火設備 — decides whether the area limit is 1500 or 3000 m².</summary>
+        /// <summary>防火檢討_自動滅火設備 — doubles the area limit in both 第79條 and 第83條.</summary>
         public string Sprinklered
         {
             get => _sprinklered;
@@ -125,13 +130,51 @@ namespace BuildingRegulationReview.FireReview
             }
         }
 
-        /// <summary>The limit this zone is judged against, so the consequence of the tick is visible.</summary>
-        public string LimitText => YesNoOf(_sprinklered) switch
+        /// <summary>
+        /// 防火檢討_室內裝修等級 — 第83條's three tiers, read only from the eleventh storey up.
+        /// </summary>
+        /// <remarks>
+        /// A closed list rather than free text: the rule reads anything it does not recognise as
+        /// "not the 放寬 it names" and judges the 區劃 against 第一款's 100 m², so a typo would land
+        /// as a silently stricter limit instead of an error anyone can see.
+        /// </remarks>
+        public string InteriorFinish
         {
-            true => "上限 3000 m²",
-            false => "上限 1500 m²",
-            _ => "未填，無法判定上限"
-        };
+            get => _interiorFinish;
+            set
+            {
+                if (Set(ref _interiorFinish, value)) Raise(nameof(LimitText));
+            }
+        }
+
+        /// <summary>
+        /// The grades the cell offers: the three the rule knows, plus whatever this Area already
+        /// holds when that is something else — so an unrecognised value can be seen and corrected
+        /// rather than being cleared by a combo box that cannot show it.
+        /// </summary>
+        public IReadOnlyList<string> InteriorFinishChoices { get; }
+
+        /// <summary>
+        /// 建築物用途類組 as the 專案資訊 tab currently holds it, because 第83條第一款、第二款 double
+        /// their limit for Ｈ－２組. Pushed in by the panel; not written from this row.
+        /// </summary>
+        public string BuildingUse
+        {
+            get => _buildingUse;
+            set
+            {
+                if (Set(ref _buildingUse, value)) Raise(nameof(LimitText));
+            }
+        }
+
+        /// <summary>
+        /// The limit this zone would be judged against, so the consequence of each box is visible
+        /// before the review runs — including which article is deciding, which the storey picks.
+        /// </summary>
+        public string LimitText => Limit.Description;
+
+        internal ZoneAreaLimit Limit =>
+            ZoneAreaLimit.For(IntegerOf(_floorNumber), YesNoOf(_sprinklered), _interiorFinish, _buildingUse);
 
         /// <summary>防火檢討_所在樓層序 — 第70條 counts storeys from the top with it.</summary>
         public string FloorNumber
@@ -139,7 +182,11 @@ namespace BuildingRegulationReview.FireReview
             get => _floorNumber;
             set
             {
-                if (Set(ref _floorNumber, value)) Raise(nameof(FloorNumberDiffers));
+                if (Set(ref _floorNumber, value))
+                {
+                    Raise(nameof(FloorNumberDiffers));
+                    Raise(nameof(LimitText));
+                }
             }
         }
 
@@ -165,6 +212,21 @@ namespace BuildingRegulationReview.FireReview
                 yield return FireReviewParameterEdit.OfText(
                     Source.ElementUniqueId, ReviewInputSources.FloorNumber, TextOf(IntegerOf(_floorNumber)));
             }
+
+            if (!Same(_interiorFinish, Source.InteriorFinish))
+            {
+                yield return FireReviewParameterEdit.OfText(
+                    Source.ElementUniqueId, ReviewInputSources.InteriorFinish, _interiorFinish);
+            }
+        }
+
+        private static IReadOnlyList<string> FinishChoices(string stored)
+        {
+            var choices = new List<string> { "" };
+            choices.AddRange(InteriorFinishGrades.All);
+            if (!string.IsNullOrWhiteSpace(stored) && !choices.Contains(stored.Trim(), StringComparer.Ordinal))
+                choices.Add(stored.Trim());
+            return choices;
         }
     }
 

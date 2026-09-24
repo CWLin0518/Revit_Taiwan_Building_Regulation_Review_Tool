@@ -1,6 +1,6 @@
 # 防火區劃與帷幕牆交接：第 79 條、第 79-3 條、第 79-4 條
 
-> 狀態：**實作中**。§12 的步驟 1–7 全部已完成（規則類別、`junction.*` 欄位、三條交接規則、第 83 條面積規則與 `zone.interiorFinish`，`CurtainWallJunctionInputs`／`Options`／`Check`，`ICurtainWallGeometryReader`／`CurtainWallJunctionResolver`／`RevitCurtainWallGeometryReader`，Curtain Panels 的 `防火檢討_設計防火時效` 綁定與前置檢查，`FireReviewRunner` 的第四類檢查與檢討表第四列，§7.1 三種標示的標示計畫與差異比對含案例 19，以及 `RevitReviewViewMarker` 把交接處標註與層間帶畫進檢討平面與工具自建的帷幕牆檢討立面，共 143 個規則層、Check 層、幾何層、參數層、串接層與標示層測試）；**Revit 端尚未實機驗證**，且第 83 條的 `防火檢討_室內裝修等級` 尚未進入批次參數面板（見 §12 步驟 7）。
+> 狀態：**實作中**。§12 的步驟 1–8 全部已完成（規則類別、`junction.*` 欄位、三條交接規則、第 83 條面積規則與 `zone.interiorFinish`，`CurtainWallJunctionInputs`／`Options`／`Check`，`ICurtainWallGeometryReader`／`CurtainWallJunctionResolver`／`RevitCurtainWallGeometryReader`，Curtain Panels 的 `防火檢討_設計防火時效` 綁定與前置檢查，`FireReviewRunner` 的第四類檢查與檢討表第四列，§7.1 三種標示的標示計畫與差異比對含案例 19，以及 `RevitReviewViewMarker` 把交接處標註與層間帶畫進檢討平面與工具自建的帷幕牆檢討立面，共 143 個規則層、Check 層、幾何層、參數層、串接層與標示層測試），第 83 條的 `防火檢討_室內裝修等級` 也已經進入批次參數面板（下拉選單、批次填入，以及會講條號的「適用上限」欄，見 §12 步驟 8）；**Revit 端尚未實機驗證**。
 
 ## 1. 功能摘要
 
@@ -495,7 +495,8 @@ CW-V 的立面**由工具自己建立**，使用者不必事先備妥：每片�
 | 6a | `FireReviewRunner` 第四類檢查與檢討表第四列（含案例 20 的失效判定） | **已完成**（Revit 端待實機驗證） |
 | 6b-1 | `ReviewMarkup`：§7.1 三種標示的標示計畫與差異比對，含案例 19 | **已完成** |
 | 6b-2 | `RevitReviewViewMarker`：把 6b-1 的標註與層間帶真的畫進檢討視圖與立面／剖面 | **已完成**（Revit 端待實機驗證） |
-| 7 | 第 83 條面積規則 `tw-bcr-83-area` 與 `zone.interiorFinish`，規則集版本升至 `2026.4-provisional` | **已完成**（`防火檢討_室內裝修等級` 尚未進批次參數面板） |
+| 7 | 第 83 條面積規則 `tw-bcr-83-area` 與 `zone.interiorFinish`，規則集版本升至 `2026.4-provisional` | **已完成** |
+| 8 | `防火檢討_室內裝修等級` 進批次參數面板的「區劃」分頁，「適用上限」欄改為兩條規則共用的 `ZoneAreaLimit` | **已完成**（Revit 端待實機驗證） |
 
 ### 步驟 1、2 的驗證
 
@@ -767,7 +768,40 @@ Revit 不接受的字元）、`Candidates/CurtainWallJunctionResolverTests.cs` 1
 用途未填且超限時是 `InsufficientData` 而非 `Fail`。全套 **1232 個測試通過**，`BuildingRegulationReview.sln`
 與 WPF 外掛專案皆 0 警告 0 錯誤。
 
-**尚未做（下一段）**：`防火檢討_室內裝修等級` 還沒進批次參數面板——`FireReviewZoneRow`、
-`FireReviewZoneParameters`、`RevitFireReviewTypeScanner`、`FireReviewInputViewModels` 與
-`FireReviewParameterPanelWindow` 都還不認得它，使用者目前只能在 Revit 的屬性面板逐一填。
-桌面上那份 `防火檢討_Revit參數設定清單.md` 也要補這個參數與 `建築物用途類組` 的必要性變更。
+### 步驟 8 的產出與驗證
+
+把 `防火檢討_室內裝修等級` 接進批次參數面板的「區劃」分頁，使用者不必再到 Revit 的屬性面板逐一選 Area。
+
+改動的檔案：
+
+- `src/BuildingRegulationReview.Application/Parameters/ZoneAreaLimits.cs`（新檔）：
+  - `InteriorFinishGrades`：第 83 條第一至三款的三個值（`無`／`耐燃一級`／`耐燃一級含底材`），
+    與 `tw-bcr-83-area` 的比對字串逐字相同。面板因此能以**下拉選單**取代自由文字——規則把不認得的
+    字當成「沒做到放寬條件」而退回第一款的 100 ㎡（§11.3），打錯字不會報錯，只會悄悄變嚴。
+  - `ZoneAreaLimit.For(floorNumber, sprinklered, interiorFinish, buildingUse)`：面板顯示用的上限，
+    **重述**（不是取代）`tw-bcr-79-area` 與 `tw-bcr-83-area`，包含「哪個欄位沒填就答不出來」這件事——
+    樓層序決定由哪一條作答，所以它沒填時不再往下問；第三款不讀用途類組，所以那一階也不問它。
+- `src/BuildingRegulationReview.Application/Parameters/FireReviewInputRows.cs`：`FireReviewZoneRow`
+  新增 `InteriorFinish`、`FireReviewZoneParameters.InteriorFinish = 8` 與 `MissingParameters` 一筆；
+  `FireReviewParameterSet.ZonesMissingInteriorFinish` 只列**樓層序 ≥ 11 且等級未填**的區劃
+  （十層以下的區劃根本不會讀到這個值，樓層序未填的則由既有的提示負責）。
+- `src/BuildingRegulationReview.Revit/Parameters/RevitFireReviewTypeScanner.cs`：`Zones()` 讀取這個
+  參數的存在與值。
+- `src/BuildingRegulationReview/FireReview/FireReviewInputViewModels.cs`：新增 `InteriorFinish`、
+  `InteriorFinishChoices`（三個值加上「這個 Area 目前存著的不認得值」，否則 ComboBox 顯示不出
+  舊值，還會在繫結時把它清成空白）、由面板推入的 `BuildingUse`，`LimitText` 改讀 `ZoneAreaLimit`。
+- `src/BuildingRegulationReview/FireReview/FireReviewParameterPanelWindow.xaml(.cs)`：「區劃」分頁多一欄
+  下拉、「區劃批次填入…」多一欄、狀態列多一項「待填裝修等級 N 個十一層以上區劃」，並在專案資訊分頁的
+  `建築物用途類組` 變動時把值推給每一列（`PushBuildingUse`），讓上限即時反映Ｈ–２組但書。
+
+「適用上限」欄因此從 `上限 3000 m²` 變成會講條號、也會講缺什麼：`第83條 上限 400 m²`、
+`第79條 上限 1500 m²`、`未填裝修等級、用途類組、滅火設備，無法判定上限`、
+`第83條 上限 100 m²（裝修等級非放寬條件）`。
+
+新增 37 個測試（`Parameters/ZoneAreaLimitTests.cs` 與 `Parameters/FireReviewInputRowTests.cs`）。
+關鍵的一組是**與出貨規則交叉比對**：同一組輸入分別交給 `ZoneAreaLimit` 與 `RuleEngine`，斷言面板顯示的
+數字就是規則要求的數字，而且面板說「未填」的欄位就是引擎會判 `InsufficientData` 的欄位——面板在 C# 裡
+重述規則，唯一會壞的方式就是兩邊講的不一樣，所以那件事要有測試守著。全套 **1269 個測試通過**，
+`BuildingRegulationReview.sln` 與 WPF 外掛專案皆 0 警告 0 錯誤。
+
+桌面上那份 `防火檢討_Revit參數設定清單.md` 的附錄 I 已改寫成面板的操作說明（原本寫「尚未進面板」）。

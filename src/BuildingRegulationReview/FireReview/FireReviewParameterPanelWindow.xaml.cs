@@ -56,8 +56,13 @@ namespace BuildingRegulationReview.FireReview
             {
                 _project = new FireReviewProjectViewModel(set.Project);
                 ProjectPanel.DataContext = _project;
-                _project.PropertyChanged += (_, __) => ShowProjectWarnings();
+                _project.PropertyChanged += (_, e) =>
+                {
+                    ShowProjectWarnings();
+                    if (e.PropertyName == nameof(FireReviewProjectViewModel.BuildingUse)) PushBuildingUse();
+                };
                 ShowProjectWarnings();
+                PushBuildingUse();
             }
             else
             {
@@ -167,6 +172,17 @@ namespace BuildingRegulationReview.FireReview
                               (chooser.Material.Length == 0 ? "（清除）" : chooser.Material) + "。尚未寫入模型。";
         }
 
+        /// <summary>
+        /// Hands every zone the 用途類組 the 專案資訊 tab currently holds, so the limit each row
+        /// shows accounts for 第83條's Ｈ－２組 proviso as soon as that box changes. Display only —
+        /// the value is written from the project row, once, and never from a zone.
+        /// </summary>
+        private void PushBuildingUse()
+        {
+            if (_project == null) return;
+            foreach (var zone in _zones) zone.BuildingUse = _project.BuildingUse;
+        }
+
         private void FillZones_OnClick(object sender, RoutedEventArgs e)
         {
             CommitEdit();
@@ -184,6 +200,7 @@ namespace BuildingRegulationReview.FireReview
             {
                 if (chooser.Sprinklered != null) zone.Sprinklered = chooser.Sprinklered;
                 if (chooser.FloorNumber != null) zone.FloorNumber = chooser.FloorNumber;
+                if (chooser.InteriorFinish != null) zone.InteriorFinish = chooser.InteriorFinish;
             }
 
             ZoneGrid.Items.Refresh();
@@ -296,6 +313,11 @@ namespace BuildingRegulationReview.FireReview
             var floors = _zones.Count(z => string.IsNullOrEmpty(z.FloorNumber));
             if (floors > 0) parts.Add($"待填樓層序 {floors} 個區劃");
 
+            // 裝修等級 is only read from the eleventh storey up, so a zone whose storey is still
+            // blank is counted as 待填樓層序 above and not asked for twice.
+            var finishes = _zones.Count(z => (z.Limit.Gaps & ZoneAreaLimitGap.InteriorFinish) != 0);
+            if (finishes > 0) parts.Add($"待填裝修等級 {finishes} 個十一層以上區劃");
+
             StatusText.Text = string.Join("；", parts) + "。";
         }
     }
@@ -339,7 +361,8 @@ namespace BuildingRegulationReview.FireReview
         private const string Unchanged = "（不變更）";
 
         private readonly ComboBox _sprinklered = new ComboBox { Margin = new Thickness(0, 4, 0, 12), MinWidth = 220 };
-        private readonly TextBox _floorNumber = new TextBox { Margin = new Thickness(0, 4, 0, 4), MinWidth = 220 };
+        private readonly TextBox _floorNumber = new TextBox { Margin = new Thickness(0, 4, 0, 12), MinWidth = 220 };
+        private readonly ComboBox _interiorFinish = new ComboBox { Margin = new Thickness(0, 4, 0, 4), MinWidth = 220 };
 
         public ZoneFillWindow(int rowCount)
         {
@@ -353,12 +376,18 @@ namespace BuildingRegulationReview.FireReview
             _sprinklered.Items.Add(FireReviewEditableRow.NoText);
             _sprinklered.SelectedIndex = 0;
 
+            _interiorFinish.Items.Add(Unchanged);
+            foreach (var grade in InteriorFinishGrades.All) _interiorFinish.Items.Add(grade);
+            _interiorFinish.SelectedIndex = 0;
+
             var panel = new StackPanel { Margin = new Thickness(20) };
             panel.Children.Add(new TextBlock { Text = $"把選取的 {rowCount} 個區劃設為：", FontWeight = FontWeights.SemiBold });
             panel.Children.Add(new TextBlock { Text = "自動滅火設備", Margin = new Thickness(0, 12, 0, 0) });
             panel.Children.Add(_sprinklered);
             panel.Children.Add(new TextBlock { Text = "所在樓層序（留白代表不變更）" });
             panel.Children.Add(_floorNumber);
+            panel.Children.Add(new TextBlock { Text = "室內裝修等級（第83條，十一層以上才讀）" });
+            panel.Children.Add(_interiorFinish);
             panel.Children.Add(PanelButtons.Build(this));
             Content = panel;
         }
@@ -367,6 +396,9 @@ namespace BuildingRegulationReview.FireReview
         public string Sprinklered => _sprinklered.SelectedIndex <= 0 ? null : (string)_sprinklered.SelectedItem;
 
         public string FloorNumber => string.IsNullOrWhiteSpace(_floorNumber.Text) ? null : _floorNumber.Text.Trim();
+
+        /// <summary>One of the three grades 第83條 names, or null to leave each zone as it is.</summary>
+        public string InteriorFinish => _interiorFinish.SelectedIndex <= 0 ? null : (string)_interiorFinish.SelectedItem;
     }
 
     /// <summary>The 確定／取消 pair both little dialogs end with.</summary>

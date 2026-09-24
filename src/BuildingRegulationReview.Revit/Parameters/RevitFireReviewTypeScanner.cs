@@ -253,6 +253,7 @@ public sealed class RevitFireReviewTypeScanner
             if (Find(area, ReviewInputSources.ZoneUse) is not null) present |= FireReviewZoneParameters.Use;
             if (Find(area, ReviewInputSources.Sprinklered) is not null) present |= FireReviewZoneParameters.Sprinklered;
             if (Find(area, ReviewInputSources.FloorNumber) is not null) present |= FireReviewZoneParameters.FloorNumber;
+            if (Find(area, ReviewInputSources.InteriorFinish) is not null) present |= FireReviewZoneParameters.InteriorFinish;
 
             yield return new FireReviewZoneRow(
                 area.UniqueId,
@@ -267,7 +268,8 @@ public sealed class RevitFireReviewTypeScanner
                 use: Text(area, ReviewInputSources.ZoneUse),
                 sprinklered: YesNo(area, ReviewInputSources.Sprinklered),
                 floorNumber: Integer(area, ReviewInputSources.FloorNumber),
-                present: present);
+                present: present,
+                interiorFinish: Text(area, ReviewInputSources.InteriorFinish));
         }
     }
 
