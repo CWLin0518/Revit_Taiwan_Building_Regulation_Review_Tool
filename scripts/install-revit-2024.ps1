@@ -29,8 +29,37 @@ if ($runningRevit) {
     Write-Host 'Revit closed. Continuing deployment.'
 }
 
+# redeploy.bat starts a bare PowerShell with -NoProfile, so whatever put dotnet on the
+# interactive PATH is not there. Find the SDK where it actually lives instead of failing.
+function Resolve-Dotnet {
+    $onPath = Get-Command dotnet -CommandType Application -ErrorAction SilentlyContinue
+    if ($onPath) {
+        return $onPath.Source
+    }
+
+    $candidates = @()
+    if ($env:DOTNET_ROOT) {
+        $candidates += (Join-Path $env:DOTNET_ROOT 'dotnet.exe')
+    }
+    $candidates += (Join-Path $env:ProgramFiles 'dotnet\dotnet.exe')
+    if (${env:ProgramFiles(x86)}) {
+        $candidates += (Join-Path ${env:ProgramFiles(x86)} 'dotnet\dotnet.exe')
+    }
+    $candidates += (Join-Path $env:LOCALAPPDATA 'Microsoft\dotnet\dotnet.exe')
+
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate) {
+            Write-Host "dotnet is not on PATH; using $candidate"
+            return $candidate
+        }
+    }
+
+    throw 'Could not find dotnet. Install the .NET SDK, or set DOTNET_ROOT to the folder holding dotnet.exe, then run this installer again.'
+}
+
 if (-not $SkipBuild) {
-    dotnet build $projectFile -c Release
+    $dotnet = Resolve-Dotnet
+    & $dotnet build $projectFile -c Release
     if ($LASTEXITCODE -ne 0) {
         throw 'Build failed.'
     }
