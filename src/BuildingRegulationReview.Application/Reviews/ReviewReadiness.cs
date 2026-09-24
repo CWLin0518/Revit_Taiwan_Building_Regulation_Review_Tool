@@ -287,7 +287,13 @@ public static class ReviewReadiness
                     "確認要改用新版本後勾選「改用目前規則版本」再執行；舊的檢討結果與人工覆寫會標示為需更新。"));
         }
 
-        foreach (var category in new[] { RuleCategory.CompartmentArea, RuleCategory.FireResistance, RuleCategory.OpeningProtection })
+        foreach (var category in new[]
+                 {
+                     RuleCategory.CompartmentArea,
+                     RuleCategory.FireResistance,
+                     RuleCategory.OpeningProtection,
+                     RuleCategory.CompartmentContinuity
+                 })
         {
             if (input.RuleSet.Value.OfCategory(category).Any()) continue;
             items.Add(new ReadinessItem(ReadinessCondition.RuleSet, ReadinessSeverity.Warning, ReviewErrorCode.RuleMissing,
@@ -406,6 +412,7 @@ public static class ReviewReadiness
         RuleCategory.CompartmentArea => "防火區劃面積",
         RuleCategory.FireResistance => "構件防火時效",
         RuleCategory.OpeningProtection => "防火門窗",
+        RuleCategory.CompartmentContinuity => "帷幕牆區劃交接",
         _ => category.ToString()
     };
 

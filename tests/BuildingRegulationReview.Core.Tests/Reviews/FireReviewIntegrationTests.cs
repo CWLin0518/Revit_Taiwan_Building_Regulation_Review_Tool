@@ -27,7 +27,7 @@ namespace BuildingRegulationReview.Core.Tests.Reviews;
 public sealed class FireReviewIntegrationTests
 {
     private const string RuleSetId = "tw-bcr-fire";
-    private const string ShippedVersion = "2026.2-provisional";
+    private const string ShippedVersion = "2026.3-provisional";
     private static readonly DateTime Now = new(2026, 9, 22, 9, 0, 0, DateTimeKind.Utc);
     private static readonly RuleEvaluationContext Today = new(new DateTime(2026, 9, 22), "TW");
 

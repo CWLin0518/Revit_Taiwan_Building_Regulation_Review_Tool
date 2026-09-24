@@ -1,6 +1,6 @@
 # 防火區劃與帷幕牆交接：第 79 條、第 79-3 條、第 79-4 條
 
-> 狀態：**規劃中（尚未實作）**。本文件為實作前的規格草案，經確認後才寫入 Revit 端程式與規則集。
+> 狀態：**實作中**。§12 的步驟 1、2 已完成（規則類別、`junction.*` 欄位、三條規則、15 個規則層測試）；步驟 3 起尚未開始。
 
 ## 1. 功能摘要
 
@@ -53,28 +53,40 @@
 
 三個檢查項，共用同一組幾何解析結果。
 
-### 3.1 CW-H：區劃牆與帷幕牆之水平交接（第 79 條、第 83 條）
+判定式依條文自身的結構寫成「本文 + 但書」，而不是一條大的布林式——這同時是規則 DSL 的要求（見 §5.4）：
 
 ```text
-Pass ⟺  projectionDepth >= 500 mm
-     ∨ ( continuousFireRatedLength >= 900 mm
-         ∧ junctionMinFireRating >= hostRequiredFireRating
-         ∧ hasUnprotectedOpening == false )
+本文（requiredValue）：projectionDepth >= 500 mm
+但書（exemption）    ：continuousFireRatedLength >= 900 mm   ← CW-H
+                       continuousFireRatedHeight >= 900 mm   ← CW-V
 ```
+
+因此**但書成立時的狀態是 `NotApplicable` 而非 `Pass`**：條文寫的是「得**免**突出」，也就是本文的突出要求不再適用。依 spec 11.7，`NotApplicable` 與 `Pass` 同樣不阻礙總狀態顯示符合。
+
+### 3.1 CW-H：區劃牆與帷幕牆之水平交接（第 79 條、第 83 條）
+
+| 情形 | 狀態 |
+| --- | --- |
+| `projectionDepth >= 500 mm` | `Pass` |
+| 未突出，但 `continuousFireRatedLength >= 900 mm` | `NotApplicable`（得免突出） |
+| 未突出，且連續長度不足 | `Fail` |
+| 未突出，且連續長度無法量測 | `InsufficientData` |
 
 - `hostRequiredFireRating`：該區劃牆由規則引擎算出的要求時效（第 79 條第 1 項、第 83 條第 1 款均為 60 min）。
 - `continuousFireRatedLength`：以交點為中心，沿帷幕牆面往兩側連續具時效之構造長度**總和**（左 + 右）。
   **採總和判定，不要求兩側各 ≥ 450 mm**；交點一側為 900 mm、另一側為 0 mm 亦視為符合。依據為條文只寫「交接處之外牆面長度有九十公分以上」，未區分兩側。
+- 「具時效」的門檻內建在這個量測裡（見 §5.2）：只有 `providedFireRating >= hostRequiredFireRating` 的嵌板才計入長度。條文的「且該外牆構造具有與防火區劃之牆壁同等以上防火時效」因此不需要另一個判定式。
 - 90 cm 帶內若存在未受防護開口（`防火檢討_設計防火保護` 非「是」的門窗或可開啟嵌板），連續累積在該處中斷。
-- 交接帶涵蓋的每一片嵌板，其型別都必須有 `防火檢討_設計防火時效` 值；任一片缺值即為 `InsufficientData`，不得以其他片的值推定。
+- 交接帶涵蓋的任一嵌板型別缺 `防火檢討_設計防火時效` 值時，幾何層**不供給** `continuousFireRatedLength`，交由引擎判 `InsufficientData`；不得以其他片的值推定，也不得當作 0 而判 `Fail`。
 
 ### 3.2 CW-V：區劃樓地板與帷幕牆之層間交接（第 79-3 條）
 
-```text
-Pass ⟺  projectionDepth >= 500 mm
-     ∨ ( continuousFireRatedHeight >= 900 mm
-         ∧ junctionMinFireRating >= hostRequiredFireRating )
-```
+| 情形 | 狀態 |
+| --- | --- |
+| `projectionDepth >= 500 mm` | `Pass` |
+| 未突出，但 `continuousFireRatedHeight >= 900 mm` | `NotApplicable`（得免突出） |
+| 未突出，且連續高度不足 | `Fail` |
+| 未突出，且連續高度無法量測 | `InsufficientData` |
 
 - `continuousFireRatedHeight` = 下層嵌板實板高（樓板底以下連續段）＋ 樓板厚度投影段 ＋ 上層嵌板實板高（樓板頂以上連續段）。同樣採**總和**，不要求上下各半。
 - `hostRequiredFireRating`：該樓地板要求時效，沿用現有 `tw-bcr-70-floor-rating` 與 `tw-bcr-79-floor-rating` 的優先序結果（取高者）。因此**該值會隨樓層變動**：自頂層起算第 5 層以上為 120 min，其餘為 60 min。
@@ -84,10 +96,10 @@ Pass ⟺  projectionDepth >= 500 mm
 `projectionDepth < 500 mm` 而必須走 900 mm 但書時，第 79-3 條要求該段外牆「具有與樓地板**同等以上**防火時效」，因此：
 
 1. 層間帶內每一片嵌板的**型別**都必須有 `防火檢討_設計防火時效` 值。任一片缺值 → `InsufficientData`，不得推定，也不得因其他片有值就放行。
-2. 比較對象是**該樓層樓地板的要求時效**，不是固定 60 min。例如地上 20 層建築的 8 樓（自頂層起算第 13 層）樓地板要求 120 min，該層層間嵌板就必須 ≥ 120 min；只有 60 min 即為 `Fail`。
-3. `junctionMinFireRating` 取層間帶內所有嵌板的**最小值**，一片不足即不足。
+2. 比較對象是**該樓層樓地板的要求時效**，不是固定 60 min。例如地上 20 層建築的 8 樓（自頂層起算第 13 層）樓地板要求 120 min，該層層間嵌板就必須 ≥ 120 min；只有 60 min 的嵌板不計入 `continuousFireRatedHeight`，高度湊不到 900 mm 即為 `Fail`。
+3. 高度只累計達標的嵌板，因此一片不足等同於該段不連續。
 
-樓板突出 ≥ 500 mm 時，第一個條件已成立，不再要求嵌板時效，缺參數也不影響本項判定（該嵌板仍會落入 CW-O 的 30 min 檢查）。
+樓板突出 ≥ 500 mm 時，本文的要求已成立，引擎在讀但書之前就判 `Pass`，缺參數不影響本項判定（該嵌板仍會落入 CW-O 的 30 min 檢查）。這是把「突出」寫成 requiredValue、「90 cm」寫成 exemption 的直接好處：豁免條件算不出來只有在本文未過時才會轉成 `InsufficientData`。
 
 ### 3.3 CW-O：其餘帷幕牆面（第 79-4 條）
 
@@ -101,8 +113,9 @@ Pass ⟺ panelMinFireRating >= 30 min
 
 | 情形 | 狀態 |
 | --- | --- |
-| 判定式成立 | `Pass` |
-| 判定式不成立，且所有輸入齊備 | `Fail` |
+| 本文成立（突出 ≥ 500 mm，或 CW-O 之時效達標） | `Pass` |
+| 本文不成立但但書成立（連續長度／高度 ≥ 900 mm） | `NotApplicable`，理由 `Exempt`（得免突出） |
+| 本文與但書皆不成立，且所有輸入齊備 | `Fail` |
 | `防火檢討_設計防火時效` 未綁定至 Curtain Panels，或交接帶內任一嵌板型別缺值，且該項需依 900 mm 但書判定 | `InsufficientData` |
 | 帷幕牆為曲面、傾斜面、雙曲面，或嵌板非平面 | `ManualReview` |
 | 交點解析出兩組以上候選，或區劃牆端點與帷幕牆距離超過搜尋公差 | `ManualReview` |
@@ -204,7 +217,7 @@ public enum RuleCategory
 
 `mm` 字面量已由 `RuleUnits` 支援（換算為 `ReviewUnit.Meter`），不需新增單位。
 
-### 5.3 規則草案（加入 `Data/fire-review-rules.json`）
+### 5.3 已加入的規則（`Data/fire-review-rules.json`，規則集版本 `2026.3-provisional`）
 
 ```json
 {
@@ -216,9 +229,9 @@ public enum RuleCategory
   "jurisdiction": "TW",
   "priority": 10,
   "appliesWhen": "building.fireResistiveConstruction == true && junction.kind == \"WallToCurtainWall\"",
-  "requiredValue": "junction.projectionDepth >= 500 mm || (junction.continuousFireRatedLength >= 900 mm && junction.minFireRating >= junction.hostRequiredFireRating && junction.hasUnprotectedOpening == false)",
-  "exemptions": [],
-  "evidenceFields": [ "junction.curtainWallUniqueId", "junction.hostUniqueId", "junction.hostLegalReference", "junction.projectionDepth", "junction.continuousFireRatedLength", "junction.minFireRating", "junction.hostRequiredFireRating", "junction.hasUnprotectedOpening" ],
+  "requiredValue": "junction.projectionDepth >= 500 mm",
+  "exemptions": [ "junction.continuousFireRatedLength >= 900 mm" ],
+  "evidenceFields": [ "junction.curtainWallUniqueId", "junction.hostUniqueId", "junction.hostLegalReference", "junction.continuousFireRatedLength", "junction.minFireRating", "junction.hostRequiredFireRating", "junction.hasUnprotectedOpening" ],
   "severity": "Error"
 }
 ```
@@ -233,9 +246,9 @@ public enum RuleCategory
   "jurisdiction": "TW",
   "priority": 10,
   "appliesWhen": "building.fireResistiveConstruction == true && junction.kind == \"FloorToCurtainWall\"",
-  "requiredValue": "junction.projectionDepth >= 500 mm || (junction.continuousFireRatedHeight >= 900 mm && junction.minFireRating >= junction.hostRequiredFireRating)",
-  "exemptions": [],
-  "evidenceFields": [ "junction.curtainWallUniqueId", "junction.hostUniqueId", "junction.projectionDepth", "junction.continuousFireRatedHeight", "junction.minFireRating", "junction.hostRequiredFireRating" ],
+  "requiredValue": "junction.projectionDepth >= 500 mm",
+  "exemptions": [ "junction.continuousFireRatedHeight >= 900 mm" ],
+  "evidenceFields": [ "junction.curtainWallUniqueId", "junction.hostUniqueId", "junction.continuousFireRatedHeight", "junction.minFireRating", "junction.hostRequiredFireRating" ],
   "severity": "Error"
 }
 ```
@@ -252,10 +265,36 @@ public enum RuleCategory
   "appliesWhen": "building.fireResistiveConstruction == true && junction.kind == \"CurtainPanelOther\"",
   "requiredValue": "junction.minFireRating >= 30 min",
   "exemptions": [],
-  "evidenceFields": [ "junction.curtainWallUniqueId", "junction.minFireRating" ],
+  "evidenceFields": [ "junction.curtainWallUniqueId", "junction.zoneId" ],
   "severity": "Error"
 }
 ```
+
+三條規則以 `junction.kind` 互斥，同一交接處不會有兩條同時適用，因此不會落入引擎的 Conflict 路徑。
+
+### 5.4 為什麼判定式拆成「要求值 + 豁免條件」
+
+`RuleExpressionParser.ParseRequirement` 規定 `requiredValue` 必須是 **`實際值欄位 比較運算子 運算式`**，而且右側不得再引用左側那個欄位。原先草擬的
+
+```text
+junction.projectionDepth >= 500 mm || (junction.continuousFireRatedLength >= 900 mm && ...)
+```
+
+頂層是 `||` 而不是比較運算，會被規則編譯器以 `InvalidForm` 退回。引擎也不會把同一類別的多條規則做 AND：同優先序的規則若結論不一致會判 Conflict，低優先序的規則在高優先序有規則適用時根本不會執行。
+
+拆法不是為了遷就工具，而是回到條文本來的寫法——「應突出五十公分以上（本文）」「但……者，得免突出（但書）」。落到引擎的 `EvaluateApplicable` 流程上，每個邊界都自然正確：
+
+| 模型情形 | 引擎路徑 | 狀態 |
+| --- | --- | --- |
+| 突出 600 mm | 豁免不成立 → 本文成立 | `Pass` |
+| 突出 600 mm，但嵌板缺時效值 | 豁免無法判定，但本文成立 | `Pass`（豁免的資料缺口不影響） |
+| 未突出，連續 900 mm | 豁免成立，本文不再評估 | `NotApplicable`／`Exempt` |
+| 未突出，連續 850 mm | 豁免不成立 → 本文不成立 | `Fail` |
+| 未突出，連續長度無法量測 | 本文不成立 + 豁免有資料缺口 | `InsufficientData` |
+
+最後一列正是 spec 11.3「不可將資料不足誤判為未符合」在這個檢查上的落點，而且不需要 `CurtainWallJunctionCheck` 寫任何特例——引擎的既有語意就給出正確答案。
+
+另一個連帶結論：條文的「且該外牆構造具有同等以上防火時效」不寫成獨立條件，而是內建在 `continuousFireRatedLength` / `continuousFireRatedHeight` 的定義裡（§5.2）。這兩個量測只累計 `providedFireRating >= hostRequiredFireRating` 的嵌板，所以「90 cm 的具時效連續面」是一個量、一個門檻，剛好符合 DSL 的單一比較形式。
 
 ## 6. 參數需求
 
@@ -326,17 +365,17 @@ public enum RuleCategory
 | --- | --- | --- |
 | 1 | 區劃牆突出帷幕牆 600 mm | CW-H `Pass` |
 | 2 | 區劃牆突出 499 mm、交接帶無時效 | CW-H `Fail` |
-| 3 | 無突出、交接帶 900 mm 且嵌板 60 min | CW-H `Pass` |
+| 3 | 無突出、交接帶 900 mm 且嵌板 60 min | CW-H `NotApplicable`／`Exempt`（得免突出） |
 | 4 | 無突出、交接帶 899 mm 且嵌板 60 min | CW-H `Fail`（邊界值） |
-| 5 | 交接帶 1200 mm 但其中一片 30 min | CW-H `Fail`（取最小值） |
-| 6 | 交接帶 900 mm 但含未受防護窗 | CW-H `Fail` |
-| 7 | 無突出、交點左側 900 mm 具時效、右側 0 mm | CW-H `Pass`（採總和，不要求兩側各半） |
+| 5 | 交接帶 1200 mm 但其中一片 30 min | CW-H `Fail`（該片不計入長度，連續段湊不到 900 mm） |
+| 6 | 交接帶 900 mm 但含未受防護窗 | CW-H `Fail`（累積在開口處中斷） |
+| 7 | 無突出、交點左側 900 mm 具時效、右側 0 mm | CW-H `NotApplicable`（採總和，不要求兩側各半） |
 | 8 | 交接帶 900 mm 但中間有一條多餘 grid line，兩側嵌板皆 60 min | CW-H `ManualReview`，訊息含該 grid line 的 ElementId |
-| 8b | 承上，刪除該 grid line 使嵌板連續後重跑 | CW-H `Pass` |
+| 8b | 承上，刪除該 grid line 使嵌板連續後重跑 | CW-H `NotApplicable`（但書成立） |
 | 8c | 交接帶內 grid line 一側為 60 min 實板、另一側為無時效玻璃 | CW-H 依實際連續長度判定（該 grid line 是真實斷點，不列 `ManualReview`） |
-| 9 | 第 83 條區劃牆與帷幕牆交接、無突出、交接帶 900 mm 60 min | CW-H `Pass`，證據 `hostLegalReference == "第83條"` |
-| 10 | 層間實板 900 mm、60 min，該樓層樓地板要求 60 min | CW-V `Pass` |
-| 11 | 層間實板 900 mm、60 min，但該樓層樓地板要求 120 min（自頂層起算第 5 層以上） | CW-V `Fail`（同等以上） |
+| 9 | 第 83 條區劃牆與帷幕牆交接、無突出、交接帶 900 mm 60 min | CW-H `NotApplicable`，證據 `hostLegalReference == "第83條"` |
+| 10 | 層間實板 900 mm、60 min，該樓層樓地板要求 60 min | CW-V `NotApplicable`（得免突出） |
+| 11 | 層間實板 900 mm、60 min，但該樓層樓地板要求 120 min（自頂層起算第 5 層以上） | CW-V `Fail`（該段不計入高度） |
 | 12 | 層間實板 900 mm 但只有 30 min | CW-V `Fail` |
 | 13 | 樓板外突 500 mm、層間全玻璃且嵌板無時效值 | CW-V `Pass`（突出條件已成立，不要求嵌板時效） |
 | 14 | 樓板不突出、層間帶其中一片嵌板型別缺時效值 | CW-V `InsufficientData`（不得以其他片推定） |
@@ -358,15 +397,27 @@ public enum RuleCategory
 
 第 4 項屬解釋選擇而非條文明文（第 83 條本身未規定突出或 90 cm），若個案審查機關採狹義見解，於規則集 `appliesWhen` 排除即可，不需改程式。
 
-## 12. 實作啟動條件
+## 12. 實作進度
 
-本文件經確認後才寫入程式。實作順序建議：
+| 步驟 | 內容 | 狀態 |
+| --- | --- | --- |
+| 1 | `RuleCategory.CompartmentContinuity` 與 `RuleFieldCatalog` 的 `junction.*` 欄位（含 `hostLegalReference`） | **已完成** |
+| 2 | `fire-review-rules.json` 三條規則，規則集版本升至 `2026.3-provisional` | **已完成** |
+| 3 | `CurtainWallJunctionInputs` / `Options` / `Check`（純 Domain 與 Application，以 fixture 跑完 §10 全部案例） | 未開始 |
+| 4 | `ICurtainWallGeometryReader` 介面與 `RevitCurtainWallGeometryReader` 實作 | 未開始 |
+| 5 | `FireReviewSetupFeature` 加入 Curtain Panels 綁定 | 未開始 |
+| 6 | `FireReviewRunner`、`ReviewMarkup`、檢討表串接 | 未開始 |
 
-1. `RuleCategory.CompartmentContinuity` 與 `RuleFieldCatalog` 的 `junction.*` 欄位（含 `hostLegalReference`）。
-2. `fire-review-rules.json` 三條規則。
-3. `CurtainWallJunctionInputs` / `Options` / `Check`（純 Domain 與 Application，可先以 fixture 跑完 §10 的 20 個案例）。
-4. `ICurtainWallGeometryReader` 介面與 `RevitCurtainWallGeometryReader` 實作。
-5. `FireReviewSetupFeature` 加入 Curtain Panels 綁定。
-6. `FireReviewRunner`、`ReviewMarkup`、檢討表串接。
+### 步驟 1、2 的驗證
 
-第 3 步完成即為一個可獨立驗證的邊界，不需等到 Revit 端完成。
+`tests/BuildingRegulationReview.Core.Tests/Rules/CurtainWallJunctionRuleTests.cs`，15 個測試涵蓋：規則集編譯、`junction.*` 的類別隔離、CW-H／CW-V／CW-O 的 `Pass`／`NotApplicable`／`Fail`／`InsufficientData` 四態與邊界值、三種 `junction.kind` 互斥不衝突。全套 1103 個測試通過。
+
+規則集版本異動會使既有工作包的檢討結果標示為需更新（spec 13.1），這是預期行為。
+
+### 步驟 3 的輸入契約
+
+幾何層供給 `CurtainWallJunctionInputs` 時必須遵守：
+
+- `continuousFireRatedLength` / `continuousFireRatedHeight` 只累計 `providedFireRating >= hostRequiredFireRating` 的嵌板，遇 grid line、未受防護開口或時效不足的嵌板即停止累積。
+- 交接帶內任一嵌板缺時效值時，**不供給**該長度／高度欄位，讓引擎判 `InsufficientData`（不可填 0）。
+- `projectionDepth` 一律供給，沒有突出就是 0，不可省略——省略會讓本文變成資料不足。

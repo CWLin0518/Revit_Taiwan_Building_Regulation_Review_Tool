@@ -5,12 +5,19 @@ using System.Linq;
 
 namespace BuildingRegulationReview.Domain.Rules;
 
-/// <summary>The three kinds of check spec 11 performs; a rule belongs to exactly one.</summary>
+/// <summary>The kinds of check spec 11 performs; a rule belongs to exactly one.</summary>
 public enum RuleCategory
 {
     CompartmentArea,
     FireResistance,
-    OpeningProtection
+    OpeningProtection,
+
+    /// <summary>
+    /// Whether a compartment stays continuous where its boundary meets a curtain wall
+    /// (第79條第3、4項、第79-3條、第79-4條). Its subject is a junction, not a single element,
+    /// so it reads <c>junction.*</c> rather than <c>element.*</c> or <c>opening.*</c>.
+    /// </summary>
+    CompartmentContinuity
 }
 
 /// <summary>How loudly a failed rule speaks (spec 11.2). It never changes the six-state outcome.</summary>

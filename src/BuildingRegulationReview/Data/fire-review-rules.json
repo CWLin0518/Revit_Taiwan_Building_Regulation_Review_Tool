@@ -1,8 +1,8 @@
 {
   "schemaVersion": "1.0",
   "ruleSetId": "tw-bcr-fire",
-  "version": "2026.2-provisional",
-  "title": "建築技術規則建築設計施工編 防火構造與防火區劃（暫定示意規則：條文、版本與生效日期待 spec 19 第 2 項確認）。第70條主要構造規則列於優先序 20、第79條防火區劃規則列於優先序 10：兩者重疊的樓地板與承重牆壁，第70條的要求恆不低於第79條，故由第70條決定；非承重的區劃牆壁不屬第70條的主要構造，落回第79條。",
+  "version": "2026.3-provisional",
+  "title": "建築技術規則建築設計施工編 防火構造與防火區劃（暫定示意規則：條文、版本與生效日期待 spec 19 第 2 項確認）。第70條主要構造規則列於優先序 20、第79條防火區劃規則列於優先序 10：兩者重疊的樓地板與承重牆壁，第70條的要求恆不低於第79條，故由第70條決定；非承重的區劃牆壁不屬第70條的主要構造，落回第79條。CompartmentContinuity 規則檢討防火區劃與帷幕外牆的交接，依條文結構把「應突出五十公分」寫成要求值、把「得免突出」的九十公分但書寫成豁免條件，詳見 docs/regulations/curtain-wall-fire-compartment.md。",
   "rules": [
     {
       "ruleId": "tw-bcr-79-area",
@@ -116,6 +116,52 @@
       "requiredValue": "opening.providedFireProtection == \"是\"",
       "exemptions": [],
       "evidenceFields": [ "opening.kind", "opening.hostUniqueId", "opening.providedFireProtection" ],
+      "severity": "Error"
+    },
+    {
+      "ruleId": "tw-bcr-79-curtain-wall-junction",
+      "version": "1",
+      "category": "CompartmentContinuity",
+      "legalReference": "建築技術規則建築設計施工編第79條第3項、第4項（區劃來源含第83條）",
+      "effectiveDate": "2024-01-01",
+      "jurisdiction": "TW",
+      "priority": 10,
+      "appliesWhen": "building.fireResistiveConstruction == true && junction.kind == \"WallToCurtainWall\"",
+      "requiredValue": "junction.projectionDepth >= 500 mm",
+      "exemptions": [
+        "junction.continuousFireRatedLength >= 900 mm"
+      ],
+      "evidenceFields": [ "junction.curtainWallUniqueId", "junction.hostUniqueId", "junction.hostLegalReference", "junction.continuousFireRatedLength", "junction.minFireRating", "junction.hostRequiredFireRating", "junction.hasUnprotectedOpening" ],
+      "severity": "Error"
+    },
+    {
+      "ruleId": "tw-bcr-79-3-curtain-wall-spandrel",
+      "version": "1",
+      "category": "CompartmentContinuity",
+      "legalReference": "建築技術規則建築設計施工編第79條之3",
+      "effectiveDate": "2024-01-01",
+      "jurisdiction": "TW",
+      "priority": 10,
+      "appliesWhen": "building.fireResistiveConstruction == true && junction.kind == \"FloorToCurtainWall\"",
+      "requiredValue": "junction.projectionDepth >= 500 mm",
+      "exemptions": [
+        "junction.continuousFireRatedHeight >= 900 mm"
+      ],
+      "evidenceFields": [ "junction.curtainWallUniqueId", "junction.hostUniqueId", "junction.continuousFireRatedHeight", "junction.minFireRating", "junction.hostRequiredFireRating" ],
+      "severity": "Error"
+    },
+    {
+      "ruleId": "tw-bcr-79-4-curtain-wall-other",
+      "version": "1",
+      "category": "CompartmentContinuity",
+      "legalReference": "建築技術規則建築設計施工編第79條之4",
+      "effectiveDate": "2024-01-01",
+      "jurisdiction": "TW",
+      "priority": 20,
+      "appliesWhen": "building.fireResistiveConstruction == true && junction.kind == \"CurtainPanelOther\"",
+      "requiredValue": "junction.minFireRating >= 30 min",
+      "exemptions": [],
+      "evidenceFields": [ "junction.curtainWallUniqueId", "junction.zoneId" ],
       "severity": "Error"
     }
   ]

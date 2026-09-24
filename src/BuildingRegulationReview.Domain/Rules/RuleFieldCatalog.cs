@@ -76,15 +76,23 @@ public sealed class RuleFieldCatalog
     /// <summary>
     /// The fields the review can supply today. <c>building.*</c> and <c>zone.*</c> describe the
     /// compartment and are open to every category; <c>element.*</c> only exists for fire-resistance
-    /// subjects and <c>opening.*</c> only for opening-protection subjects.
+    /// subjects, <c>opening.*</c> only for opening-protection subjects and <c>junction.*</c> only
+    /// for compartment-continuity subjects.
     /// </summary>
     public static RuleFieldCatalog Default { get; } = CreateDefault();
 
     private static RuleFieldCatalog CreateDefault()
     {
-        var all = new[] { RuleCategory.CompartmentArea, RuleCategory.FireResistance, RuleCategory.OpeningProtection };
+        var all = new[]
+        {
+            RuleCategory.CompartmentArea,
+            RuleCategory.FireResistance,
+            RuleCategory.OpeningProtection,
+            RuleCategory.CompartmentContinuity
+        };
         var element = new[] { RuleCategory.FireResistance };
         var opening = new[] { RuleCategory.OpeningProtection };
+        var junction = new[] { RuleCategory.CompartmentContinuity };
         var boolean = RuleValueType.Boolean;
         var text = RuleValueType.Text;
         var number = RuleValueType.Quantity(ReviewUnit.None);
@@ -114,7 +122,22 @@ public sealed class RuleFieldCatalog
             new RuleFieldDefinition("opening.hostUniqueId", text, "Host 牆 UniqueId", opening),
             new RuleFieldDefinition("opening.hostIsCompartmentBoundary", boolean, "Host 牆是否為區劃邊界", opening),
             new RuleFieldDefinition("opening.area", RuleValueType.Quantity(ReviewUnit.SquareMeter), "開口面積", opening),
-            new RuleFieldDefinition("opening.providedFireProtection", text, "設計防火保護（是／否）", opening)
+            new RuleFieldDefinition("opening.providedFireProtection", text, "設計防火保護（是／否）", opening),
+
+            // 防火區劃與帷幕牆交接（docs/regulations/curtain-wall-fire-compartment.md §5.2）。
+            // 主體是「交接處」而非單一元素：一個交接處由區劃牆或區劃樓地板、帷幕牆與兩者相交
+            // 的那一段牆面共同構成，因此長度、高度、突出深度都是交接處自己的量測值。
+            new RuleFieldDefinition("junction.kind", text, "交接種類（WallToCurtainWall／FloorToCurtainWall／CurtainPanelOther）", junction),
+            new RuleFieldDefinition("junction.zoneId", text, "所屬區劃 Zone ID", junction),
+            new RuleFieldDefinition("junction.curtainWallUniqueId", text, "帷幕牆 UniqueId", junction),
+            new RuleFieldDefinition("junction.hostUniqueId", text, "區劃牆或區劃樓地板 UniqueId", junction),
+            new RuleFieldDefinition("junction.hostLegalReference", text, "區劃來源條文（第79條／第83條）", junction),
+            new RuleFieldDefinition("junction.hostRequiredFireRating", RuleValueType.Quantity(ReviewUnit.Minute), "區劃牆或樓地板之要求防火時效", junction),
+            new RuleFieldDefinition("junction.minFireRating", RuleValueType.Quantity(ReviewUnit.Minute), "交接帶內嵌板之最小設計防火時效", junction),
+            new RuleFieldDefinition("junction.continuousFireRatedLength", RuleValueType.Quantity(ReviewUnit.Meter), "交點兩側連續具時效之外牆面長度總和", junction),
+            new RuleFieldDefinition("junction.continuousFireRatedHeight", RuleValueType.Quantity(ReviewUnit.Meter), "層間連續具時效之外牆面高度總和", junction),
+            new RuleFieldDefinition("junction.projectionDepth", RuleValueType.Quantity(ReviewUnit.Meter), "區劃牆或樓地板突出帷幕牆外牆面之深度", junction),
+            new RuleFieldDefinition("junction.hasUnprotectedOpening", boolean, "交接帶內是否有未受防護開口", junction)
         });
     }
 }
