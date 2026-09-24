@@ -324,11 +324,20 @@ public static class CurtainWallJunctionCheck
         yield return new ReviewEvidenceItem("junction.id", ReviewValue.OfText(junction.JunctionId));
         yield return new ReviewEvidenceItem("junction.kind", ReviewValue.OfText(CurtainWallJunctionKinds.RuleText(junction.Kind)));
 
+        // Which curtain wall's plane a CW-V band lies on, so the 層間帶 of §7.1 can be drawn in the
+        // elevation that shows that wall — the markup plan never re-reads the model to find out.
+        yield return new ReviewEvidenceItem("junction.curtainWallUniqueId", ReviewValue.OfText(junction.CurtainWallUniqueId));
+
         // The 檢討表 splits CW-H by 第79條／第83條 (docs §7.2), and it is rebuilt from the stored
         // results alone — so the clause is recorded even for a junction no rule decided.
         if (junction.HostLegalReference is not null)
             yield return new ReviewEvidenceItem("junction.hostLegalReference", ReviewValue.OfText(junction.HostLegalReference));
         yield return new ReviewEvidenceItem("zone.name", ReviewValue.OfText(zone.Name));
+
+        // §7.1 marks CW-H at its intersection and CW-V over its 層間帶, and the markup plan is rebuilt
+        // from the stored results alone — so where the junction is has to travel with them.
+        if (junction.Placement is not null)
+            yield return new ReviewEvidenceItem("junction.placement", ReviewValue.OfText(junction.Placement.ToEvidenceText()));
         yield return new ReviewEvidenceItem("junction.panelCount", ReviewValue.Quantity(junction.PanelUniqueIds.Count, ReviewUnit.Count));
         if (junction.PanelUniqueIds.Count > 0)
             yield return new ReviewEvidenceItem("junction.panels", ReviewValue.OfText(string.Join(",", junction.PanelUniqueIds)));

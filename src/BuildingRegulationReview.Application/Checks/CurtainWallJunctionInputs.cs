@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
 using BuildingRegulationReview.Application.Diagnostics;
+using BuildingRegulationReview.Domain.Geometry;
 using BuildingRegulationReview.Domain.Reviews;
 
 namespace BuildingRegulationReview.Application.Checks;
@@ -131,6 +132,108 @@ public sealed class CurtainWallJunctionDoubt
 }
 
 /// <summary>
+/// Where a junction sits in the model, so the review view can mark it there (docs §7.1): a segment of
+/// the curtain wall's plan location line and the elevations the junction spans. CW-H is a point — the
+/// intersection, where the measurements are annotated — so its start and end are the same; CW-V is the
+/// 層間帶, across the floor edge and 900 mm above and below the slab.
+/// <para>
+/// Millimetres in host project coordinates, like everything the geometry layer produces (docs §4.4);
+/// the Revit adapter converts once, at its own boundary. The 檢討表 and the markup plan are both
+/// rebuilt from the stored results alone, so this travels with them through
+/// <see cref="ToEvidenceText"/> — in metres, the unit every other length in the evidence is in.
+/// </para>
+/// </summary>
+public sealed class CurtainWallJunctionPlacement
+{
+    /// <summary>Two plan points this close are the same point: a junction with no width.</summary>
+    private const double CoincidentToleranceMm = 0.5;
+
+    private const double MillimetersPerMeter = 1000.0;
+    private const string NumberFormat = "0.######";
+    private const char Separator = ',';
+
+    public CurtainWallJunctionPlacement(Point2D startMm, Point2D endMm, double bottomElevationMm, double topElevationMm)
+    {
+        Finite(startMm.X, nameof(startMm));
+        Finite(startMm.Y, nameof(startMm));
+        Finite(endMm.X, nameof(endMm));
+        Finite(endMm.Y, nameof(endMm));
+        Finite(bottomElevationMm, nameof(bottomElevationMm));
+        Finite(topElevationMm, nameof(topElevationMm));
+        if (topElevationMm <= bottomElevationMm)
+            throw new ArgumentOutOfRangeException(nameof(topElevationMm), "A placement has to span some height.");
+
+        StartMm = startMm;
+        EndMm = endMm;
+        BottomElevationMm = bottomElevationMm;
+        TopElevationMm = topElevationMm;
+    }
+
+    /// <summary>CW-H：the intersection point, where §7.1 asks for the measurements to be annotated.</summary>
+    public static CurtainWallJunctionPlacement At(Point2D pointMm, double bottomElevationMm, double topElevationMm) =>
+        new(pointMm, pointMm, bottomElevationMm, topElevationMm);
+
+    /// <summary>CW-V：the 層間帶, as wide as the floor edge and as tall as §4.5 defines it.</summary>
+    public static CurtainWallJunctionPlacement Band(Point2D startMm, Point2D endMm, double bottomElevationMm, double topElevationMm) =>
+        new(startMm, endMm, bottomElevationMm, topElevationMm);
+
+    public Point2D StartMm { get; }
+    public Point2D EndMm { get; }
+    public double BottomElevationMm { get; }
+    public double TopElevationMm { get; }
+
+    /// <summary>True for a junction that is one point in plan: nothing to draw a band across.</summary>
+    public bool IsPoint => StartMm.DistanceTo(EndMm) <= CoincidentToleranceMm;
+
+    public double LengthMm => StartMm.DistanceTo(EndMm);
+    public double HeightMm => TopElevationMm - BottomElevationMm;
+
+    public Point2D MidpointMm => new((StartMm.X + EndMm.X) / 2.0, (StartMm.Y + EndMm.Y) / 2.0);
+
+    /// <summary>
+    /// The six numbers of the placement in metres, comma separated: start X, start Y, end X, end Y,
+    /// bottom, top. One evidence field rather than six, the way <c>junction.panels</c> is one field.
+    /// </summary>
+    public string ToEvidenceText() => string.Join(Separator.ToString(), new[]
+    {
+        StartMm.X, StartMm.Y, EndMm.X, EndMm.Y, BottomElevationMm, TopElevationMm
+    }.Select(x => (x / MillimetersPerMeter).ToString(NumberFormat, CultureInfo.InvariantCulture)));
+
+    /// <summary>Reads back what <see cref="ToEvidenceText"/> wrote; false for anything else.</summary>
+    public static bool TryParseEvidence(string? text, out CurtainWallJunctionPlacement? placement)
+    {
+        placement = null;
+        if (string.IsNullOrWhiteSpace(text)) return false;
+
+        var parts = text!.Split(Separator);
+        if (parts.Length != 6) return false;
+
+        var numbers = new double[6];
+        for (var i = 0; i < 6; i++)
+            if (!double.TryParse(parts[i], NumberStyles.Float, CultureInfo.InvariantCulture, out numbers[i]) ||
+                double.IsNaN(numbers[i]) || double.IsInfinity(numbers[i]))
+                return false;
+
+        for (var i = 0; i < 6; i++) numbers[i] *= MillimetersPerMeter;
+        if (numbers[5] <= numbers[4]) return false;
+
+        placement = new CurtainWallJunctionPlacement(
+            new Point2D(numbers[0], numbers[1]), new Point2D(numbers[2], numbers[3]), numbers[4], numbers[5]);
+        return true;
+    }
+
+    public override string ToString() => string.Format(CultureInfo.InvariantCulture,
+        "({0:0.#}, {1:0.#})–({2:0.#}, {3:0.#}) @ {4:0.#}–{5:0.#} mm",
+        StartMm.X, StartMm.Y, EndMm.X, EndMm.Y, BottomElevationMm, TopElevationMm);
+
+    private static void Finite(double value, string name)
+    {
+        if (double.IsNaN(value) || double.IsInfinity(value))
+            throw new ArgumentOutOfRangeException(name, "A placement must be made of finite numbers.");
+    }
+}
+
+/// <summary>
 /// One junction as the geometry layer measured it (docs §12「步驟 3 的輸入契約」). Lengths are in
 /// millimetres, the unit the geometry layer works in; the check converts them to the metres the rule
 /// fields declare.
@@ -164,6 +267,7 @@ public sealed class CurtainWallJunction
         double? continuousFireRatedHeightMm,
         bool? hasUnprotectedOpening,
         IEnumerable<string>? panelUniqueIds,
+        CurtainWallJunctionPlacement? placement,
         CurtainWallJunctionDoubt? doubt)
     {
         if (string.IsNullOrWhiteSpace(junctionId)) throw new ArgumentException("Junction ID is required.", nameof(junctionId));
@@ -186,6 +290,7 @@ public sealed class CurtainWallJunction
         PanelUniqueIds = new ReadOnlyCollection<string>((panelUniqueIds ?? Array.Empty<string>())
             .Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim())
             .Distinct(StringComparer.Ordinal).OrderBy(x => x, StringComparer.Ordinal).ToList());
+        Placement = placement;
         Doubt = doubt;
     }
 
@@ -201,14 +306,15 @@ public sealed class CurtainWallJunction
         ProvidedFireRating? minFireRating = null,
         string hostLegalReference = CurtainWallJunctionReferences.Article79,
         bool? hasUnprotectedOpening = null,
-        IEnumerable<string>? panelUniqueIds = null)
+        IEnumerable<string>? panelUniqueIds = null,
+        CurtainWallJunctionPlacement? placement = null)
     {
         if (string.IsNullOrWhiteSpace(hostUniqueId)) throw new ArgumentException("The compartment wall's UniqueId is required.", nameof(hostUniqueId));
         if (string.IsNullOrWhiteSpace(hostLegalReference)) throw new ArgumentException("Name the clause the compartment comes from.", nameof(hostLegalReference));
 
         return new CurtainWallJunction(junctionId, CurtainWallJunctionKind.WallToCurtainWall, zoneId, curtainWallUniqueId,
             hostUniqueId, hostLegalReference, hostRequiredFireRatingMinutes, minFireRating,
-            projectionDepthMm, continuousFireRatedLengthMm, null, hasUnprotectedOpening, panelUniqueIds, null);
+            projectionDepthMm, continuousFireRatedLengthMm, null, hasUnprotectedOpening, panelUniqueIds, placement, null);
     }
 
     /// <summary>CW-V：一個層間帶的最不利取樣點（docs §4.3）.</summary>
@@ -222,13 +328,14 @@ public sealed class CurtainWallJunction
         double? hostRequiredFireRatingMinutes = null,
         ProvidedFireRating? minFireRating = null,
         bool? hasUnprotectedOpening = null,
-        IEnumerable<string>? panelUniqueIds = null)
+        IEnumerable<string>? panelUniqueIds = null,
+        CurtainWallJunctionPlacement? placement = null)
     {
         if (string.IsNullOrWhiteSpace(hostUniqueId)) throw new ArgumentException("The compartment floor's UniqueId is required.", nameof(hostUniqueId));
 
         return new CurtainWallJunction(junctionId, CurtainWallJunctionKind.FloorToCurtainWall, zoneId, curtainWallUniqueId,
             hostUniqueId, CurtainWallJunctionReferences.Article79_3, hostRequiredFireRatingMinutes, minFireRating,
-            projectionDepthMm, null, continuousFireRatedHeightMm, hasUnprotectedOpening, panelUniqueIds, null);
+            projectionDepthMm, null, continuousFireRatedHeightMm, hasUnprotectedOpening, panelUniqueIds, placement, null);
     }
 
     /// <summary>
@@ -244,7 +351,7 @@ public sealed class CurtainWallJunction
         new(junctionId, CurtainWallJunctionKind.CurtainPanelOther, zoneId, curtainWallUniqueId,
             null, null, null,
             minFireRating ?? throw new ArgumentNullException(nameof(minFireRating)),
-            null, null, null, null, panelUniqueIds, null);
+            null, null, null, null, panelUniqueIds, null, null);
 
     /// <summary>A junction the geometry could not measure, or one that belongs to another clause (docs §3.4).</summary>
     public static CurtainWallJunction Doubtful(
@@ -256,7 +363,7 @@ public sealed class CurtainWallJunction
         string? hostUniqueId = null,
         IEnumerable<string>? panelUniqueIds = null) =>
         new(junctionId, kind, zoneId, curtainWallUniqueId, hostUniqueId, null, null, null, null, null, null, null,
-            panelUniqueIds, doubt ?? throw new ArgumentNullException(nameof(doubt)));
+            panelUniqueIds, null, doubt ?? throw new ArgumentNullException(nameof(doubt)));
 
     /// <summary>Identifies this junction within the run; results and repeat runs key off it.</summary>
     public string JunctionId { get; }
@@ -291,6 +398,12 @@ public sealed class CurtainWallJunction
 
     /// <summary>The curtain panels the junction covers — what a failed result marks red (docs §7.1).</summary>
     public IReadOnlyList<string> PanelUniqueIds { get; }
+
+    /// <summary>
+    /// Where the junction is, for the review view's annotation (CW-H) and 層間帶 (CW-V); null for
+    /// CW-O, which is a set of panels rather than a place, and for a junction nothing was measured at.
+    /// </summary>
+    public CurtainWallJunctionPlacement? Placement { get; }
 
     /// <summary>Set when the geometry could not produce facts; then no rule runs on this junction.</summary>
     public CurtainWallJunctionDoubt? Doubt { get; }

@@ -413,6 +413,75 @@ public sealed class CurtainWallJunctionResolverTests
         Assert.All(inputs.Junctions, j => Assert.Equal(ZoneId, j.ZoneId));
     }
 
+    // --- 標示位置（docs §7.1：標示層從結果重建，位置必須由幾何層交出）-------------------------------
+
+    [Fact]
+    public void A_wall_junction_records_the_intersection_as_the_point_its_measurements_are_annotated_at()
+    {
+        var junction = Single(Resolve(Set(Wall(Glazing()), hosts: new[] { Host(5000) })),
+            CurtainWallJunctionKind.WallToCurtainWall);
+
+        var placement = junction.Placement!;
+        Assert.True(placement.IsPoint);
+        Assert.Equal(5000, placement.StartMm.X, 3);
+        Assert.Equal(0, placement.StartMm.Y, 3);
+        Assert.Equal(0, placement.BottomElevationMm, 3);
+        Assert.Equal(StoreyMm, placement.TopElevationMm, 3);
+    }
+
+    [Fact]
+    public void A_spandrel_records_the_band_the_floor_edge_spans_900_mm_above_and_below_the_slab()
+    {
+        var junction = Single(Resolve(Spandrel(spandrelMinutes: 30)), CurtainWallJunctionKind.FloorToCurtainWall);
+
+        var placement = junction.Placement!;
+        Assert.False(placement.IsPoint);
+        Assert.Equal(0, placement.StartMm.X, 3);
+        Assert.Equal(WallLengthMm, placement.EndMm.X, 3);
+        Assert.Equal(StoreyMm - 900, placement.BottomElevationMm, 3);
+        Assert.Equal(StoreyMm + 900, placement.TopElevationMm, 3);
+    }
+
+    [Fact]
+    public void A_band_is_clipped_to_the_curtain_wall_rather_than_running_off_its_top()
+    {
+        // 帷幕牆只到 4000，樓板在 3600：層間帶的上緣停在牆頂，不是 4500。
+        var panels = new[] { Panel("S", 0, WallLengthMm, 30, bottom: 0, top: 4000) };
+        var floor = new CompartmentFloorObservation("F1",
+            new[] { Rectangle(-500, -50, WallLengthMm + 500, 8000) }, StoreyMm, 60);
+        var set = new CurtainWallObservationSet(Package, "LVL", "2F", StoreyMm,
+            new[] { Zone() }, new[] { Wall(panels, top: 4000) }, compartmentFloors: new[] { floor },
+            levelElevationsMm: new[] { 0.0, StoreyMm });
+
+        var junction = Single(Resolve(set), CurtainWallJunctionKind.FloorToCurtainWall);
+
+        Assert.Equal(4000, junction.Placement!.TopElevationMm, 3);
+        Assert.Equal(StoreyMm - 900, junction.Placement!.BottomElevationMm, 3);
+    }
+
+    [Fact]
+    public void A_placement_survives_the_trip_through_the_evidence_it_is_stored_in()
+    {
+        var placement = Single(Resolve(Spandrel(spandrelMinutes: 30)), CurtainWallJunctionKind.FloorToCurtainWall).Placement!;
+
+        Assert.True(CurtainWallJunctionPlacement.TryParseEvidence(placement.ToEvidenceText(), out var read));
+        Assert.Equal(placement.StartMm.X, read!.StartMm.X, 3);
+        Assert.Equal(placement.EndMm.X, read.EndMm.X, 3);
+        Assert.Equal(placement.BottomElevationMm, read.BottomElevationMm, 3);
+        Assert.Equal(placement.TopElevationMm, read.TopElevationMm, 3);
+        Assert.False(CurtainWallJunctionPlacement.TryParseEvidence("1,2,3", out _));
+        Assert.False(CurtainWallJunctionPlacement.TryParseEvidence("1,2,3,4,5,5", out _));
+    }
+
+    [Fact]
+    public void Other_panels_have_no_placement_because_they_are_a_set_of_panels_not_a_place()
+    {
+        var junction = Single(Resolve(Set(Wall(Glazing()), hosts: new[] { Host(5000) })),
+            CurtainWallJunctionKind.CurtainPanelOther);
+
+        Assert.Null(junction.Placement);
+    }
+
     // --- fixtures ---------------------------------------------------------------------------------
 
     private static IReadOnlyList<CurtainWallJunction> Resolve(CurtainWallObservationSet set) =>

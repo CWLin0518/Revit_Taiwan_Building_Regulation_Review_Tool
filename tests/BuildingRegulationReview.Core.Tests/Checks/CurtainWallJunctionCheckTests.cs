@@ -434,6 +434,34 @@ public sealed class CurtainWallJunctionCheckTests
     // --- 結果本身 ----------------------------------------------------------------------------------
 
     [Fact]
+    public void The_result_records_where_the_junction_is_so_the_review_view_can_be_marked_from_it_alone()
+    {
+        // docs §7.1：標示層是從已儲存的結果重建的，重新讀模型會把標示畫到「現在」的位置。
+        var placement = CurtainWallJunctionPlacement.At(new Point2D(5000, 0), 0, 3600);
+        var finding = Single(new[]
+        {
+            CurtainWallJunction.WallJunction("j-h1", ZoneA, "cw-1", "wall-1", 0, 900,
+                hostRequiredFireRatingMinutes: 60, minFireRating: ProvidedFireRating.Rated(60),
+                panelUniqueIds: new[] { "panel-1" }, placement: placement)
+        });
+
+        var text = Assert.IsType<ReviewValue>(finding.Result.Evidence.Find("junction.placement")).Text;
+        Assert.True(CurtainWallJunctionPlacement.TryParseEvidence(text, out var read));
+        Assert.Equal(5000, read!.StartMm.X, 3);
+        Assert.Equal(3600, read.TopElevationMm, 3);
+    }
+
+    [Fact]
+    public void A_junction_with_no_placement_simply_records_none()
+    {
+        Assert.False(Single(new[] { Wall(0, 900) }).Result.Evidence.Has("junction.placement"));
+        Assert.False(Single(new[]
+        {
+            CurtainWallJunction.OtherPanels("j-o1", ZoneA, "cw-1", ProvidedFireRating.Rated(30), new[] { "panel-9" })
+        }).Result.Evidence.Has("junction.placement"));
+    }
+
+    [Fact]
     public void The_result_keeps_the_measurement_the_clause_and_where_the_inputs_came_from()
     {
         var finding = Single(new[] { Wall(0, 900) });

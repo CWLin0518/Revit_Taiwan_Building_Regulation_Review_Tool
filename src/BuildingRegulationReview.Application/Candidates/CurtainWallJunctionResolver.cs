@@ -193,7 +193,8 @@ public static class CurtainWallJunctionResolver
             measurement.MinRating,
             host.LegalReference,
             measurement.HasUnprotectedOpening,
-            measurement.PanelUniqueIds);
+            measurement.PanelUniqueIds,
+            CurtainWallJunctionPlacement.At(wall.PointAt(at), host.BottomElevationMm, host.TopElevationMm));
     }
 
     // --- CW-V：區劃樓地板與帷幕牆之層間交接（docs §4.3）-----------------------------------------
@@ -259,8 +260,27 @@ public static class CurtainWallJunctionResolver
                 floor.RequiredFireRatingMinutes,
                 worst.MinRating,
                 worst.HasUnprotectedOpening,
-                worst.PanelUniqueIds);
+                worst.PanelUniqueIds,
+                SpandrelPlacement(wall, floor, span, options));
         }
+    }
+
+    /// <summary>
+    /// The 層間帶 as §4.5 defines it — the floor edge, 900 mm above and below the slab — clipped to the
+    /// curtain wall itself, which is what the review view draws red (docs §7.1). Null when the wall
+    /// leaves no band at this floor, e.g. a slab at its very top.
+    /// </summary>
+    private static CurtainWallJunctionPlacement? SpandrelPlacement(
+        CurtainWallObservation wall,
+        CompartmentFloorObservation floor,
+        Span span,
+        CurtainWallJunctionOptions options)
+    {
+        var bottom = Math.Max(wall.BaseElevationMm, floor.ElevationMm - options.MinFireRatedRunMm);
+        var top = Math.Min(wall.TopElevationMm, floor.ElevationMm + options.MinFireRatedRunMm);
+        if (top - bottom <= SnapMm) return null;
+
+        return CurtainWallJunctionPlacement.Band(wall.PointAt(span.Low), wall.PointAt(span.High), bottom, top);
     }
 
     /// <summary>

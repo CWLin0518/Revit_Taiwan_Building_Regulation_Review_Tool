@@ -14,11 +14,33 @@ using BuildingRegulationReview.Domain.Reviews;
 namespace BuildingRegulationReview.Application.Reviews;
 
 /// <summary>
-/// The ownership mark of a red Filled Region in the review view (spec 11.4 item 4: 標註元素須含 Package
-/// ID、Run ID、Zone ID). The token carries all three; what a later run matches on is the
-/// <see cref="Slot"/> — package, zone and part — so a new run takes over the region the last run drew
-/// for the same part of the same 區劃 instead of drawing a second one (spec 13.2).
+/// What a review mark is, which is also what family of marks a later run matches it against. A run
+/// that plans no spandrel band must not take a missing band as licence to delete the notes — so each
+/// kind is diffed among its own (see <see cref="ReviewMarkupDiff"/>).
 /// </summary>
+public enum ReviewMarkKind
+{
+    /// <summary>A red Filled Region over one enclosed Area of a failing 區劃 (spec 11.4 item 4).</summary>
+    Zone,
+
+    /// <summary>A text note at a 帷幕牆 junction, carrying what was measured there (帷幕牆規格 §7.1).</summary>
+    JunctionNote,
+
+    /// <summary>A red Filled Region over a 層間帶 in the elevation view (帷幕牆規格 §7.1).</summary>
+    SpandrelBand
+}
+
+/// <summary>
+/// The ownership mark of a review mark in the review view (spec 11.4 item 4: 標註元素須含 Package
+/// ID、Run ID、Zone ID). The token carries all three; what a later run matches on is the
+/// <see cref="Slot"/> — package, zone, part, kind and subject — so a new run takes over the mark the
+/// last run drew for the same thing instead of drawing a second one (spec 13.2).
+/// </summary>
+/// <remarks>
+/// A <see cref="ReviewMarkKind.Zone"/> mark keeps the five-token form the tool has always written, so
+/// regions already in a model still parse and are taken over rather than duplicated; the 帷幕牆 marks
+/// of 帷幕牆規格 §7.1 add the kind and the junction they belong to.
+/// </remarks>
 public readonly struct ReviewMarkKey : IEquatable<ReviewMarkKey>
 {
     /// <summary>Distinct from the P2 prefixes, so a review mark is never read as a boundary element.</summary>
@@ -27,16 +49,35 @@ public readonly struct ReviewMarkKey : IEquatable<ReviewMarkKey>
     private const char Separator = '/';
 
     public ReviewMarkKey(Guid packageId, Guid runId, Guid zoneId, int partIndex)
+        : this(packageId, runId, zoneId, partIndex, ReviewMarkKind.Zone, null)
+    {
+    }
+
+    public ReviewMarkKey(Guid packageId, Guid runId, Guid zoneId, int partIndex, ReviewMarkKind kind, string? subject)
     {
         if (packageId == Guid.Empty) throw new ArgumentException("Package ID cannot be empty.", nameof(packageId));
         if (runId == Guid.Empty) throw new ArgumentException("Run ID cannot be empty.", nameof(runId));
         if (zoneId == Guid.Empty) throw new ArgumentException("Zone ID cannot be empty.", nameof(zoneId));
         if (partIndex < 0) throw new ArgumentOutOfRangeException(nameof(partIndex));
+        if (!Enum.IsDefined(typeof(ReviewMarkKind), kind)) throw new ArgumentOutOfRangeException(nameof(kind));
+
+        var trimmed = (subject ?? string.Empty).Trim();
+        if (kind == ReviewMarkKind.Zone)
+        {
+            if (trimmed.Length > 0) throw new ArgumentException("A 區劃 mark is identified by its part alone.", nameof(subject));
+        }
+        else
+        {
+            if (trimmed.Length == 0) throw new ArgumentException("A 帷幕牆 mark has to name what it belongs to.", nameof(subject));
+            if (trimmed.IndexOf(Separator) >= 0) throw new ArgumentException($"A subject cannot contain '{Separator}'.", nameof(subject));
+        }
 
         PackageId = packageId;
         RunId = runId;
         ZoneId = zoneId;
         PartIndex = partIndex;
+        Kind = kind;
+        Subject = trimmed;
     }
 
     public Guid PackageId { get; }
@@ -46,22 +87,37 @@ public readonly struct ReviewMarkKey : IEquatable<ReviewMarkKey>
     /// <summary>Which enclosed Area of the 區劃, in the order the candidate zone lists them.</summary>
     public int PartIndex { get; }
 
-    /// <summary>What identifies the region across runs: everything but the run.</summary>
+    public ReviewMarkKind Kind { get; }
+
+    /// <summary>What the mark belongs to within the 區劃 — the 交接處代號 for a 帷幕牆 mark, empty for a 區劃 one.</summary>
+    public string Subject { get; }
+
+    /// <summary>What identifies the mark across runs: everything but the run.</summary>
     public string Slot => string.Join(Separator.ToString(),
         PackageId.ToString("N", CultureInfo.InvariantCulture),
         ZoneId.ToString("N", CultureInfo.InvariantCulture),
-        PartIndex.ToString(CultureInfo.InvariantCulture));
+        PartIndex.ToString(CultureInfo.InvariantCulture),
+        Kind.ToString(),
+        Subject);
 
-    public string ToToken() => string.Join(Separator.ToString(),
-        Prefix,
-        PackageId.ToString("N", CultureInfo.InvariantCulture),
-        RunId.ToString("N", CultureInfo.InvariantCulture),
-        ZoneId.ToString("N", CultureInfo.InvariantCulture),
-        PartIndex.ToString(CultureInfo.InvariantCulture));
+    public string ToToken()
+    {
+        var common = string.Join(Separator.ToString(),
+            Prefix,
+            PackageId.ToString("N", CultureInfo.InvariantCulture),
+            RunId.ToString("N", CultureInfo.InvariantCulture),
+            ZoneId.ToString("N", CultureInfo.InvariantCulture),
+            PartIndex.ToString(CultureInfo.InvariantCulture));
+
+        return Kind == ReviewMarkKind.Zone ? common : common + Separator + Kind + Separator + Subject;
+    }
 
     /// <summary>The readable form the adapter also writes to the region's Comments, for a user looking at it in Revit.</summary>
-    public string ToLabel() =>
-        $"Package {PackageId:D} / Run {RunId:D} / Zone {ZoneId:D} / Part {PartIndex.ToString(CultureInfo.InvariantCulture)}";
+    public string ToLabel()
+    {
+        var text = $"Package {PackageId:D} / Run {RunId:D} / Zone {ZoneId:D} / Part {PartIndex.ToString(CultureInfo.InvariantCulture)}";
+        return Kind == ReviewMarkKind.Zone ? text : text + $" / {Kind} {Subject}";
+    }
 
     public static bool TryParse(string? token, out ReviewMarkKey key)
     {
@@ -69,19 +125,29 @@ public readonly struct ReviewMarkKey : IEquatable<ReviewMarkKey>
         if (string.IsNullOrWhiteSpace(token)) return false;
 
         var parts = token!.Trim().Split(Separator);
-        if (parts.Length != 5) return false;
+        if (parts.Length != 5 && parts.Length != 7) return false;
         if (!string.Equals(parts[0], Prefix, StringComparison.Ordinal)) return false;
         if (!Guid.TryParseExact(parts[1], "N", out var packageId) || packageId == Guid.Empty) return false;
         if (!Guid.TryParseExact(parts[2], "N", out var runId) || runId == Guid.Empty) return false;
         if (!Guid.TryParseExact(parts[3], "N", out var zoneId) || zoneId == Guid.Empty) return false;
         if (!int.TryParse(parts[4], NumberStyles.Integer, CultureInfo.InvariantCulture, out var partIndex) || partIndex < 0) return false;
 
-        key = new ReviewMarkKey(packageId, runId, zoneId, partIndex);
+        var kind = ReviewMarkKind.Zone;
+        var subject = (string?)null;
+        if (parts.Length == 7)
+        {
+            if (!Enum.TryParse(parts[5], out kind) || !Enum.IsDefined(typeof(ReviewMarkKind), kind)) return false;
+            if (kind == ReviewMarkKind.Zone || parts[6].Length == 0) return false;
+            subject = parts[6];
+        }
+
+        key = new ReviewMarkKey(packageId, runId, zoneId, partIndex, kind, subject);
         return true;
     }
 
     public bool Equals(ReviewMarkKey other) =>
-        PackageId == other.PackageId && RunId == other.RunId && ZoneId == other.ZoneId && PartIndex == other.PartIndex;
+        PackageId == other.PackageId && RunId == other.RunId && ZoneId == other.ZoneId && PartIndex == other.PartIndex &&
+        Kind == other.Kind && string.Equals(Subject, other.Subject, StringComparison.Ordinal);
 
     public override bool Equals(object? obj) => obj is ReviewMarkKey other && Equals(other);
 
@@ -94,6 +160,8 @@ public readonly struct ReviewMarkKey : IEquatable<ReviewMarkKey>
             hash = (hash * 31) + RunId.GetHashCode();
             hash = (hash * 31) + ZoneId.GetHashCode();
             hash = (hash * 31) + PartIndex;
+            hash = (hash * 31) + (int)Kind;
+            hash = (hash * 31) + (Subject ?? string.Empty).GetHashCode();
             return hash;
         }
     }
@@ -197,12 +265,16 @@ public sealed class ReviewMarkupPlan
         Guid runId,
         IEnumerable<PlannedReviewRegion> regions,
         IEnumerable<PlannedElementOverride> overrides,
+        IEnumerable<PlannedReviewNote> notes,
+        IEnumerable<PlannedSpandrelBand> bands,
         IEnumerable<SkippedReviewMark> skipped)
     {
         PackageId = packageId;
         RunId = runId;
         Regions = new ReadOnlyCollection<PlannedReviewRegion>(regions.ToList());
         Overrides = new ReadOnlyCollection<PlannedElementOverride>(overrides.ToList());
+        Notes = new ReadOnlyCollection<PlannedReviewNote>(notes.ToList());
+        Bands = new ReadOnlyCollection<PlannedSpandrelBand>(bands.ToList());
         Skipped = new ReadOnlyCollection<SkippedReviewMark>(skipped.ToList());
     }
 
@@ -210,6 +282,13 @@ public sealed class ReviewMarkupPlan
     public Guid RunId { get; }
     public IReadOnlyList<PlannedReviewRegion> Regions { get; }
     public IReadOnlyList<PlannedElementOverride> Overrides { get; }
+
+    /// <summary>The 帷幕牆 annotations of 帷幕牆規格 §7.1, in junction order.</summary>
+    public IReadOnlyList<PlannedReviewNote> Notes { get; }
+
+    /// <summary>The 層間帶 regions of 帷幕牆規格 §7.1 (CW-V), in junction order.</summary>
+    public IReadOnlyList<PlannedSpandrelBand> Bands { get; }
+
     public IReadOnlyList<SkippedReviewMark> Skipped { get; }
 
     /// <summary>
@@ -228,6 +307,8 @@ public sealed class ReviewMarkupPlan
 
         var byZone = zones.GroupBy(z => z.ZoneIdText, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
         var regions = new List<PlannedReviewRegion>();
+        var notes = new List<PlannedReviewNote>();
+        var bands = new List<PlannedSpandrelBand>();
         var skipped = new List<SkippedReviewMark>();
         var failing = new List<(string ElementUniqueId, ReviewTableEntry Entry)>();
 
@@ -254,6 +335,12 @@ public sealed class ReviewMarkupPlan
                 continue;
             }
 
+            if (entry.JunctionKind is CurtainWallJunctionKind junctionKind)
+            {
+                PlanJunction(table, entry, junctionKind, byZone, notes, bands, failing, skipped);
+                continue;
+            }
+
             foreach (var subject in entry.LocateUniqueIds)
                 failing.Add((subject, entry));
         }
@@ -264,7 +351,9 @@ public sealed class ReviewMarkupPlan
             .Select(g => new PlannedElementOverride(g.Key, g.Select(x => x.Entry)));
 
         return Result.Success(new ReviewMarkupPlan(table.PackageId, table.RunId,
-            regions.OrderBy(r => r.Key.Slot, StringComparer.Ordinal), overrides, skipped));
+            regions.OrderBy(r => r.Key.Slot, StringComparer.Ordinal), overrides,
+            notes.OrderBy(n => n.Key.Slot, StringComparer.Ordinal),
+            bands.OrderBy(b => b.Key.Slot, StringComparer.Ordinal), skipped));
     }
 
     internal static string RegionSignature(string zoneName, IReadOnlyList<IReadOnlyList<Point2D>> loops) =>
@@ -299,6 +388,95 @@ public sealed class ReviewMarkupPlan
         if (drawn == 0)
             skipped.Add(new SkippedReviewMark(entry.ResultId, Subject(entry, true),
                 "區劃沒有封閉的面積，無法建立填滿區域"));
+    }
+
+    /// <summary>
+    /// 帷幕牆規格 §7.1: CW-H paints the panels at the junction red and annotates the intersection,
+    /// CW-V draws the 層間帶 red in the elevation and annotates the height, CW-O paints its panels red.
+    /// <para>
+    /// A 帷幕牆 result is about the curtain wall, its host and its panels, so it cannot be painted the
+    /// way a member result is — painting <see cref="ReviewTableEntry.LocateUniqueIds"/> would turn the
+    /// whole curtain wall and the 區劃牆 red as well. The panels the junction actually covers are what
+    /// the evidence recorded, and that is what is painted.
+    /// </para>
+    /// </summary>
+    private static void PlanJunction(
+        ReviewTable table,
+        ReviewTableEntry entry,
+        CurtainWallJunctionKind kind,
+        IReadOnlyDictionary<string, CandidateZone> zones,
+        List<PlannedReviewNote> notes,
+        List<PlannedSpandrelBand> bands,
+        List<(string ElementUniqueId, ReviewTableEntry Entry)> failing,
+        List<SkippedReviewMark> skipped)
+    {
+        var evidence = entry.Result.Evidence;
+        var subject = Subject(entry, false);
+
+        // CW-V is marked by its 層間帶, not by its panels: a spandrel's panels are shown in the
+        // elevation the band is drawn in, and painting them in the plan would say nothing (§7.1).
+        if (kind != CurtainWallJunctionKind.FloorToCurtainWall)
+        {
+            var panels = CurtainWallReviewMarks.Panels(evidence);
+            if (panels.Count == 0)
+                skipped.Add(new SkippedReviewMark(entry.ResultId, subject, "結果沒有記錄交接處的帷幕嵌板，無法標示紅色覆寫"));
+            foreach (var panel in panels) failing.Add((panel, entry));
+        }
+
+        if (kind == CurtainWallJunctionKind.CurtainPanelOther) return;
+
+        var junctionId = CurtainWallReviewMarks.JunctionId(evidence);
+        if (junctionId is null)
+        {
+            skipped.Add(new SkippedReviewMark(entry.ResultId, subject, "結果沒有記錄交接處代號，無法標示"));
+            return;
+        }
+
+        if (entry.ZoneId is null || !zones.TryGetValue(entry.ZoneId, out var zone))
+        {
+            skipped.Add(new SkippedReviewMark(entry.ResultId, subject, "找不到這個區劃目前的範圍，請重新讀取區劃後再標示"));
+            return;
+        }
+
+        var placement = CurtainWallReviewMarks.Placement(evidence);
+        if (placement is null)
+        {
+            skipped.Add(new SkippedReviewMark(entry.ResultId, subject, "結果沒有記錄交接處的位置，請重新檢討後再標示"));
+            return;
+        }
+
+        if (kind == CurtainWallJunctionKind.FloorToCurtainWall)
+        {
+            if (placement.IsPoint)
+            {
+                skipped.Add(new SkippedReviewMark(entry.ResultId, subject, "層間帶沒有長度，無法建立填滿區域"));
+                return;
+            }
+
+            bands.Add(new PlannedSpandrelBand(
+                new ReviewMarkKey(table.PackageId, table.RunId, zone.ZoneId, 0, ReviewMarkKind.SpandrelBand, junctionId),
+                entry.ResultId, junctionId, JunctionCurtainWall(entry, evidence), placement, zone.Name));
+        }
+
+        notes.Add(new PlannedReviewNote(
+            new ReviewMarkKey(table.PackageId, table.RunId, zone.ZoneId, 0, ReviewMarkKind.JunctionNote, junctionId),
+            entry.ResultId, junctionId, kind, placement,
+            kind == CurtainWallJunctionKind.WallToCurtainWall
+                ? CurtainWallReviewMarks.HorizontalNoteText(evidence)
+                : CurtainWallReviewMarks.SpandrelNoteText(evidence),
+            zone.Name));
+    }
+
+    /// <summary>
+    /// The curtain wall a band lies on: the junction's own field, and failing that the first subject,
+    /// which is where <see cref="CurtainWallJunction.SubjectUniqueIds"/> puts it.
+    /// </summary>
+    private static string JunctionCurtainWall(ReviewTableEntry entry, ReviewEvidence evidence)
+    {
+        var value = evidence.Find("junction.curtainWallUniqueId");
+        return value is not null && value.Kind == ReviewValueKind.Text && value.Text.Length > 0
+            ? value.Text
+            : entry.LocateUniqueIds.FirstOrDefault() ?? string.Empty;
     }
 
     private static string Subject(ReviewTableEntry entry, bool isArea) => isArea
@@ -377,9 +555,11 @@ public enum ReviewMarkAction
     Remove
 }
 
-public sealed class ReviewRegionChange
+/// <summary>What one run does to one mark already in the view: the planned mark, what was there, and why.</summary>
+public class ReviewMarkChange<TPlanned>
+    where TPlanned : class
 {
-    internal ReviewRegionChange(ReviewMarkAction action, PlannedReviewRegion? planned, ExistingReviewMark? existing, string reason)
+    internal ReviewMarkChange(ReviewMarkAction action, TPlanned? planned, ExistingReviewMark? existing, string reason)
     {
         Action = action;
         Planned = planned;
@@ -388,9 +568,17 @@ public sealed class ReviewRegionChange
     }
 
     public ReviewMarkAction Action { get; }
-    public PlannedReviewRegion? Planned { get; }
+    public TPlanned? Planned { get; }
     public ExistingReviewMark? Existing { get; }
     public string Reason { get; }
+}
+
+public sealed class ReviewRegionChange : ReviewMarkChange<PlannedReviewRegion>
+{
+    internal ReviewRegionChange(ReviewMarkAction action, PlannedReviewRegion? planned, ExistingReviewMark? existing, string reason)
+        : base(action, planned, existing, reason)
+    {
+    }
 }
 
 public sealed class ReviewOverrideChange
@@ -424,11 +612,19 @@ public sealed class ReviewOverrideChange
 /// </remarks>
 public sealed class ReviewMarkupDiff
 {
-    private ReviewMarkupDiff(ReviewMarkupPlan plan, IEnumerable<ReviewRegionChange> regions, IEnumerable<ReviewOverrideChange> overrides, int foreignMarks)
+    private ReviewMarkupDiff(
+        ReviewMarkupPlan plan,
+        IEnumerable<ReviewRegionChange> regions,
+        IEnumerable<ReviewOverrideChange> overrides,
+        IEnumerable<ReviewMarkChange<PlannedReviewNote>> notes,
+        IEnumerable<ReviewMarkChange<PlannedSpandrelBand>> bands,
+        int foreignMarks)
     {
         Plan = plan;
         Regions = new ReadOnlyCollection<ReviewRegionChange>(regions.ToList());
         Overrides = new ReadOnlyCollection<ReviewOverrideChange>(overrides.ToList());
+        Notes = new ReadOnlyCollection<ReviewMarkChange<PlannedReviewNote>>(notes.ToList());
+        Bands = new ReadOnlyCollection<ReviewMarkChange<PlannedSpandrelBand>>(bands.ToList());
         ForeignMarks = foreignMarks;
     }
 
@@ -436,14 +632,22 @@ public sealed class ReviewMarkupDiff
     public IReadOnlyList<ReviewRegionChange> Regions { get; }
     public IReadOnlyList<ReviewOverrideChange> Overrides { get; }
 
+    /// <summary>The 帷幕牆 annotations of 帷幕牆規格 §7.1.</summary>
+    public IReadOnlyList<ReviewMarkChange<PlannedReviewNote>> Notes { get; }
+
+    /// <summary>The 層間帶 regions of 帷幕牆規格 §7.1 (CW-V).</summary>
+    public IReadOnlyList<ReviewMarkChange<PlannedSpandrelBand>> Bands { get; }
+
     /// <summary>Marks in the view that are not this package's and were left alone.</summary>
     public int ForeignMarks { get; }
 
     public int Count(ReviewMarkAction action) =>
-        Regions.Count(r => r.Action == action) + Overrides.Count(o => o.Action == action);
+        Regions.Count(r => r.Action == action) + Overrides.Count(o => o.Action == action) +
+        Notes.Count(n => n.Action == action) + Bands.Count(b => b.Action == action);
 
     public bool HasChanges =>
-        Regions.Any(r => r.Action != ReviewMarkAction.Unchanged) || Overrides.Any(o => o.Action != ReviewMarkAction.Unchanged);
+        Regions.Any(r => r.Action != ReviewMarkAction.Unchanged) || Overrides.Any(o => o.Action != ReviewMarkAction.Unchanged) ||
+        Notes.Any(n => n.Action != ReviewMarkAction.Unchanged) || Bands.Any(b => b.Action != ReviewMarkAction.Unchanged);
 
     /// <summary>The scope summary spec 15 asks for before any automatic change.</summary>
     public string Summary =>
@@ -463,35 +667,16 @@ public sealed class ReviewMarkupDiff
         var ours = marks.Where(m => m.BelongsTo(plan.PackageId)).ToList();
         var foreign = marks.Count - ours.Count;
 
-        var regionChanges = new List<ReviewRegionChange>();
-        var bySlot = ours.GroupBy(m => m.Key.Slot, StringComparer.Ordinal)
-            .ToDictionary(g => g.Key, g => g.OrderBy(m => m.ElementUniqueId, StringComparer.Ordinal).ToList(), StringComparer.Ordinal);
-        var planned = new HashSet<string>(StringComparer.Ordinal);
+        var regionChanges = Match(plan.Regions, ours, ReviewMarkKind.Zone, plan.RunId, r => r.Key, r => r.Signature,
+                "未符合區劃尚無標示", "區劃範圍已變更", "區劃已不再未符合")
+            .Select(c => new ReviewRegionChange(c.Action, c.Planned, c.Existing, c.Reason))
+            .ToList();
 
-        foreach (var region in plan.Regions)
-        {
-            planned.Add(region.Key.Slot);
-            if (!bySlot.TryGetValue(region.Key.Slot, out var existing))
-            {
-                regionChanges.Add(new ReviewRegionChange(ReviewMarkAction.Create, region, null, "未符合區劃尚無標示"));
-                continue;
-            }
+        var noteChanges = Match(plan.Notes, ours, ReviewMarkKind.JunctionNote, plan.RunId, n => n.Key, n => n.Signature,
+            "未符合交接處尚無標註", "實測值或交接位置已變更", "交接處已不再未符合");
 
-            var keep = existing[0];
-            if (keep.Key.RunId == plan.RunId && string.Equals(keep.Signature, region.Signature, StringComparison.Ordinal))
-                regionChanges.Add(new ReviewRegionChange(ReviewMarkAction.Unchanged, region, keep, "與本次檢討相同"));
-            else
-                regionChanges.Add(new ReviewRegionChange(ReviewMarkAction.Update, region, keep,
-                    keep.Key.RunId != plan.RunId ? "沿用前次檢討的標示，改為本次檢討" : "區劃範圍已變更"));
-
-            // Two regions in one slot can only come from a copy or an interrupted run; one is enough.
-            foreach (var duplicate in existing.Skip(1))
-                regionChanges.Add(new ReviewRegionChange(ReviewMarkAction.Remove, null, duplicate, "重複的標示"));
-        }
-
-        foreach (var pair in bySlot.Where(p => !planned.Contains(p.Key)).OrderBy(p => p.Key, StringComparer.Ordinal))
-            foreach (var stale in pair.Value)
-                regionChanges.Add(new ReviewRegionChange(ReviewMarkAction.Remove, null, stale, "區劃已不再未符合"));
+        var bandChanges = Match(plan.Bands, ours, ReviewMarkKind.SpandrelBand, plan.RunId, b => b.Key, b => b.Signature,
+            "未符合層間帶尚無標示", "層間帶範圍已變更", "層間帶已不再未符合");
 
         var overrideChanges = new List<ReviewOverrideChange>();
         var recorded = recordedOverrides
@@ -512,7 +697,59 @@ public sealed class ReviewMarkupDiff
         foreach (var record in recorded.Values.Where(r => !painted.Contains(r.ElementUniqueId)).OrderBy(r => r.ElementUniqueId, StringComparer.Ordinal))
             overrideChanges.Add(new ReviewOverrideChange(ReviewMarkAction.Remove, record.ElementUniqueId, null, record, "元素已不再未符合，恢復原顯示"));
 
-        return new ReviewMarkupDiff(plan, regionChanges, overrideChanges, foreign);
+        return new ReviewMarkupDiff(plan, regionChanges, overrideChanges, noteChanges, bandChanges, foreign);
+    }
+
+    /// <summary>
+    /// One family of marks against what the view already holds of that family. Matching is per kind:
+    /// a run that plans no 層間帶 has said nothing about the 區劃 regions, so it must not read their
+    /// slots as marks it no longer needs.
+    /// </summary>
+    private static List<ReviewMarkChange<TPlanned>> Match<TPlanned>(
+        IReadOnlyList<TPlanned> planned,
+        IReadOnlyList<ExistingReviewMark> ours,
+        ReviewMarkKind kind,
+        Guid runId,
+        Func<TPlanned, ReviewMarkKey> key,
+        Func<TPlanned, string> signature,
+        string createReason,
+        string changedReason,
+        string staleReason)
+        where TPlanned : class
+    {
+        var changes = new List<ReviewMarkChange<TPlanned>>();
+        var bySlot = ours.Where(m => m.Key.Kind == kind)
+            .GroupBy(m => m.Key.Slot, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.OrderBy(m => m.ElementUniqueId, StringComparer.Ordinal).ToList(), StringComparer.Ordinal);
+        var wanted = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var mark in planned)
+        {
+            var slot = key(mark).Slot;
+            wanted.Add(slot);
+            if (!bySlot.TryGetValue(slot, out var existing))
+            {
+                changes.Add(new ReviewMarkChange<TPlanned>(ReviewMarkAction.Create, mark, null, createReason));
+                continue;
+            }
+
+            var keep = existing[0];
+            if (keep.Key.RunId == runId && string.Equals(keep.Signature, signature(mark), StringComparison.Ordinal))
+                changes.Add(new ReviewMarkChange<TPlanned>(ReviewMarkAction.Unchanged, mark, keep, "與本次檢討相同"));
+            else
+                changes.Add(new ReviewMarkChange<TPlanned>(ReviewMarkAction.Update, mark, keep,
+                    keep.Key.RunId != runId ? "沿用前次檢討的標示，改為本次檢討" : changedReason));
+
+            // Two marks in one slot can only come from a copy or an interrupted run; one is enough.
+            foreach (var duplicate in existing.Skip(1))
+                changes.Add(new ReviewMarkChange<TPlanned>(ReviewMarkAction.Remove, null, duplicate, "重複的標示"));
+        }
+
+        foreach (var pair in bySlot.Where(p => !wanted.Contains(p.Key)).OrderBy(p => p.Key, StringComparer.Ordinal))
+            foreach (var stale in pair.Value)
+                changes.Add(new ReviewMarkChange<TPlanned>(ReviewMarkAction.Remove, null, stale, staleReason));
+
+        return changes;
     }
 }
 

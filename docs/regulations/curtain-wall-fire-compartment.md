@@ -1,6 +1,6 @@
 # 防火區劃與帷幕牆交接：第 79 條、第 79-3 條、第 79-4 條
 
-> 狀態：**實作中**。§12 的步驟 1–5 與 6a 已完成（規則類別、`junction.*` 欄位、三條規則、`CurtainWallJunctionInputs`／`Options`／`Check`，`ICurtainWallGeometryReader`／`CurtainWallJunctionResolver`／`RevitCurtainWallGeometryReader`，Curtain Panels 的 `防火檢討_設計防火時效` 綁定與前置檢查，以及 `FireReviewRunner` 的第四類檢查與檢討表第四列，共 91 個規則層、Check 層、幾何層、參數層與串接層測試）；步驟 6b（§7.1 的檢討視圖標示與案例 19）尚未開始，Revit 端尚未實機驗證。
+> 狀態：**實作中**。§12 的步驟 1–5、6a 與 6b-1 已完成（規則類別、`junction.*` 欄位、三條規則、`CurtainWallJunctionInputs`／`Options`／`Check`，`ICurtainWallGeometryReader`／`CurtainWallJunctionResolver`／`RevitCurtainWallGeometryReader`，Curtain Panels 的 `防火檢討_設計防火時效` 綁定與前置檢查，`FireReviewRunner` 的第四類檢查與檢討表第四列，以及 §7.1 三種標示的標示計畫與差異比對含案例 19，共 106 個規則層、Check 層、幾何層、參數層、串接層與標示層測試）；步驟 6b-2（把標註與層間帶真的畫進 Revit 視圖）尚未開始，Revit 端尚未實機驗證。
 
 ## 1. 功能摘要
 
@@ -324,7 +324,9 @@ junction.projectionDepth >= 500 mm || (junction.continuousFireRatedLength >= 900
 | CW-V 未符合 | 立面／剖面 View 之層間帶 Filled Region 紅色；標註實測 `continuousFireRatedHeight` |
 | CW-O 未符合 | 嵌板紅色 Override |
 
-所有標示元素寫入 Package ID、Run ID、Zone ID，僅更新目前 Run 管理的元素，沿用 Phase 3 既有的 `ReviewMarkup` 機制。
+所有標示元素寫入 Package ID、Run ID、Zone ID，僅更新目前 Run 管理的元素，沿用 Phase 3 既有的 `ReviewMarkup` 機制。帷幕牆標示的擁有權標記另外帶 `ReviewMarkKind`（`JunctionNote`／`SpandrelBand`）與 `JunctionId`，重跑時以 `JunctionId` 覆蓋既有標示而非重複產生（案例 19）；區劃填滿區域維持原本的 token 格式，既有模型不受影響。
+
+標示的位置不是在標示時重新讀模型量出來的，而是檢討當下由幾何層寫進結果證據的 `junction.placement`（見 §12 步驟 6b-1）——檢討表與標示計畫都是從已儲存的結果重建的，重新讀會把標示畫到模型現在的位置，而結果說的是當時的狀態。
 
 ### 7.2 檢討表新增列
 
@@ -416,7 +418,8 @@ junction.projectionDepth >= 500 mm || (junction.continuousFireRatedLength >= 900
 | 4 | `ICurtainWallGeometryReader` 介面、`CurtainWallJunctionResolver` 與 `RevitCurtainWallGeometryReader` 實作 | **已完成**（Revit 端待實機驗證） |
 | 5 | `FireReviewSetupFeature` 加入 Curtain Panels 綁定 | **已完成** |
 | 6a | `FireReviewRunner` 第四類檢查與檢討表第四列（含案例 20 的失效判定） | **已完成**（Revit 端待實機驗證） |
-| 6b | `ReviewMarkup`：§7.1 的三種標示與案例 19 的覆蓋 | 未開始 |
+| 6b-1 | `ReviewMarkup`：§7.1 三種標示的標示計畫與差異比對，含案例 19 | **已完成** |
+| 6b-2 | `RevitReviewViewMarker`：把 6b-1 的標註與層間帶真的畫進檢討視圖與立面／剖面 | 未開始 |
 
 ### 步驟 1、2 的驗證
 
@@ -565,4 +568,44 @@ CW-H 的長度與 CW-V 的高度都留空，由引擎判 `InsufficientData`。�
 `Reviews/ReviewTableTests.cs` 1 項（§7.2 三列與第79／83條分列）。全套 1179 個測試通過，
 `BuildingRegulationReview.sln` 與 WPF 外掛專案皆 0 警告 0 錯誤。
 
-未涵蓋：§7.1 的檢討視圖標示與案例 19（步驟 6b），以及 Revit 端實機驗證。
+未涵蓋：§7.1 的檢討視圖標示（步驟 6b），以及 Revit 端實機驗證。
+
+### 步驟 6b-1 的產出與驗證
+
+標示計畫是從**已儲存的結果**重建的（spec 13.1），所以 §7.1 要用的每一項資訊都必須在證據裡：重新讀
+一次模型會把標示畫在「模型現在的位置」，而結果說的是當時的狀態，兩者不一致正是 13.1 禁止的。因此
+交接處的位置改由幾何層交出、由 Check 寫進證據，標示層只讀不算。
+
+- **`CurtainWallJunctionPlacement`**（Application/Checks）：帷幕牆定位線上的一段（CW-H 起訖同點，
+  即交點；CW-V 為層間帶）加上上下標高，單位 mm。`ToEvidenceText()`／`TryParseEvidence()` 以六個
+  **公尺**數字（起點 X、Y，終點 X、Y，下緣，上緣）存成單一證據欄位 `junction.placement`，與
+  `junction.panels` 同樣是一個欄位而不是六個。
+- `CurtainWallJunctionResolver`：CW-H 交出 `PointAt(交點)` 與區劃牆的上下標高；CW-V 交出樓板邊緣
+  跨距與樓板上下各 `MinFireRatedRunMm`（900 mm）的範圍，**並裁到帷幕牆本身**（§4.5 的層間帶定義）。
+- `CurtainWallJunctionCheck`：證據新增 `junction.placement` 與 `junction.curtainWallUniqueId`
+  （後者原本只有規則讀到時才會留下，現在連沒有規則判定的交接處也寫——CW-V 的層間帶要靠它決定畫
+  在哪一面帷幕牆的立面上）。
+- **`ReviewMarkKind`** 與擴充後的 `ReviewMarkKey`：`Zone`（既有的區劃填滿區域）、`JunctionNote`、
+  `SpandrelBand`。區劃標示**維持原本的五段 token**，既有模型裡的標示照樣解析、照樣被接手；帷幕牆
+  標示為七段，多出類別與 `JunctionId`（`Subject`，不得含 `/`）。`Slot` 因此含類別與 Subject。
+- `ReviewMarkupPlan` 新增 `Notes` 與 `Bands`。帷幕牆結果**不走既有的逐元素塗紅路徑**：
+  `SubjectUniqueIds` 含帷幕牆本體與區劃牆，整片塗紅會失真，改用證據裡的 `junction.panels`。
+  CW-H＝嵌板紅色＋交點標註；CW-V＝層間帶 Filled Region＋高度標註（**不塗嵌板**，層間帶畫在立面，
+  平面塗嵌板說明不了什麼）；CW-O＝嵌板紅色，無標註。缺嵌板、缺位置、缺交接處代號、找不到區劃，
+  都逐項列入 `Skipped` 並說明原因，不靜靜丟掉。
+- 量不到的值標註為「未量得」而不是 0——與 Check 層區分「未符合」與「資料不足」同一個理由。
+- `ReviewMarkupDiff` 的比對改成**依類別分家**（`Match<T>`）：一次沒有層間帶的檢討並沒有對區劃標示
+  說任何話，不能把別家的 slot 當成自己不再需要的標示刪掉。案例 19 因此成立——同一 Package 重跑時
+  帷幕牆標示判 `Update`／`Unchanged`，不會產生第二份。
+
+新增 15 個測試：`Candidates/CurtainWallJunctionResolverTests.cs` 5 項（交點位置、層間帶範圍、裁到
+牆頂、證據往返、CW-O 無位置）、`Checks/CurtainWallJunctionCheckTests.cs` 2 項（證據記錄位置、無位置
+時不寫）、`Reviews/ReviewMarkupTests.cs` 8 項（CW-H／CW-V／CW-O 三種標示、未量得、缺資料略過、
+案例 19、兩類標示互不接手、mark key 往返與舊格式相容）。全套 1194 個測試通過，
+`BuildingRegulationReview.sln` 與 WPF 外掛專案皆 0 警告 0 錯誤。
+
+未涵蓋（步驟 6b-2）：`RevitReviewViewMarker` 目前只畫平面的區劃填滿區域，`Notes` 與 `Bands` 尚未
+落到模型上。要做的是：在檢討平面圖建立／更新 `TextNote`（沿用 `ManagedElementMark` 與同一套
+Create／Update／Remove），以及為 CW-V 找出或建立顯示該帷幕牆的立面／剖面 View，把層間帶由
+`CurtainWallJunctionPlacement`（mm、專案座標）投影到該 View 的平面座標後建立 Filled Region。
+`ReadMarks` 目前只收集 `FilledRegion`，要一併收集 `TextNote`。

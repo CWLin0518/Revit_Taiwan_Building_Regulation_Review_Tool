@@ -5,6 +5,7 @@ using BuildingRegulationReview.Application.Checks;
 using BuildingRegulationReview.Application.Diagnostics;
 using BuildingRegulationReview.Application.Reviews;
 using BuildingRegulationReview.Application.WriteBack;
+using BuildingRegulationReview.Domain.Geometry;
 using BuildingRegulationReview.Domain.Reviews;
 using Xunit;
 using static BuildingRegulationReview.Core.Tests.Candidates.CandidateModel;
@@ -51,6 +52,11 @@ public sealed class ReviewMarkupTests
                     Marks.Add(new ExistingReviewMark($"region-{++_next}", change.Planned.Key.ToToken(), change.Planned.Signature));
             }
 
+            foreach (var change in diff.Notes)
+                Redraw(change.Action, change.Existing, change.Planned?.Key, change.Planned?.Signature, "note");
+            foreach (var change in diff.Bands)
+                Redraw(change.Action, change.Existing, change.Planned?.Key, change.Planned?.Signature, "band");
+
             foreach (var change in diff.Overrides)
             {
                 var current = Looks.TryGetValue(change.ElementUniqueId, out var look) ? look : "none";
@@ -73,6 +79,13 @@ public sealed class ReviewMarkupTests
                 }
             }
             return diff;
+        }
+
+        private void Redraw(ReviewMarkAction action, ExistingReviewMark? existing, ReviewMarkKey? key, string? signature, string prefix)
+        {
+            if (action == ReviewMarkAction.Unchanged) return;
+            if (existing is not null) Marks.RemoveAll(m => m.ElementUniqueId == existing.ElementUniqueId);
+            if (key is ReviewMarkKey drawn) Marks.Add(new ExistingReviewMark($"{prefix}-{++_next}", drawn.ToToken(), signature!));
         }
     }
 
@@ -306,6 +319,221 @@ public sealed class ReviewMarkupTests
         Assert.False(result.IsRolledBack);
         Assert.Equal("已略過 連結牆：連結模型", result.Items[3].Text);
         Assert.True(new ReviewMarkupResult(PackageId, ReviewRunValidityTests.RunId, null, Array.Empty<ReviewMarkupItem>(), "視圖錯誤").IsRolledBack);
+    }
+
+    // --- 帷幕牆區劃交接的標示（帷幕牆規格 §7.1、§10 案例 19）-------------------------------------------
+
+    private const string CurtainWall = "cw-1";
+
+    private static readonly CurtainWallJunctionPlacement Crossing =
+        CurtainWallJunctionPlacement.At(new Point2D(5000, 0), 0, 3600);
+
+    private static readonly CurtainWallJunctionPlacement SpandrelBand =
+        CurtainWallJunctionPlacement.Band(new Point2D(0, 0), new Point2D(12000, 0), 2700, 4500);
+
+    /// <summary>A failing 帷幕牆區劃交接 result, with exactly the evidence the check writes for one.</summary>
+    private static ReviewResult Junction(
+        Guid runId,
+        CurtainWallJunctionKind kind,
+        string junctionId,
+        IEnumerable<string>? panels = null,
+        CurtainWallJunctionPlacement? placement = null,
+        double? runMeters = null,
+        double? projectionMeters = null,
+        string? host = null)
+    {
+        var panelList = (panels ?? Array.Empty<string>()).ToList();
+        var evidence = new List<ReviewEvidenceItem>
+        {
+            new("junction.kind", ReviewValue.OfText(CurtainWallJunctionKinds.RuleText(kind))),
+            new("junction.id", ReviewValue.OfText(junctionId)),
+            new("junction.curtainWallUniqueId", ReviewValue.OfText(CurtainWall))
+        };
+        if (panelList.Count > 0) evidence.Add(new("junction.panels", ReviewValue.OfText(string.Join(",", panelList))));
+        if (placement is not null) evidence.Add(new("junction.placement", ReviewValue.OfText(placement.ToEvidenceText())));
+        if (runMeters is double measured)
+            evidence.Add(new(kind == CurtainWallJunctionKind.FloorToCurtainWall
+                ? "junction.continuousFireRatedHeight"
+                : "junction.continuousFireRatedLength", ReviewValue.Quantity(measured, ReviewUnit.Meter)));
+        if (projectionMeters is double projection)
+            evidence.Add(new("junction.projectionDepth", ReviewValue.Quantity(projection, ReviewUnit.Meter)));
+
+        var subjects = new[] { CurtainWall }.Concat(host is null ? Array.Empty<string>() : new[] { host }).Concat(panelList);
+        return new ReviewResult(Guid.NewGuid(), runId, PackageId, ReviewCheckTypes.CompartmentContinuity,
+            subjects, ZoneA.ToString("D"), ReviewStatus.Fail, ReviewValue.OfText("0"), ReviewValue.OfText("0.9"),
+            "cw", "1", "條文", "交接處未維持區劃連續性", new ReviewEvidence(evidence));
+    }
+
+    private static ReviewRun JunctionRun(Guid runId, params ReviewResult[] results) =>
+        new ReviewRun(runId, PackageId, ReviewRunValidityTests.RuleSetId, ReviewRunValidityTests.Version, 1,
+            ReviewRunValidityTests.Started).Complete(results, ReviewRunValidityTests.Ended);
+
+    private static ReviewResult HorizontalJunction(Guid runId, params string[] panels) =>
+        Junction(runId, CurtainWallJunctionKind.WallToCurtainWall, "CW-H:cw-1:wall-1", panels, Crossing, 0.45, 0.12, "wall-1");
+
+    private static ReviewResult SpandrelJunction(Guid runId) =>
+        Junction(runId, CurtainWallJunctionKind.FloorToCurtainWall, "CW-V:cw-1:floor-1:0",
+            new[] { "panel-3" }, SpandrelBand, 0.6, 0.0, "floor-1");
+
+    [Fact]
+    public void A_failing_CW_H_junction_paints_the_panels_it_covers_and_annotates_the_intersection()
+    {
+        var plan = Plan(JunctionRun(ReviewRunValidityTests.RunId,
+            HorizontalJunction(ReviewRunValidityTests.RunId, "panel-1", "panel-2")), new Model());
+
+        // Not the curtain wall and not the 區劃牆: §7.1 asks for the panels at the junction.
+        Assert.Equal(new[] { "panel-1", "panel-2" }, plan.Overrides.Select(o => o.ElementUniqueId));
+
+        var note = Assert.Single(plan.Notes);
+        Assert.Equal(CurtainWallJunctionKind.WallToCurtainWall, note.JunctionKind);
+        Assert.Equal("交接帶連續具時效長度 450 mm／突出 120 mm", note.Text);
+        Assert.Equal(ReviewMarkKind.JunctionNote, note.Key.Kind);
+        Assert.Equal("CW-H:cw-1:wall-1", note.Key.Subject);
+        Assert.Equal(ZoneA, note.Key.ZoneId);
+        Assert.Equal("A 區", note.ZoneName);
+        Assert.True(note.Placement.IsPoint);
+        Assert.Empty(plan.Bands);
+        Assert.Empty(plan.Skipped);
+    }
+
+    [Fact]
+    public void A_failing_CW_V_junction_draws_the_spandrel_band_and_annotates_it_instead_of_painting_panels()
+    {
+        var plan = Plan(JunctionRun(ReviewRunValidityTests.RunId, SpandrelJunction(ReviewRunValidityTests.RunId)), new Model());
+
+        Assert.Empty(plan.Overrides);
+        var band = Assert.Single(plan.Bands);
+        Assert.Equal(ReviewMarkKind.SpandrelBand, band.Key.Kind);
+        Assert.Equal(CurtainWall, band.CurtainWallUniqueId);
+        Assert.Equal(12000, band.Placement.LengthMm, 3);
+        Assert.Equal(1800, band.Placement.HeightMm, 3);
+
+        var note = Assert.Single(plan.Notes);
+        Assert.Equal("層間帶連續具時效高度 600 mm／突出 0 mm", note.Text);
+        Assert.Equal(band.Key.Subject, note.Key.Subject);
+        Assert.NotEqual(band.Key.Slot, note.Key.Slot);
+        Assert.Empty(plan.Skipped);
+    }
+
+    [Fact]
+    public void A_failing_CW_O_junction_paints_its_panels_and_has_nothing_to_annotate()
+    {
+        var plan = Plan(JunctionRun(ReviewRunValidityTests.RunId,
+            Junction(ReviewRunValidityTests.RunId, CurtainWallJunctionKind.CurtainPanelOther, "CW-O:cw-1",
+                new[] { "panel-9" })), new Model());
+
+        Assert.Equal(new[] { "panel-9" }, plan.Overrides.Select(o => o.ElementUniqueId));
+        Assert.Empty(plan.Notes);
+        Assert.Empty(plan.Bands);
+        Assert.Empty(plan.Skipped);
+    }
+
+    [Fact]
+    public void A_measurement_the_run_never_took_is_annotated_as_未量得_rather_than_as_zero()
+    {
+        var plan = Plan(JunctionRun(ReviewRunValidityTests.RunId,
+            Junction(ReviewRunValidityTests.RunId, CurtainWallJunctionKind.WallToCurtainWall, "CW-H:cw-1:wall-1",
+                new[] { "panel-1" }, Crossing, runMeters: null, projectionMeters: 0.0, host: "wall-1")), new Model());
+
+        Assert.Equal("交接帶連續具時效長度 未量得／突出 0 mm", Assert.Single(plan.Notes).Text);
+    }
+
+    [Fact]
+    public void A_junction_with_no_recorded_place_or_no_recorded_panels_is_skipped_with_a_reason()
+    {
+        var run = JunctionRun(ReviewRunValidityTests.RunId,
+            Junction(ReviewRunValidityTests.RunId, CurtainWallJunctionKind.WallToCurtainWall, "CW-H:cw-1:wall-1",
+                new[] { "panel-1" }, placement: null, host: "wall-1"),
+            Junction(ReviewRunValidityTests.RunId, CurtainWallJunctionKind.CurtainPanelOther, "CW-O:cw-1"));
+
+        var plan = Plan(run, new Model());
+
+        // The panels of the junction that has them are still painted; only what is missing is skipped.
+        Assert.Equal(new[] { "panel-1" }, plan.Overrides.Select(o => o.ElementUniqueId));
+        Assert.Empty(plan.Notes);
+        Assert.Equal(2, plan.Skipped.Count);
+        Assert.Contains(plan.Skipped, s => s.Reason.Contains("位置"));
+        Assert.Contains(plan.Skipped, s => s.Reason.Contains("帷幕嵌板"));
+    }
+
+    [Fact]
+    public void Case19_re_running_the_same_package_takes_the_curtain_wall_marks_over_instead_of_drawing_more()
+    {
+        var model = new Model();
+        var view = new FakeView();
+
+        var first = view.Mark(Plan(JunctionRun(ReviewRunValidityTests.RunId,
+            HorizontalJunction(ReviewRunValidityTests.RunId, "panel-1"),
+            SpandrelJunction(ReviewRunValidityTests.RunId)), model));
+
+        // One panel override, the CW-H note, the CW-V band and its note.
+        Assert.Equal(4, first.Count(ReviewMarkAction.Create));
+        Assert.Equal(3, view.Marks.Count);
+
+        Assert.False(view.Mark(Plan(JunctionRun(ReviewRunValidityTests.RunId,
+            HorizontalJunction(ReviewRunValidityTests.RunId, "panel-1"),
+            SpandrelJunction(ReviewRunValidityTests.RunId)), model)).HasChanges);
+
+        var next = view.Mark(Plan(JunctionRun(ReviewRunValidityTests.NextRunId,
+            HorizontalJunction(ReviewRunValidityTests.NextRunId, "panel-1"),
+            SpandrelJunction(ReviewRunValidityTests.NextRunId)), model));
+
+        Assert.Equal(0, next.Count(ReviewMarkAction.Create));
+        Assert.Equal(4, next.Count(ReviewMarkAction.Update));
+        Assert.Equal(3, view.Marks.Count);
+        Assert.All(view.Marks, m => Assert.Equal(ReviewRunValidityTests.NextRunId, m.Key.RunId));
+    }
+
+    [Fact]
+    public void A_curtain_wall_mark_and_a_zone_region_never_take_each_other_over()
+    {
+        var model = new Model();
+        var run = ReviewTableTests.ReviewAll(model, areaLimitM2: 50);
+        var zones = Plan(run, model);
+        var junctions = Plan(JunctionRun(ReviewRunValidityTests.RunId,
+            SpandrelJunction(ReviewRunValidityTests.RunId)), model);
+
+        // The zone run plans no band, so the band it finds is its own package's — and still not a
+        // region it should have drawn. Each family is matched among its own.
+        var region = zones.Regions.First();
+        var band = junctions.Bands.Single();
+        var diff = ReviewMarkupDiff.Compute(zones, new[]
+        {
+            new ExistingReviewMark("r-1", region.Key.ToToken(), region.Signature),
+            new ExistingReviewMark("b-1", band.Key.ToToken(), band.Signature)
+        }, Array.Empty<RecordedElementOverride>());
+
+        Assert.Equal(ReviewMarkAction.Unchanged, diff.Regions.Single(r => r.Planned == region).Action);
+        Assert.DoesNotContain(diff.Regions, r => r.Existing?.ElementUniqueId == "b-1");
+        Assert.Equal("b-1", Assert.Single(diff.Bands).Existing!.ElementUniqueId);
+        Assert.Equal(ReviewMarkAction.Remove, diff.Bands.Single().Action);
+        Assert.Equal(0, diff.ForeignMarks);
+    }
+
+    [Fact]
+    public void A_curtain_wall_mark_key_names_what_it_belongs_to_and_the_older_zone_form_still_reads()
+    {
+        var key = new ReviewMarkKey(PackageId, ReviewRunValidityTests.RunId, ZoneA, 0,
+            ReviewMarkKind.SpandrelBand, "CW-V:cw-1:floor-1:0");
+
+        Assert.True(ReviewMarkKey.TryParse(key.ToToken(), out var parsed));
+        Assert.Equal(key, parsed);
+        Assert.Equal(7, key.ToToken().Split('/').Length);
+        Assert.Contains("SpandrelBand", key.ToLabel());
+        Assert.True(ManagedOwnership.BelongsTo(key.ToToken(), PackageId));
+
+        var zone = new ReviewMarkKey(PackageId, ReviewRunValidityTests.RunId, ZoneA, 0);
+        Assert.Equal(5, zone.ToToken().Split('/').Length);
+        Assert.Equal(ReviewMarkKind.Zone, zone.Kind);
+        Assert.NotEqual(zone.Slot, key.Slot);
+        Assert.True(ReviewMarkKey.TryParse(zone.ToToken(), out var legacy) && legacy.Kind == ReviewMarkKind.Zone);
+
+        Assert.Throws<ArgumentException>(() =>
+            new ReviewMarkKey(PackageId, ReviewRunValidityTests.RunId, ZoneA, 0, ReviewMarkKind.JunctionNote, "a/b"));
+        Assert.Throws<ArgumentException>(() =>
+            new ReviewMarkKey(PackageId, ReviewRunValidityTests.RunId, ZoneA, 0, ReviewMarkKind.JunctionNote, "  "));
+        Assert.Throws<ArgumentException>(() =>
+            new ReviewMarkKey(PackageId, ReviewRunValidityTests.RunId, ZoneA, 0, ReviewMarkKind.Zone, "x"));
     }
 
     [Fact]
