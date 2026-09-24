@@ -1,6 +1,6 @@
 # 防火區劃與帷幕牆交接：第 79 條、第 79-3 條、第 79-4 條
 
-> 狀態：**實作中**。§12 的步驟 1–3 已完成（規則類別、`junction.*` 欄位、三條規則，以及 `CurtainWallJunctionInputs`／`Options`／`Check` 與 49 個規則層與 Check 層測試）；步驟 4 起尚未開始。
+> 狀態：**實作中**。§12 的步驟 1–4 已完成（規則類別、`junction.*` 欄位、三條規則、`CurtainWallJunctionInputs`／`Options`／`Check`，以及 `ICurtainWallGeometryReader`／`CurtainWallJunctionResolver`／`RevitCurtainWallGeometryReader`，共 76 個規則層、Check 層與幾何層測試）；步驟 5 起尚未開始，Revit 端尚未實機驗證。
 
 ## 1. 功能摘要
 
@@ -143,7 +143,9 @@ Pass ⟺ panelMinFireRating >= 30 min
 
 **豎框（`Mullion`）不列入判定。** 法規未對豎框定義獨立的防火時效，本工具不讀取、不比較、也不因豎框而判 `InsufficientData`。豎框本身的防火填塞與嵌板背檔屬施工項目，同層間縫隙一併排除於本工具之外（見第 9 節）。
 
-**工具不跨越 grid line 累積連續段。** `continuousFireRatedLength` 與 `continuousFireRatedHeight` 只在單一嵌板內、以及相鄰且共邊的具時效嵌板之間累積；遇到 grid line 即停止。這是刻意的：由工具自行「橋接」被切斷的嵌板，等於讓程式猜測設計意圖，而模型上那條線是否代表真實的構造斷點，工具無從判斷。
+**工具不跨越 grid line 累積連續段。** `continuousFireRatedLength` 與 `continuousFireRatedHeight` 只在單一嵌板內累積：以交點（CW-H）或取樣點（CW-V）所在的那一片嵌板為準，取該點兩側長度／上下高度之和；走到嵌板邊界即停止，因為那裡就是一條 grid line。這是刻意的：由工具自行「橋接」被切斷的嵌板，等於讓程式猜測設計意圖，而模型上那條線是否代表真實的構造斷點，工具無從判斷。
+
+越過邊界的嵌板只在一種情況下被讀到，而且只用來提問不用來判定：連續段不足 900 mm 時，工具會往兩側走訪相鄰且時效足夠的嵌板，看看「若這些 grid line 不存在，是否就達 900 mm」。答案為是才回 `SplitByGridLine`（§4.5），答案為否則該斷點為真，以實測的連續段判定。
 
 正確的作法在建模端——**層間帶與區劃牆交接帶應以連續嵌板表達，多餘的 grid line 應在建模時刪除**，詳見 §4.5。
 
@@ -354,7 +356,10 @@ junction.projectionDepth >= 500 mm || (junction.continuousFireRatedLength >= 900
 
 ## 9. 已知限制
 
-- 只支援平面帷幕牆；曲面、傾斜面回 `ManualReview`。
+- 只支援平面帷幕牆；曲面、傾斜面回 `ManualReview`。Curtain System 置於面上、沒有定位線，本版一律以
+  「無法解析定位面」回 `ManualReview`，不會從檢討表消失。
+- 連續段被帷幕牆自身的端點或頂底截斷、且不足 900 mm 時不供給，判 `InsufficientData`：立面在那裡接到
+  另一片未讀取的牆，工具不知道它是否延續，而不是知道它不足。整棟通高的帷幕牆不受此限。
 - 嵌板時效以型別參數為唯一來源，不解析複合構造層，也不判斷玻璃種類。
 - 未涵蓋第 110 條防火間隔對外牆與開口的要求（獨立功能）。
 - 未涵蓋第 80 條、第 84 條（非防火構造建築物）。
@@ -408,7 +413,7 @@ junction.projectionDepth >= 500 mm || (junction.continuousFireRatedLength >= 900
 | 1 | `RuleCategory.CompartmentContinuity` 與 `RuleFieldCatalog` 的 `junction.*` 欄位（含 `hostLegalReference`） | **已完成** |
 | 2 | `fire-review-rules.json` 三條規則，規則集版本升至 `2026.3-provisional` | **已完成** |
 | 3 | `CurtainWallJunctionInputs` / `Options` / `Check`（純 Domain 與 Application，以 fixture 跑完 §10 全部案例） | **已完成** |
-| 4 | `ICurtainWallGeometryReader` 介面與 `RevitCurtainWallGeometryReader` 實作 | 未開始 |
+| 4 | `ICurtainWallGeometryReader` 介面、`CurtainWallJunctionResolver` 與 `RevitCurtainWallGeometryReader` 實作 | **已完成**（Revit 端待實機驗證） |
 | 5 | `FireReviewSetupFeature` 加入 Curtain Panels 綁定 | 未開始 |
 | 6 | `FireReviewRunner`、`ReviewMarkup`、檢討表串接 | 未開始 |
 
@@ -449,3 +454,41 @@ Check 在進入規則引擎前換算為欄位宣告的 m，交界只有這一處
 - `continuousFireRatedLength` / `continuousFireRatedHeight` 只累計 `providedFireRating >= hostRequiredFireRating` 的嵌板，遇 grid line、未受防護開口或時效不足的嵌板即停止累積。
 - 交接帶內任一嵌板缺時效值時，**不供給**該長度／高度欄位，讓引擎判 `InsufficientData`（不可填 0）。
 - `projectionDepth` 一律供給，沒有突出就是 0，不可省略——省略會讓本文變成資料不足。
+
+### 步驟 4 的產出與驗證
+
+分成「讀」與「解」兩層，中間隔一層純資料，理由與 Phase 2 的 `CandidateObservationSet` 相同：
+Revit 只負責轉換，所有判定都在可用 fixture 驗證的地方。
+
+- `src/BuildingRegulationReview.Application/Candidates/CurtainWallObservations.cs`：
+  `CurtainPanelObservation`（嵌板在帷幕牆自身平面上的 `(u, z)` 位置、設計時效、是否為未受防護開口）、
+  `CurtainGridLineObservation`、`CurtainWallObservation`（定位線、外側法線、外面偏移、起訖標高、
+  `NonPlanarReason`）、`CompartmentWallObservation`、`CompartmentFloorObservation`、
+  `CurtainWallZoneObservation`、`CurtainWallObservationSet`。**全部以 mm 表示**。
+- `src/BuildingRegulationReview.Application/Abstractions/ICurtainWallGeometryReader.cs`：
+  `CurtainWallReadRequest`（工作包、Area Plan、各 host 的要求時效與來源條文、`CurtainWallJunctionOptions`）
+  與唯讀的 `Read` 介面。**request 中列出的牆與樓板就是本次要讀的區劃邊界**——是不是區劃牆、來自第 79
+  條還是第 83 條，由候選解析與規則引擎決定，不由讀取器判斷。
+- `src/BuildingRegulationReview.Application/Candidates/CurtainWallJunctionResolver.cs`：
+  `Resolve(observations, options?)` → `IReadOnlyList<CurtainWallJunction>`，§4 全部在這裡發生。
+- `src/BuildingRegulationReview.Revit/Geometry/RevitCurtainWallGeometryReader.cs`：
+  Revit 端轉換，feet → mm 只在這裡發生一次。
+
+`tests/BuildingRegulationReview.Core.Tests/Candidates/CurtainWallJunctionResolverTests.cs`，27 個測試，
+涵蓋 §10 中需要真實幾何的案例（8、8b、8c、17、18）與 §4 的每一條規則：突出量量測、連續段採兩側總和、
+時效不足與未受防護開口中斷累積、交接帶缺時效值時不供給、疑似多餘 grid line 的偵測與訊息、
+交點求解與「靠近但沒碰到」的 `UnresolvedIntersection`、層間帶取樣取最不利值、連跨複數樓層、
+區劃歸屬與順序可重現。全套 1164 個測試通過，全方案 0 警告 0 錯誤。
+
+幾個在實作時才定案、規格原本沒寫死的決定：
+
+1. **連續段只在單一嵌板內量測**，越界嵌板只用來回答 §4.5 的「刪掉這條 grid line 會不會就夠」
+   （§4.1 已據此改寫）。
+2. **連續段被帷幕牆自身端點／頂底截斷且不足 900 mm 時不供給**：立面接到另一片沒讀到的牆，
+   那是「不知道」不是「不足」，判 `InsufficientData` 而非 `Fail`。
+3. **CW-O 以嵌板中心是否落在 90 cm 帶內判定歸屬**，不用重疊：一片通層玻璃只是伸進層間帶，
+   仍是第 79 條之 4 的「其他部分外牆」，要照樣檢討。
+4. **CW-H 的交點若兩側都有區劃，結果歸屬 ZoneId 較小的那一個**——一個交接處只產生一筆結果，
+   歸在哪一區劃必須每次重跑都一樣。
+5. **`hostRequiredFireRating` 為 null 時不供給連續段**：沒有門檻就沒有「具同等以上防火時效」可比，
+   供 0 會讓沒量過的帶被判成未符合。

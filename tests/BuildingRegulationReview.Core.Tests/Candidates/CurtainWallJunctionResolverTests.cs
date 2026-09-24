@@ -1,0 +1,470 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using BuildingRegulationReview.Application.Candidates;
+using BuildingRegulationReview.Application.Checks;
+using BuildingRegulationReview.Domain.Geometry;
+using BuildingRegulationReview.Domain.Reviews;
+using Xunit;
+
+namespace BuildingRegulationReview.Core.Tests.Candidates;
+
+/// <summary>
+/// 帷幕牆區劃交接的幾何層（docs/regulations/curtain-wall-fire-compartment.md §4、§12 步驟 4）。
+///
+/// The resolver is where §4 actually happens, so these are the tests of §4: the cases of §10 that do
+/// need real geometry (8, 8b, 8c, 17, 18) are walked through here, and the ones the Check 層 already
+/// proved as fixtures are re-checked from the other end — that the geometry hands over the numbers
+/// those fixtures assumed.
+///
+/// The model is one straight curtain wall running east along y = 0, its outside face to the south:
+/// a 區劃牆 reaching it from the north therefore projects by how far south of the line it ends.
+/// </summary>
+public sealed class CurtainWallJunctionResolverTests
+{
+    private const double WallLengthMm = 12000;
+    private const double OffsetMm = 75;          // location line to outside face
+    private const double StoreyMm = 3600;
+
+    private static readonly Guid Package = Guid.Parse("11111111-2222-3333-4444-555555555555");
+    private static readonly Guid ZoneId = Guid.Parse("aaaaaaaa-0000-0000-0000-00000000000f");
+
+    // --- CW-H：交點、突出與連續段 ---------------------------------------------------------------
+
+    [Fact]
+    public void Wall_junction_measures_the_projection_past_the_outside_face()
+    {
+        var junction = Single(Resolve(Set(Wall(Glazing()), hosts: new[] { Host(5000, beyondLineMm: OffsetMm + 600) })),
+            CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Equal(600, junction.ProjectionDepthMm!.Value, 3);
+        Assert.Equal("W1", junction.HostUniqueId);
+        Assert.Equal(CurtainWallJunctionReferences.Article79, junction.HostLegalReference);
+    }
+
+    [Fact]
+    public void A_wall_that_does_not_project_supplies_zero_rather_than_nothing()
+    {
+        var junction = Single(Resolve(Set(Wall(Glazing()), hosts: new[] { Host(5000) })),
+            CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Equal(0.0, junction.ProjectionDepthMm!.Value);
+    }
+
+    [Fact]
+    public void A_continuous_run_is_the_whole_panel_around_the_point_not_half_of_it_each_side()
+    {
+        // 案例 7：交點落在實板右緣，左側 900 mm、右側 0 mm — 採總和，仍然成立。
+        var wall = Wall(new[]
+        {
+            Panel("P-solid", 4100, 5000, 60),
+            Panel("P-glass", 5000, 9000, 0)
+        });
+
+        var junction = Single(Resolve(Set(wall, hosts: new[] { Host(5000) })), CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Equal(900, junction.ContinuousFireRatedLengthMm!.Value, 3);
+        Assert.False(junction.IsDoubtful);
+    }
+
+    [Fact]
+    public void A_panel_below_the_hosts_required_rating_does_not_count_towards_the_run()
+    {
+        // 案例 5：交接帶夠長，但交點所在的實板只有 30 min，達不到區劃牆要求的 60 min。
+        var wall = Wall(new[] { Panel("P-30", 4000, 6000, 30) });
+
+        var junction = Single(Resolve(Set(wall, hosts: new[] { Host(5000) })), CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Equal(0.0, junction.ContinuousFireRatedLengthMm!.Value);
+        Assert.Equal(30, junction.MinFireRating!.Minutes!.Value);
+    }
+
+    [Fact]
+    public void An_unprotected_opening_stops_the_run_where_it_sits()
+    {
+        // 案例 6：交點就在未受防護的可開啟嵌板上。
+        var wall = Wall(new[]
+        {
+            Panel("P-left", 3000, 4550, 60),
+            Panel("P-window", 4550, 5450, 60, isOpening: true, protection: ProvidedFireProtection.No("0")),
+            Panel("P-right", 5450, 7000, 60)
+        });
+
+        var junction = Single(Resolve(Set(wall, hosts: new[] { Host(5000) })), CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Equal(0.0, junction.ContinuousFireRatedLengthMm!.Value);
+        Assert.True(junction.HasUnprotectedOpening);
+    }
+
+    [Fact]
+    public void A_protected_opening_in_the_band_is_not_a_break()
+    {
+        var wall = Wall(new[]
+        {
+            Panel("P-door", 4000, 6000, 60, isOpening: true, protection: ProvidedFireProtection.Yes("1"))
+        });
+
+        var junction = Single(Resolve(Set(wall, hosts: new[] { Host(5000) })), CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Equal(2000, junction.ContinuousFireRatedLengthMm!.Value, 3);
+        Assert.False(junction.HasUnprotectedOpening);
+    }
+
+    [Fact]
+    public void A_panel_the_measurement_looked_at_without_a_rating_withholds_the_run()
+    {
+        // 案例 14／15：不得以其他片推定，也不得填 0 — 不供給，讓引擎判資料不足。
+        var wall = Wall(new[]
+        {
+            Panel("P-rated", 4550, 5000, 60),
+            Panel("P-unset", 5000, 7000, null)
+        });
+
+        var junction = Single(Resolve(Set(wall, hosts: new[] { Host(5000) })), CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Null(junction.ContinuousFireRatedLengthMm);
+        Assert.Equal(ProvidedFireRatingKind.Missing, junction.MinFireRating!.Kind);
+        Assert.Equal(0.0, junction.ProjectionDepthMm!.Value);
+    }
+
+    [Fact]
+    public void An_unrated_neighbour_is_a_real_break_and_the_run_still_reports()
+    {
+        // 案例 8c：grid line 一側 60 min 實板、另一側明確無時效的玻璃 — 真實斷點，不是多餘的 grid line。
+        var wall = Wall(
+            new[]
+            {
+                Panel("P-solid", 4550, 5000, 60),
+                Panel("P-glass", 5000, 9000, 0)
+            },
+            new[] { Grid("G-1", CurtainGridLineDirection.Vertical, 5000) });
+
+        var junction = Single(Resolve(Set(wall, hosts: new[] { Host(5000) })), CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.False(junction.IsDoubtful);
+        Assert.Equal(450, junction.ContinuousFireRatedLengthMm!.Value, 3);
+    }
+
+    [Fact]
+    public void A_band_split_by_a_grid_line_with_both_sides_rated_is_manual_review()
+    {
+        // 案例 8：兩側皆 60 min，合計已達 900 mm — 疑似多餘的 grid line，訊息要帶出它的 ElementId。
+        var wall = Wall(
+            new[]
+            {
+                Panel("P-a", 4550, 5000, 60),
+                Panel("P-b", 5000, 5450, 60)
+            },
+            new[] { Grid("G-1", CurtainGridLineDirection.Vertical, 5000) });
+
+        var junction = Single(Resolve(Set(wall, hosts: new[] { Host(5000) })), CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.True(junction.IsDoubtful);
+        Assert.Equal(CurtainWallJunctionDoubtKind.SplitByGridLine, junction.Doubt!.Kind);
+        Assert.Equal(ReviewStatus.ManualReview, junction.Doubt.Status);
+        Assert.Contains("G-1", junction.Doubt.Message);
+        Assert.Contains("G-1", junction.Doubt.SubjectUniqueIds);
+    }
+
+    [Fact]
+    public void Deleting_the_redundant_grid_line_makes_the_same_band_measure()
+    {
+        // 案例 8b：同一處，嵌板連續之後就是單純的 900 mm。
+        var wall = Wall(new[] { Panel("P-one", 4550, 5450, 60) });
+
+        var junction = Single(Resolve(Set(wall, hosts: new[] { Host(5000) })), CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.False(junction.IsDoubtful);
+        Assert.Equal(900, junction.ContinuousFireRatedLengthMm!.Value, 3);
+    }
+
+    [Fact]
+    public void A_run_cut_short_by_the_curtain_walls_own_end_is_not_supplied()
+    {
+        // 立面在這裡接到另一片牆，工具沒讀到它 — 那是不知道，不是不足。
+        var wall = Wall(new[] { Panel("P-end", 0, 600, 60) });
+
+        var junction = Single(Resolve(Set(wall, hosts: new[] { Host(300) })), CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Null(junction.ContinuousFireRatedLengthMm);
+    }
+
+    [Fact]
+    public void The_clause_the_compartment_comes_from_is_carried_through()
+    {
+        // 案例 9：第83條所生的區劃牆，證據要分得出來（docs §2.5）。
+        var junction = Single(
+            Resolve(Set(Wall(new[] { Panel("P", 4100, 5900, 60) }),
+                hosts: new[] { Host(5000, reference: CurtainWallJunctionReferences.Article83) })),
+            CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Equal(CurtainWallJunctionReferences.Article83, junction.HostLegalReference);
+        Assert.Equal(1800, junction.ContinuousFireRatedLengthMm!.Value, 3);
+    }
+
+    [Fact]
+    public void A_host_with_no_required_rating_withholds_the_run_rather_than_counting_panels()
+    {
+        var junction = Single(
+            Resolve(Set(Wall(new[] { Panel("P", 4100, 5900, 60) }), hosts: new[] { Host(5000, required: null) })),
+            CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Null(junction.ContinuousFireRatedLengthMm);
+        Assert.Null(junction.HostRequiredFireRatingMinutes);
+        Assert.Equal(0.0, junction.ProjectionDepthMm!.Value);
+    }
+
+    [Fact]
+    public void A_compartment_wall_that_stops_near_the_curtain_wall_is_unresolved_not_ignored()
+    {
+        var host = new CompartmentWallObservation("W1", new Point2D(5000, 3000), new Point2D(5000, 400), 0, StoreyMm);
+
+        var junction = Single(Resolve(Set(Wall(Glazing()), hosts: new[] { host })), CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Equal(CurtainWallJunctionDoubtKind.UnresolvedIntersection, junction.Doubt!.Kind);
+        Assert.Contains("400", junction.Doubt.Message);
+        Assert.Contains("W1", junction.Doubt.SubjectUniqueIds);
+    }
+
+    [Fact]
+    public void A_compartment_wall_nowhere_near_the_curtain_wall_makes_no_junction()
+    {
+        var host = new CompartmentWallObservation("W1", new Point2D(5000, 8000), new Point2D(5000, 4000), 0, StoreyMm);
+
+        Assert.DoesNotContain(
+            Resolve(Set(Wall(Glazing()), hosts: new[] { host })),
+            j => j.Kind == CurtainWallJunctionKind.WallToCurtainWall);
+    }
+
+    // --- CW-V：層間帶 ----------------------------------------------------------------------------
+
+    [Fact]
+    public void A_spandrel_band_is_measured_up_and_down_from_the_slab()
+    {
+        // 案例 10：層間實板 900 mm、60 min，樓地板要求 60 min。
+        var junction = Single(Resolve(Spandrel(spandrelMinutes: 60)), CurtainWallJunctionKind.FloorToCurtainWall);
+
+        Assert.Equal(900, junction.ContinuousFireRatedHeightMm!.Value, 3);
+        Assert.Equal(CurtainWallJunctionReferences.Article79_3, junction.HostLegalReference);
+        Assert.Equal("F1", junction.HostUniqueId);
+    }
+
+    [Fact]
+    public void A_spandrel_below_the_floors_required_rating_does_not_count()
+    {
+        // 案例 11：同樣 900 mm，但該樓層樓地板要求 120 min。
+        var junction = Single(Resolve(Spandrel(spandrelMinutes: 60, required: 120)), CurtainWallJunctionKind.FloorToCurtainWall);
+
+        Assert.Equal(0.0, junction.ContinuousFireRatedHeightMm!.Value);
+    }
+
+    [Fact]
+    public void A_slab_that_projects_is_measured_by_how_far_it_reaches_past_the_face()
+    {
+        // 案例 13：樓板外突，層間全玻璃且無時效值 — 突出量照樣供給，但書用不上也無妨。
+        var junction = Single(Resolve(Spandrel(spandrelMinutes: null, slabEdgeMm: 600)), CurtainWallJunctionKind.FloorToCurtainWall);
+
+        Assert.Equal(525, junction.ProjectionDepthMm!.Value, 3);
+        Assert.Null(junction.ContinuousFireRatedHeightMm);
+    }
+
+    [Fact]
+    public void The_most_unfavourable_sample_of_the_band_is_the_one_reported()
+    {
+        // 立面右半段的層間實板只有 300 mm 高：取樣要抓到它，不能被左半段的 900 mm 蓋過去。
+        var panels = new List<CurtainPanelObservation>
+        {
+            Panel("S-left", 0, 6000, 60, bottom: StoreyMm - 450, top: StoreyMm + 450),
+            Panel("S-right", 6000, WallLengthMm, 60, bottom: StoreyMm - 150, top: StoreyMm + 150),
+            Panel("G-left-low", 0, 6000, 0, bottom: 0, top: StoreyMm - 450),
+            Panel("G-right-low", 6000, WallLengthMm, 0, bottom: 0, top: StoreyMm - 150)
+        };
+
+        var junction = Single(Resolve(SpandrelSet(panels)), CurtainWallJunctionKind.FloorToCurtainWall);
+
+        Assert.Equal(300, junction.ContinuousFireRatedHeightMm!.Value, 3);
+    }
+
+    [Fact]
+    public void A_curtain_wall_running_past_a_storey_with_no_floor_goes_to_article_79_2()
+    {
+        // 案例 17：三層連跨挑空 — 不是本項的未符合，是改依第79條之2檢討。
+        var set = new CurtainWallObservationSet(Package, "LVL", "1F", 0,
+            new[] { Zone() },
+            new[] { Wall(Glazing(top: StoreyMm * 3), top: StoreyMm * 3) },
+            levelElevationsMm: new[] { 0.0, StoreyMm, StoreyMm * 2, StoreyMm * 3 });
+
+        var junction = Single(Resolve(set), CurtainWallJunctionKind.FloorToCurtainWall);
+
+        Assert.Equal(CurtainWallJunctionDoubtKind.VerticalCompartmentSpace, junction.Doubt!.Kind);
+        Assert.Equal(ReviewStatus.NotApplicable, junction.Doubt.Status);
+        Assert.Contains("連跨 3 個樓層", junction.Doubt.Message);
+        Assert.Contains(CurtainWallJunctionReferences.Article79_2, junction.Doubt.Message);
+    }
+
+    [Fact]
+    public void A_storey_whose_floor_reaches_the_curtain_wall_is_not_a_vertical_space()
+    {
+        var set = SpandrelSet(new[]
+        {
+            Panel("S", 0, WallLengthMm, 60, bottom: StoreyMm - 450, top: StoreyMm + 450),
+            Panel("G", 0, WallLengthMm, 0, bottom: 0, top: StoreyMm - 450)
+        });
+
+        Assert.DoesNotContain(Resolve(set), j => j.Doubt?.Kind == CurtainWallJunctionDoubtKind.VerticalCompartmentSpace);
+    }
+
+    // --- CW-O、非平面、區劃歸屬 -------------------------------------------------------------------
+
+    [Fact]
+    public void Panels_outside_every_band_are_reviewed_as_other_exterior_wall()
+    {
+        var junction = Single(Resolve(Spandrel(spandrelMinutes: 60)), CurtainWallJunctionKind.CurtainPanelOther);
+
+        Assert.Equal(ProvidedFireRatingKind.Rated, junction.MinFireRating!.Kind);
+        Assert.Equal(0.0, junction.MinFireRating.Minutes!.Value);
+        Assert.Null(junction.HostUniqueId);
+        Assert.DoesNotContain("S", junction.PanelUniqueIds);
+    }
+
+    [Fact]
+    public void A_curved_curtain_wall_is_manual_review_for_both_measured_clauses()
+    {
+        // 案例 18：曲面帷幕牆 — 平面量不出來的兩項轉人工覆核，第79條之4 仍可由嵌板時效回答。
+        var wall = Wall(new[] { Panel("P", 0, WallLengthMm, 30) }, nonPlanarReason: "為曲面帷幕牆");
+        var junctions = Resolve(Set(wall, hosts: new[] { Host(5000) }));
+
+        Assert.All(
+            junctions.Where(j => j.Kind != CurtainWallJunctionKind.CurtainPanelOther),
+            j => Assert.Equal(CurtainWallJunctionDoubtKind.NonPlanarCurtainWall, j.Doubt!.Kind));
+        Assert.Equal(2, junctions.Count(j => j.IsDoubtful));
+        Assert.Contains(junctions, j => j.Kind == CurtainWallJunctionKind.CurtainPanelOther && !j.IsDoubtful);
+    }
+
+    [Fact]
+    public void A_junction_that_falls_in_no_reviewed_zone_is_left_out()
+    {
+        var set = new CurtainWallObservationSet(Package, "LVL", "1F", 0,
+            zones: Array.Empty<CurtainWallZoneObservation>(),
+            curtainWalls: new[] { Wall(Glazing()) },
+            compartmentWalls: new[] { Host(5000) },
+            levelElevationsMm: new[] { 0.0, StoreyMm });
+
+        Assert.Empty(Resolve(set));
+    }
+
+    [Fact]
+    public void Every_junction_belongs_to_the_zone_behind_the_facade()
+    {
+        var junctions = Resolve(Spandrel(spandrelMinutes: 60));
+
+        Assert.NotEmpty(junctions);
+        Assert.All(junctions, j => Assert.Equal(ZoneId, j.ZoneId));
+    }
+
+    [Fact]
+    public void The_same_model_resolves_to_the_same_junctions_in_the_same_order()
+    {
+        var set = Spandrel(spandrelMinutes: 60);
+
+        Assert.Equal(
+            Resolve(set).Select(j => j.JunctionId).ToList(),
+            Resolve(set).Select(j => j.JunctionId).ToList());
+    }
+
+    [Fact]
+    public void Resolved_junctions_feed_the_check_inputs_without_further_conversion()
+    {
+        var inputs = new CurtainWallJunctionInputs(null, Resolve(Spandrel(spandrelMinutes: 60)));
+
+        Assert.NotEmpty(inputs.Junctions);
+        Assert.All(inputs.Junctions, j => Assert.Equal(ZoneId, j.ZoneId));
+    }
+
+    // --- fixtures ---------------------------------------------------------------------------------
+
+    private static IReadOnlyList<CurtainWallJunction> Resolve(CurtainWallObservationSet set) =>
+        CurtainWallJunctionResolver.Resolve(set);
+
+    private static CurtainWallJunction Single(IEnumerable<CurtainWallJunction> junctions, CurtainWallJunctionKind kind) =>
+        Assert.Single(junctions, j => j.Kind == kind);
+
+    private static CurtainWallZoneObservation Zone() =>
+        new(ZoneId, "A 區劃", new[] { Rectangle(-2000, 1, WallLengthMm + 2000, 20000) });
+
+    private static IReadOnlyList<Point2D> Rectangle(double x0, double y0, double x1, double y1) =>
+        new[] { new Point2D(x0, y0), new Point2D(x1, y0), new Point2D(x1, y1), new Point2D(x0, y1) };
+
+    private static CurtainPanelObservation Panel(
+        string uniqueId,
+        double startMm,
+        double endMm,
+        double? minutes,
+        double bottom = 0,
+        double top = StoreyMm,
+        bool isOpening = false,
+        ProvidedFireProtection? protection = null) =>
+        new(uniqueId, startMm, endMm, bottom, top,
+            minutes is double m ? ProvidedFireRating.Rated(m, m.ToString("0")) : ProvidedFireRating.Missing("參數值為空白"),
+            isOpening, protection);
+
+    private static CurtainGridLineObservation Grid(string uniqueId, CurtainGridLineDirection direction, double positionMm) =>
+        new(uniqueId, direction, positionMm);
+
+    private static IReadOnlyList<CurtainPanelObservation> Glazing(double top = StoreyMm) =>
+        new[] { Panel("P-glass", 0, WallLengthMm, 0, top: top) };
+
+    private static CurtainWallObservation Wall(
+        IEnumerable<CurtainPanelObservation> panels,
+        IEnumerable<CurtainGridLineObservation>? gridLines = null,
+        double top = StoreyMm,
+        string? nonPlanarReason = null) =>
+        new("CW1", new Point2D(0, 0), new Point2D(WallLengthMm, 0), new Point2D(0, -1), OffsetMm, 0, top,
+            panels, gridLines, nonPlanarReason, "帷幕牆 1");
+
+    /// <summary>A 區劃牆 reaching the curtain wall from inside; <paramref name="beyondLineMm"/> is how far south of the location line it ends.</summary>
+    private static CompartmentWallObservation Host(
+        double atMm,
+        double beyondLineMm = 50,
+        double? required = 60,
+        string reference = CurtainWallJunctionReferences.Article79) =>
+        new("W1", new Point2D(atMm, 3000), new Point2D(atMm, -beyondLineMm), 0, StoreyMm, reference, required);
+
+    private static CurtainWallObservationSet Set(
+        CurtainWallObservation wall,
+        IEnumerable<CompartmentWallObservation>? hosts = null,
+        IEnumerable<CompartmentFloorObservation>? floors = null) =>
+        new(Package, "LVL", "1F", 0, new[] { Zone() }, new[] { wall }, hosts, floors,
+            new[] { 0.0, StoreyMm });
+
+    /// <summary>
+    /// A storey whose slab sits at 3600: a spandrel band straddling it, glazing below, and the storey
+    /// above still curtain-walled — so the band is bounded by panels, not by the wall's own edge.
+    /// </summary>
+    private static CurtainWallObservationSet Spandrel(double? spandrelMinutes, double? required = 60, double slabEdgeMm = 50)
+    {
+        var panels = new List<CurtainPanelObservation>
+        {
+            Panel("S", 0, WallLengthMm, spandrelMinutes, bottom: StoreyMm - 450, top: StoreyMm + 450),
+            Panel("G-low", 0, WallLengthMm, 0, bottom: 0, top: StoreyMm - 450),
+            Panel("G-high", 0, WallLengthMm, 0, bottom: StoreyMm + 450, top: StoreyMm * 2)
+        };
+
+        return SpandrelSet(panels, required, slabEdgeMm);
+    }
+
+    private static CurtainWallObservationSet SpandrelSet(
+        IReadOnlyList<CurtainPanelObservation> panels,
+        double? required = 60,
+        double slabEdgeMm = 50)
+    {
+        var floor = new CompartmentFloorObservation("F1",
+            new[] { Rectangle(-500, -slabEdgeMm, WallLengthMm + 500, 8000) }, StoreyMm, required);
+
+        return new CurtainWallObservationSet(Package, "LVL", "2F", StoreyMm,
+            new[] { Zone() },
+            new[] { Wall(panels, top: StoreyMm * 2) },
+            compartmentFloors: new[] { floor },
+            levelElevationsMm: new[] { 0.0, StoreyMm, StoreyMm * 2 });
+    }
+}
