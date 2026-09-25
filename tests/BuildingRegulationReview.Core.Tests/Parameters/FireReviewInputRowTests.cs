@@ -23,11 +23,9 @@ public sealed class FireReviewInputRowTests
         double? areaM2 = 71.59,
         FireReviewZoneParameters present =
             FireReviewZoneParameters.Use | FireReviewZoneParameters.Sprinklered |
-            FireReviewZoneParameters.FloorNumber | FireReviewZoneParameters.InteriorFinish,
-        string? interiorFinish = null) =>
+            FireReviewZoneParameters.FloorNumber) =>
         new(uid, name, number: "1", levelName: "FL9", areaSchemeName: "防火區劃",
-            areaSquareMeters: areaM2, use: use, sprinklered: sprinklered, floorNumber: floorNumber, present: present,
-            interiorFinish: interiorFinish);
+            areaSquareMeters: areaM2, use: use, sprinklered: sprinklered, floorNumber: floorNumber, present: present);
 
     [Fact]
     public void A_zone_row_reports_the_area_revit_measured_and_offers_no_way_to_change_it()
@@ -52,7 +50,7 @@ public sealed class FireReviewInputRowTests
         var zone = Zone(present: FireReviewZoneParameters.Use);
 
         Assert.Equal(
-            new[] { ReviewInputSources.Sprinklered, ReviewInputSources.FloorNumber, ReviewInputSources.InteriorFinish },
+            new[] { ReviewInputSources.Sprinklered, ReviewInputSources.FloorNumber },
             zone.MissingParameters);
         Assert.Empty(Zone().MissingParameters);
     }
@@ -132,34 +130,21 @@ public sealed class FireReviewInputRowTests
         Assert.Equal(new[] { "z-2" }, set.ZonesMissingSprinklers.Select(z => z.ElementUniqueId));
     }
 
-    /// <summary>
-    /// 第83條 reads 室內裝修等級 from the eleventh storey up and reports 資料不足 without it, so the
-    /// panel has to be able to point at exactly those zones — and not at the ones below, where the
-    /// rule does not apply and the grade is nobody's business.
-    /// </summary>
     [Fact]
-    public void The_set_lists_the_zones_above_the_tenth_storey_still_missing_their_finish_grade()
+    public void Area_rows_never_request_the_model_derived_finish_grade()
     {
         var set = new FireReviewParameterSet(
             new FireReviewTypeTable(null),
             new[]
             {
-                Zone("z-1", floorNumber: 11, interiorFinish: InteriorFinishGrades.ClassOne),
+                Zone("z-1", floorNumber: 11),
                 Zone("z-2", floorNumber: 11),
                 Zone("z-3", floorNumber: 10),
                 Zone("z-4", floorNumber: null),
                 Zone("z-5", floorNumber: 20)
             });
 
-        Assert.Equal(new[] { "z-2", "z-5" }, set.ZonesMissingInteriorFinish.Select(z => z.ElementUniqueId));
-    }
-
-    /// <summary>A blank grade is 未填, not 「無」: the two are a different answer from 第83條 (spec 11.3).</summary>
-    [Fact]
-    public void A_blank_finish_grade_stays_blank_rather_than_becoming_a_value()
-    {
-        Assert.Null(Zone(interiorFinish: "  ").InteriorFinish);
-        Assert.Equal(InteriorFinishGrades.None, Zone(interiorFinish: " 無 ").InteriorFinish);
+        Assert.All(set.Zones, zone => Assert.DoesNotContain(ReviewInputSources.InteriorFinish, zone.MissingParameters));
     }
 
     /// <summary>The panel writes every tab in one go, so the edits share one element-addressed shape.</summary>

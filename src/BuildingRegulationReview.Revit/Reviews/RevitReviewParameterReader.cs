@@ -4,6 +4,8 @@ using System.Linq;
 using Autodesk.Revit.DB;
 using BuildingRegulationReview.Application.Candidates;
 using BuildingRegulationReview.Application.Reviews;
+using BuildingRegulationReview.Domain.Geometry;
+using BuildingRegulationReview.Revit.WriteBack;
 
 namespace BuildingRegulationReview.Revit.Reviews;
 
@@ -26,6 +28,7 @@ public sealed class RevitReviewParameterReader
             { BuiltInCategory.OST_StructuralColumns, ReviewParameterHost.Columns },
             { BuiltInCategory.OST_StructuralFraming, ReviewParameterHost.StructuralFraming },
             { BuiltInCategory.OST_Floors, ReviewParameterHost.Floors },
+            { BuiltInCategory.OST_Ceilings, ReviewParameterHost.Ceilings },
             { BuiltInCategory.OST_Doors, ReviewParameterHost.Doors },
             { BuiltInCategory.OST_Windows, ReviewParameterHost.Windows },
             { BuiltInCategory.OST_CurtainWallPanels, ReviewParameterHost.CurtainPanels }
@@ -52,6 +55,7 @@ public sealed class RevitReviewParameterReader
             var zoneNames = Names(ReviewParameterHost.Areas);
             foreach (var uid in candidates.Zones.SelectMany(z => z.AreaUniqueIds))
                 Add(elements, uid, zoneNames);
+            AddDerivedInteriorFinishes(elements, candidates);
 
             var memberNames = Names(ReviewParameterHost.Walls);
             foreach (var uid in candidates.Members.Select(m => m.Observation.TypeUniqueId).Where(x => x is not null))
@@ -70,6 +74,78 @@ public sealed class RevitReviewParameterReader
         }
 
         return new ReviewParameterSnapshot(Bindings(names), project, elements);
+    }
+
+    private void AddDerivedInteriorFinishes(
+        Dictionary<string, IReadOnlyDictionary<string, ParameterReading>> elements,
+        CandidateSet candidates)
+    {
+        foreach (var zone in candidates.Zones)
+        {
+            var surfaces = new List<InteriorFinishSurface>();
+            foreach (var wall in candidates.MembersOf(zone.ZoneId)
+                         .Where(x => x.Observation.Category == CandidateCategory.Wall))
+            {
+                var element = _document.GetElement(wall.Observation.Source.ElementUniqueId);
+                var type = element is null ? null : _document.GetElement(element.GetTypeId());
+                surfaces.Add(new InteriorFinishSurface(
+                    wall.Observation.Source.ElementUniqueId,
+                    "牆",
+                    TextOf(type?.LookupParameter(ReviewInputSources.InteriorFinish))));
+            }
+
+            foreach (var uid in zone.AreaUniqueIds)
+            {
+                var area = _document.GetElement(uid) as Area;
+                if (area is null) continue;
+                foreach (var ceiling in CeilingsInside(area))
+                {
+                    var type = _document.GetElement(ceiling.GetTypeId());
+                    surfaces.Add(new InteriorFinishSurface(
+                        ceiling.UniqueId,
+                        "天花板",
+                        TextOf(type?.LookupParameter(ReviewInputSources.InteriorFinish))));
+                }
+            }
+
+            var derived = InteriorFinishAssessment.Derive(surfaces);
+            var reading = derived is null ? ParameterReading.Empty : ParameterReading.OfText(derived);
+            foreach (var uid in zone.AreaUniqueIds)
+            {
+                var values = new Dictionary<string, ParameterReading>(StringComparer.Ordinal);
+                if (elements.TryGetValue(uid, out var existing))
+                    foreach (var pair in existing) values[pair.Key] = pair.Value;
+                values[ReviewInputSources.InteriorFinish] = reading;
+                elements[uid] = values;
+            }
+        }
+    }
+
+    private IEnumerable<Ceiling> CeilingsInside(Area area)
+    {
+        var loops = RevitWrittenZoneReader.ReadLoops(area, new SpatialElementBoundaryOptions());
+        if (loops.Count == 0) yield break;
+        foreach (var ceiling in new FilteredElementCollector(_document)
+                     .OfCategory(BuiltInCategory.OST_Ceilings)
+                     .WhereElementIsNotElementType()
+                     .Cast<Ceiling>())
+        {
+            if (ceiling.LevelId != area.LevelId) continue;
+            var box = ceiling.get_BoundingBox(null);
+            if (box is null) continue;
+            var point = (box.Min + box.Max) * 0.5;
+            var plan = new Point2D(point.X, point.Y);
+            if (loops.Count(loop => RingGeometry.ContainsPoint(loop, plan)) % 2 == 1)
+                yield return ceiling;
+        }
+    }
+
+    private static string? TextOf(Parameter? parameter)
+    {
+        if (parameter is null || !parameter.HasValue) return null;
+        return parameter.StorageType == StorageType.String
+            ? parameter.AsString()
+            : parameter.AsValueString();
     }
 
     private static IReadOnlyList<string> Names(ReviewParameterHost host) =>

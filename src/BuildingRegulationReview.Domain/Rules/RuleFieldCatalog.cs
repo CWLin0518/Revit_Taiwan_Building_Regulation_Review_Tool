@@ -115,7 +115,7 @@ public sealed class RuleFieldCatalog
             // 設計者宣告的事實，不是模型量得的，所以是一個輸入欄位；寫不出等級的區劃落回第一款的
             // 100 ㎡，沒有填的區劃則是資料不足，不會被當成符合第一款（規格 11.3）。
             new RuleFieldDefinition("zone.interiorFinish", text,
-                "室內裝修等級（第83條第一至三款：無／耐燃一級／耐燃一級含底材）", all),
+                "由區劃內牆面與天花板類型推導的室內裝修耐燃等級（無／耐燃一級／耐燃一級含底材）", all),
 
             new RuleFieldDefinition("element.category", text, "構件類別（Walls／Columns／StructuralFraming／Floors）", element),
             new RuleFieldDefinition("element.typeName", text, "構件 Type 名稱", element),

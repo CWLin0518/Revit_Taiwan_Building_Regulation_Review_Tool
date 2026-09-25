@@ -128,7 +128,7 @@ public sealed class ZoneAreaLimitTests
         Assert.Equal(
             ZoneAreaLimitGap.InteriorFinish | ZoneAreaLimitGap.BuildingUse | ZoneAreaLimitGap.Sprinklered,
             shown.Gaps);
-        Assert.Equal("未填裝修等級、用途類組、滅火設備，無法判定上限", shown.Description);
+        Assert.Equal("未填模型牆面／天花板耐燃等級、用途類組、滅火設備，無法判定上限", shown.Description);
     }
 
     /// <summary>

@@ -1,6 +1,6 @@
 # 防火區劃與帷幕牆交接：第 79 條、第 79-3 條、第 79-4 條
 
-> 狀態：**實作中**。§12 的步驟 1–8 全部已完成（規則類別、`junction.*` 欄位、三條交接規則、第 83 條面積規則與 `zone.interiorFinish`，`CurtainWallJunctionInputs`／`Options`／`Check`，`ICurtainWallGeometryReader`／`CurtainWallJunctionResolver`／`RevitCurtainWallGeometryReader`，Curtain Panels 的 `防火檢討_設計防火時效` 綁定與前置檢查，`FireReviewRunner` 的第四類檢查與檢討表第四列，§7.1 三種標示的標示計畫與差異比對含案例 19，以及 `RevitReviewViewMarker` 把交接處標註與層間帶畫進檢討平面與工具自建的帷幕牆檢討立面，共 143 個規則層、Check 層、幾何層、參數層、串接層與標示層測試），第 83 條的 `防火檢討_室內裝修等級` 也已經進入批次參數面板（下拉選單、批次填入，以及會講條號的「適用上限」欄，見 §12 步驟 8）；**Revit 端尚未實機驗證**。
+> 狀態：**實作中**。§12 的步驟 1–9 已完成。步驟 9 依設計決策取消 Area 上人工填寫室內裝修等級，改由區劃實際關聯的牆與天花板類型推導 `zone.interiorFinish`；**Revit 端尚未實機驗證**。
 
 ## 1. 功能摘要
 
@@ -243,7 +243,7 @@ public enum RuleCategory
 | --- | --- | --- |
 | `zone.interiorFinish` | Text | 室內裝修等級，對應第 83 條第一至三款：`無`（第一款）／`耐燃一級`（第二款，自地板面起 1.2 m 以上之牆面與天花板）／`耐燃一級含底材`（第三款，含底材） |
 
-參數來源是 `防火檢討_室內裝修等級`（面積實體參數，見 §6）。等級是設計者宣告的事實，不是模型量得的，所以是輸入欄位而非模型欄位。
+資料來源是區劃實際關聯的牆與天花板類型參數 `防火檢討_室內裝修等級`（見 §12 步驟 9）。規則欄位仍是 `zone.interiorFinish`，但它是檢討時由模型彙總出的事實，不再是 Area 人工輸入。
 
 ### 5.3 已加入的規則（`Data/fire-review-rules.json`，規則集版本 `2026.4-provisional`）
 
@@ -359,7 +359,7 @@ junction.projectionDepth >= 500 mm || (junction.continuousFireRatedLength >= 900
 | `防火檢討_設計防火時效` | Type（沿用既有定義） | **新增綁定** Curtain Panels | 嵌板之設計時效，`junction.minFireRating` 來源。不綁 Curtain Wall Mullions |
 | `防火檢討_設計防火保護` | Type、YESNO（既有） | 既有 Doors、Windows、Curtain Panels | 交接帶內開口是否受防護 |
 | `防火檢討_法規要求防火時效` | Type、寫回（既有） | 不新增綁定 | 交接檢討不寫回型別，結果只存在 ReviewRun |
-| `防火檢討_室內裝修等級` | Instance、TEXT（**新增**，共享參數 GUID `…000e`） | **新增綁定** Areas | 第 83 條第一至三款的區劃面積上限，`zone.interiorFinish` 來源 |
+| `防火檢討_室內裝修等級` | Type、TEXT（共享參數 GUID `…000e`） | **綁定** Walls、Ceilings | 第 83 條第一至三款的區劃面積上限；檢討時以區劃內最弱等級推導 `zone.interiorFinish` |
 | `建築物用途類組` | Instance、TEXT（既有，原本規則未讀） | 既有 Project Information | 第 83 條第一、二款的Ｈ–２組但書，`building.use` 來源 |
 
 後兩者都因為第 83 條的面積規則而成為**必要參數**：`ReviewInputSources.NeededBy` 只看規則有沒有讀這個欄位，不分樓層，所以即使是五層樓的專案，前置檢查也會要求把這兩個參數加進專案才能檢討（`BCR-PARAM-001`）。這是刻意的——沒有這兩個參數，工具無法分辨十一層以上的區劃。
@@ -497,6 +497,16 @@ CW-V 的立面**由工具自己建立**，使用者不必事先備妥：每片�
 | 6b-2 | `RevitReviewViewMarker`：把 6b-1 的標註與層間帶真的畫進檢討視圖與立面／剖面 | **已完成**（Revit 端待實機驗證） |
 | 7 | 第 83 條面積規則 `tw-bcr-83-area` 與 `zone.interiorFinish`，規則集版本升至 `2026.4-provisional` | **已完成** |
 | 8 | `防火檢討_室內裝修等級` 進批次參數面板的「區劃」分頁，「適用上限」欄改為兩條規則共用的 `ZoneAreaLimit` | **已完成**（Revit 端待實機驗證） |
+| 9 | 取消 Area 人工輸入；由區劃內牆／天花板類型的耐燃等級彙總第 83 條輸入，最弱者控制、缺值不猜測 | **已完成**（取代步驟 8 的輸入方式，Revit 端待實機驗證） |
+
+### 步驟 9：室內裝修等級改由模型推導
+
+- `防火檢討_室內裝修等級` 改為綁在**牆類型與天花板類型**，不再綁 Area 實體。
+- 每個區劃讀取與其有空間關係的牆，以及同樓層、中心點位於 Area 邊界內的天花板。
+- 三階值仍為 `無`／`耐燃一級`／`耐燃一級含底材`；整個區劃以最弱的牆面或天花板系統為準。
+- 任何必要表面缺參數、未填或值不在白名單內，`zone.interiorFinish` 不供值，規則結果為 `InsufficientData`，不得自行放寬。
+- 批次參數面板移除 Area 的「室內裝修等級」欄、批次填入與寫回；第 11 層以上的「適用上限」在真正檢討前顯示需由模型推導。
+- 規則集版本升為 `2026.5-provisional`，使既有人工 Area 輸入產生的結果失效並要求重跑。
 
 ### 步驟 1、2 的驗證
 

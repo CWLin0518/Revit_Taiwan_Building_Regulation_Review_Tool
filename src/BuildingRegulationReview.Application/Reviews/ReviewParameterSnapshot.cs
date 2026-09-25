@@ -202,7 +202,8 @@ public static class ReviewInputAssembler
                 var input = Convert(definition, snapshot.Project(source.ParameterName), "專案資訊：" + source.ParameterName);
                 if (input is not null) building.Add(input);
             }
-            else if (source.Hosts.Contains(ReviewParameterHost.Areas))
+            else if (source.Hosts.Contains(ReviewParameterHost.Areas) ||
+                     string.Equals(source.Field, "zone.interiorFinish", StringComparison.Ordinal))
             {
                 zoneSources.Add(source);
             }

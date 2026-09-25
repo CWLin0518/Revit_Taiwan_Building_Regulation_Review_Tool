@@ -29,7 +29,17 @@ namespace BuildingRegulationReview.Core.Tests.Reviews;
 public sealed class FireReviewIntegrationTests
 {
     private const string RuleSetId = "tw-bcr-fire";
-    private const string ShippedVersion = "2026.4-provisional";
+    private const string ShippedVersion = "2026.5-provisional";
+
+    [Fact]
+    public void Interior_finish_is_a_model_derived_wall_and_ceiling_type_fact_not_an_area_input()
+    {
+        var source = ReviewInputSources.For("zone.interiorFinish")!;
+
+        Assert.Equal(ReviewParameterLevel.Type, source.Level);
+        Assert.Equal(new[] { ReviewParameterHost.Walls, ReviewParameterHost.Ceilings }, source.Hosts);
+        Assert.DoesNotContain(ReviewParameterHost.Areas, source.Hosts);
+    }
     private static readonly DateTime Now = new(2026, 9, 22, 9, 0, 0, DateTimeKind.Utc);
     private static readonly RuleEvaluationContext Today = new(new DateTime(2026, 9, 22), "TW");
 

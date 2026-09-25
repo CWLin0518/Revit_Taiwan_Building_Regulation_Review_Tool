@@ -123,7 +123,11 @@ public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
     public static ZoneAreaLimit For(FireReviewZoneRow zone, string? buildingUse)
     {
         if (zone is null) throw new ArgumentNullException(nameof(zone));
-        return For(zone.FloorNumber, zone.Sprinklered, zone.InteriorFinish, buildingUse);
+        // The grade is derived during review from the modelled walls and ceilings. The batch panel
+        // no longer pretends an Area carries that fact, so it can only show the Article 79 limit.
+        return zone.FloorNumber >= 11
+            ? Unknown(ZoneAreaLimitGap.InteriorFinish)
+            : For(zone.FloorNumber, zone.Sprinklered, null, buildingUse);
     }
 
     private static ZoneAreaLimit Article79(bool? sprinklered) =>
@@ -163,7 +167,7 @@ public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
     private static IEnumerable<string> Labels(ZoneAreaLimitGap gaps)
     {
         if ((gaps & ZoneAreaLimitGap.FloorNumber) != 0) yield return "樓層序";
-        if ((gaps & ZoneAreaLimitGap.InteriorFinish) != 0) yield return "裝修等級";
+        if ((gaps & ZoneAreaLimitGap.InteriorFinish) != 0) yield return "模型牆面／天花板耐燃等級";
         if ((gaps & ZoneAreaLimitGap.BuildingUse) != 0) yield return "用途類組";
         if ((gaps & ZoneAreaLimitGap.Sprinklered) != 0) yield return "滅火設備";
     }

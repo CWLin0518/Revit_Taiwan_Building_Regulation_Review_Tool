@@ -252,21 +252,6 @@
                                 </DataGridComboBoxColumn.EditingElementStyle>
                             </DataGridComboBoxColumn>
 
-                            <DataGridComboBoxColumn Header="室內裝修等級" Width="130"
-                                                    SelectedItemBinding="{Binding InteriorFinish, UpdateSourceTrigger=PropertyChanged}">
-                                <DataGridComboBoxColumn.ElementStyle>
-                                    <Style TargetType="ComboBox">
-                                        <Setter Property="ItemsSource" Value="{Binding InteriorFinishChoices}" />
-                                        <Setter Property="ToolTip" Value="第83條第一至三款，十一層以上的區劃才讀。「耐燃一級」＝自地板面起 1.2m 以上之牆面及天花板；「耐燃一級含底材」＝牆面及天花板連同底材。留白會判「資料不足」。" />
-                                    </Style>
-                                </DataGridComboBoxColumn.ElementStyle>
-                                <DataGridComboBoxColumn.EditingElementStyle>
-                                    <Style TargetType="ComboBox">
-                                        <Setter Property="ItemsSource" Value="{Binding InteriorFinishChoices}" />
-                                    </Style>
-                                </DataGridComboBoxColumn.EditingElementStyle>
-                            </DataGridComboBoxColumn>
-
                             <DataGridTextColumn Header="適用上限" Binding="{Binding LimitText}" IsReadOnly="True" Width="190">
                                 <DataGridTextColumn.ElementStyle>
                                     <Style TargetType="TextBlock">
