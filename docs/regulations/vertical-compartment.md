@@ -2,7 +2,8 @@
 
 功能 ID：`vertical-compartment`
 
-狀態：**規則層與參數層已完成**（本文件 §5、§6、§10）。檢查層與 Revit 產出未開始（§12）。
+狀態：**規則層、參數層與檢查層已完成**（本文件 §5、§6、§8、§10）。與 `FireReviewRunner` 的接線
+與 Revit 產出未開始（§12）。
 
 ## 1. 功能摘要
 
@@ -163,7 +164,13 @@
 
 也就是 `CandidateSet.OpeningsOf(zoneId)` 已經解出來的那批開口，與 `OpeningProtectionCheck` 用的
 同一批。窗不會是維修門，所以 `ShaftDoor*` 只取 `CandidateCategory.Door`；昇降機道出入口則不限
-門或嵌板，條文說的是「裝設之防火設備」。這部分屬檢查層，見 §12。
+門或嵌板，條文說的是「裝設之防火設備」。這張對照表是
+`VerticalCompartmentRequirements.Categories(requirement)`。
+
+與 `OpeningProtectionCheck` 同樣的兩條界線也適用：區劃範圍有問題（未封閉、重疊）時該區劃的開口
+是**人工覆核**，開口與區劃的關係有疑義（帷幕牆、未寄主、連結模型）時也是，兩者都不跑規則。
+後者在本類別仍然產生一筆結果而不是默默消失——一扇關係有疑義的昇降機道出入口若被略過，檢討表的
+件數就會少算一件。
 
 ## 5. 規則集擴充
 
@@ -308,7 +315,9 @@ public enum RuleCategory
 | `VerticalCompartmentRequirement`／`VerticalCompartmentRequirements` | 三項要求的用字、標籤與所屬用途 | 已完成 |
 | `ReviewCheckTypes.VerticalCompartment` | 結果歸檔的檢討類型 | 已完成 |
 | `ZoneUses.VerticalCompartmentHandoff` | 面積豁免訊息指向第 79 條之 2 | 已完成 |
-| `VerticalCompartmentCheck`／`VerticalCompartmentInputs` | 由候選開口與輸入產生主體、跑引擎、產生結果 | **未開始** |
+| `VerticalCompartmentCheck` | 由候選開口與 `zone.use` 產生主體、跑引擎、產生結果與三列統計 | 已完成 |
+| `VerticalCompartmentInputs`／`ShaftDeviceProperties` | 每個開口 Type 的遮煙性能與設計防火時效 | 已完成 |
+| `ReviewInputAssembler` 的 `ReviewInputAssembly.VerticalCompartment` | 從參數快照組出上一列 | 已完成 |
 | `FireReviewRunner` 的接線 | 把新檢查併入一次檢討 | **未開始** |
 | `ReviewTable`／`ReviewMarkup` | 檢討表列與視圖標示 | **未開始** |
 | `SmokeProtectionParameters.Provided` | 參數名（`防火檢討_遮煙性能`），與 `FireProtectionParameters` 分立 | 已完成 |
@@ -335,7 +344,15 @@ public enum RuleCategory
    且區劃對象是「與其他部分之間」。不可直接套用本功能的規則。
 7. **遮煙性能無法由模型推導。** 它是第 1 條第 45 款的試驗結果，和阻熱性一樣只能由設計者宣告。
 8. **一扇維修門會產生兩筆結果**（時效、遮煙）。這是 §3.1 的直接後果；檢討表與標示要設計得讓
-   使用者看得懂同一扇門為什麼出現兩次。
+   使用者看得懂同一扇門為什麼出現兩次。檢查層已經把要求名寫進結果訊息與
+   `shaft.requirementLabel` 證據，標示與檢討表（步驟 5、6）要照著用。
+9. **證據基線還沒有看到遮煙性能。** `ReviewBaselineBuilder` 目前只收面積、時效與防火保護三種輸入
+   （`ReviewInputAssembly.PanelRatings` 也在內），改了某個 Type 的 `防火檢討_遮煙性能` 不會讓既有
+   檢討變成「需更新」。這要在步驟 5 與接線一起補上，spec 13.1 的規則沒有例外。
+10. **`zone.use` 判讀不出來時該區劃不產生任何主體。** 一個區劃由多個 Area 組成、各 Area 的
+   `防火檢討_區劃用途` 填得不一致時，`ReviewInputAssembler` 會把它變成 `Unreadable`，本檢查因此
+   讀不到用途、不產生主體。這個不一致由 `CompartmentAreaCheck` 報出來（它會是該區劃的資料不足），
+   不會沒有人講；但本類別的件數會少算，方向是**寬鬆**的，與第 3 項同一類缺口。
 
 ## 10. 測試案例
 
@@ -365,6 +382,36 @@ public enum RuleCategory
 | `An_exempt_vertical_compartment_is_told_which_article_takes_over` | 面積豁免訊息指名第 79 條之 2 |
 | `An_exemption_that_is_not_a_vertical_compartment_gets_no_such_note` | 其他豁免不會被安上第 79 條之 2 |
 
+`tests/BuildingRegulationReview.Core.Tests/Checks/VerticalCompartmentCheckTests.cs`
+（檢查層，同樣跑實際出貨的規則檔）：
+
+| 測試 | 守的事 |
+| --- | --- |
+| `A_smoke_sealed_hoistway_door_passes` | 主體成立、命中昇降機道規則、歸檔在 `ReviewCheckTypes.VerticalCompartment` |
+| `A_hoistway_door_without_a_smoke_seal_waits_for_the_elevator_lobby_proviso` | 遮煙未達不是未符合，缺口是 `shaft.elevatorLobbyProtected`（§9 第 2 項） |
+| `A_hoistway_holds_a_window_and_a_curtain_panel_to_the_smoke_seal_too` | 昇降機道出入口不限門（§4） |
+| `A_protected_elevator_lobby_is_reported_as_exempt` | 第 2 項但書的 `Exempt` 路徑（但書目前沒有輸入來源，故直接餵 facts） |
+| `One_maintenance_door_answers_two_requirements` | 一扇維修門兩筆結果，訊息各自指名要求（§9 第 8 項） |
+| `A_maintenance_door_needs_a_full_hour` | 60／59 分鐘的門檻兩側 |
+| `A_window_on_a_shaft_boundary_is_no_maintenance_door` | 管道間只取門（§4） |
+| `A_use_with_no_extra_requirement_produces_no_subject` | 挑空／昇降階梯間／樓梯間／清單外用字／未填用途都不產生主體 |
+| `A_building_that_is_not_fire_resistive_is_out_of_scope` | 非防火構造 → 每個主體 `NoRuleApplies` |
+| `An_unbound_smoke_seal_is_insufficient_data_and_names_its_own_parameter` | 證據指向 `防火檢討_遮煙性能`，不是 `防火檢討_設計防火保護`（決議 6） |
+| `An_unbound_maintenance_door_rating_names_the_rating_parameter` | 時效缺口指向 `防火檢討_設計防火時效` |
+| `A_subject_carries_only_the_field_its_requirement_reads` | 遮煙主體不報時效的缺口，一個缺參數不會被算兩次 |
+| `A_maintenance_door_with_no_single_rating_is_manual_review` | 「1hr/2hr」是人工覆核，與構件防火時效同一做法 |
+| `An_opening_of_a_zone_whose_extent_is_in_doubt_is_manual_review` | 沒有封閉面積的區劃在前置檢查就擋下 |
+| `An_ambiguous_opening_relation_is_manual_review` | 關係有疑義的開口仍產生一筆人工覆核，不會從件數消失（§4） |
+| `The_three_rows_are_always_reported_even_when_empty` | 檢討表三列恆存在、列名取 `VerticalCompartmentRequirements.Label` |
+| `A_device_of_a_type_the_package_has_no_opening_of_is_reported_as_a_warning`／`A_zone_that_is_not_in_the_package_…` | 輸入指到工作包外的東西是警告，不是靜默 |
+
+`tests/BuildingRegulationReview.Core.Tests/Reviews/FireReviewIntegrationTests.cs`：
+
+| 測試 | 守的事 |
+| --- | --- |
+| `Every_opening_type_is_assembled_into_the_vertical_compartment_inputs` | 組裝層讀開口 Type 的兩個參數，並與其他檢查共用同一份 `CompartmentAreaInputs` |
+| `An_unbound_smoke_seal_names_its_own_parameter_and_not_the_protection_one` | `ReviewInputAssembler.Protection` 的參數名引數（決議 11） |
+
 ## 11. 決議紀錄
 
 | # | 決議 | 理由 |
@@ -379,6 +426,10 @@ public enum RuleCategory
 | 8 | `防火檢討_設計防火時效` 加綁**門**，批次面板的「設計防火時效」欄對門開放 | 沒有它，管道間維修門的一小時時效永遠是資料不足。窗不開放——沒有任何條文對窗訂時效（§6） |
 | 9 | 遮煙性能綁門／窗／帷幕嵌板三類，時效只綁門 | 昇降機道出入口的「防火設備」可能是門、窗或嵌板；維修門只會是門（§4） |
 | 10 | 前置檢查的缺參數訊息分成「專案沒有參數」與「沒有綁定到 門」兩句 | 一個參數回答兩個欄位後，舊訊息會在參數明明存在時說「專案沒有參數」（§6） |
+| 11 | `ReviewInputAssembler.Protection` 多一個參數名引數，不另寫一個同形函式 | 遮煙性能與設計防火保護的讀法完全相同（決議 6 之下的三態讀法），差別只有資料不足時要指名哪個參數；複製一份會讓兩邊各自漂移 |
+| 12 | 每個受檢主體只帶**它自己的要求要讀的那一個欄位** | 一扇維修門的兩個主體若都帶時效與遮煙，同一個缺參數會在兩筆結果各報一次缺口，使用者看到的缺項數量會是實際的兩倍（守門測試 `A_subject_carries_only_the_field_its_requirement_reads`） |
+| 13 | 關係有疑義的開口在本類別仍產生一筆人工覆核結果，不沿用 `OpeningProtectionCheck` 的「略過、另由 `set.Ambiguities` 收」做法 | 本類別的主體是（設備, 要求）這一對，略過會讓檢討表的件數少算；而 `set.Ambiguities` 一筆只能對一個元素，無法拆成兩項要求（§4） |
+| 14 | `ReviewInputAssembly` 為每個開口 Type 都造一筆 `ShaftDeviceProperties`，不先篩出垂直區劃的開口 | 組裝層不知道哪些區劃是垂直區劃——那是檢查層讀 `zone.use` 才知道的事。步驟 5 把遮煙性能納入證據基線時也需要看見全部的 Type |
 
 ## 12. 實作進度
 
@@ -387,8 +438,8 @@ public enum RuleCategory
 | 1 | 本文件：條文、用語、主體設計、限制 | **已完成** |
 | 2 | 規則層：`RuleCategory.VerticalCompartment`、`shaft.*` 欄位、三條規則、要求用字、面積豁免訊息 | **已完成** |
 | 3 | Shared Parameter `防火檢討_遮煙性能`（Big5 定義檔、輸入來源、讀取器、批次參數面板欄位） | **已完成** |
-| 4 | `VerticalCompartmentCheck`／`VerticalCompartmentInputs`：由候選開口產生主體並跑引擎 | 未開始 |
-| 5 | `FireReviewRunner` 接線、`ReviewTable` 三列、`ReviewReadiness` 參數需求 | 未開始 |
+| 4 | `VerticalCompartmentCheck`／`VerticalCompartmentInputs`：由候選開口產生主體並跑引擎 | **已完成** |
+| 5 | `FireReviewRunner` 接線、`ReviewTable` 三列、證據基線納入遮煙性能 | 未開始 |
 | 6 | 檢討視圖標示與圖號 | 未開始 |
 | 7 | 第 3 項挑空的兩款免除（需要連跨樓層數與避難層通達的事實） | 未開始 |
 
@@ -433,3 +484,35 @@ public enum RuleCategory
 **未實機驗證。** 需要在 Revit 中以 `load_shared_parameters` 依 `fire-review-openings-type.txt` 重新綁定
 門／窗／帷幕嵌板類型（新增兩個參數），再開批次面板確認「遮煙性能」欄可勾選、門的「設計防火時效」欄
 可輸入、寫入模型後回讀正確。**模型若已綁舊的 openings 定義檔，只是少兩個參數，不必移除重綁。**
+
+### 步驟 4 的產出與驗證
+
+改動的檔案：
+
+- `src/BuildingRegulationReview.Application/Checks/VerticalCompartmentInputs.cs`：
+  `VerticalCompartmentRequirements` 新增 `RequirementField`／`ElementField`／`FireRatingField`／
+  `SmokeProtectionField` 四個欄位名常數、`ActualField(requirement)`（決議 12）與
+  `Categories(requirement)`（§4）；新增 `ShaftDeviceProperties` 與 `VerticalCompartmentInputs`。
+- `src/BuildingRegulationReview.Application/Checks/VerticalCompartmentCheck.cs`（新檔）：
+  `VerticalCompartmentCheck`、`VerticalCompartmentFinding`、`VerticalCompartmentGroupSummary`、
+  `VerticalCompartmentReview`。
+- `src/BuildingRegulationReview.Application/Reviews/ReviewParameterSnapshot.cs`：
+  `ReviewInputAssembly.VerticalCompartment`；`Assemble` 為每個開口 Type 造一筆
+  `ShaftDeviceProperties`；`ReviewInputAssembler.Protection` 多一個參數名引數（決議 11）。
+
+做法上值得記下來的三件事：
+
+- **facts 從區劃長出來，不用 `CandidateFacts.ForOpening`。** `opening.*` 在本類別不可讀（§5.2），
+  所以主體的 facts 是 `CandidateFacts.ForZone` 加上 `shaft.requirement`、`shaft.elementUniqueId`
+  與該要求要讀的那一個欄位。
+- **時效沿用 `ReviewInputAssembler.Rating`、遮煙沿用 `Protection`。** 兩者的 `Missing`／`Unreadable`
+  ／`Undeterminable` 三態與既有檢查完全一致，「1hr/2hr」一樣是人工覆核。
+- **`zone.use` 從區劃輸入讀出來，而不是從 facts。** 要求清單必須在造 facts 之前決定，因為它決定
+  有沒有主體。判讀不出來的用途視同沒有用途（§9 第 10 項）。
+
+測試：`dotnet test` **1369 通過、0 失敗**（原 1344）。新增 25 項（`VerticalCompartmentCheckTests`
+17 項含 Theory 展開共 23 個案例，`FireReviewIntegrationTests` 2 項）。**沒有既有測試需要改寫。**
+`BuildingRegulationReview.sln` 與 WPF 外掛專案皆 0 警告 0 錯誤。
+
+**未實機驗證。** 本階段沒有 Revit 端改動，而且這個檢查還沒接進 `FireReviewRunner`（步驟 5），
+按「開始檢討」不會產生第 79 條之 2 的結果。步驟 3 的實機驗證項目仍然待辦。

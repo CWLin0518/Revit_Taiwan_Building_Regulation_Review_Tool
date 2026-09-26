@@ -688,6 +688,58 @@ public sealed class FireReviewIntegrationTests
         Assert.DoesNotContain(assembled.Area.Building, i => i.Field == "building.height");
     }
 
+    /// <summary>
+    /// 第79條之2 (垂直區劃規格 §12 步驟 4): every candidate opening Type is assembled into the 垂直區劃
+    /// inputs, with 遮煙性能 and 設計防火時效 read from that Type — the two parameters the check hands
+    /// the rules as <c>shaft.providedSmokeProtection</c> and <c>shaft.providedFireRating</c>.
+    /// </summary>
+    [Fact]
+    public void Every_opening_type_is_assembled_into_the_vertical_compartment_inputs()
+    {
+        var parameters = new Parameters();
+        parameters.Elements["type-fd"] = new Dictionary<string, ParameterReading>
+        {
+            [SmokeProtectionParameters.Provided] = ParameterReading.OfYesNo(1),
+            [FireRatingParameters.Provided] = ParameterReading.OfText("1 小時")
+        };
+        var openings = Openings()
+            .Concat(new[]
+            {
+                new OpeningObservation(Source("D9-shaft"), CandidateCategory.Door, "W2-shared", P(10, 7),
+                    M(0.9), M(2.1), "type-fd", "維修門")
+            })
+            .ToList();
+
+        var assembled = ReviewInputAssembler.Assemble(Set(openings: openings), parameters.Snapshot());
+        var device = assembled.VerticalCompartment.ForType("type-fd");
+
+        Assert.NotNull(device);
+        Assert.Equal(ProvidedFireProtectionKind.Yes, device!.SmokeProtection.Kind);
+        Assert.Equal(60, device.FireRating.Minutes);
+        Assert.Same(assembled.Area, assembled.VerticalCompartment.Context);
+    }
+
+    /// <summary>
+    /// 遮煙性能 and 設計防火保護 are two questions (決議 6), so a Type that carries neither must say so
+    /// twice over, each time naming its own parameter. The reason text is what the panel shows the
+    /// user, and pointing at the wrong checkbox is worse than saying nothing.
+    /// </summary>
+    [Fact]
+    public void An_unbound_smoke_seal_names_its_own_parameter_and_not_the_protection_one()
+    {
+        var assembled = ReviewInputAssembler.Assemble(Set(openings: WithPanelType()), new Parameters().Snapshot());
+        var device = assembled.VerticalCompartment.ForType("type-panel");
+
+        Assert.NotNull(device);
+        Assert.Equal(ProvidedFireProtectionKind.Missing, device!.SmokeProtection.Kind);
+        Assert.Contains(SmokeProtectionParameters.Provided, device.SmokeProtection.Reason!, StringComparison.Ordinal);
+        Assert.DoesNotContain(FireProtectionParameters.Provided, device.SmokeProtection.Reason!, StringComparison.Ordinal);
+
+        // And 設計防火保護 keeps answering in its own name.
+        Assert.Contains(FireProtectionParameters.Provided,
+            ReviewInputAssembler.Protection(ParameterReading.Absent).Reason!, StringComparison.Ordinal);
+    }
+
     /// <summary>The two building facts a project already records keep their plain names.</summary>
     [Fact]
     public void The_shared_building_parameters_carry_no_review_prefix()

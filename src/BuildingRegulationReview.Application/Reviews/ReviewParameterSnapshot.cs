@@ -139,11 +139,13 @@ public sealed class ReviewInputAssembly
         CompartmentAreaInputs area,
         FireResistanceInputs rating,
         OpeningProtectionInputs protection,
+        VerticalCompartmentInputs verticalCompartment,
         IEnumerable<TypeFireRating>? panelRatings = null)
     {
         Area = area;
         Rating = rating;
         Protection = protection;
+        VerticalCompartment = verticalCompartment;
         PanelRatings = new ReadOnlyCollection<TypeFireRating>((panelRatings ?? Array.Empty<TypeFireRating>()).ToList());
         _panels = PanelRatings.ToDictionary(x => x.TypeUniqueId, StringComparer.Ordinal);
     }
@@ -151,6 +153,12 @@ public sealed class ReviewInputAssembly
     public CompartmentAreaInputs Area { get; }
     public FireResistanceInputs Rating { get; }
     public OpeningProtectionInputs Protection { get; }
+
+    /// <summary>
+    /// 第79條之2 (垂直區劃規格 §6): 遮煙性能 and — for a 維修門 — 設計防火時效, as every candidate
+    /// opening Type carries them. Both are Type parameters, so the entries are per Type.
+    /// </summary>
+    public VerticalCompartmentInputs VerticalCompartment { get; }
 
     /// <summary>
     /// 設計防火時效 as read on every 帷幕嵌板 Type of the package. No check reads it — the 帷幕牆 geometry
@@ -271,10 +279,26 @@ public static class ReviewInputAssembler
                 g.First().TypeName))
             .ToList();
 
+        // 第79條之2 reads both of its values from the opening Type (垂直區劃規格 §6): 遮煙性能 from
+        // every 門／窗／帷幕嵌板, 設計防火時效 from 門 alone — a 窗 or a 嵌板 simply has no such
+        // parameter bound, which reads as Missing and is never asked for by any requirement.
+        var devices = set.Openings
+            .Select(o => o.Observation)
+            .Where(o => o.TypeUniqueId is not null)
+            .GroupBy(o => o.TypeUniqueId!, StringComparer.Ordinal)
+            .OrderBy(g => g.Key, StringComparer.Ordinal)
+            .Select(g => new ShaftDeviceProperties(
+                g.Key,
+                Protection(snapshot.Element(g.Key, SmokeProtectionParameters.Provided), SmokeProtectionParameters.Provided),
+                Rating(snapshot.Element(g.Key, FireRatingParameters.Provided), bareNumberUnit),
+                g.First().TypeName))
+            .ToList();
+
         return new ReviewInputAssembly(
             context,
             new FireResistanceInputs(context, ratings),
             new OpeningProtectionInputs(context, protections),
+            new VerticalCompartmentInputs(context, devices),
             panelRatings);
     }
 
@@ -315,12 +339,18 @@ public static class ReviewInputAssembler
     /// otherwise no model could ever say「這扇門不是防火門」and every opening would stay 待確認.
     /// Only a parameter that is not bound at all is 資料不足, which is a setup problem, not an answer.
     /// </summary>
-    public static ProvidedFireProtection Protection(ParameterReading reading)
+    /// <param name="parameterName">
+    /// Which Yes/No parameter was read, for the 資料不足 reason. 防火檢討_遮煙性能 is read exactly the
+    /// same way (垂直區劃規格 §6 決議 6), and a message naming the wrong parameter would send the user
+    /// to tick the wrong box.
+    /// </param>
+    public static ProvidedFireProtection Protection(ParameterReading reading, string? parameterName = null)
     {
         if (reading is null) throw new ArgumentNullException(nameof(reading));
+        var name = string.IsNullOrWhiteSpace(parameterName) ? FireProtectionParameters.Provided : parameterName!.Trim();
         return reading.Kind switch
         {
-            ParameterReadingKind.Absent => ProvidedFireProtection.Missing($"沒有參數 {FireProtectionParameters.Provided}"),
+            ParameterReadingKind.Absent => ProvidedFireProtection.Missing($"沒有參數 {name}"),
             ParameterReadingKind.Empty => ProvidedFireProtection.No("未勾選"),
             ParameterReadingKind.Text => FireProtectionText.Parse(reading.Text),
             ParameterReadingKind.YesNo or ParameterReadingKind.Integer => ProvidedFireProtection.FromInteger((int)reading.Number),

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using BuildingRegulationReview.Application.Candidates;
 using BuildingRegulationReview.Application.Parameters;
 
 namespace BuildingRegulationReview.Application.Checks;
@@ -57,6 +58,21 @@ public enum VerticalCompartmentRequirement
 
 public static class VerticalCompartmentRequirements
 {
+    /// <summary>Which of the three requirements a subject is held to.</summary>
+    public const string RequirementField = "shaft.requirement";
+
+    /// <summary>The 防火設備 under review — a 門, a 窗 or a 帷幕嵌板.</summary>
+    public const string ElementField = "shaft.elementUniqueId";
+
+    /// <summary>該防火設備之設計／認證防火時效, in minutes.</summary>
+    public const string FireRatingField = "shaft.providedFireRating";
+
+    /// <summary>該防火設備是否具遮煙性能（是／否）.</summary>
+    public const string SmokeProtectionField = "shaft.providedSmokeProtection";
+
+    private static readonly IReadOnlyList<CandidateCategory> DoorOnly =
+        new ReadOnlyCollection<CandidateCategory>(new[] { CandidateCategory.Door });
+
     public static IReadOnlyList<VerticalCompartmentRequirement> All { get; } =
         new ReadOnlyCollection<VerticalCompartmentRequirement>(new[]
         {
@@ -84,6 +100,33 @@ public static class VerticalCompartmentRequirements
     };
 
     /// <summary>
+    /// The field whose value answers this requirement — the <c>actual</c> side of the rule that
+    /// decides it. A subject is one (設備, 要求) pair, so it only ever carries this one: a 遮煙 subject
+    /// has nothing to say about 時效, and supplying the other field would put the device's unrelated
+    /// gaps on facts no rule reads.
+    /// </summary>
+    public static string ActualField(VerticalCompartmentRequirement requirement) => requirement switch
+    {
+        VerticalCompartmentRequirement.HoistwaySmokeSeal => SmokeProtectionField,
+        VerticalCompartmentRequirement.ShaftDoorRating => FireRatingField,
+        VerticalCompartmentRequirement.ShaftDoorSmokeSeal => SmokeProtectionField,
+        _ => throw new ArgumentOutOfRangeException(nameof(requirement))
+    };
+
+    /// <summary>
+    /// The opening categories a subject of this requirement may be (文件 §4). 昇降機道出入口 is whatever
+    /// 防火設備 was installed there — 條文 says 「裝設之防火設備」, which may be a 門, a 窗 or a 帷幕嵌板 —
+    /// while a 管道間維修門 is a door and nothing else.
+    /// </summary>
+    public static IReadOnlyList<CandidateCategory> Categories(VerticalCompartmentRequirement requirement) => requirement switch
+    {
+        VerticalCompartmentRequirement.HoistwaySmokeSeal => CandidateCategories.Openings,
+        VerticalCompartmentRequirement.ShaftDoorRating => DoorOnly,
+        VerticalCompartmentRequirement.ShaftDoorSmokeSeal => DoorOnly,
+        _ => throw new ArgumentOutOfRangeException(nameof(requirement))
+    };
+
+    /// <summary>
     /// The 區劃用途 a requirement belongs to — the <c>zone.use</c> spelling from
     /// <see cref="ZoneUses"/>, so the vocabulary the panel offers is the vocabulary that decides
     /// which requirements a 區劃's 防火設備 are held to.
@@ -104,4 +147,81 @@ public static class VerticalCompartmentRequirements
             ? Array.Empty<VerticalCompartmentRequirement>()
             : All.Where(x => string.Equals(UseOf(x), trimmed, StringComparison.Ordinal)).ToList();
     }
+}
+
+/// <summary>
+/// What one 防火設備 Type declares for 第79條之2: its 遮煙性能 and — for a 維修門 — its 設計防火時效
+/// (文件 §6). Both are Type parameters, so one entry answers for every instance of that Type, the
+/// same way <see cref="OpeningFireProtection"/> reads 設計防火保護.
+/// </summary>
+/// <remarks>
+/// A 窗 or a 帷幕嵌板 carries no 設計防火時效 at all — the parameter is bound to 門 alone, because no
+/// clause states a rating for them — so its <see cref="FireRating"/> is simply
+/// <see cref="ProvidedFireRatingKind.Missing"/> and no requirement ever asks for it.
+/// </remarks>
+public sealed class ShaftDeviceProperties
+{
+    public ShaftDeviceProperties(
+        string typeUniqueId,
+        ProvidedFireProtection smokeProtection,
+        ProvidedFireRating fireRating,
+        string? typeName = null)
+    {
+        if (string.IsNullOrWhiteSpace(typeUniqueId)) throw new ArgumentException("Type UniqueId is required.", nameof(typeUniqueId));
+
+        TypeUniqueId = typeUniqueId.Trim();
+        SmokeProtection = smokeProtection ?? throw new ArgumentNullException(nameof(smokeProtection));
+        FireRating = fireRating ?? throw new ArgumentNullException(nameof(fireRating));
+        TypeName = string.IsNullOrWhiteSpace(typeName) ? null : typeName!.Trim();
+    }
+
+    public string TypeUniqueId { get; }
+
+    /// <summary>遮煙性能 as read from <see cref="SmokeProtectionParameters.Provided"/>.</summary>
+    public ProvidedFireProtection SmokeProtection { get; }
+
+    /// <summary>設計防火時效 as read from <see cref="FireRatingParameters.Provided"/>.</summary>
+    public ProvidedFireRating FireRating { get; }
+
+    public string? TypeName { get; }
+
+    public override string ToString() => $"{TypeName ?? TypeUniqueId}: 遮煙 {SmokeProtection}、時效 {FireRating}";
+}
+
+/// <summary>
+/// What the 垂直區劃 check needs besides the candidate set: the building and zone inputs the rules
+/// may use (so <c>shaft.*</c> can never be supplied as an input) and what each 防火設備 Type declares.
+/// </summary>
+/// <remarks>
+/// <c>zone.use</c> comes in with the zone inputs and is what decides which requirements a 區劃's
+/// openings are held to (<see cref="VerticalCompartmentRequirements.ForUse"/>), so the check needs
+/// no list of subjects: they follow from the candidate openings and the 用途.
+/// </remarks>
+public sealed class VerticalCompartmentInputs
+{
+    public static readonly VerticalCompartmentInputs None = new(null, null);
+
+    private readonly Dictionary<string, ShaftDeviceProperties> _types;
+
+    public VerticalCompartmentInputs(CompartmentAreaInputs? context, IEnumerable<ShaftDeviceProperties>? devices)
+    {
+        Context = context ?? CompartmentAreaInputs.None;
+
+        var list = (devices ?? Array.Empty<ShaftDeviceProperties>()).ToList();
+        if (list.Any(x => x is null)) throw new ArgumentException("The device properties contain a missing entry.", nameof(devices));
+        var duplicate = list.GroupBy(x => x.TypeUniqueId, StringComparer.Ordinal).FirstOrDefault(g => g.Count() > 1);
+        if (duplicate is not null)
+            throw new ArgumentException($"Type '{duplicate.Key}' has more than one set of device properties.", nameof(devices));
+
+        _types = list.ToDictionary(x => x.TypeUniqueId, StringComparer.Ordinal);
+        Devices = new ReadOnlyCollection<ShaftDeviceProperties>(list.OrderBy(x => x.TypeUniqueId, StringComparer.Ordinal).ToList());
+    }
+
+    /// <summary>Building and zone inputs (構造、用途…), applied to every subject's facts.</summary>
+    public CompartmentAreaInputs Context { get; }
+
+    public IReadOnlyList<ShaftDeviceProperties> Devices { get; }
+
+    public ShaftDeviceProperties? ForType(string? typeUniqueId) =>
+        typeUniqueId is not null && _types.TryGetValue(typeUniqueId, out var device) ? device : null;
 }
