@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text;
 using BuildingRegulationReview.Application.Candidates;
 using BuildingRegulationReview.Application.Checks;
+using BuildingRegulationReview.Application.Parameters;
 using BuildingRegulationReview.Domain.Reviews;
 using BuildingRegulationReview.Domain.Rules;
 using BuildingRegulationReview.Domain.Rules.Expressions;
@@ -314,7 +315,7 @@ public static class ReviewInputAssembler
 
         var type = field.Type;
         if (type.IsBoolean) return Boolean(field.Name, reading, source);
-        if (type.IsText) return TextInput(field.Name, reading, source);
+        if (type.IsText) return UseGroup(field.Name, reading, source) ?? TextInput(field.Name, reading, source);
         if (type.IsQuantity) return Quantity(field.Name, type.Unit, reading, source);
         return ReviewInput.Unreadable(field.Name, $"不支援的欄位型別 {type}", source);
     }
@@ -413,6 +414,24 @@ public static class ReviewInputAssembler
             default:
                 return ReviewInput.Unreadable(field, $"「{reading.Raw}」不是是／否", source);
         }
+    }
+
+    /// <summary>
+    /// 建築物用途類組 respelled as the rules compare it, or null when this is another field or the
+    /// text names no 使用類組. 第83條第一款、第二款's Ｈ－２組 proviso compares one literal, and the
+    /// code prints that group at least four ways, so the spelling is settled here — the one place a
+    /// parameter becomes a rule input — rather than by piling <c>||</c> into the rule
+    /// (見 docs/regulations/building-use-groups.md). The respelling is never silent: the evidence
+    /// records what was typed alongside what it was read as.
+    /// </summary>
+    private static ReviewInput? UseGroup(string field, ParameterReading reading, string source)
+    {
+        if (!string.Equals(field, "building.use", StringComparison.Ordinal)) return null;
+        if (reading.Kind != ParameterReadingKind.Text) return null;
+        if (!BuildingUseGroups.IsRespelled(reading.Text)) return null;
+
+        var code = BuildingUseGroups.Canonical(reading.Text)!;
+        return ReviewInput.Known(field, code, $"{source}（填「{reading.Text}」，判讀為 {code}）");
     }
 
     private static ReviewInput TextInput(string field, ParameterReading reading, string source) => reading.Kind switch

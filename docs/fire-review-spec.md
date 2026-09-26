@@ -608,7 +608,7 @@ ReviewResult:
 3. Area Scheme、Area Color Scheme、View Template、Legend Template、Title Block 的公司標準。
 4. 防火時效與門窗防火屬性的既有 Shared Parameter GUID。（`防火檢討_遮煙性能`（YESNO，GUID `…000f`，門／窗／帷幕嵌板類型）已定義在 `assets/SharedParameters/`：第 79 條之 2 對昇降機道防火設備與管道間維修門要求的遮煙性能（第 1 條第 45 款）沒有既有參數可借用，見 [垂直區劃](regulations/vertical-compartment.md) §6。同一輪起 `防火檢討_設計防火時效` 也要綁到**門**，管道間維修門的一小時時效由它提供。公司既有 GUID 若與此不同仍待確認。）
 5. 防火時效提供值的單位與資料型態（分鐘、文字代碼或列舉）。
-6. 區劃面積規則所需的用途、構造、樓層、灑水設備等輸入來源。（用途的**用字**已議定其中會改變判定的部分——第 79 條之 2 第 1 項的五種垂直區劃，見 [`zone.use` 用字表](regulations/zone-use-vocabulary.md)；其餘用途仍為自由文字。那五種用字同時決定一個區劃要受第 79 條之 2 的哪些附加要求，見 [垂直區劃](regulations/vertical-compartment.md) §3.2。來源本身仍待確認。）
+6. 區劃面積規則所需的用途、構造、樓層、灑水設備等輸入來源。（用途的**用字**已議定其中會改變判定的部分——第 79 條之 2 第 1 項的五種垂直區劃，見 [`zone.use` 用字表](regulations/zone-use-vocabulary.md)；其餘用途仍為自由文字。那五種用字同時決定一個區劃要受第 79 條之 2 的哪些附加要求，見 [垂直區劃](regulations/vertical-compartment.md) §3.2。建築物用途類組（`building.use`）另有正規形與寫法折疊，第 83 條的Ｈ－２組但書據以比對，見 [`building.use` 寫法正規化](regulations/building-use-groups.md)。來源本身仍待確認。）
 7. 防火區劃邊界的實際判定方式，以及柱、梁、板是否依相交、邊界或服務區域納入。
 8. Legend 自動化在目標 Revit API 版本的限制與可接受的樣板替代方案。
 9. 是否納入 Linked Model、Design Option、Phase、Group 與 Worksharing。

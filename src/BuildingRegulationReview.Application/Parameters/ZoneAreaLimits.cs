@@ -172,8 +172,10 @@ public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
         if (sprinklered is null) gaps |= ZoneAreaLimitGap.Sprinklered;
         if (gaps != ZoneAreaLimitGap.None) return Unknown(gaps);
 
-        // 第三款 is the one tier that gets here without a 用途類組, because it never reads one.
-        var h2 = string.Equals(buildingUse?.Trim(), "H-2", StringComparison.Ordinal);
+        // 第三款 is the one tier that gets here without a 用途類組, because it never reads one. The
+        // spelling is read exactly as ReviewInputAssembler reads it before handing it to the rule,
+        // so 「Ｈ－２組」 raises the limit in the panel and in the review alike.
+        var h2 = BuildingUseGroups.IsH2(buildingUse);
         var baseLimit = substrate
             ? 500
             : string.Equals(finish, InteriorFinishGrades.ClassOne, StringComparison.Ordinal)

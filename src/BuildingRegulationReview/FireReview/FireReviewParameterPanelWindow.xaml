@@ -380,10 +380,10 @@
                         <TextBlock x:Name="FireResistiveWarningText" Style="{StaticResource FieldHint}" Foreground="#B3261E" />
 
                         <TextBlock Style="{StaticResource FieldLabel}" Text="建築物用途類組" />
-                        <TextBox MinWidth="200" HorizontalAlignment="Left"
-                                 Text="{Binding BuildingUse, UpdateSourceTrigger=LostFocus}" />
-                        <TextBlock Style="{StaticResource FieldHint}"
-                                   Text="例如 A-1、B-2、H-2。目前的規則沒有引用它，先填著以備規則擴充。" />
+                        <ComboBox MinWidth="200" HorizontalAlignment="Left" IsEditable="True"
+                                  ItemsSource="{Binding BuildingUseChoices}"
+                                  Text="{Binding BuildingUse, UpdateSourceTrigger=LostFocus}" />
+                        <TextBlock Style="{StaticResource FieldHint}" Text="{Binding BuildingUseNote}" />
 
                         <TextBlock Style="{StaticResource FieldLabel}" Text="地上層數" />
                         <TextBox MinWidth="120" HorizontalAlignment="Left"

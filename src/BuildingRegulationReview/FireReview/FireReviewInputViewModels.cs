@@ -290,10 +290,46 @@ namespace BuildingRegulationReview.FireReview
 
         public bool HasFireResistiveWarning => FireResistiveWarning.Length > 0;
 
+        /// <summary>
+        /// 建築物用途類組 — 第83條第一款、第二款 double their 區劃 area limit for Ｈ－２組. Still free
+        /// text, because no list of ours decides what a building is; the box offers 第3-3條's codes
+        /// because those are the values the review can read (see <see cref="BuildingUseGroups"/>),
+        /// and any spelling of one of them is read as that group.
+        /// </summary>
         public string BuildingUse
         {
             get => _buildingUse;
-            set => Set(ref _buildingUse, value);
+            set
+            {
+                if (Set(ref _buildingUse, value)) Raise(nameof(BuildingUseNote));
+            }
+        }
+
+        /// <summary>What the 用途類組 box offers; anything else can still be typed in.</summary>
+        public IReadOnlyList<string> BuildingUseChoices { get; } =
+            new[] { "" }.Concat(BuildingUseGroups.All).ToList();
+
+        /// <summary>
+        /// How the review will read the box — said out loud, because the box takes any text and only
+        /// 第3-3條's codes change an answer. A respelled group says so rather than being silently
+        /// rewritten; text that names no group says what the consequence is.
+        /// </summary>
+        public string BuildingUseNote
+        {
+            get
+            {
+                var typed = (_buildingUse ?? "").Trim();
+                if (typed.Length == 0)
+                    return "第83條第一款、第二款的Ｈ－２組但書會讀它；未填時十一層以上的區劃面積判「資料不足」。";
+
+                var code = BuildingUseGroups.Canonical(typed);
+                if (code is null)
+                    return $"「{typed}」不是第3-3條的使用類組，檢討時會當成非Ｈ－２組，十一層以上的區劃面積依較嚴的上限判定。";
+
+                return BuildingUseGroups.IsRespelled(typed)
+                    ? $"讀作 {code}（全形、各種破折號與「類」「第」「組」字樣都認得，檢討的證據欄會同時記下你填的字）。"
+                    : $"讀作 {code}。";
+            }
         }
 
         /// <summary>地上層數 — 第70條 needs it to count a storey's position from the top.</summary>
