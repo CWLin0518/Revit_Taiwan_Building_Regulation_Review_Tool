@@ -248,9 +248,12 @@
 應回到第 79 條／第 83 條的面積檢討。工具目前對挑空是**無條件**免面積檢討的（§9 第 3 項），所以
 這個連帶影響只能由人接手——完整理由見決議 25、26。
 
-判定寫成一個純計算 `AtriumExemptions.For(...)`，回傳 `AtriumExemption`（成立的款次、缺口旗標、
-給人看的一句話），與 `ZoneAreaLimits`／`ZoneAreaLimit` 同形，所以判定本身可以單獨測、也可以在
-批次面板上顯示（面板側未排程）。
+判定寫成一個純計算 `AtriumExemption.For(...)`（回傳 `AtriumExemption`：成立的款次、缺口旗標、
+給人看的一句話），與 `ZoneAreaLimit.For(...)` 同形，所以判定本身可以單獨測、也可以在批次面板上
+顯示（面板側未排程）。三態由三個屬性讀出：`Holds`（免除成立）、`IsUndecided`（`Gaps` 非空，資料
+不足）、`IsInapplicable`（兩者皆非）。缺口旗標除了上表四項事實，還有一項 `CompartmentArea`：
+`CandidateZone.RevitAreaSquareMeters` 是 `double?`（任一 Area 未放置或未封閉就讀不到），純函式
+不能把它當成零，所以面積讀不到時第二款也是無法判定。
 
 ## 4. 幾何解析
 
@@ -502,8 +505,8 @@ group 起來，所以一扇兩項都不符合的維修門是**一筆** `PlannedE
 | `SmokeProtectionParameters.Provided` | 參數名（`防火檢討_遮煙性能`），與 `FireProtectionParameters` 分立 | 已完成 |
 | `ReviewInputSources` 的兩筆 `shaft.*` 來源 | 讀取器、前置檢查都照 `All` 跑，不需另接串接層 | 已完成 |
 | `FireReviewTypeRow.ProvidedSmokeProtection`／批次面板「遮煙性能」欄 | 使用者填值的地方 | 已完成 |
-| `AtriumExemptions`／`AtriumExemption`／`AtriumExemptionClause`／`AtriumExemptionGap` | 第 3 項兩款的純計算判定（§3.6），與 `ZoneAreaLimits` 同形 | **步驟 7b** |
-| `RuleFieldCatalog` 的 `zone.spannedFloors`／`zone.linksRefugeFloor` | 白名單欄位（沒有規則讀，只餵第 3 項判定） | **步驟 7b** |
+| `AtriumExemption`／`AtriumExemptionClause`／`AtriumExemptionGap` | 第 3 項兩款的純計算判定（§3.6），與 `ZoneAreaLimit` 同形 | 已完成 |
+| `RuleFieldCatalog` 的 `zone.spannedFloors`／`zone.linksRefugeFloor` | 白名單欄位（沒有規則讀，只餵第 3 項判定） | 已完成 |
 | `ReviewInputSources` 的兩筆新 `zone.*` 來源、兩個 Shared Parameter、批次面板兩欄、證據基線 | 事實進得來（§6） | **步驟 7c** |
 | `VerticalCompartmentRequirement.AtriumExemption`／`DeviceRequirements` | 第四條要求列的用字；設備迴圈只看 `DeviceRequirements`（§7.3） | **步驟 7d** |
 | `VerticalCompartmentCheck` 的挑空主體 | 每個 `zone.use == "挑空"` 的區劃一筆結果，不走規則引擎 | **步驟 7d** |
@@ -681,7 +684,7 @@ group 起來，所以一扇兩項都不符合的維修門是**一筆** `PlannedE
 | 5 | `FireReviewRunner` 接線、`ReviewTable` 三列、證據基線納入遮煙性能 | **已完成** |
 | 6 | 檢討視圖標示與圖號（只塗紅、描述帶要求名、不發圖號） | **已完成** |
 | 7a | 第 3 項的設計：事實來源、判定式與狀態、產出、決議 23～29（§3.6、§7.3） | **已完成** |
-| 7b | `AtriumExemptions` 純計算判定 + `zone.spannedFloors`／`zone.linksRefugeFloor` 兩個白名單欄位 | 未開始 |
+| 7b | `AtriumExemption` 純計算判定 + `zone.spannedFloors`／`zone.linksRefugeFloor` 兩個白名單欄位 | **已完成** |
 | 7c | 參數層：兩個 Shared Parameter（Big5 主檔）、輸入來源、讀取器、批次面板兩欄、證據基線 | 未開始 |
 | 7d | 檢查層接線：挑空主體、檢討表第四條要求列、日誌件數、`AtriumExemption` 用字與 `DeviceRequirements` | 未開始 |
 
@@ -870,3 +873,41 @@ group 起來，所以一扇兩項都不符合的維修門是**一筆** `PlannedE
 
 `zone.spannedFloors` 用 `RuleValueType.Quantity(ReviewUnit.None)`，與 `zone.floorNumber` 同；
 Revit 的 Integer 參數由 `Quantity` 那條路讀進來。
+
+### 步驟 7b 的產出與驗證
+
+改動的檔案：
+
+- `src/BuildingRegulationReview.Domain/Rules/RuleFieldCatalog.cs`：`zone.spannedFloors`
+  （`Quantity(ReviewUnit.None)`）與 `zone.linksRefugeFloor`（`Boolean`）兩個白名單欄位，`all` 類別，
+  排在 `zone.interiorFinish` 之後。註解寫明**沒有任何規則讀它們**、它們只餵第 3 項的判定，以及
+  為什麼仍要進白名單（組裝層 `ApplyTo` 會對白名單外的欄位例外）。
+- `src/BuildingRegulationReview.Application/Checks/AtriumExemption.cs`（新檔）：`AtriumExemptionClause`
+  （`None`／`FirstClause`／`SecondClause`）、`[Flags] AtriumExemptionGap`（`FireResistiveConstruction`／
+  `RefugeFloorLink`／`InteriorFinish`／`SpannedFloors`／`CompartmentArea`）與 `AtriumExemption`
+  （`Clause`、`Gaps`、`Holds`、`IsUndecided`、`IsInapplicable`、`Description`）。
+- `tests/BuildingRegulationReview.Core.Tests/Checks/AtriumExemptionTests.cs`（新檔）。
+
+定案時說的 `AtriumExemptions` 靜態類別**沒有建立**：`ZoneAreaLimits.cs` 裡並沒有 `ZoneAreaLimits`
+這個類別，`For` 是結果型別自己的靜態工廠（`ZoneAreaLimit.For`），所以這裡照同一個形狀寫成
+`AtriumExemption.For(...)`，不另加一層只轉呼叫的門面。§3.6 與 §8 已同步改寫。
+
+`AtriumExemption.For(bool? fireResistive, bool? linksRefugeFloor, string? interiorFinish,
+int? spannedFloors, double? areaSquareMeters)` 是純函式，不吃 `CandidateZone` 也不吃 `ReviewInput`——
+把輸入的三態（有值／不可讀／沒有）翻成值或 `null` 是呼叫端（步驟 7d）的事。判定順序就是 §3.6 的
+三條規矩：先讀防火構造（未填＝資料不足、否＝不適用），再各自讀兩款；任一款成立就回傳該款且
+`Gaps` 必為空；兩款都沒成立時才把兩款的缺口聯集起來，聯集非空是資料不足、空的是不適用。每一款
+都**先判「已確定不成立」再判缺口**，這樣「面積 2000 ㎡、連跨未填」才會是不適用而不是資料不足。
+
+驗證：
+
+- `dotnet build BuildingRegulationReview.sln`：0 警告 0 錯誤。
+- `dotnet build src\BuildingRegulationReview\BuildingRegulationReview.csproj`：0 警告 0 錯誤。
+- `dotnet test tests\BuildingRegulationReview.Core.Tests`：**1405 通過、0 失敗**（原 1382，新增 23）。
+  **沒有改寫任何既有測試。**
+- 新測試逐條對照 §3.6 狀態表（「區劃範圍有問題」那一列屬步驟 7d，這裡不測），外加門檻兩側
+  （連跨 1／3／4 層、面積 1500.0／1500.1 ㎡、`耐燃一級含底材` 與 `耐燃二級`）、面積讀不到時的
+  `CompartmentArea` 缺口、一條把 3×3×5×5×5 種事實組合跑過的三態互斥測試，以及一條守門測試
+  `The_third_paragraphs_two_facts_are_whitelisted_but_read_by_no_rule`（兩個新欄位在白名單裡、
+  對每個類別開放，但不在 `FieldsUsedBy` 也不在 `NeededBy` 裡——決議 24、27）。
+- **未實機驗證。** 本步驟沒有 Revit 端改動，也沒有接線，所以既有行為完全不變。
