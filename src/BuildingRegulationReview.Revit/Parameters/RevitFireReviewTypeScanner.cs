@@ -140,6 +140,8 @@ public sealed class RevitFireReviewTypeScanner
         if (Find(type, StructuralMaterialParameters.Cover) is not null) present |= FireReviewTypeParameters.Cover;
         if (opening && Find(type, FireProtectionParameters.Provided) is not null)
             present |= FireReviewTypeParameters.Protection;
+        if (opening && Find(type, SmokeProtectionParameters.Provided) is not null)
+            present |= FireReviewTypeParameters.SmokeSeal;
 
         return new FireReviewTypeRow(
             type.UniqueId,
@@ -153,6 +155,7 @@ public sealed class RevitFireReviewTypeScanner
             coverMeters: Meters(type, StructuralMaterialParameters.Cover),
             providedRating: Text(type, FireRatingParameters.Provided),
             providedProtection: opening ? Ticked(type, FireProtectionParameters.Provided) : null,
+            providedSmokeProtection: opening ? Ticked(type, SmokeProtectionParameters.Provided) : null,
             present: present);
     }
 

@@ -148,8 +148,14 @@ public sealed class RevitReviewParameterReader
             : parameter.AsValueString();
     }
 
+    /// <summary>
+    /// The parameters one host carries, each named once: 設計防火時效 answers two fields
+    /// (<c>element.providedFireRating</c> and <c>shaft.providedFireRating</c>), and a name read twice
+    /// would be the same reading twice — the fields are told apart when the checks are assembled.
+    /// </summary>
     private static IReadOnlyList<string> Names(ReviewParameterHost host) =>
-        ReviewInputSources.All.Where(s => s.Hosts.Contains(host)).Select(s => s.ParameterName).ToList();
+        ReviewInputSources.All.Where(s => s.Hosts.Contains(host)).Select(s => s.ParameterName)
+            .Distinct(StringComparer.Ordinal).ToList();
 
     private void Add(Dictionary<string, IReadOnlyDictionary<string, ParameterReading>> elements, string uniqueId, IReadOnlyList<string> names)
     {

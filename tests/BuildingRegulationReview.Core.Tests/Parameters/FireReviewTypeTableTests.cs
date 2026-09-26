@@ -17,6 +17,7 @@ public sealed class FireReviewTypeTableTests
         double? coverCm = null,
         string? rating = null,
         bool? protection = null,
+        bool? smokeProtection = null,
         int inView = 3,
         int inProject = 9,
         FireReviewTypeParameters present = FireReviewTypeParameters.Rating | FireReviewTypeParameters.Material) =>
@@ -24,7 +25,8 @@ public sealed class FireReviewTypeTableTests
             dimensionMeters: dimensionCm is double d ? d / 100 : (double?)null,
             material: material,
             coverMeters: coverCm is double c ? c / 100 : (double?)null,
-            providedRating: rating, providedProtection: protection, present: present);
+            providedRating: rating, providedProtection: protection, providedSmokeProtection: smokeProtection,
+            present: present);
 
     [Fact]
     public void A_row_derives_the_rating_its_material_and_thickness_give()
@@ -196,15 +198,54 @@ public sealed class FireReviewTypeTableTests
         Assert.True(panel.CarriesProtection);
     }
 
+    /// <summary>
+    /// 垂直區劃文件 §6: a 門 answers 設計防火時效 as well, because a 管道間之維修門 owes one hour under
+    /// 第79條之2第1項. A 窗 still answers neither — no clause states a rating for one.
+    /// </summary>
     [Fact]
-    public void A_door_or_a_window_answers_the_protection_only()
+    public void A_door_answers_the_rating_as_well_but_a_window_does_not()
     {
-        foreach (var category in new[] { CandidateCategory.Door, CandidateCategory.Window })
-        {
-            var row = Row("T-" + category, category);
-            Assert.False(row.CarriesRating);
-            Assert.True(row.CarriesProtection);
-        }
+        var door = Row("T-door", CandidateCategory.Door);
+        Assert.True(door.CarriesRating);
+        Assert.True(door.CarriesProtection);
+
+        var window = Row("T-window", CandidateCategory.Window);
+        Assert.False(window.CarriesRating);
+        Assert.True(window.CarriesProtection);
+    }
+
+    /// <summary>
+    /// 遮煙性能 is asked of every opening (a 昇降機道 出入口 may be a 門, 窗 or 帷幕嵌板) and of no
+    /// 主要構造 — it is a property of a 防火設備, not of a wall.
+    /// </summary>
+    [Fact]
+    public void Every_opening_answers_the_smoke_seal_and_no_member_does()
+    {
+        foreach (var category in new[] { CandidateCategory.Door, CandidateCategory.Window, CandidateCategory.CurtainPanel })
+            Assert.True(Row("T-" + category, category).CarriesSmokeProtection);
+
+        foreach (var category in CandidateCategories.Members)
+            Assert.False(Row("T-" + category, category).CarriesSmokeProtection);
+    }
+
+    /// <summary>
+    /// 遮煙性能 is read the way 防火門窗 is: ticked, an unticked box, or a Type that does not carry the
+    /// parameter at all — and the last one has to stay apart from 否 so an untouched row writes nothing.
+    /// </summary>
+    [Fact]
+    public void The_smoke_seal_keeps_an_unbound_type_apart_from_an_unticked_box()
+    {
+        Assert.Null(Row("T-door", CandidateCategory.Door).ProvidedSmokeProtection);
+        Assert.False(Row("T-door", CandidateCategory.Door, smokeProtection: false).ProvidedSmokeProtection);
+        Assert.True(Row("T-door", CandidateCategory.Door, smokeProtection: true).ProvidedSmokeProtection);
+    }
+
+    /// <summary>遮煙性能 and 防火門窗 are two questions, so they are two parameters (垂直區劃文件 §6).</summary>
+    [Fact]
+    public void The_smoke_seal_is_not_the_fire_protection_parameter()
+    {
+        Assert.NotEqual(FireProtectionParameters.Provided, SmokeProtectionParameters.Provided);
+        Assert.Equal("防火檢討_遮煙性能", SmokeProtectionParameters.Provided);
     }
 
     [Fact]

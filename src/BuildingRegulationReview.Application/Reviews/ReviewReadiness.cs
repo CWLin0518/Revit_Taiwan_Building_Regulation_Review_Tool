@@ -338,13 +338,21 @@ public static class ReviewReadiness
         var candidates = input.Candidates is { IsSuccess: true } ? input.Candidates.Value : null;
         foreach (var source in ReviewInputSources.NeededBy(ruleSet))
         {
-            var bound = input.Parameters.HostsOf(source.ParameterName).Where(source.Hosts.Contains).ToList();
+            var boundAnywhere = input.Parameters.HostsOf(source.ParameterName);
+            var bound = boundAnywhere.Where(source.Hosts.Contains).ToList();
             var where = string.Join("、", source.Hosts.Select(ReviewInputSources.Label));
             if (bound.Count == 0)
             {
-                items.Add(Block(ReadinessCondition.Parameters, ReviewErrorCode.ParameterMissing,
-                    $"規則需要「{source.Label}」（{source.Field}），但專案沒有參數 {source.ParameterName}。",
-                    $"請在「管理 > 專案參數」加入 {source.ParameterName}（{ReviewInputSources.Label(source.Level)}），類別：{where}。"));
+                // One parameter can answer two fields with different categories — 設計防火時效 answers
+                // 第70條 on the 主要構造 and 第79條之2 on a 管道間維修門 — so a project that has the
+                // parameter but not on these categories is told that, not that it has no such parameter.
+                items.Add(boundAnywhere.Count == 0
+                    ? Block(ReadinessCondition.Parameters, ReviewErrorCode.ParameterMissing,
+                        $"規則需要「{source.Label}」（{source.Field}），但專案沒有參數 {source.ParameterName}。",
+                        $"請在「管理 > 專案參數」加入 {source.ParameterName}（{ReviewInputSources.Label(source.Level)}），類別：{where}。")
+                    : Block(ReadinessCondition.Parameters, ReviewErrorCode.ParameterMissing,
+                        $"規則需要「{source.Label}」（{source.Field}），但參數 {source.ParameterName} 沒有綁定到 {where}。",
+                        $"請在「管理 > 專案參數」把 {source.ParameterName}（{ReviewInputSources.Label(source.Level)}）的類別加上 {where}。"));
                 continue;
             }
 

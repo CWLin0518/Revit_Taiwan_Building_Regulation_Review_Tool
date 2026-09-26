@@ -213,15 +213,30 @@ public sealed class FireReviewIntegrationTests
         Assert.Contains("zone.interiorFinish", fields);
         Assert.DoesNotContain("element.typeName", fields); // evidence only
 
+        // 第79條之2第1項: the 遮煙性能 of a 昇降機道's 防火設備 and the rating of a 管道間之維修門.
+        Assert.Contains("shaft.requirement", fields);
+        Assert.Contains("shaft.providedSmokeProtection", fields);
+        Assert.Contains("shaft.providedFireRating", fields);
+        Assert.Contains("shaft.elevatorLobbyProtected", fields); // an exemption is read too
+        Assert.DoesNotContain("shaft.elementUniqueId", fields);  // evidence only
+
         var needed = ReviewInputSources.NeededBy(Rules()).Select(s => s.ParameterName).ToList();
         Assert.Equal(new[]
         {
             ReviewInputSources.FireResistiveConstruction, ReviewInputSources.FloorsAboveGround,
             ReviewInputSources.BuildingUse, FireRatingParameters.Provided, FireProtectionParameters.Provided,
+            // 設計防火時效 twice: element.providedFireRating for a 主要構造, shaft.providedFireRating for
+            // a 管道間之維修門. Two fields with different categories, so the pre-review check needs both.
+            FireRatingParameters.Provided, SmokeProtectionParameters.Provided,
             ReviewInputSources.FloorNumber, ReviewInputSources.InteriorFinish, ReviewInputSources.Sprinklered,
             ReviewInputSources.ZoneUse
         }, needed);
         Assert.DoesNotContain(needed, n => n == FireRatingParameters.Required);
+
+        // shaft.requirement and shaft.elevatorLobbyProtected are not typed into a parameter: the first
+        // is what the check itself puts in, the second is a spatial relation (垂直區劃文件 §9 第 2 項).
+        Assert.Null(ReviewInputSources.For("shaft.requirement"));
+        Assert.Null(ReviewInputSources.For("shaft.elevatorLobbyProtected"));
     }
 
     /// <summary>
@@ -463,18 +478,62 @@ public sealed class FireReviewIntegrationTests
         var report = Readiness(parameters: parameters);
 
         Assert.False(report.CanRun);
-        var item = Assert.Single(report.Blocking);
+        // Two fields read 設計防火時效 — the 主要構造's own rating and a 管道間維修門's — and they need
+        // different categories, so each is reported with the categories it needs (垂直區劃文件 §6).
+        var item = Assert.Single(report.Blocking, i => i.Message.Contains("element.providedFireRating"));
         Assert.Equal(ReviewErrorCode.ParameterMissing, item.Code);
         Assert.Contains(FireRatingParameters.Provided, item.Message);
+        Assert.Contains("專案沒有參數", item.Message);
         Assert.Contains("類型參數", item.Fix);
         Assert.Contains("牆", item.Fix);
+
+        var door = Assert.Single(report.Blocking, i => i.Message.Contains("shaft.providedFireRating"));
+        Assert.Contains("管道間維修門", door.Message);
+        Assert.Contains("門", door.Fix);
+    }
+
+    /// <summary>
+    /// 垂直區劃文件 §6: 設計防火時效 answers two fields, so a project that has the parameter on 牆柱樓板
+    /// but not on 門 is told the binding is missing — not that the parameter does not exist.
+    /// </summary>
+    [Fact]
+    public void A_parameter_the_project_has_but_not_on_the_categories_a_field_needs_says_so()
+    {
+        var parameters = new Parameters();
+        parameters.Bindings.RemoveAll(b =>
+            b.Key == FireRatingParameters.Provided && b.Value == ReviewParameterHost.Doors);
+
+        var item = Assert.Single(Readiness(parameters: parameters).Blocking);
+
+        Assert.Equal(ReviewErrorCode.ParameterMissing, item.Code);
+        Assert.Contains("沒有綁定到 門", item.Message);
+        Assert.DoesNotContain("專案沒有參數", item.Message);
+        Assert.Contains("類別加上 門", item.Fix);
+    }
+
+    /// <summary>遮煙性能 is a required parameter of its own: without it 第79條之2 can never be answered.</summary>
+    [Fact]
+    public void The_smoke_seal_parameter_blocks_the_review_when_the_project_has_none()
+    {
+        var parameters = new Parameters();
+        parameters.Bindings.RemoveAll(b => b.Key == SmokeProtectionParameters.Provided);
+
+        var item = Assert.Single(Readiness(parameters: parameters).Blocking);
+
+        Assert.Equal(ReviewErrorCode.ParameterMissing, item.Code);
+        Assert.Contains(SmokeProtectionParameters.Provided, item.Message);
+        Assert.Contains("類型參數", item.Fix);
+        foreach (var host in new[] { "門", "窗", "帷幕嵌板" }) Assert.Contains(host, item.Fix);
     }
 
     [Fact]
     public void Parameter_bound_to_some_candidate_categories_only_warns_about_the_rest()
     {
         var parameters = new Parameters();
-        parameters.Bindings.RemoveAll(b => b.Key == FireRatingParameters.Provided && b.Value != ReviewParameterHost.Walls);
+        // 門 keep the binding: without it the 管道間維修門 field has no category at all, which is a
+        // blocker rather than the partial-binding warning this test is about.
+        parameters.Bindings.RemoveAll(b => b.Key == FireRatingParameters.Provided &&
+                                          b.Value != ReviewParameterHost.Walls && b.Value != ReviewParameterHost.Doors);
 
         var report = Readiness(parameters: parameters);
 
@@ -513,7 +572,8 @@ public sealed class FireReviewIntegrationTests
         var parameters = new Parameters();
         parameters.Bindings.RemoveAll(b => b.Key == FireRatingParameters.Provided);
 
-        var item = Assert.Single(Readiness(parameters: parameters).Blocking);
+        var item = Assert.Single(Readiness(parameters: parameters).Blocking,
+            i => i.Message.Contains("element.providedFireRating"));
 
         Assert.Equal(ReviewErrorCode.ParameterMissing, item.Code);
         Assert.Contains("帷幕嵌板", item.Fix);

@@ -2,7 +2,7 @@
 
 功能 ID：`vertical-compartment`
 
-狀態：**規則層已完成**（本文件 §5、§10）。檢查層、參數與 Revit 端未開始（§12）。
+狀態：**規則層與參數層已完成**（本文件 §5、§6、§10）。檢查層與 Revit 產出未開始（§12）。
 
 ## 1. 功能摘要
 
@@ -270,9 +270,23 @@ public enum RuleCategory
 
 | 參數 | 類型 | 綁定 | 用途 | 現況 |
 | --- | --- | --- | --- | --- |
-| `防火檢討_設計防火時效` | Type（既有） | 既有 Doors、Windows、Curtain Panels | `shaft.providedFireRating` 來源 | 已存在 |
-| `防火檢討_遮煙性能` | Type、YESNO | Doors、Windows、Curtain Panels | `shaft.providedSmokeProtection` 來源 | **尚未建立** |
+| `防火檢討_設計防火時效` | Type（既有，GUID `…0008`） | **本輪加綁 Doors**（既有 Walls、Columns、Floors、Curtain Panels） | `shaft.providedFireRating` 來源 | 已完成 |
+| `防火檢討_遮煙性能` | Type、YESNO、GUID `…000f` | Doors、Windows、Curtain Panels | `shaft.providedSmokeProtection` 來源 | 已完成 |
 | `防火檢討_區劃用途` | Instance（既有） | Areas | 決定一個區劃產生哪些主體 | 已存在，下拉見 [`zone.use` 用字表](zone-use-vocabulary.md) |
+
+兩份定義檔都要改：`assets/SharedParameters/fire-review-shared-params.txt`（主檔，手動加入專案參數時選它）
+與 `assets/SharedParameters/fire-review-openings-type.txt`（revit-mcp `load_shared_parameters` 綁門／窗／
+帷幕嵌板類型用的那份，本輪同時補上 `防火檢討_設計防火時效`）。**兩檔一律維持 Big5／cp950。**
+
+`shaft.providedFireRating` 只綁在**門**：維修門是門，窗與嵌板不是（§4）。`防火檢討_遮煙性能` 則綁三類，
+昇降機道出入口可能是門、窗或帷幕嵌板。
+
+一個參數同時回答兩個欄位（`element.providedFireRating` 與 `shaft.providedFireRating`）帶來兩個連帶處理：
+
+- `ReviewInputSources.ParameterNames` 與 `RevitReviewParameterReader.Names(host)` 都要去重，否則同一個
+  名字讀兩次會讓讀取器的 `ToDictionary` 以重複鍵例外收場。
+- 前置檢查的缺參數訊息分成兩句：專案完全沒有這個參數時說「專案沒有參數 X」，有參數但沒綁到這個欄位
+  需要的類別時說「參數 X 沒有綁定到 門」。同一個參數因此會出現兩筆阻擋項，各自說自己缺的類別。
 
 `shaft.elevatorLobbyProtected` 沒有參數來源：昇降機間是不是「併同區劃」是一個空間關係，不是一個
 可以掛在門上的性質。§9 記錄了這個缺口。
@@ -297,7 +311,9 @@ public enum RuleCategory
 | `VerticalCompartmentCheck`／`VerticalCompartmentInputs` | 由候選開口與輸入產生主體、跑引擎、產生結果 | **未開始** |
 | `FireReviewRunner` 的接線 | 把新檢查併入一次檢討 | **未開始** |
 | `ReviewTable`／`ReviewMarkup` | 檢討表列與視圖標示 | **未開始** |
-| Shared Parameter `防火檢討_遮煙性能` 與其讀取 | 輸入來源 | **未開始** |
+| `SmokeProtectionParameters.Provided` | 參數名（`防火檢討_遮煙性能`），與 `FireProtectionParameters` 分立 | 已完成 |
+| `ReviewInputSources` 的兩筆 `shaft.*` 來源 | 讀取器、前置檢查都照 `All` 跑，不需另接串接層 | 已完成 |
+| `FireReviewTypeRow.ProvidedSmokeProtection`／批次面板「遮煙性能」欄 | 使用者填值的地方 | 已完成 |
 
 ## 9. 已知限制
 
@@ -360,6 +376,9 @@ public enum RuleCategory
 | 5 | 第 2 項只放寬遮煙，不放寬「應裝設防火設備」 | 兩個但書效力不同，取共通且較嚴的那一邊（§9 第 1 項） |
 | 6 | 遮煙性能另立 `防火檢討_遮煙性能`，不併入 `防火檢討_設計防火保護` | 兩者是不同的問題，條文對昇降機道同時要求（§6） |
 | 7 | 規則集版本升為 `2026.6-provisional` | 新增規則就升版，與步驟 7 加入 `tw-bcr-83-area` 時同一做法 |
+| 8 | `防火檢討_設計防火時效` 加綁**門**，批次面板的「設計防火時效」欄對門開放 | 沒有它，管道間維修門的一小時時效永遠是資料不足。窗不開放——沒有任何條文對窗訂時效（§6） |
+| 9 | 遮煙性能綁門／窗／帷幕嵌板三類，時效只綁門 | 昇降機道出入口的「防火設備」可能是門、窗或嵌板；維修門只會是門（§4） |
+| 10 | 前置檢查的缺參數訊息分成「專案沒有參數」與「沒有綁定到 門」兩句 | 一個參數回答兩個欄位後，舊訊息會在參數明明存在時說「專案沒有參數」（§6） |
 
 ## 12. 實作進度
 
@@ -367,7 +386,7 @@ public enum RuleCategory
 | --- | --- | --- |
 | 1 | 本文件：條文、用語、主體設計、限制 | **已完成** |
 | 2 | 規則層：`RuleCategory.VerticalCompartment`、`shaft.*` 欄位、三條規則、要求用字、面積豁免訊息 | **已完成** |
-| 3 | Shared Parameter `防火檢討_遮煙性能`（Big5 定義檔、Phase 1 建立與綁定、讀取器、批次參數面板欄位） | 未開始 |
+| 3 | Shared Parameter `防火檢討_遮煙性能`（Big5 定義檔、輸入來源、讀取器、批次參數面板欄位） | **已完成** |
 | 4 | `VerticalCompartmentCheck`／`VerticalCompartmentInputs`：由候選開口產生主體並跑引擎 | 未開始 |
 | 5 | `FireReviewRunner` 接線、`ReviewTable` 三列、`ReviewReadiness` 參數需求 | 未開始 |
 | 6 | 檢討視圖標示與圖號 | 未開始 |
@@ -382,3 +401,35 @@ public enum RuleCategory
 - 沒有既有測試需要改寫；唯一調整的既有常數是 `FireReviewIntegrationTests.ShippedVersion`
   （`2026.5-provisional` → `2026.6-provisional`）。
 - **未實機驗證。** 本階段沒有任何 Revit 端改動，不需要開模型；步驟 3 起才需要。
+
+### 步驟 3 的產出與驗證
+
+改動的檔案：
+
+- `assets/SharedParameters/fire-review-shared-params.txt`：新增 GUID `…000f` 的 `防火檢討_遮煙性能`
+  （YESNO），並把 `防火檢討_設計防火時效` 的說明改成「牆柱樓板、門窗帷幕嵌板的類型；梁不適用」。
+- `assets/SharedParameters/fire-review-openings-type.txt`：新增 `防火檢討_遮煙性能` 與
+  `防火檢討_設計防火時效`（GUID 沿用 `…0008`），並在檔頭寫下兩個參數為何不可合併。
+  兩檔都以 `[System.Text.Encoding]::GetEncoding(950)` 讀寫，`git diff` 確認其餘行的位元組未變。
+- `src/BuildingRegulationReview.Application/Checks/VerticalCompartmentInputs.cs`：新增
+  `SmokeProtectionParameters.Provided`。
+- `src/BuildingRegulationReview.Application/Reviews/ReviewInputSources.cs`：新增
+  `shaft.providedFireRating`（門、Type）與 `shaft.providedSmokeProtection`（門窗嵌板、Type）兩筆來源；
+  `ParameterNames` 去重。
+- `src/BuildingRegulationReview.Application/Reviews/ReviewReadiness.cs`：缺參數訊息分成兩句（決議 10）。
+- `src/BuildingRegulationReview.Revit/Reviews/RevitReviewParameterReader.cs`：`Names(host)` 去重。
+- `src/BuildingRegulationReview.Application/Parameters/FireReviewTypeTable.cs`：
+  `FireReviewTypeRow.ProvidedSmokeProtection`、`CarriesSmokeProtection`、
+  `FireReviewTypeParameters.SmokeSeal`，`CarriesRating` 改為門也算（決議 8）。
+- `src/BuildingRegulationReview.Revit/Parameters/RevitFireReviewTypeScanner.cs`：讀取新參數。
+- `src/BuildingRegulationReview/FireReview/FireReviewTypeRowViewModel.cs`、
+  `FireReviewParameterPanelWindow.xaml`：批次面板新增「遮煙性能」勾選欄與說明。
+
+測試：`dotnet test` **1344 通過、0 失敗**（原 1339）。新增 5 項（門也填時效、每個開口都有遮煙性能欄、
+未綁定與未勾選要分得開、遮煙性能不是防火保護、缺綁定的兩種訊息）；改寫 4 項既有測試——它們原本假設
+`設計防火時效` 只有一個欄位在讀、門不填時效。`BuildingRegulationReview.sln` 與 WPF 外掛專案皆 0 警告
+0 錯誤。
+
+**未實機驗證。** 需要在 Revit 中以 `load_shared_parameters` 依 `fire-review-openings-type.txt` 重新綁定
+門／窗／帷幕嵌板類型（新增兩個參數），再開批次面板確認「遮煙性能」欄可勾選、門的「設計防火時效」欄
+可輸入、寫入模型後回讀正確。**模型若已綁舊的 openings 定義檔，只是少兩個參數，不必移除重綁。**

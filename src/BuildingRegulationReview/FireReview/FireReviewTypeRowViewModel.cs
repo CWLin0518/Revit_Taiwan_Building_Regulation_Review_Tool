@@ -25,6 +25,7 @@ namespace BuildingRegulationReview.FireReview
         private string _coverCm;
         private string _rating;
         private bool _protection;
+        private bool _smokeProtection;
 
         public FireReviewTypeRowViewModel(FireReviewTypeRow source)
         {
@@ -33,6 +34,7 @@ namespace BuildingRegulationReview.FireReview
             _coverCm = Centimetres(source.CoverMeters);
             _rating = source.ProvidedRating ?? "";
             _protection = source.ProvidedProtection == true;
+            _smokeProtection = source.ProvidedSmokeProtection == true;
         }
 
         public FireReviewTypeRow Source { get; }
@@ -41,10 +43,15 @@ namespace BuildingRegulationReview.FireReview
         public string DisplayName => Source.DisplayName;
         public bool IsOpening => Source.IsOpening;
 
-        /// <summary>帷幕嵌板 fill in 設計防火時效 like the 主要構造 do; 門窗 do not (帷幕牆規格 §6).</summary>
+        /// <summary>
+        /// 帷幕嵌板 fill in 設計防火時效 like the 主要構造 do (帷幕牆規格 §6), and 門 do too, because a
+        /// 管道間之維修門 owes one hour under 第79條之2第1項 (垂直區劃文件 §6). 窗 do not.
+        /// </summary>
         public bool CarriesRating => Source.CarriesRating;
 
         public bool CarriesProtection => Source.CarriesProtection;
+
+        public bool CarriesSmokeProtection => Source.CarriesSmokeProtection;
 
         /// <summary>「視圖 3 / 專案 12」 — the second number is the real reach of an edit.</summary>
         public string Counts => Source.InstanceCount == Source.ProjectInstanceCount
@@ -116,6 +123,22 @@ namespace BuildingRegulationReview.FireReview
             }
         }
 
+        /// <summary>
+        /// 防火檢討_遮煙性能 on the Type: ticked means this 型號 passed the 遮煙性能 test of 第1條第45款.
+        /// A separate question from <see cref="Protection"/>, which asks whether the 型號 is a 防火門窗
+        /// at all — 第79條之2第1項 requires both of a 昇降機道's 防火設備 and of a 管道間之維修門.
+        /// </summary>
+        public bool SmokeProtection
+        {
+            get => _smokeProtection;
+            set
+            {
+                if (_smokeProtection == value) return;
+                _smokeProtection = value;
+                Raise(nameof(SmokeProtection));
+            }
+        }
+
         /// <summary>What the clauses derive from what is currently typed in this row.</summary>
         public FireRatingDerivation Derivation => FireRatingDeriver.Derive(
             Source.Category, StructuralMaterialText.Parse(_material), Source.DimensionMeters, Meters(_coverCm));
@@ -161,6 +184,8 @@ namespace BuildingRegulationReview.FireReview
                 var missing = new List<string>();
                 if (CarriesProtection && (Source.Present & FireReviewTypeParameters.Protection) == 0)
                     missing.Add(FireProtectionParameters.Provided);
+                if (CarriesSmokeProtection && (Source.Present & FireReviewTypeParameters.SmokeSeal) == 0)
+                    missing.Add(SmokeProtectionParameters.Provided);
                 if (CarriesRating && (Source.Present & FireReviewTypeParameters.Rating) == 0)
                     missing.Add(FireRatingParameters.Provided);
                 if (!IsOpening)
@@ -192,6 +217,11 @@ namespace BuildingRegulationReview.FireReview
             // binding instead of silently doing nothing.
             if (CarriesProtection && (Source.ProvidedProtection ?? false) != _protection)
                 yield return FireReviewParameterEdit.OfYesNo(Source.TypeUniqueId, FireProtectionParameters.Provided, _protection);
+
+            // 遮煙性能 is written the same way and for the same reason: it is a property of the 型號
+            // (第1條第45款 is a test on the 構造), not of one installed leaf.
+            if (CarriesSmokeProtection && (Source.ProvidedSmokeProtection ?? false) != _smokeProtection)
+                yield return FireReviewParameterEdit.OfYesNo(Source.TypeUniqueId, SmokeProtectionParameters.Provided, _smokeProtection);
 
             // 帷幕嵌板 answer both: 防火門窗 for an openable panel, and 設計防火時效 because the 交接帶
             // of 第79條第4項／第79條之3第2項 is measured by the panels' own rating (帷幕牆規格 §6).

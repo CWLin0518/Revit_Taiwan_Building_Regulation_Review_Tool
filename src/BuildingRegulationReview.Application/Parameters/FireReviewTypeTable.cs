@@ -35,6 +35,7 @@ public sealed class FireReviewTypeRow
         double? coverMeters = null,
         string? providedRating = null,
         bool? providedProtection = null,
+        bool? providedSmokeProtection = null,
         FireReviewTypeParameters present = FireReviewTypeParameters.None)
     {
         if (string.IsNullOrWhiteSpace(typeUniqueId)) throw new ArgumentException("Type UniqueId is required.", nameof(typeUniqueId));
@@ -56,6 +57,7 @@ public sealed class FireReviewTypeRow
         CoverMeters = coverMeters;
         ProvidedRating = string.IsNullOrWhiteSpace(providedRating) ? null : providedRating!.Trim();
         ProvidedProtection = providedProtection;
+        ProvidedSmokeProtection = providedSmokeProtection;
         Present = present;
     }
 
@@ -90,20 +92,34 @@ public sealed class FireReviewTypeRow
     /// </summary>
     public bool? ProvidedProtection { get; }
 
+    /// <summary>
+    /// 防火檢討_遮煙性能 as the Type's Yes/No parameter holds it (openings only), read the same way as
+    /// <see cref="ProvidedProtection"/>: 遮煙性能 is a separate question from 防火門窗 and 第79條之2第1項
+    /// asks a 昇降機道's 防火設備 both (垂直區劃文件 §6).
+    /// </summary>
+    public bool? ProvidedSmokeProtection { get; }
+
     /// <summary>Which of the review parameters this Type actually carries.</summary>
     public FireReviewTypeParameters Present { get; }
 
     public bool IsOpening => CandidateCategories.IsOpening(Category);
 
     /// <summary>
-    /// Whether this Type answers 設計防火時效. Every 主要構造 does; among the openings only 帷幕嵌板,
-    /// because 第79條第4項 and 第79條之3第2項 measure the 交接帶 by the panels' own rating (帷幕牆規格
-    /// §6). 門窗 answer 防火門窗 instead, which is a different question.
+    /// Whether this Type answers 設計防火時效. Every 主要構造 does; among the openings, 帷幕嵌板 because
+    /// 第79條第4項 and 第79條之3第2項 measure the 交接帶 by the panels' own rating (帷幕牆規格 §6), and 門
+    /// because 第79條之2第1項 requires a 管道間之維修門 to reach one hour (垂直區劃文件 §6). 窗 answer
+    /// 防火門窗 and 遮煙性能 only — no clause states a rating for them.
     /// </summary>
-    public bool CarriesRating => !IsOpening || Category == CandidateCategory.CurtainPanel;
+    public bool CarriesRating => !IsOpening || Category != CandidateCategory.Window;
 
     /// <summary>防火門窗 is asked of the openings, 可開啟嵌板 included.</summary>
     public bool CarriesProtection => IsOpening;
+
+    /// <summary>
+    /// 遮煙性能 is asked of every opening: a 昇降機道 出入口 may be a 門, a 窗 or a 帷幕嵌板, and a
+    /// 管道間 維修門 is a 門 (垂直區劃文件 §4).
+    /// </summary>
+    public bool CarriesSmokeProtection => IsOpening;
 
     public StructuralMaterial? ParsedMaterial => StructuralMaterialText.Parse(Material);
 
@@ -145,7 +161,10 @@ public enum FireReviewTypeParameters
     Rating = 1,
     Material = 2,
     Cover = 4,
-    Protection = 8
+    Protection = 8,
+
+    /// <summary>防火檢討_遮煙性能 (第79條之2第1項).</summary>
+    SmokeSeal = 16
 }
 
 /// <summary>What kind of value one edit carries, so the adapter never has to guess from the text.</summary>

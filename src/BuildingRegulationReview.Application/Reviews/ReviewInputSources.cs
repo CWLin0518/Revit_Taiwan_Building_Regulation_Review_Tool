@@ -125,14 +125,27 @@ public static class ReviewInputSources
         new ReviewInputSource("zone.floorNumber", FloorNumber, ReviewParameterLevel.Instance, "所在樓層序", ReviewParameterHost.Areas),
         new ReviewInputSource("zone.interiorFinish", InteriorFinish, ReviewParameterLevel.Type, "室內裝修耐燃等級", ReviewParameterHost.Walls, ReviewParameterHost.Ceilings),
         new ReviewInputSource("element.providedFireRating", FireRatingParameters.Provided, ReviewParameterLevel.Type, "設計／認證防火時效", FireRatingHosts.ToArray()),
-        new ReviewInputSource("opening.providedFireProtection", FireProtectionParameters.Provided, ReviewParameterLevel.Type, "設計防火保護", OpeningHosts.ToArray())
+        new ReviewInputSource("opening.providedFireProtection", FireProtectionParameters.Provided, ReviewParameterLevel.Type, "設計防火保護", OpeningHosts.ToArray()),
+
+        // 第79條之2 (垂直區劃文件 §6). Two fields, and 設計防火時效 therefore appears twice in this list:
+        // the same parameter answers 第70條 for a 主要構造 and 第79條之2第1項 for a 管道間維修門, but they
+        // are different fields with different categories, so neither entry can stand for the other.
+        // 維修門 are doors and nothing else (垂直區劃文件 §4), which is why this one is bound to 門 alone
+        // while 遮煙性能 follows every opening — 昇降機道出入口 may be a 門, a 窗 or a 帷幕嵌板.
+        new ReviewInputSource("shaft.providedFireRating", FireRatingParameters.Provided, ReviewParameterLevel.Type, "管道間維修門之設計防火時效", ReviewParameterHost.Doors),
+        new ReviewInputSource("shaft.providedSmokeProtection", SmokeProtectionParameters.Provided, ReviewParameterLevel.Type, "遮煙性能", OpeningHosts.ToArray())
     });
 
     public static ReviewInputSource? For(string field) =>
         All.FirstOrDefault(x => string.Equals(x.Field, field, StringComparison.Ordinal));
 
-    /// <summary>Every parameter name the review may read, for the adapter.</summary>
-    public static IEnumerable<string> ParameterNames => All.Select(x => x.ParameterName);
+    /// <summary>
+    /// Every parameter name the review may read, for the adapter. Distinct: one parameter can answer
+    /// more than one field (設計防火時效 answers both <c>element.providedFireRating</c> and
+    /// <c>shaft.providedFireRating</c>), and the adapter looks a name up once.
+    /// </summary>
+    public static IEnumerable<string> ParameterNames =>
+        All.Select(x => x.ParameterName).Distinct(StringComparer.Ordinal);
 
     public static ReviewParameterHost HostOf(CandidateCategory category) => category switch
     {

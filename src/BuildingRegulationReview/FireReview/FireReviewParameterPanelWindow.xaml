@@ -54,7 +54,7 @@
                         <StackPanel>
                             <TextBlock Text="這些是「類型參數」" FontWeight="SemiBold" Foreground="#8A5200" />
                             <TextBlock Margin="0,4,0,0" TextWrapping="Wrap" LineHeight="18" Foreground="#6B4A12"
-                                       Text="防火時效、結構材料、防火被覆厚度與門窗的防火門窗勾選都掛在類型上，改一列會套用到整個專案中該類型的所有實體，不只目前視圖看得到的那些。「數量」欄的第二個數字就是專案中的實體數。" />
+                                       Text="防火時效、結構材料、防火被覆厚度與門窗的防火門窗、遮煙性能勾選都掛在類型上，改一列會套用到整個專案中該類型的所有實體，不只目前視圖看得到的那些。「數量」欄的第二個數字就是專案中的實體數。門的「設計防火時效」是給管道間維修門用的（第79條之2第1項要一小時以上）。" />
                         </StackPanel>
                     </Border>
 
@@ -156,6 +156,23 @@
                                     <Style TargetType="CheckBox">
                                         <Setter Property="HorizontalAlignment" Value="Center" />
                                         <Setter Property="IsEnabled" Value="{Binding CarriesProtection}" />
+                                    </Style>
+                                </DataGridCheckBoxColumn.EditingElementStyle>
+                            </DataGridCheckBoxColumn>
+
+                            <DataGridCheckBoxColumn Header="遮煙性能" Width="84"
+                                                    Binding="{Binding SmokeProtection, UpdateSourceTrigger=PropertyChanged}">
+                                <DataGridCheckBoxColumn.ElementStyle>
+                                    <Style TargetType="CheckBox">
+                                        <Setter Property="HorizontalAlignment" Value="Center" />
+                                        <Setter Property="IsEnabled" Value="{Binding CarriesSmokeProtection}" />
+                                        <Setter Property="ToolTip" Value="勾選＝此型號通過遮煙性能試驗（第1條第45款）。第79條之2第1項要求昇降機道裝設之防火設備與管道間之維修門具遮煙性能；這與左邊的「防火門窗」是兩個不同的問題。" />
+                                    </Style>
+                                </DataGridCheckBoxColumn.ElementStyle>
+                                <DataGridCheckBoxColumn.EditingElementStyle>
+                                    <Style TargetType="CheckBox">
+                                        <Setter Property="HorizontalAlignment" Value="Center" />
+                                        <Setter Property="IsEnabled" Value="{Binding CarriesSmokeProtection}" />
                                     </Style>
                                 </DataGridCheckBoxColumn.EditingElementStyle>
                             </DataGridCheckBoxColumn>
