@@ -56,4 +56,13 @@ public static class ZoneUses
 
     /// <summary>The exemption expression a rule carries for one of these uses.</summary>
     public static string ExemptionSource(string use) => $"zone.use == \"{use}\"";
+
+    /// <summary>
+    /// What the 區劃面積 result says after an exemption holds. The engine's own message names the
+    /// condition that held (<c>zone.use == "管道間"</c>) but not who takes over, which reads as if the
+    /// 區劃 were simply not reviewed; this names the article that does review it.
+    /// </summary>
+    public const string VerticalCompartmentHandoff =
+        "此區劃屬第79條之2第1項之垂直區劃，不受區劃面積規定拘束，" +
+        "改依該項以一小時以上防火時效之牆壁、防火門窗等防火設備與該處防火構造之樓地板單獨區劃分隔。";
 }

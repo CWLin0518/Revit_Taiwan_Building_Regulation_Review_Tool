@@ -29,7 +29,7 @@ namespace BuildingRegulationReview.Core.Tests.Reviews;
 public sealed class FireReviewIntegrationTests
 {
     private const string RuleSetId = "tw-bcr-fire";
-    private const string ShippedVersion = "2026.5-provisional";
+    private const string ShippedVersion = "2026.6-provisional";
 
     [Fact]
     public void Interior_finish_is_a_model_derived_wall_and_ceiling_type_fact_not_an_area_input()

@@ -7,6 +7,7 @@ using System.Text.Json.Serialization;
 using BuildingRegulationReview.Application.Candidates;
 using BuildingRegulationReview.Application.Checks;
 using BuildingRegulationReview.Application.Diagnostics;
+using BuildingRegulationReview.Application.Parameters;
 using BuildingRegulationReview.Application.Reviews;
 using BuildingRegulationReview.Application.Rules;
 using BuildingRegulationReview.Domain.Geometry;
@@ -259,6 +260,41 @@ public sealed class CompartmentAreaCheckTests
         Assert.Contains("符合豁免條件", finding.Result.Message);
         Assert.Equal(ReviewValue.OfText("樓梯間"), finding.Result.Evidence.Find("zone.use"));
         Assert.Equal("79", finding.Result.RuleId);
+    }
+
+    /// <summary>
+    /// The engine's own message names the condition that held (<c>zone.use == "樓梯間"</c>), which on
+    /// its own reads as if the 區劃 were simply not reviewed. A 垂直區劃 therefore also gets told who
+    /// does review it — 第79條之2第1項 (docs/regulations/vertical-compartment.md §3).
+    /// </summary>
+    [Fact]
+    public void An_exempt_vertical_compartment_is_told_which_article_takes_over()
+    {
+        var finding = Single(Review(OneZone(9000), Inputs(use: "樓梯間")));
+
+        Assert.Contains("符合豁免條件", finding.Result.Message);
+        Assert.Contains(ZoneUses.VerticalCompartmentHandoff, finding.Result.Message);
+    }
+
+    /// <summary>
+    /// The note belongs to the 第79條之2 list, not to exemptions in general: a rule set that exempts
+    /// something else must not have 第79條之2 put in its mouth.
+    /// </summary>
+    [Fact]
+    public void An_exemption_that_is_not_a_vertical_compartment_gets_no_such_note()
+    {
+        var warehouse = new Rule("79", "1", RuleCategory.CompartmentArea, "建築技術規則建築設計施工編第79條第1項",
+            new DateTime(2024, 1, 1), "TW", 10,
+            new RuleExpression("building.fireResistiveConstruction == true"),
+            new RuleExpression("zone.area <= 1500 m2"),
+            new[] { new RuleExpression("zone.use == \"倉庫\"") },
+            new[] { "zone.use" });
+
+        var finding = Single(Review(OneZone(9000), Inputs(use: "倉庫"), Engine(warehouse)));
+
+        Assert.Equal(ReviewStatus.NotApplicable, finding.Status);
+        Assert.Contains("符合豁免條件", finding.Result.Message);
+        Assert.DoesNotContain("第79條之2", finding.Result.Message);
     }
 
     [Fact]

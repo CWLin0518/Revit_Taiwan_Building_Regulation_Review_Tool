@@ -76,8 +76,8 @@ public sealed class RuleFieldCatalog
     /// <summary>
     /// The fields the review can supply today. <c>building.*</c> and <c>zone.*</c> describe the
     /// compartment and are open to every category; <c>element.*</c> only exists for fire-resistance
-    /// subjects, <c>opening.*</c> only for opening-protection subjects and <c>junction.*</c> only
-    /// for compartment-continuity subjects.
+    /// subjects, <c>opening.*</c> only for opening-protection subjects, <c>junction.*</c> only for
+    /// compartment-continuity subjects and <c>shaft.*</c> only for 第79條之2 垂直區劃 subjects.
     /// </summary>
     public static RuleFieldCatalog Default { get; } = CreateDefault();
 
@@ -88,11 +88,13 @@ public sealed class RuleFieldCatalog
             RuleCategory.CompartmentArea,
             RuleCategory.FireResistance,
             RuleCategory.OpeningProtection,
-            RuleCategory.CompartmentContinuity
+            RuleCategory.CompartmentContinuity,
+            RuleCategory.VerticalCompartment
         };
         var element = new[] { RuleCategory.FireResistance };
         var opening = new[] { RuleCategory.OpeningProtection };
         var junction = new[] { RuleCategory.CompartmentContinuity };
+        var shaft = new[] { RuleCategory.VerticalCompartment };
         var boolean = RuleValueType.Boolean;
         var text = RuleValueType.Text;
         var number = RuleValueType.Quantity(ReviewUnit.None);
@@ -143,7 +145,20 @@ public sealed class RuleFieldCatalog
             new RuleFieldDefinition("junction.continuousFireRatedLength", RuleValueType.Quantity(ReviewUnit.Meter), "交點兩側連續具時效之外牆面長度總和", junction),
             new RuleFieldDefinition("junction.continuousFireRatedHeight", RuleValueType.Quantity(ReviewUnit.Meter), "層間連續具時效之外牆面高度總和", junction),
             new RuleFieldDefinition("junction.projectionDepth", RuleValueType.Quantity(ReviewUnit.Meter), "區劃牆或樓地板突出帷幕牆外牆面之深度", junction),
-            new RuleFieldDefinition("junction.hasUnprotectedOpening", boolean, "交接帶內是否有未受防護開口", junction)
+            new RuleFieldDefinition("junction.hasUnprotectedOpening", boolean, "交接帶內是否有未受防護開口", junction),
+
+            // 第79條之2 垂直區劃（docs/regulations/vertical-compartment.md §5.2）。主體是「一項要求」
+            // 而非一個元素：管道間的同一扇維修門同時被要求一小時防火時效與遮煙性能，而規則的
+            // requiredValue 只能寫一個比較，所以受檢主體是（設備, 要求）這一對，由 shaft.requirement
+            // 指名是哪一項要求。這也是三條規則彼此互斥、不會落入引擎 Conflict 路徑的原因。
+            new RuleFieldDefinition("shaft.requirement", text,
+                "受檢要求（HoistwaySmokeSeal／ShaftDoorRating／ShaftDoorSmokeSeal）", shaft),
+            new RuleFieldDefinition("shaft.elementUniqueId", text, "受檢防火設備（門窗或嵌板）UniqueId", shaft),
+            new RuleFieldDefinition("shaft.providedFireRating", RuleValueType.Quantity(ReviewUnit.Minute),
+                "該防火設備之設計／認證防火時效", shaft),
+            new RuleFieldDefinition("shaft.providedSmokeProtection", text, "該防火設備是否具遮煙性能（是／否）", shaft),
+            new RuleFieldDefinition("shaft.elevatorLobbyProtected", boolean,
+                "第2項：昇降機道前是否設有併同區劃、且出入口具遮煙性能之昇降機間", shaft)
         });
     }
 }

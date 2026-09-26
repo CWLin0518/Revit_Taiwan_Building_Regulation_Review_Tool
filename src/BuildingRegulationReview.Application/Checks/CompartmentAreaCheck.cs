@@ -5,6 +5,7 @@ using System.Globalization;
 using System.Linq;
 using BuildingRegulationReview.Application.Candidates;
 using BuildingRegulationReview.Application.Diagnostics;
+using BuildingRegulationReview.Application.Parameters;
 using BuildingRegulationReview.Application.Rules;
 using BuildingRegulationReview.Domain.Common;
 using BuildingRegulationReview.Domain.Reviews;
@@ -21,6 +22,9 @@ public static class ReviewCheckTypes
 
     /// <summary>防火區劃與帷幕牆交接（第79條第3、4項、第79條之3、第79條之4）.</summary>
     public const string CompartmentContinuity = "CompartmentContinuity";
+
+    /// <summary>垂直區劃之遮煙性能與管道間維修門時效（第79條之2）.</summary>
+    public const string VerticalCompartment = "VerticalCompartment";
 }
 
 /// <summary>How Revit's Area and the measured boundary compared (spec 11.4 step 2).</summary>
@@ -168,6 +172,8 @@ public static class CompartmentAreaCheck
 
         var status = outcome.Status;
         var message = $"區劃「{zone.Name}」：{outcome.Message}";
+        if (outcome.Reason == RuleOutcomeReason.Exempt && ZoneUses.IsVerticalCompartment(TextOf(facts, "zone.use")))
+            message += ZoneUses.VerticalCompartmentHandoff;
         var errorCode = RuleOutcomeErrorCode.For(outcome);
         if (crossCheck == AreaCrossCheck.Differs)
         {
@@ -260,6 +266,9 @@ public static class CompartmentAreaCheck
         if (options is not null)
             yield return new ReviewEvidenceItem("area.crossCheckTolerance", ReviewValue.Quantity(options.CrossCheckRelativeTolerance, ReviewUnit.None));
     }
+
+    private static string? TextOf(RuleFacts facts, string field) =>
+        facts.Find(field) is { Kind: ReviewValueKind.Text } value ? value.Text : null;
 
     private static IEnumerable<ReviewEvidenceItem> InputEvidence(IEnumerable<ReviewInput> inputs) =>
         inputs.Where(x => x.Source is not null)

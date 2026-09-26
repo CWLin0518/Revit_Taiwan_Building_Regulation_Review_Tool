@@ -17,7 +17,15 @@ public enum RuleCategory
     /// (第79條第3、4項、第79-3條、第79-4條). Its subject is a junction, not a single element,
     /// so it reads <c>junction.*</c> rather than <c>element.*</c> or <c>opening.*</c>.
     /// </summary>
-    CompartmentContinuity
+    CompartmentContinuity,
+
+    /// <summary>
+    /// 第79條之2 垂直區劃: what the article demands of a 昇降機道 or 管道間 <em>beyond</em> the
+    /// 一小時牆壁 and 防火設備 every 區劃 boundary already owes — 遮煙性能, and the 維修門's own
+    /// 一小時防火時效. Its subject is one (設備, 要求) pair, not an element, so it reads
+    /// <c>shaft.*</c>; see <c>docs/regulations/vertical-compartment.md</c>.
+    /// </summary>
+    VerticalCompartment
 }
 
 /// <summary>How loudly a failed rule speaks (spec 11.2). It never changes the six-state outcome.</summary>

@@ -292,7 +292,8 @@ public static class ReviewReadiness
                      RuleCategory.CompartmentArea,
                      RuleCategory.FireResistance,
                      RuleCategory.OpeningProtection,
-                     RuleCategory.CompartmentContinuity
+                     RuleCategory.CompartmentContinuity,
+                     RuleCategory.VerticalCompartment
                  })
         {
             if (input.RuleSet.Value.OfCategory(category).Any()) continue;
@@ -422,6 +423,7 @@ public static class ReviewReadiness
         RuleCategory.FireResistance => "構件防火時效",
         RuleCategory.OpeningProtection => "防火門窗",
         RuleCategory.CompartmentContinuity => "帷幕牆區劃交接",
+        RuleCategory.VerticalCompartment => "垂直區劃（第79條之2）",
         _ => category.ToString()
     };
 
