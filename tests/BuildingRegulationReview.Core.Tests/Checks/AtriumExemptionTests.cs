@@ -271,7 +271,32 @@ public sealed class AtriumExemptionTests
             Assert.True(field.IsAvailableIn(RuleCategory.CompartmentArea));
             Assert.DoesNotContain(name, read);
             Assert.DoesNotContain(name, needed);
+
+            // 步驟 7c gave each of them a parameter to come from; 決議 27 still keeps them out of
+            // the pre-review check, because only a 挑空 needs them.
+            var source = ReviewInputSources.For(name);
+            Assert.NotNull(source);
+            Assert.Equal(ReviewParameterLevel.Instance, source!.Level);
+            Assert.Equal(new[] { ReviewParameterHost.Areas }, source.Hosts);
         }
+    }
+
+    /// <summary>
+    /// 步驟 7c: what counts as a stated 連跨樓層數. A Revit Integer parameter is never blank — every
+    /// Area reads 0 until someone types a number — and 「連跨 0 層」 taken at face value would satisfy
+    /// 第二款's 「三層以下」 and exempt the 挑空 unasked, so anything below one storey is 未填.
+    /// </summary>
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData(0, null)]
+    [InlineData(-1, null)]
+    [InlineData(1, 1)]
+    [InlineData(3, 3)]
+    [InlineData(12, 12)]
+    public void A_span_below_one_storey_is_nothing_stated(int? read, int? stated)
+    {
+        Assert.Equal(stated, AtriumExemption.StatedSpannedFloors(read));
+        if (read is int floors) Assert.Equal(stated is not null, AtriumExemption.IsStatedSpannedFloors(floors));
     }
 
     private static CompiledRuleSet Shipped()

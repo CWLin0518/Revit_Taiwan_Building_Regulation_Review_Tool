@@ -198,8 +198,11 @@ namespace BuildingRegulationReview.FireReview
 
             foreach (var zone in selected)
             {
+                if (chooser.Use != null) zone.Use = chooser.Use;
                 if (chooser.Sprinklered != null) zone.Sprinklered = chooser.Sprinklered;
                 if (chooser.FloorNumber != null) zone.FloorNumber = chooser.FloorNumber;
+                if (chooser.SpannedFloors != null) zone.SpannedFloors = chooser.SpannedFloors;
+                if (chooser.LinksRefugeFloor != null) zone.LinksRefugeFloor = chooser.LinksRefugeFloor;
             }
 
             ZoneGrid.Items.Refresh();
@@ -312,6 +315,12 @@ namespace BuildingRegulationReview.FireReview
             var floors = _zones.Count(z => string.IsNullOrEmpty(z.FloorNumber));
             if (floors > 0) parts.Add($"待填樓層序 {floors} 個區劃");
 
+            // Only 挑空 are counted: 第79條之2第3項 is written for nothing else, so an empty box on any
+            // other 區劃 is not something to chase (垂直區劃規格 §6、決議 27).
+            var atria = _zones.Count(z => z.IsAtrium &&
+                                          (string.IsNullOrEmpty(z.SpannedFloors) || string.IsNullOrEmpty(z.LinksRefugeFloor)));
+            if (atria > 0) parts.Add($"待填挑空免除事實 {atria} 個區劃");
+
             StatusText.Text = string.Join("；", parts) + "。";
         }
     }
@@ -354,8 +363,18 @@ namespace BuildingRegulationReview.FireReview
     {
         private const string Unchanged = "（不變更）";
 
+        private readonly ComboBox _use = new ComboBox
+        {
+            Margin = new Thickness(0, 4, 0, 12),
+            MinWidth = 220,
+            IsEditable = true,
+            IsTextSearchEnabled = false
+        };
+
         private readonly ComboBox _sprinklered = new ComboBox { Margin = new Thickness(0, 4, 0, 12), MinWidth = 220 };
         private readonly TextBox _floorNumber = new TextBox { Margin = new Thickness(0, 4, 0, 12), MinWidth = 220 };
+        private readonly TextBox _spannedFloors = new TextBox { Margin = new Thickness(0, 4, 0, 12), MinWidth = 220 };
+        private readonly ComboBox _linksRefugeFloor = new ComboBox { Margin = new Thickness(0, 4, 0, 12), MinWidth = 220 };
 
         public ZoneFillWindow(int rowCount)
         {
@@ -364,26 +383,60 @@ namespace BuildingRegulationReview.FireReview
             ResizeMode = ResizeMode.NoResize;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
+            // 用途的清單只列第79條之2的五個垂直區劃字樣——它們是會改變判定的值，也正是一次要設給
+            // 好幾個樓梯間、管道間的那種。其餘用途仍可自行輸入，因為這是可編輯的下拉。
+            _use.Items.Add(Unchanged);
+            foreach (var use in ZoneUses.VerticalCompartments) _use.Items.Add(use);
+            _use.SelectedIndex = 0;
+
             _sprinklered.Items.Add(Unchanged);
             _sprinklered.Items.Add(FireReviewEditableRow.YesText);
             _sprinklered.Items.Add(FireReviewEditableRow.NoText);
             _sprinklered.SelectedIndex = 0;
 
+            _linksRefugeFloor.Items.Add(Unchanged);
+            _linksRefugeFloor.Items.Add(FireReviewEditableRow.YesText);
+            _linksRefugeFloor.Items.Add(FireReviewEditableRow.NoText);
+            _linksRefugeFloor.SelectedIndex = 0;
+
             var panel = new StackPanel { Margin = new Thickness(20) };
             panel.Children.Add(new TextBlock { Text = $"把選取的 {rowCount} 個區劃設為：", FontWeight = FontWeights.SemiBold });
-            panel.Children.Add(new TextBlock { Text = "自動滅火設備", Margin = new Thickness(0, 12, 0, 0) });
+            panel.Children.Add(new TextBlock { Text = "區劃用途（清單為第79條之2的垂直區劃，也可自行輸入）", Margin = new Thickness(0, 12, 0, 0) });
+            panel.Children.Add(_use);
+            panel.Children.Add(new TextBlock { Text = "自動滅火設備" });
             panel.Children.Add(_sprinklered);
             panel.Children.Add(new TextBlock { Text = "所在樓層序（留白代表不變更）" });
             panel.Children.Add(_floorNumber);
+            panel.Children.Add(new TextBlock
+            {
+                Text = "以下兩項只有挑空需要填（第79條之2第3項）",
+                Margin = new Thickness(0, 6, 0, 0),
+                FontWeight = FontWeights.SemiBold
+            });
+            panel.Children.Add(new TextBlock { Text = "連跨樓層數（留白代表不變更）", Margin = new Thickness(0, 8, 0, 0) });
+            panel.Children.Add(_spannedFloors);
+            panel.Children.Add(new TextBlock { Text = "避難層通達其直上層或直下層" });
+            panel.Children.Add(_linksRefugeFloor);
             panel.Children.Add(PanelButtons.Build(this));
             Content = panel;
         }
+
+        /// <summary>
+        /// 區劃用途, or null to leave each zone as it is. There is no 「清除」: a blank box is 不變更,
+        /// because batch-clearing the use of several 區劃 at once is not something anyone asked for
+        /// and it is the one value that decides whether a 區劃 is reviewed at all.
+        /// </summary>
+        public string Use => string.IsNullOrWhiteSpace(_use.Text) || _use.Text == Unchanged ? null : _use.Text.Trim();
 
         /// <summary>是／否 as the grid spells it, or null to leave each zone as it is.</summary>
         public string Sprinklered => _sprinklered.SelectedIndex <= 0 ? null : (string)_sprinklered.SelectedItem;
 
         public string FloorNumber => string.IsNullOrWhiteSpace(_floorNumber.Text) ? null : _floorNumber.Text.Trim();
 
+        /// <summary>防火檢討_連跨樓層數 as typed, or null to leave each zone as it is.</summary>
+        public string SpannedFloors => string.IsNullOrWhiteSpace(_spannedFloors.Text) ? null : _spannedFloors.Text.Trim();
+
+        public string LinksRefugeFloor => _linksRefugeFloor.SelectedIndex <= 0 ? null : (string)_linksRefugeFloor.SelectedItem;
     }
 
     /// <summary>The 確定／取消 pair both little dialogs end with.</summary>

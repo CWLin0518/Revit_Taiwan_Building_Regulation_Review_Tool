@@ -256,6 +256,8 @@ public sealed class RevitFireReviewTypeScanner
             if (Find(area, ReviewInputSources.ZoneUse) is not null) present |= FireReviewZoneParameters.Use;
             if (Find(area, ReviewInputSources.Sprinklered) is not null) present |= FireReviewZoneParameters.Sprinklered;
             if (Find(area, ReviewInputSources.FloorNumber) is not null) present |= FireReviewZoneParameters.FloorNumber;
+            if (Find(area, ReviewInputSources.SpannedFloors) is not null) present |= FireReviewZoneParameters.SpannedFloors;
+            if (Find(area, ReviewInputSources.LinksRefugeFloor) is not null) present |= FireReviewZoneParameters.LinksRefugeFloor;
 
             yield return new FireReviewZoneRow(
                 area.UniqueId,
@@ -270,7 +272,11 @@ public sealed class RevitFireReviewTypeScanner
                 use: Text(area, ReviewInputSources.ZoneUse),
                 sprinklered: YesNo(area, ReviewInputSources.Sprinklered),
                 floorNumber: Integer(area, ReviewInputSources.FloorNumber),
-                present: present);
+                present: present,
+                // 第79條之2第3項 (垂直區劃規格 §6). Only a 挑空 fills these; on every other Area they
+                // simply sit at their Revit default, which the row reads as 未填.
+                spannedFloors: Integer(area, ReviewInputSources.SpannedFloors),
+                linksRefugeFloor: YesNo(area, ReviewInputSources.LinksRefugeFloor));
         }
     }
 

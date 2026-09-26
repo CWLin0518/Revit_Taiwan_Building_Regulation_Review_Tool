@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
+using BuildingRegulationReview.Application.Checks;
 using BuildingRegulationReview.Application.Reviews;
 
 namespace BuildingRegulationReview.Application.Parameters;
@@ -29,7 +30,9 @@ public sealed class FireReviewZoneRow
         bool? sprinklered = null,
         int? floorNumber = null,
         FireReviewZoneParameters present = FireReviewZoneParameters.None,
-        string? levelId = null)
+        string? levelId = null,
+        int? spannedFloors = null,
+        bool? linksRefugeFloor = null)
     {
         if (string.IsNullOrWhiteSpace(elementUniqueId)) throw new ArgumentException("Element UniqueId is required.", nameof(elementUniqueId));
         if (areaSquareMeters is double a && (double.IsNaN(a) || double.IsInfinity(a) || a < 0))
@@ -45,6 +48,8 @@ public sealed class FireReviewZoneRow
         Use = Clean(use);
         Sprinklered = sprinklered;
         FloorNumber = floorNumber;
+        SpannedFloors = AtriumExemption.StatedSpannedFloors(spannedFloors);
+        LinksRefugeFloor = linksRefugeFloor;
         Present = present;
     }
 
@@ -70,6 +75,16 @@ public sealed class FireReviewZoneRow
     /// <summary>防火檢討_所在樓層序.</summary>
     public int? FloorNumber { get; }
 
+    /// <summary>
+    /// 防火檢討_連跨樓層數 — 第79條之2第3項第二款, and only a 挑空 has one. Null when nothing was
+    /// stated, which a Revit Integer parameter spells 0 (see
+    /// <see cref="AtriumExemption.StatedSpannedFloors"/>).
+    /// </summary>
+    public int? SpannedFloors { get; }
+
+    /// <summary>防火檢討_避難層通達 — 第79條之2第3項第一款; null when the parameter holds no value.</summary>
+    public bool? LinksRefugeFloor { get; }
+
     public FireReviewZoneParameters Present { get; }
 
     public string DisplayName => Number is null ? Name : $"{Number} {Name}";
@@ -78,7 +93,17 @@ public sealed class FireReviewZoneRow
         ? a.ToString("0.##", CultureInfo.InvariantCulture) + " m²"
         : "—";
 
-    /// <summary>Which of the zone parameters this Area does not carry, so an edit cannot land.</summary>
+    /// <summary>True when this Area's 區劃用途 is 挑空, the only use 第79條之2第3項 is written for.</summary>
+    public bool IsAtrium => string.Equals(Use, ZoneUses.Atrium, StringComparison.Ordinal);
+
+    /// <summary>
+    /// Which of the zone parameters this Area does not carry, so an edit cannot land.
+    /// </summary>
+    /// <remarks>
+    /// The 第3項 pair is reported only for a 挑空. They are not required parameters (垂直區劃規格
+    /// §6、決議 27) — a project with no 挑空 reviews perfectly well without them — so listing them on
+    /// every Area would turn the 提醒 column red across a whole model over something nobody needs.
+    /// </remarks>
     public IReadOnlyList<string> MissingParameters
     {
         get
@@ -87,6 +112,9 @@ public sealed class FireReviewZoneRow
             if ((Present & FireReviewZoneParameters.Use) == 0) missing.Add(ReviewInputSources.ZoneUse);
             if ((Present & FireReviewZoneParameters.Sprinklered) == 0) missing.Add(ReviewInputSources.Sprinklered);
             if ((Present & FireReviewZoneParameters.FloorNumber) == 0) missing.Add(ReviewInputSources.FloorNumber);
+            if (!IsAtrium) return missing;
+            if ((Present & FireReviewZoneParameters.SpannedFloors) == 0) missing.Add(ReviewInputSources.SpannedFloors);
+            if ((Present & FireReviewZoneParameters.LinksRefugeFloor) == 0) missing.Add(ReviewInputSources.LinksRefugeFloor);
             return missing;
         }
     }
@@ -102,7 +130,13 @@ public enum FireReviewZoneParameters
     None = 0,
     Use = 1,
     Sprinklered = 2,
-    FloorNumber = 4
+    FloorNumber = 4,
+
+    /// <summary>防火檢討_連跨樓層數 (第79條之2第3項第二款); only a 挑空 needs it.</summary>
+    SpannedFloors = 8,
+
+    /// <summary>防火檢討_避難層通達 (第79條之2第3項第一款); only a 挑空 needs it.</summary>
+    LinksRefugeFloor = 16
 }
 
 /// <summary>

@@ -361,7 +361,8 @@ public static class ReviewInputAssembler
     private static ReviewInput? ZoneInput(RuleFieldDefinition field, ReviewInputSource source, CandidateZone zone, ReviewParameterSnapshot snapshot)
     {
         var sourceText = "面積：" + source.ParameterName;
-        var readings = zone.AreaUniqueIds.Select(uid => snapshot.Element(uid, source.ParameterName)).ToList();
+        var readings = zone.AreaUniqueIds
+            .Select(uid => Stated(source, snapshot.Element(uid, source.ParameterName))).ToList();
         if (readings.Count == 0 || readings.All(r => !r.HasValue)) return null;
 
         var inputs = readings.Select(r => Convert(field, r, sourceText)).ToList();
@@ -377,6 +378,20 @@ public static class ReviewInputAssembler
             $"此區劃的 {readings.Count} 個面積填寫不一致（{string.Join("、", readings.Select(r => r.Raw))}）",
             sourceText);
     }
+
+    /// <summary>
+    /// One Area's reading as the review should see it. Only 連跨樓層數 needs the treatment: a Revit
+    /// Integer parameter cannot be blank, so an Area nobody filled in reads 0, and 第79條之2第3項
+    /// 第二款's 「三層以下」 would take that as satisfied (see
+    /// <see cref="AtriumExemption.StatedSpannedFloors"/>). Everything else is passed through — an
+    /// unticked Yes/No is 否, which is an answer, not a blank.
+    /// </summary>
+    private static ParameterReading Stated(ReviewInputSource source, ParameterReading reading) =>
+        string.Equals(source.Field, "zone.spannedFloors", StringComparison.Ordinal) &&
+        reading.Kind is ParameterReadingKind.Integer or ParameterReadingKind.Number &&
+        !AtriumExemption.IsStatedSpannedFloors(reading.Number)
+            ? ParameterReading.Empty
+            : reading;
 
     private static ReviewInput Boolean(string field, ParameterReading reading, string source)
     {

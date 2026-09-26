@@ -380,8 +380,8 @@ public enum RuleCategory
 | `防火檢討_設計防火時效` | Type（既有，GUID `…0008`） | **本輪加綁 Doors**（既有 Walls、Columns、Floors、Curtain Panels） | `shaft.providedFireRating` 來源 | 已完成 |
 | `防火檢討_遮煙性能` | Type、YESNO、GUID `…000f` | Doors、Windows、Curtain Panels | `shaft.providedSmokeProtection` 來源 | 已完成 |
 | `防火檢討_區劃用途` | Instance（既有） | Areas | 決定一個區劃產生哪些主體 | 已存在，下拉見 [`zone.use` 用字表](zone-use-vocabulary.md) |
-| `防火檢討_連跨樓層數` | Instance、Integer | Areas | 第 3 項第二款之連跨樓層數（`zone.spannedFloors`） | **步驟 7c** |
-| `防火檢討_避難層通達` | Instance、YESNO | Areas | 第 3 項第一款之「避難層通達其直上層或直下層」（`zone.linksRefugeFloor`） | **步驟 7c** |
+| `防火檢討_連跨樓層數` | Instance、Integer、GUID `…0010` | Areas | 第 3 項第二款之連跨樓層數（`zone.spannedFloors`） | 已完成 |
+| `防火檢討_避難層通達` | Instance、YESNO、GUID `…0011` | Areas | 第 3 項第一款之「避難層通達其直上層或直下層」（`zone.linksRefugeFloor`） | 已完成 |
 
 兩份定義檔都要改：`assets/SharedParameters/fire-review-shared-params.txt`（主檔，手動加入專案參數時選它）
 與 `assets/SharedParameters/fire-review-openings-type.txt`（revit-mcp `load_shared_parameters` 綁門／窗／
@@ -408,6 +408,17 @@ public enum RuleCategory
 （決議 27）。沒填就是該挑空一筆資料不足，訊息指名參數名。兩者都只寫進主檔
 `assets/SharedParameters/fire-review-shared-params.txt`（Areas 的參數不在門／窗／嵌板那份裡），
 一樣維持 Big5／cp950。
+
+**「沒填」對這兩個參數不是同一件事**（決議 30）。Revit 的 YESNO 與 INTEGER 都存成整數，參數一綁上
+Areas，全專案每個 Area 立刻讀得到值，沒有空白狀態：
+
+- `防火檢討_避難層通達` 未勾選讀成 `否`。這是一個答案，而且是嚴的那一邊——第一款直接不成立，不會
+  誤放免除，所以照單全收，與 `防火檢討_自動滅火設備` 同。
+- `防火檢討_連跨樓層數` 未填讀成 `0`。「連跨 0 層」不是任何設計說得出口的事實，但第二款的
+  「三層以下」會把它當成成立，於是**沒有人說過話的挑空被自動免除**——正好與 §3.6 狀態表
+  「連跨未填＝資料不足」相反。因此**小於 1 的讀數一律視同未填**，判定寫在
+  `AtriumExemption.StatedSpannedFloors`，批次面板與 `ReviewInputAssembler` 都走它，兩邊對「未填」
+  的認定是同一個決定。
 
 ## 7. Revit 產出
 
@@ -507,7 +518,8 @@ group 起來，所以一扇兩項都不符合的維修門是**一筆** `PlannedE
 | `FireReviewTypeRow.ProvidedSmokeProtection`／批次面板「遮煙性能」欄 | 使用者填值的地方 | 已完成 |
 | `AtriumExemption`／`AtriumExemptionClause`／`AtriumExemptionGap` | 第 3 項兩款的純計算判定（§3.6），與 `ZoneAreaLimit` 同形 | 已完成 |
 | `RuleFieldCatalog` 的 `zone.spannedFloors`／`zone.linksRefugeFloor` | 白名單欄位（沒有規則讀，只餵第 3 項判定） | 已完成 |
-| `ReviewInputSources` 的兩筆新 `zone.*` 來源、兩個 Shared Parameter、批次面板兩欄、證據基線 | 事實進得來（§6） | **步驟 7c** |
+| `ReviewInputSources` 的兩筆新 `zone.*` 來源、兩個 Shared Parameter、批次面板兩欄 | 事實進得來（§6）；證據基線不需改動 | 已完成 |
+| `AtriumExemption.StatedSpannedFloors` | 連跨樓層數 0 視同未填（Revit 整數參數沒有空白狀態） | 已完成 |
 | `VerticalCompartmentRequirement.AtriumExemption`／`DeviceRequirements` | 第四條要求列的用字；設備迴圈只看 `DeviceRequirements`（§7.3） | **步驟 7d** |
 | `VerticalCompartmentCheck` 的挑空主體 | 每個 `zone.use == "挑空"` 的區劃一筆結果，不走規則引擎 | **步驟 7d** |
 
@@ -672,6 +684,7 @@ group 起來，所以一扇兩項都不符合的維修門是**一筆** `PlannedE
 | 27 | 兩個新事實**不進前置檢查的阻擋項** | 前置檢查是全專案的，而這兩個參數只有在專案裡真的有挑空時才需要；列為必要參數會讓沒有挑空的專案也無法開始檢討。缺了就是該挑空一筆資料不足、訊息指名參數名（同 `An_unbound_smoke_seal_is_insufficient_data_and_names_its_own_parameter`）。附帶好處：`ReviewInputSources.NeededBy` 是規則驅動的，沒有規則讀這兩個欄位，所以不必為此在 `NeededBy` 開後門 |
 | 28 | 第二款的「樓地板面積」是**該挑空自己的** `zone.area` | 兩款的敘述都在修飾「挑空、樓梯及其他類似部分」，連跨樓層數與樓地板面積是同一個主語的兩個屬性。合計的讀法會讓幾乎每個挑空都超標，而工具也沒有那份資料。記在 §9 第 11 項當明示解讀 |
 | 29 | 第 3 項只給 `挑空`，不擴及 `樓梯間`／`昇降階梯間` | 前言是「挑空符合下列情形之一者」（§2.1 第三點）；把免除擴及樓梯間是放寬，方向不對。兩款文字裡的「樓梯」因此不另立用字 |
+| 30 | `防火檢討_連跨樓層數` 小於 1 視同未填 | Revit 的 INTEGER 參數沒有空白狀態，一綁上 Areas 全專案立刻讀成 0；「連跨 0 層」會通過第二款的「三層以下」，讓沒人填過的挑空自動免除，與 §3.6 狀態表相反。避難層通達那個 YESNO 不需要同樣處理：未勾選＝否是答案，而且是嚴的那一邊（§6） |
 
 ## 12. 實作進度
 
@@ -685,7 +698,7 @@ group 起來，所以一扇兩項都不符合的維修門是**一筆** `PlannedE
 | 6 | 檢討視圖標示與圖號（只塗紅、描述帶要求名、不發圖號） | **已完成** |
 | 7a | 第 3 項的設計：事實來源、判定式與狀態、產出、決議 23～29（§3.6、§7.3） | **已完成** |
 | 7b | `AtriumExemption` 純計算判定 + `zone.spannedFloors`／`zone.linksRefugeFloor` 兩個白名單欄位 | **已完成** |
-| 7c | 參數層：兩個 Shared Parameter（Big5 主檔）、輸入來源、讀取器、批次面板兩欄、證據基線 | 未開始 |
+| 7c | 參數層：兩個 Shared Parameter（Big5 主檔）、輸入來源、批次面板兩欄與批次填入 | **已完成** |
 | 7d | 檢查層接線：挑空主體、檢討表第四條要求列、日誌件數、`AtriumExemption` 用字與 `DeviceRequirements` | 未開始 |
 
 ### 步驟 1、2 的驗證
@@ -911,3 +924,67 @@ int? spannedFloors, double? areaSquareMeters)` 是純函式，不吃 `CandidateZ
   `The_third_paragraphs_two_facts_are_whitelisted_but_read_by_no_rule`（兩個新欄位在白名單裡、
   對每個類別開放，但不在 `FieldsUsedBy` 也不在 `NeededBy` 裡——決議 24、27）。
 - **未實機驗證。** 本步驟沒有 Revit 端改動，也沒有接線，所以既有行為完全不變。
+
+### 步驟 7c 的產出與驗證
+
+改動的檔案：
+
+- `assets/SharedParameters/fire-review-shared-params.txt`：新增 `防火檢討_連跨樓層數`
+  （INTEGER、GUID `…0010`）與 `防火檢討_避難層通達`（YESNO、GUID `…0011`），兩列都接在
+  `防火檢討_所在樓層序` 之後（Area 的參數擺一起）。以 `[System.Text.Encoding]::GetEncoding(950)`
+  讀寫，`git diff --numstat` 是 `2 0`——只加兩行，其餘位元組與 CRLF 未動。門／窗／嵌板那份
+  `fire-review-openings-type.txt` **沒有改**：Areas 的參數不屬於那份。
+- `src/BuildingRegulationReview.Application/Reviews/ReviewInputSources.cs`：常數
+  `SpannedFloors`／`LinksRefugeFloor`，以及 `All` 裡的兩筆 `ReviewInputSource`
+  （`zone.spannedFloors`／`zone.linksRefugeFloor`，`Instance`、`Areas`）。
+- `src/BuildingRegulationReview.Application/Checks/AtriumExemption.cs`：新增
+  `StatedSpannedFloors(int?)` 與 `IsStatedSpannedFloors(double)`（決議 30）。
+- `src/BuildingRegulationReview.Application/Reviews/ReviewParameterSnapshot.cs`：`ZoneInput` 讀每個
+  Area 前先過 `Stated(source, reading)`，把小於 1 的 `連跨樓層數` 換成 `ParameterReading.Empty`。
+- `src/BuildingRegulationReview.Application/Parameters/FireReviewInputRows.cs`：
+  `FireReviewZoneRow.SpannedFloors`／`LinksRefugeFloor`／`IsAtrium`、
+  `FireReviewZoneParameters` 的兩個新旗標，`MissingParameters` 只在挑空時報這兩個（決議 27）。
+- `src/BuildingRegulationReview.Revit/Parameters/RevitFireReviewTypeScanner.cs`：`Zones()` 讀這兩個
+  參數與它們的存在與否。
+- `src/BuildingRegulationReview/FireReview/FireReviewInputViewModels.cs`：`SpannedFloors`／
+  `LinksRefugeFloor` 兩個可編輯屬性、`IsAtrium`、`Edits()` 的兩筆寫回（連跨先過
+  `StatedSpannedFloors` 再比較與寫入，所以在格子裡打 0 是清除而不是「連跨 0 層」）。
+- `src/BuildingRegulationReview/FireReview/FireReviewParameterPanelWindow.xaml`：區劃分頁新增
+  「連跨樓層數」與「避難層通達」兩欄，用途不是挑空時淡出（仍可編輯，因為用途可能還沒填）。
+- `src/BuildingRegulationReview/FireReview/FireReviewParameterPanelWindow.xaml.cs`：`ZoneFillWindow`
+  新增「區劃用途」（可編輯下拉，清單是五個垂直區劃字樣）、「連跨樓層數」與「避難層通達」三欄，
+  `FillZones_OnClick` 一併套用；狀態列多一句「待填挑空免除事實 N 個區劃」，只數挑空。
+- `src/BuildingRegulationReview.Domain/Rules/RuleFieldCatalog.cs`：註解裡的 `AtriumExemptions`
+  改成實際存在的 `AtriumExemption.For`（7b 的偏離 1）。
+
+**`ReviewBaselineBuilder` 不需改動，這與交接時的預期不同。** 它的 `AppendInputs(text,
+name + ".zone", inputs?.ForZone(...))` 本來就把該區劃的**每一筆**輸入寫進指紋，所以兩個新欄位一
+進 `ReviewInputSources.All` 就自動進了證據基線；兩條既有的證據基線守門測試（`Unticking_a_types_
+smoke_seal_…`、`Changing_a_maintenance_doors_rating_…`）**因此完全不必改**，它們仍然通過。新增一條
+`Changing_an_atriums_spanned_floors_makes_the_stored_run_need_an_update` 把這件事釘住。
+
+`RevitReviewParameterReader` 也不需改動：`Names(host)` 照 `All` 篩 `Areas`，新來源自動被讀。
+
+**既有 stored run 何時會變成「需更新」**：不是因為這次的程式改動——參數還沒綁到模型時，`ZoneInput`
+讀不到值就不產生輸入，指紋一個位元組都沒變。但**使用者把這兩個參數綁上 Areas 的那一刻**，全專案
+每個 Area 都開始讀得到值（YESNO 讀成 `否`、INTEGER 的 0 被 `Stated` 濾掉，所以實際多出來的是
+`zone.linksRefugeFloor=b:False` 那一行），該樓層的區劃指紋因此一次性改變，既有檢討紀錄會變成
+「需更新」。與 §9 第 9 項同一類的一次性成本。
+
+驗證：
+
+- `& "C:\Program Files\dotnet\dotnet.exe" build BuildingRegulationReview.sln`：0 警告 0 錯誤。
+- `... build src\BuildingRegulationReview\BuildingRegulationReview.csproj`：0 警告 0 錯誤。
+- `... test tests\BuildingRegulationReview.Core.Tests`：**1419 通過、0 失敗**（原 1405，新增 14）。
+  **沒有改寫任何既有測試**；唯一動到的既有測試是 `AtriumExemptionTests` 那條白名單守門測試，在
+  原有斷言之後**追加**「兩個欄位現在各有一筆 Instance／Areas 的來源，但仍不在 `NeededBy` 裡」。
+- 新測試：`FireReviewIntegrationTests` 5 條（兩個事實流進區劃輸入、0 是未填而不是連跨 0 層、
+  未勾選的避難層通達是否而不是未填、改連跨樓層數讓 stored run 需更新、有來源但不擋前置檢查）、
+  `FireReviewInputRowTests` 3 條（小於 1 視同未填、避難層通達三態、只有挑空才報缺參數）、
+  `AtriumExemptionTests` 1 條 Theory（6 個案例）。
+- **未實機驗證。** 要驗時：以 `load_shared_parameters` 依
+  `assets/SharedParameters/fire-review-shared-params.txt` 把兩個新參數綁到 Areas（實體參數），
+  開批次面板的「區劃」分頁，把一個挑空的「區劃用途」填成 `挑空`，確認「連跨樓層數」與
+  「避難層通達」兩欄由淡出轉為正常、可輸入、寫入模型後回讀正確，且在連跨欄打 0 會被清成空白。
+  另確認選取多個樓梯間後按批次填入，「區劃用途」欄可一次設成 `樓梯間`。
+  **本步驟仍然不產生任何第 3 項的結果**——接線是 7d。

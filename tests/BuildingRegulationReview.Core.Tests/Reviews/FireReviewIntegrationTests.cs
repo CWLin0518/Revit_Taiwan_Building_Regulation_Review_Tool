@@ -1505,6 +1505,119 @@ public sealed class FireReviewIntegrationTests
         Assert.DoesNotContain(outcome.Log.Entries, e => e.UserMessage.Contains("垂直區劃（第79條之2第1項）"));
     }
 
+    // --- 第79條之2第3項 的兩個事實進來 (垂直區劃規格 §6 步驟 7c) -------------------------------
+
+    private static Parameters AtriumParameters(int spannedFloors = 2, int linksRefugeFloor = 1)
+    {
+        var parameters = new Parameters();
+        parameters.Elements["area-a"][ReviewInputSources.ZoneUse] = ParameterReading.OfText(ZoneUses.Atrium);
+        parameters.Elements["area-a"][ReviewInputSources.SpannedFloors] = ParameterReading.OfInteger(spannedFloors);
+        parameters.Elements["area-a"][ReviewInputSources.LinksRefugeFloor] = ParameterReading.OfYesNo(linksRefugeFloor);
+        return parameters;
+    }
+
+    /// <summary>The zone inputs assembled for area-a, which is the 挑空 in these fixtures.</summary>
+    private static IReadOnlyList<ReviewInput> AtriumZoneInputs(Parameters parameters)
+    {
+        var set = Set();
+        var inputs = ReviewInputAssembler.Assemble(set, parameters.Snapshot());
+        var zone = set.Zones.Single(z => z.AreaUniqueIds.Contains("area-a"));
+        return inputs.Area.ForZone(zone.ZoneId).ToList();
+    }
+
+    /// <summary>
+    /// 垂直區劃規格 §6: the two new Area parameters are ordinary zone inputs, so the generic assembly
+    /// carries them from the snapshot to the 區劃's inputs with no code of their own — which is what
+    /// lets 步驟 7d simply read them off the zone.
+    /// </summary>
+    [Fact]
+    public void The_third_paragraphs_two_facts_reach_the_zone_inputs()
+    {
+        var inputs = AtriumZoneInputs(AtriumParameters(spannedFloors: 2, linksRefugeFloor: 1));
+
+        var spanned = inputs.Single(i => i.Field == "zone.spannedFloors");
+        Assert.Equal(ReviewValue.Quantity(2, ReviewUnit.None), spanned.Value);
+        Assert.Equal("面積：" + ReviewInputSources.SpannedFloors, spanned.Source);
+
+        var links = inputs.Single(i => i.Field == "zone.linksRefugeFloor");
+        Assert.Equal(ReviewValue.OfBoolean(true), links.Value);
+        Assert.Equal("面積：" + ReviewInputSources.LinksRefugeFloor, links.Source);
+    }
+
+    /// <summary>
+    /// A Revit Integer parameter has no blank state, so every Area reads 0 until someone types a
+    /// number. Read as a value, 「連跨 0 層」 would sail through 第二款's 「三層以下」 and exempt the
+    /// 挑空 although nobody said anything — so 0 is 未填, which is the 資料不足 §3.6 asks for.
+    /// </summary>
+    [Fact]
+    public void An_unfilled_span_is_nothing_stated_rather_than_a_zero_storey_atrium()
+    {
+        var parameters = AtriumParameters(spannedFloors: 0, linksRefugeFloor: 0);
+
+        Assert.DoesNotContain(AtriumZoneInputs(parameters), i => i.Field == "zone.spannedFloors");
+        Assert.True(AtriumExemption.For(true, false, null, null, 320).IsUndecided);
+
+        // What it would have meant had the zero been taken at face value.
+        Assert.Equal(AtriumExemptionClause.SecondClause, AtriumExemption.For(true, false, null, 0, 320).Clause);
+    }
+
+    /// <summary>
+    /// The Yes/No half needs no such treatment: 否 is an answer, and an unticked box is the one the
+    /// stricter way — it settles 第一款 as not holding instead of leaving the 挑空 exempt.
+    /// </summary>
+    [Fact]
+    public void An_unticked_refuge_floor_box_is_no_rather_than_nothing_stated()
+    {
+        var links = AtriumZoneInputs(AtriumParameters(linksRefugeFloor: 0))
+            .Single(i => i.Field == "zone.linksRefugeFloor");
+
+        Assert.Equal(ReviewValue.OfBoolean(false), links.Value);
+    }
+
+    /// <summary>
+    /// The evidence baseline needs no line of its own for these two: it records every zone input
+    /// already, so retyping 連跨樓層數 moves the 區劃's fingerprint and the stored 檢討 reads 需更新
+    /// (spec 13.1). The gate is here because 步驟 7d's results hang on the value.
+    /// </summary>
+    [Fact]
+    public void Changing_an_atriums_spanned_floors_makes_the_stored_run_need_an_update()
+    {
+        var first = Run(Request(parameters: AtriumParameters(spannedFloors: 2)));
+
+        var inspection = StoredRunInspection.Inspect(first.Package, first.Run!,
+            CurrentBaseline(AtriumParameters(spannedFloors: 5)), RuleSetId, ShippedVersion, Now);
+
+        Assert.True(inspection.Freshness.IsStale);
+        Assert.All(inspection.Freshness.ChangedSubjects, s => Assert.True(ReviewBaselineKeys.IsZone(s)));
+
+        // And the same for the other one, which is the other half of 第3項's facts.
+        Assert.True(StoredRunInspection.Inspect(first.Package, first.Run!,
+            CurrentBaseline(AtriumParameters(linksRefugeFloor: 0)), RuleSetId, ShippedVersion, Now).Freshness.IsStale);
+    }
+
+    /// <summary>
+    /// 決議 27: neither parameter is a required one. A project with no 挑空 must be able to start a
+    /// review without binding them, so they stay out of the pre-review check although they now have
+    /// an input source like every other zone fact.
+    /// </summary>
+    [Fact]
+    public void The_third_paragraphs_parameters_have_a_source_but_never_hold_a_review_up()
+    {
+        foreach (var field in new[] { "zone.spannedFloors", "zone.linksRefugeFloor" })
+        {
+            var source = ReviewInputSources.For(field)!;
+            Assert.NotNull(source);
+            Assert.Equal(ReviewParameterLevel.Instance, source.Level);
+            Assert.Equal(new[] { ReviewParameterHost.Areas }, source.Hosts);
+            Assert.DoesNotContain(field, ReviewInputSources.NeededBy(Rules()).Select(s => s.Field));
+        }
+
+        var parameters = AtriumParameters();
+        parameters.Bindings.RemoveAll(b =>
+            b.Key == ReviewInputSources.SpannedFloors || b.Key == ReviewInputSources.LinksRefugeFloor);
+
+        Assert.True(Readiness(parameters: parameters).CanRun);
+    }
     // --- a stored run judged again (spec 13.1, 16.3 情境 8) -------------------------------------
 
     private static ReviewBaseline CurrentBaseline(

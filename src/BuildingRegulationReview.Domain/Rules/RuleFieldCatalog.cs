@@ -122,7 +122,7 @@ public sealed class RuleFieldCatalog
             // 第79條之2第3項 的兩款免除（docs/regulations/vertical-compartment.md §3.6）。這兩個欄位
             // 是 Area 實體上的事實，與 zone.floorNumber 同一類，所以對所有類別開放；但**沒有任何規則
             // 讀它們**——第 3 項是分類而不是要求，沒有可比較的 requiredValue，判定寫在
-            // AtriumExemptions 這個純計算裡（決議 24）。它們仍要進白名單，因為組裝層會把整份
+            // AtriumExemption.For 這個純計算裡（決議 24）。它們仍要進白名單，因為組裝層會把整份
             // zone.* 輸入 ApplyTo 到每個受檢主體，白名單外的欄位會在那裡例外。也因為
             // ReviewInputSources.NeededBy 是規則驅動的，這兩個參數不會變成前置檢查的阻擋項（決議 27）。
             new RuleFieldDefinition("zone.spannedFloors", number, "第3項第二款之連跨樓層數", all),

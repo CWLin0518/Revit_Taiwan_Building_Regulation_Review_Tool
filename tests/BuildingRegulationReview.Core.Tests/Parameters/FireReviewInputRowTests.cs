@@ -23,9 +23,12 @@ public sealed class FireReviewInputRowTests
         double? areaM2 = 71.59,
         FireReviewZoneParameters present =
             FireReviewZoneParameters.Use | FireReviewZoneParameters.Sprinklered |
-            FireReviewZoneParameters.FloorNumber) =>
+            FireReviewZoneParameters.FloorNumber,
+        int? spannedFloors = null,
+        bool? linksRefugeFloor = null) =>
         new(uid, name, number: "1", levelName: "FL9", areaSchemeName: "防火區劃",
-            areaSquareMeters: areaM2, use: use, sprinklered: sprinklered, floorNumber: floorNumber, present: present);
+            areaSquareMeters: areaM2, use: use, sprinklered: sprinklered, floorNumber: floorNumber, present: present,
+            spannedFloors: spannedFloors, linksRefugeFloor: linksRefugeFloor);
 
     [Fact]
     public void A_zone_row_reports_the_area_revit_measured_and_offers_no_way_to_change_it()
@@ -61,6 +64,56 @@ public sealed class FireReviewInputRowTests
         Assert.Null(Zone(sprinklered: null).Sprinklered);
         Assert.False(Zone(sprinklered: false).Sprinklered);
         Assert.True(Zone(sprinklered: true).Sprinklered);
+    }
+
+    /// <summary>
+    /// 第79條之2第3項 (垂直區劃規格 §6): the two facts only a 挑空 has. 連跨樓層數 is a Revit Integer,
+    /// which has no blank state, so anything below one storey is nobody's answer and reads as 未填 —
+    /// otherwise 第二款's 「三層以下」 would take a never-touched Area as satisfied.
+    /// </summary>
+    [Fact]
+    public void A_zone_row_reads_a_span_below_one_storey_as_nothing_stated()
+    {
+        Assert.Equal(2, Zone(spannedFloors: 2).SpannedFloors);
+        Assert.Null(Zone(spannedFloors: null).SpannedFloors);
+        Assert.Null(Zone(spannedFloors: 0).SpannedFloors);
+        Assert.Null(Zone(spannedFloors: -3).SpannedFloors);
+    }
+
+    [Fact]
+    public void A_zone_row_keeps_the_refuge_floor_link_as_a_tri_state()
+    {
+        Assert.Null(Zone(linksRefugeFloor: null).LinksRefugeFloor);
+        Assert.False(Zone(linksRefugeFloor: false).LinksRefugeFloor);
+        Assert.True(Zone(linksRefugeFloor: true).LinksRefugeFloor);
+    }
+
+    /// <summary>
+    /// 決議 27: the 第3項 pair are not required parameters. Naming them on every Area would turn the
+    /// 提醒 column red across a whole model over something only a 挑空 needs, so they are reported
+    /// missing on a 挑空 alone — and the three real ones are reported whatever the use.
+    /// </summary>
+    [Fact]
+    public void The_third_paragraphs_parameters_are_only_missed_on_an_atrium()
+    {
+        var everything = FireReviewZoneParameters.Use | FireReviewZoneParameters.Sprinklered |
+                         FireReviewZoneParameters.FloorNumber;
+
+        Assert.Empty(Zone(use: "辦公", present: everything).MissingParameters);
+        Assert.False(Zone(use: "辦公", present: everything).IsAtrium);
+
+        var atrium = Zone(use: ZoneUses.Atrium, present: everything);
+        Assert.True(atrium.IsAtrium);
+        Assert.Equal(
+            new[] { ReviewInputSources.SpannedFloors, ReviewInputSources.LinksRefugeFloor },
+            atrium.MissingParameters);
+
+        Assert.Empty(Zone(use: ZoneUses.Atrium,
+            present: everything | FireReviewZoneParameters.SpannedFloors |
+                     FireReviewZoneParameters.LinksRefugeFloor).MissingParameters);
+
+        // A 樓梯間 is a 垂直區劃 too, but 第3項 is written for 挑空 alone.
+        Assert.Empty(Zone(use: ZoneUses.Stairwell, present: everything).MissingParameters);
     }
 
     [Fact]

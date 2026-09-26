@@ -128,6 +128,23 @@ public sealed class AtriumExemption
     public override string ToString() => Description;
 
     /// <summary>
+    /// 連跨樓層數 as a fact somebody stated, or null when nobody did.
+    /// </summary>
+    /// <remarks>
+    /// A Revit Integer instance parameter has no blank state: the moment 防火檢討_連跨樓層數 is bound
+    /// to Areas, every Area in the project reads 0 until someone types a number. 「連跨 0 層」 is no
+    /// design's answer, but 「三層以下」 would take it as satisfied and exempt the 挑空 unasked — so a
+    /// non-positive reading is 未填, which is the 資料不足 §3.6's state table asks for. Both the batch
+    /// panel and <c>ReviewInputAssembler</c> read the parameter through here, so what counts as 未填
+    /// is one decision in one place.
+    /// </remarks>
+    public static int? StatedSpannedFloors(int? value) =>
+        value is int floors && IsStatedSpannedFloors(floors) ? floors : (int?)null;
+
+    /// <summary>Whether a 連跨樓層數 reading says anything at all; see <see cref="StatedSpannedFloors"/>.</summary>
+    public static bool IsStatedSpannedFloors(double value) => value >= 1;
+
+    /// <summary>
     /// 第一款：避難層通達其直上層或直下層，且室內牆面與天花板以耐燃一級材料裝修。第一款 asks only for
     /// 耐燃一級 and has none of 第83條第三款's 「包括底材」 wording, so 耐燃一級含底材 satisfies it too —
     /// it is stricter than the 款 requires.

@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using BuildingRegulationReview.Application.Checks;
 using BuildingRegulationReview.Application.Parameters;
 using BuildingRegulationReview.Application.Reviews;
 
@@ -75,6 +76,8 @@ namespace BuildingRegulationReview.FireReview
         private string _sprinklered;
         private string _floorNumber;
         private string _buildingUse;
+        private string _spannedFloors;
+        private string _linksRefugeFloor;
 
         public FireReviewZoneRowViewModel(FireReviewZoneRow source, int? derivedFloorNumber = null, string buildingUse = null)
         {
@@ -84,6 +87,8 @@ namespace BuildingRegulationReview.FireReview
             _sprinklered = TextOf(source.Sprinklered);
             _floorNumber = TextOf(source.FloorNumber);
             _buildingUse = buildingUse ?? "";
+            _spannedFloors = TextOf(source.SpannedFloors);
+            _linksRefugeFloor = TextOf(source.LinksRefugeFloor);
         }
 
         public FireReviewZoneRow Source { get; }
@@ -119,9 +124,18 @@ namespace BuildingRegulationReview.FireReview
             get => _use;
             set
             {
-                if (Set(ref _use, value)) Raise(nameof(LimitText));
+                if (!Set(ref _use, value)) return;
+                Raise(nameof(LimitText));
+                Raise(nameof(IsAtrium));
             }
         }
+
+        /// <summary>
+        /// True while this row's 區劃用途 is 挑空 — the only use 第79條之2第3項 is written for, and so
+        /// the only one whose 連跨樓層數 and 避難層通達 boxes mean anything. Follows the box, not the
+        /// model, so switching a row to 挑空 lights the two columns up before anything is written.
+        /// </summary>
+        public bool IsAtrium => string.Equals(_use, ZoneUses.Atrium, StringComparison.Ordinal);
 
         /// <summary>What the 區劃用途 box offers; anything else can still be typed in.</summary>
         public IReadOnlyList<string> UseChoices { get; } =
@@ -174,6 +188,25 @@ namespace BuildingRegulationReview.FireReview
             }
         }
 
+        /// <summary>
+        /// 防火檢討_連跨樓層數 — 第79條之2第3項第二款「連跨樓層數在三層以下」. Blank means nobody said,
+        /// and so does 0: a Revit Integer parameter has no blank state, so a number below 1 is read
+        /// as 未填 rather than let 「連跨 0 層」 pass 「三層以下」 (see
+        /// <see cref="AtriumExemption.StatedSpannedFloors"/>).
+        /// </summary>
+        public string SpannedFloors
+        {
+            get => _spannedFloors;
+            set => Set(ref _spannedFloors, value);
+        }
+
+        /// <summary>防火檢討_避難層通達 — 第79條之2第3項第一款之「避難層通達其直上層或直下層」.</summary>
+        public string LinksRefugeFloor
+        {
+            get => _linksRefugeFloor;
+            set => Set(ref _linksRefugeFloor, value);
+        }
+
         public string MissingParameters => Source.MissingParameters.Count == 0
             ? ""
             : "缺少參數：" + string.Join("、", Source.MissingParameters);
@@ -197,6 +230,21 @@ namespace BuildingRegulationReview.FireReview
                     Source.ElementUniqueId, ReviewInputSources.FloorNumber, TextOf(IntegerOf(_floorNumber)));
             }
 
+            // 第79條之2第3項. The typed number goes through StatedSpannedFloors before it is compared
+            // and before it is written, so a 0 or a negative is an erasure rather than a 連跨 0 層
+            // that would silently satisfy 「三層以下」.
+            var spanned = AtriumExemption.StatedSpannedFloors(IntegerOf(_spannedFloors));
+            if (spanned != Source.SpannedFloors)
+            {
+                yield return FireReviewParameterEdit.OfText(
+                    Source.ElementUniqueId, ReviewInputSources.SpannedFloors, TextOf(spanned));
+            }
+
+            if (YesNoOf(_linksRefugeFloor) != Source.LinksRefugeFloor)
+            {
+                yield return FireReviewParameterEdit.OfText(
+                    Source.ElementUniqueId, ReviewInputSources.LinksRefugeFloor, YesNoParameterText(YesNoOf(_linksRefugeFloor)));
+            }
         }
     }
 
