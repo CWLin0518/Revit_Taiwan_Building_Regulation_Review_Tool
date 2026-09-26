@@ -25,8 +25,8 @@ public static class SmokeProtectionParameters
 }
 
 /// <summary>
-/// The requirements 第79條之2第1項 adds on top of ordinary 區劃分隔, and the value each one puts in
-/// <c>shaft.requirement</c> (docs/regulations/vertical-compartment.md §3).
+/// What a 垂直區劃 subject answers, and the value each one puts in <c>shaft.requirement</c>
+/// (docs/regulations/vertical-compartment.md §3).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -43,6 +43,13 @@ public static class SmokeProtectionParameters
 /// (設備, 要求) pair rather than one element. That is also what keeps the rules mutually
 /// exclusive: every subject matches exactly one of them.
 /// </para>
+/// <para>
+/// <see cref="VerticalCompartmentRequirement.AtriumExemption"/> is the odd one out and deliberately so: 第3項 is not a requirement
+/// but a classification, its subject is the 挑空 itself rather than a 防火設備, and no rule answers it
+/// (§3.6、決議 24). It is a member here only because that is what puts it in <c>shaft.requirement</c>
+/// and so gives it a 檢討表 row of its own without a new grouping (§7.3). The device loop must never
+/// see it — that is what <see cref="VerticalCompartmentRequirements.DeviceRequirements"/> is for.
+/// </para>
 /// </remarks>
 public enum VerticalCompartmentRequirement
 {
@@ -53,7 +60,10 @@ public enum VerticalCompartmentRequirement
     ShaftDoorRating,
 
     /// <summary>第1項第3句後段：管道間之維修門應具有遮煙性能。</summary>
-    ShaftDoorSmokeSeal
+    ShaftDoorSmokeSeal,
+
+    /// <summary>第3項：挑空得不受第1項限制之兩款免除。Not a requirement and not answered by a rule.</summary>
+    AtriumExemption
 }
 
 public static class VerticalCompartmentRequirements
@@ -73,7 +83,23 @@ public static class VerticalCompartmentRequirements
     private static readonly IReadOnlyList<CandidateCategory> DoorOnly =
         new ReadOnlyCollection<CandidateCategory>(new[] { CandidateCategory.Door });
 
+    /// <summary>Every 檢討表 row of this check, in 條文 order: 第1項's three, then 第3項.</summary>
     public static IReadOnlyList<VerticalCompartmentRequirement> All { get; } =
+        new ReadOnlyCollection<VerticalCompartmentRequirement>(new[]
+        {
+            VerticalCompartmentRequirement.HoistwaySmokeSeal,
+            VerticalCompartmentRequirement.ShaftDoorRating,
+            VerticalCompartmentRequirement.ShaftDoorSmokeSeal,
+            VerticalCompartmentRequirement.AtriumExemption
+        });
+
+    /// <summary>
+    /// The requirements a 防火設備 can be held to — 第1項's three, and the only ones a rule answers.
+    /// The device loop iterates this rather than <see cref="All"/>, because 第3項's subject is the
+    /// 挑空 itself and <see cref="ActualField"/> and <see cref="Categories"/> mean nothing for it
+    /// (§7.3、決議 23).
+    /// </summary>
+    public static IReadOnlyList<VerticalCompartmentRequirement> DeviceRequirements { get; } =
         new ReadOnlyCollection<VerticalCompartmentRequirement>(new[]
         {
             VerticalCompartmentRequirement.HoistwaySmokeSeal,
@@ -81,12 +107,13 @@ public static class VerticalCompartmentRequirements
             VerticalCompartmentRequirement.ShaftDoorSmokeSeal
         });
 
-    /// <summary>The text the rules compare <c>shaft.requirement</c> against.</summary>
+    /// <summary>The text <c>shaft.requirement</c> carries — what the rules compare against, for the three that have one.</summary>
     public static string RuleText(VerticalCompartmentRequirement requirement) => requirement switch
     {
         VerticalCompartmentRequirement.HoistwaySmokeSeal => "HoistwaySmokeSeal",
         VerticalCompartmentRequirement.ShaftDoorRating => "ShaftDoorRating",
         VerticalCompartmentRequirement.ShaftDoorSmokeSeal => "ShaftDoorSmokeSeal",
+        VerticalCompartmentRequirement.AtriumExemption => "AtriumExemption",
         _ => throw new ArgumentOutOfRangeException(nameof(requirement))
     };
 
@@ -113,6 +140,7 @@ public static class VerticalCompartmentRequirements
         VerticalCompartmentRequirement.HoistwaySmokeSeal => "昇降機道防火設備遮煙性能",
         VerticalCompartmentRequirement.ShaftDoorRating => "管道間維修門防火時效",
         VerticalCompartmentRequirement.ShaftDoorSmokeSeal => "管道間維修門遮煙性能",
+        VerticalCompartmentRequirement.AtriumExemption => "挑空免除（第3項）",
         _ => throw new ArgumentOutOfRangeException(nameof(requirement))
     };
 
@@ -122,6 +150,10 @@ public static class VerticalCompartmentRequirements
     /// has nothing to say about 時效, and supplying the other field would put the device's unrelated
     /// gaps on facts no rule reads.
     /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// For <see cref="VerticalCompartmentRequirement.AtriumExemption"/>: 第3項 is answered by five
+    /// facts at once and by no rule, so it has no single <c>actual</c> field (§3.6).
+    /// </exception>
     public static string ActualField(VerticalCompartmentRequirement requirement) => requirement switch
     {
         VerticalCompartmentRequirement.HoistwaySmokeSeal => SmokeProtectionField,
@@ -135,6 +167,10 @@ public static class VerticalCompartmentRequirements
     /// 防火設備 was installed there — 條文 says 「裝設之防火設備」, which may be a 門, a 窗 or a 帷幕嵌板 —
     /// while a 管道間維修門 is a door and nothing else.
     /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// For <see cref="VerticalCompartmentRequirement.AtriumExemption"/>, whose subject is the 挑空
+    /// 區劃 itself and never an opening (§3.6).
+    /// </exception>
     public static IReadOnlyList<CandidateCategory> Categories(VerticalCompartmentRequirement requirement) => requirement switch
     {
         VerticalCompartmentRequirement.HoistwaySmokeSeal => CandidateCategories.Openings,
@@ -153,16 +189,21 @@ public static class VerticalCompartmentRequirements
         VerticalCompartmentRequirement.HoistwaySmokeSeal => ZoneUses.ElevatorShaft,
         VerticalCompartmentRequirement.ShaftDoorRating => ZoneUses.Shaft,
         VerticalCompartmentRequirement.ShaftDoorSmokeSeal => ZoneUses.Shaft,
+        VerticalCompartmentRequirement.AtriumExemption => ZoneUses.Atrium,
         _ => throw new ArgumentOutOfRangeException(nameof(requirement))
     };
 
-    /// <summary>The requirements the 防火設備 of a 區劃 with this 用途 are held to; empty for the rest.</summary>
+    /// <summary>
+    /// The requirements the 防火設備 of a 區劃 with this 用途 are held to; empty for the rest. Filtered
+    /// from <see cref="DeviceRequirements"/>, so an 挑空 still produces no (設備, 要求) subject —
+    /// 第3項's subject is the 區劃 and the check reaches it by 用途, not through here (決議 23).
+    /// </summary>
     public static IReadOnlyList<VerticalCompartmentRequirement> ForUse(string? use)
     {
         var trimmed = use?.Trim();
         return trimmed is null
             ? Array.Empty<VerticalCompartmentRequirement>()
-            : All.Where(x => string.Equals(UseOf(x), trimmed, StringComparison.Ordinal)).ToList();
+            : DeviceRequirements.Where(x => string.Equals(UseOf(x), trimmed, StringComparison.Ordinal)).ToList();
     }
 }
 

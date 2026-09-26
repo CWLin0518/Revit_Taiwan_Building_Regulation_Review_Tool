@@ -529,9 +529,13 @@ public sealed class ReviewTable
     {
         var evidence = result.Evidence;
         var category = CategoryOf(evidence);
-        var isArea = string.Equals(result.CheckType, ReviewCheckTypes.CompartmentArea, StringComparison.Ordinal);
         var junctionKind = JunctionKindOf(evidence);
         var shaftRequirement = ShaftRequirementOf(evidence);
+
+        // Whose subject is a 區劃 rather than an element: every 區劃面積 result, and 第79條之2第3項,
+        // whose subject is the 挑空 itself and so has no category and no Type to show (垂直區劃 §3.6).
+        var isArea = string.Equals(result.CheckType, ReviewCheckTypes.CompartmentArea, StringComparison.Ordinal) ||
+                     shaftRequirement == VerticalCompartmentRequirement.AtriumExemption;
 
         var typeUniqueId = TextOf(evidence, "source.typeUniqueId");
         var typeName = TextOf(evidence, "source.typeName");

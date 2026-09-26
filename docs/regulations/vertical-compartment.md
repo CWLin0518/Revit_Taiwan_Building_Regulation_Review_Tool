@@ -520,8 +520,8 @@ group 起來，所以一扇兩項都不符合的維修門是**一筆** `PlannedE
 | `RuleFieldCatalog` 的 `zone.spannedFloors`／`zone.linksRefugeFloor` | 白名單欄位（沒有規則讀，只餵第 3 項判定） | 已完成 |
 | `ReviewInputSources` 的兩筆新 `zone.*` 來源、兩個 Shared Parameter、批次面板兩欄 | 事實進得來（§6）；證據基線不需改動 | 已完成 |
 | `AtriumExemption.StatedSpannedFloors` | 連跨樓層數 0 視同未填（Revit 整數參數沒有空白狀態） | 已完成 |
-| `VerticalCompartmentRequirement.AtriumExemption`／`DeviceRequirements` | 第四條要求列的用字；設備迴圈只看 `DeviceRequirements`（§7.3） | **步驟 7d** |
-| `VerticalCompartmentCheck` 的挑空主體 | 每個 `zone.use == "挑空"` 的區劃一筆結果，不走規則引擎 | **步驟 7d** |
+| `VerticalCompartmentRequirement.AtriumExemption`／`DeviceRequirements` | 第四條要求列的用字；設備迴圈只看 `DeviceRequirements`（§7.3） | 已完成 |
+| `VerticalCompartmentCheck` 的挑空主體 | 每個 `zone.use == "挑空"` 的區劃一筆結果，不走規則引擎 | 已完成 |
 
 ## 9. 已知限制
 
@@ -531,8 +531,8 @@ group 起來，所以一扇兩項都不符合的維修門是**一筆** `PlannedE
 2. **`shaft.elevatorLobbyProtected` 沒有輸入來源。** 「昇降機間併同區劃」是空間關係，
    「其出入口具遮煙性能」是另一扇門的性質。沒填就是 `InsufficientData`（遮煙未達時），不會誤判
    未符合。
-3. **第 3 項（挑空的兩款免除）：判定已設計（§3.6），但它不改變任何既有檢討。** 兩個新事實
-   （連跨樓層數、避難層通達）由設計者宣告，程式在步驟 7b～7d。即使免除成立，工具**仍然**
+3. **第 3 項（挑空的兩款免除）：步驟 7d 起會產生結果，但它不改變任何既有檢討。** 兩個新事實
+   （連跨樓層數、避難層通達）由設計者宣告。即使免除成立，工具**仍然**
    無條件讓挑空免於面積檢討、仍然由既有邊界規則要求它的牆與開口——面積檢討的連帶影響只以
    一筆`人工覆核`交給人（決議 25、26）。所以這個方向依舊是**寬鬆**的，與清單外用字不豁免的
    保守方向相反，必須記在這裡。第 3 項不成立時工具同樣不會提出新的要求（第 1 項本文由既有
@@ -581,7 +581,8 @@ group 起來，所以一扇兩項都不符合的維修門是**一筆** `PlannedE
 | `Shaft_fields_are_hidden_from_the_other_categories` | `shaft.*` 只有本類別可讀；本類別讀不到 `element.*`／`opening.*`／`junction.*` |
 | `Each_requirement_of_the_vocabulary_has_a_rule_that_answers_it` | 程式的用字與規則檔的字樣一致 |
 | `Each_requirement_belongs_to_a_use_the_panel_offers` | 每項要求的用途都在 `ZoneUses.VerticalCompartments` 裡 |
-| `Only_the_hoistway_and_the_shaft_carry_extra_requirements` | 挑空／昇降階梯間／樓梯間不產生本類別的主體 |
+| `Only_the_hoistway_and_the_shaft_hold_a_device_to_a_requirement` | 挑空／昇降階梯間／樓梯間的防火設備不被任何要求拘束；`DeviceRequirements` 就是 `All` 去掉第 3 項（決議 23） |
+| `The_third_paragraph_is_the_fourth_review_table_row_and_no_rule_answers_it` | 第 3 項排在四列的最後、用字與標籤固定、沒有規則認領它，`ActualField`／`Categories` 對它拋例外（§7.3） |
 | 昇降機道六態（`Pass`／`Fail`／`Exempt`／兩種 `InsufficientData`） | §3.3 的每一列 |
 | 管道間維修門 60／120／59／30 分鐘 | 一小時門檻的兩側邊界 |
 | `The_elevator_lobby_proviso_does_not_reach_the_shaft_door` | 第 2 項但書只給昇降機道，不給維修門 |
@@ -608,7 +609,7 @@ group 起來，所以一扇兩項都不符合的維修門是**一筆** `PlannedE
 | `One_maintenance_door_answers_two_requirements` | 一扇維修門兩筆結果，訊息各自指名要求（§9 第 8 項） |
 | `A_maintenance_door_needs_a_full_hour` | 60／59 分鐘的門檻兩側 |
 | `A_window_on_a_shaft_boundary_is_no_maintenance_door` | 管道間只取門（§4） |
-| `A_use_with_no_extra_requirement_produces_no_subject` | 挑空／昇降階梯間／樓梯間／清單外用字／未填用途都不產生主體 |
+| `A_use_with_no_extra_requirement_produces_no_subject` | 昇降階梯間／樓梯間／清單外用字／未填用途都不產生主體（挑空另有自己的主體） |
 | `A_building_that_is_not_fire_resistive_is_out_of_scope` | 非防火構造 → 每個主體 `NoRuleApplies` |
 | `An_unbound_smoke_seal_is_insufficient_data_and_names_its_own_parameter` | 證據指向 `防火檢討_遮煙性能`，不是 `防火檢討_設計防火保護`（決議 6） |
 | `An_unbound_maintenance_door_rating_names_the_rating_parameter` | 時效缺口指向 `防火檢討_設計防火時效` |
@@ -616,7 +617,18 @@ group 起來，所以一扇兩項都不符合的維修門是**一筆** `PlannedE
 | `A_maintenance_door_with_no_single_rating_is_manual_review` | 「1hr/2hr」是人工覆核，與構件防火時效同一做法 |
 | `An_opening_of_a_zone_whose_extent_is_in_doubt_is_manual_review` | 沒有封閉面積的區劃在前置檢查就擋下 |
 | `An_ambiguous_opening_relation_is_manual_review` | 關係有疑義的開口仍產生一筆人工覆核，不會從件數消失（§4） |
-| `The_three_rows_are_always_reported_even_when_empty` | 檢討表三列恆存在、列名取 `VerticalCompartmentRequirements.Label` |
+| `An_atrium_is_one_subject_of_its_own_whatever_openings_it_has` | 挑空一個區劃一筆結果、主體是該區劃的 Area、沒有 Type／沒有 `RuleOutcome`（決議 23、24） |
+| `An_atrium_within_three_storeys_and_the_area_limit_is_exempt_and_manual_review` | 第二款成立 → 人工覆核，訊息說明面積檢討的連帶影響（決議 25） |
+| `An_atrium_linking_the_refuge_floor_with_a_class_one_finish_is_exempt` | 第一款成立 |
+| `An_atrium_that_meets_neither_clause_is_not_applicable_rather_than_a_failure` | 兩款不成立是不適用，不是未符合；沒有 actual／required 值 |
+| `An_atrium_outside_a_fire_resistive_building_has_no_exemption_to_speak_of` | 非防火構造時不得接「第1項照常適用」 |
+| `An_atrium_still_waiting_on_a_fact_is_insufficient_data_and_names_it` | 「這一款無法判定、另一款不成立」才是資料不足，訊息點名缺的事實 |
+| `A_span_below_one_storey_never_reaches_the_second_clause` | 決議 30 在檢查層再守一次 |
+| `An_unreadable_fact_is_the_same_gap_as_a_missing_one` | 各 Area 填得不一致與未填同一種缺口，呼叫端不挑值 |
+| `The_third_paragraph_result_cites_its_own_paragraph_and_locates_the_areas` | 法源是第 3 項且不含第 83 條、`RuleId`／`RuleVersion` 取規則集、證據帶要求名與讀到的事實 |
+| `The_third_paragraph_never_passes_and_never_fails` | 五種事實組合都只落在人工覆核／資料不足／不適用 |
+| `An_atrium_whose_extent_is_in_doubt_is_withheld` | 範圍有問題的挑空不判定，與其他主體同一條界線 |
+| `The_four_rows_are_always_reported_even_when_empty` | 檢討表四列恆存在、列名取 `VerticalCompartmentRequirements.Label` |
 | `A_device_of_a_type_the_package_has_no_opening_of_is_reported_as_a_warning`／`A_zone_that_is_not_in_the_package_…` | 輸入指到工作包外的東西是警告，不是靜默 |
 
 `tests/BuildingRegulationReview.Core.Tests/Reviews/FireReviewIntegrationTests.cs`：
@@ -626,11 +638,14 @@ group 起來，所以一扇兩項都不符合的維修門是**一筆** `PlannedE
 | `Every_opening_type_is_assembled_into_the_vertical_compartment_inputs` | 組裝層讀開口 Type 的兩個參數，並與其他檢查共用同一份 `CompartmentAreaInputs` |
 | `An_unbound_smoke_seal_names_its_own_parameter_and_not_the_protection_one` | `ReviewInputAssembler.Protection` 的參數名引數（決議 11） |
 | `Review_runs_every_check_and_leaves_the_package_reviewed_with_the_rule_set_locked` | 六段進度（`垂直區劃（5/6）`）、沒有垂直區劃用途時第五列是未檢討 |
-| `A_shaft_maintenance_door_is_two_results_of_the_fifth_review_table_row` | 接線成立：一扇維修門兩筆結果、兩條要求列、法源含第 79 條之 2、日誌寫出三列件數（含空列的 0 件） |
+| `A_shaft_maintenance_door_is_two_results_of_the_fifth_review_table_row` | 接線成立：一扇維修門兩筆結果、兩條要求列、法源含第 79 條之 2、日誌寫出四列件數（含空列的 0 件） |
 | `A_maintenance_door_short_of_an_hour_fails_only_the_rating_row` | 兩項要求各自判定，時效未達不會拖累遮煙那一列（決議 12 的端到端版） |
 | `Unticking_a_types_smoke_seal_makes_the_stored_run_need_an_update` | 證據基線看得見遮煙性能；重跑後反映新值（§9 第 9 項） |
 | `Changing_a_maintenance_doors_rating_makes_the_stored_run_need_an_update` | 門的設計防火時效同樣進基線——維修門是開口，不會被 `rating｜` 那行收到 |
-| `A_zone_use_outside_the_vocabulary_produces_no_vertical_compartment_subject` | 清單外用途不產生主體，整列未檢討且日誌不寫三列（§9 第 10 項） |
+| `A_zone_use_outside_the_vocabulary_produces_no_vertical_compartment_subject` | 清單外用途不產生主體，整列未檢討且日誌不寫件數那一行（§9 第 10 項） |
+| `An_exempt_atrium_is_one_manual_review_in_the_fourth_requirement_row` | 第 3 項端到端：第四條要求列、列名、類別欄是「區劃」、定位指到 Area、日誌四列件數 |
+| `An_atriums_openings_are_held_to_none_of_the_first_paragraphs_requirements` | 挑空裡的維修門不產生第 1 項的主體（決議 23 的端到端版） |
+| `The_third_paragraph_never_fails_and_so_is_never_marked` | 第 3 項不會是未符合，也不會進 `ReviewMarkupPlan` 的 override（決議 20） |
 
 `tests/BuildingRegulationReview.Core.Tests/Reviews/ReviewTableTests.cs`：
 
@@ -677,7 +692,7 @@ group 起來，所以一扇兩項都不符合的維修門是**一筆** `PlannedE
 | 20 | 垂直區劃的未符合**只塗紅**，不出文字標註、不發檢討圖號 | 未符合的是「這扇設備的性能不足」，不是平面上的某個位置，沒有帷幕牆交接那種「要標在哪裡」的幾何問題；圖號的用途是綁住檢討表列、標註與產生的立面，沒有註解也沒有產生的視圖時，號碼沒有地方出現（§7.2，同 CW-O 的理由）。守門測試 `A_vertical_compartment_failure_is_only_painted_red_and_carries_no_number_or_note` |
 | 21 | 一個元素**只塗紅一次**，要求名寫進 `Description` 與略過訊息，不改成一元素多筆標示 | 元素是紅的或不是紅的，塗第二次不會多說任何事；但不寫要求名，同一扇門在檢討表與標示紀錄都出現兩次，讀起來像工具講了兩遍（§9 第 8 項）。要求名從 `shaft.requirementLabel` 證據讀回來（同決議 17） |
 | 22 | 改 `Description` 不動擁有權機制 | `PlannedElementOverride` 沒有 `Signature`，`ReviewMarkupDiff` 對元素覆寫只比 `ElementUniqueId` 與 `RunId`；若描述進了簽章，改一句話就會讓全模型既有標示被判成需重建 |
-| 23 | 第 3 項自己一個受檢主體（**挑空區劃本身**）與第四條要求列，`VerticalCompartmentRequirement` 加一個 `AtriumExemption`；設備迴圈改看新的 `DeviceRequirements` | 第 3 項的主體不是一扇設備，也不由單一欄位回答，塞進三項要求任一項都會讓 `ActualField`／`Categories` 說謊。用既有的 `shaft.requirement` 分組則什麼都不用改：檢討表、日誌、`Order` 都照 `All` 跑。連帶：守門測試 `Only_the_hoistway_and_the_shaft_carry_extra_requirements` 的意思收窄成「挑空不產生（設備, 要求）主體」，步驟 7d 要一併改它的名字與斷言（§7.3） |
+| 23 | 第 3 項自己一個受檢主體（**挑空區劃本身**）與第四條要求列，`VerticalCompartmentRequirement` 加一個 `AtriumExemption`；設備迴圈改看新的 `DeviceRequirements` | 第 3 項的主體不是一扇設備，也不由單一欄位回答，塞進三項要求任一項都會讓 `ActualField`／`Categories` 說謊。用既有的 `shaft.requirement` 分組則什麼都不用改：檢討表、日誌、`Order` 都照 `All` 跑。連帶：守門測試的意思收窄成「挑空不產生（設備, 要求）主體」，步驟 7d 已把 `Only_the_hoistway_and_the_shaft_carry_extra_requirements` 改名為 `Only_the_hoistway_and_the_shaft_hold_a_device_to_a_requirement` 並改寫斷言（§7.3） |
 | 24 | 第 3 項**不走規則引擎**，由檢查層的純計算判定 | 引擎的每條規則都要一個可比較的 `requiredValue`，而第 3 項是免除、不是要求；第 1 項本文對挑空的要求已由既有邊界規則檢討（決議 3），本類別沒有式子可寫。兩種硬寫法都被排除：(a) 把「免除成立」寫成 `requiredValue` → 不成立就是 `Fail`、會被塗紅，但不符合第 3 項不是違規；(b) 另加一個設計者宣告「本挑空已依第 1 項單獨區劃分隔」當 `requiredValue`、兩款當 `exemptions` → 等於重寫本文（決議 3），而那個問題模型已經用邊界構件回答了 |
 | 25 | 免除成立是 `人工覆核`，不是 `不適用`，更不是 `符合` | 免除一旦成立，該挑空若不依第 1 項區劃就不是「依第七十九條之二規定之垂直區劃」，第 83 條的除外文字不再涵蓋它，其樓地板面積應回到面積檢討；工具目前無條件豁免挑空的面積檢討，這件事只能由人接手。用 `符合` 會讓它在檢討表算進符合（spec 11.7），讀起來像這個挑空已經處理完了 |
 | 26 | 面積豁免**維持無條件**，不改成「第 3 項成立就不豁免」 | 引擎的豁免語意是「豁免無法判定且本文不成立 → 資料不足」。挑空常常大於一○○平方公尺，所以只要這兩個新參數沒填，每個既有專案的大挑空都會從「免適用」變成「資料不足」——正是 §3.4 要避開的那種全專案資料不足。代價是方向仍然寬鬆（§9 第 3 項），但工具現在會在免除成立時明講連帶影響 |
@@ -699,7 +714,7 @@ group 起來，所以一扇兩項都不符合的維修門是**一筆** `PlannedE
 | 7a | 第 3 項的設計：事實來源、判定式與狀態、產出、決議 23～29（§3.6、§7.3） | **已完成** |
 | 7b | `AtriumExemption` 純計算判定 + `zone.spannedFloors`／`zone.linksRefugeFloor` 兩個白名單欄位 | **已完成** |
 | 7c | 參數層：兩個 Shared Parameter（Big5 主檔）、輸入來源、批次面板兩欄與批次填入 | **已完成** |
-| 7d | 檢查層接線：挑空主體、檢討表第四條要求列、日誌件數、`AtriumExemption` 用字與 `DeviceRequirements` | 未開始 |
+| 7d | 檢查層接線：挑空主體、檢討表第四條要求列、日誌件數、`AtriumExemption` 用字與 `DeviceRequirements` | **已完成** |
 
 ### 步驟 1、2 的驗證
 
@@ -988,3 +1003,70 @@ smoke_seal_…`、`Changing_a_maintenance_doors_rating_…`）**因此完全不�
   「避難層通達」兩欄由淡出轉為正常、可輸入、寫入模型後回讀正確，且在連跨欄打 0 會被清成空白。
   另確認選取多個樓梯間後按批次填入，「區劃用途」欄可一次設成 `樓梯間`。
   **本步驟仍然不產生任何第 3 項的結果**——接線是 7d。
+
+### 步驟 7d 的產出與驗證
+
+**第 3 項現在會產生結果。** 判定層（7b）與參數層（7c）都在，本步驟把它們接起來。
+
+改動的檔案：
+
+- `src/BuildingRegulationReview.Application/Checks/VerticalCompartmentInputs.cs`：
+  `VerticalCompartmentRequirement` 新增 `AtriumExemption`（`All` 變四項、排在三項第 1 項要求之後
+  就是條文順序）；新增 `DeviceRequirements`（原本的三項），`ForUse` 改從它篩；
+  `RuleText`＝`"AtriumExemption"`、`Label`＝`挑空免除（第3項）`、`UseOf`＝`挑空`；
+  `ActualField`／`Categories` 對它**照舊落到 `_ => throw`**，並在 XML 註解寫明那是刻意的。
+- `src/BuildingRegulationReview.Application/Checks/VerticalCompartmentCheck.cs`：區劃迴圈在進設備
+  迴圈之前先判 `zone.use == "挑空"`，每個挑空產生一筆 `Atrium(...)` 結果；`VerticalCompartmentFinding`
+  的 `Category` 改為可為 null、新增 `Exemption`；新增 `Supplied`／`Flag`／`Text`／`Span` 四個把
+  `ReviewInput` 三態翻成值或 `null` 的私有輔助，以及 `AtriumEvidence`／`AtriumFactEvidence`。
+- `src/BuildingRegulationReview.Application/Reviews/FireReviewRunner.cs`：日誌那行的抬頭由
+  「垂直區劃（第79條之2第1項）」改為「垂直區劃（第79條之2）」——第四列是第 3 項，再寫第 1 項就
+  不實。四列的件數由 `shaft.Groups` 自動帶出，不需另外接線。
+- `src/BuildingRegulationReview.Application/Reviews/ReviewTable.cs`：`ToEntry` 的 `isArea` 擴充成
+  「主體是區劃」——第 3 項的結果因此與區劃面積一樣顯示類別「區劃」、不顯示 Type 欄。
+  **`ShaftRequirementOf` 與 `GroupsFor` 完全沒動**：它們照 `All` 比對字樣，第四列自然出現。
+
+### 本輪的四個決定
+
+1. **`ForUse` 改從 `DeviceRequirements` 篩，而不是在 `All` 之後再排除挑空。** 兩種寫法結果一樣，
+   但前者讓「設備迴圈看不到第 3 項」是型別上的事實而不是一個 `if`。連帶：
+   `Article79_2VerticalCompartmentRuleTests` 的 `Requirements()` MemberData 也改從
+   `DeviceRequirements` 取——那兩條 Theory（每項要求都有規則作答、每項要求都屬於面板有的用途）
+   問的本來就是「有規則的那幾項」，第 3 項不在其列。
+2. **`AtriumExemption.For` 的三態直接對到三個 `ReviewStatus`，沒有第四種寫法。** `Holds`→人工覆核、
+   `IsUndecided`→資料不足、`IsInapplicable`→不適用；訊息也分三段。唯一的例外是**非防火構造**那一
+   種不適用，它不能接「第1項之區劃分隔照常適用」那句（第 1 項本來就不適用），所以那句只在
+   `building.fireResistiveConstruction == true` 時才接。
+3. **`Span(...)` 在檢查層再問一次 `IsStatedSpannedFloors`。** 組裝層（`ReviewParameterSnapshot.Stated`）
+   已經把 0 濾掉了，但輸入也可能來自測試夾具或未來的面板；「連跨 0 層」在任何一條路上都不可以被
+   讀成「三層以下」，所以決議 30 在兩層各守一次。
+4. **資料不足的錯誤碼分兩種**：缺口只有 `CompartmentArea`（Area 未放置或未封閉）時用
+   `BCR-AREA-002`，其餘（避難層通達、連跨樓層數、裝修等級、防火構造）用 `BCR-PARAM-001`。
+   面積讀不到不是「參數沒填」，把它併進去會把人指向錯的地方。
+
+### 測試結果
+
+- `& "C:\Program Files\dotnet\dotnet.exe" build BuildingRegulationReview.sln`：0 警告 0 錯誤。
+- `... build src\BuildingRegulationReview\BuildingRegulationReview.csproj`：0 警告 0 錯誤。
+- `... test tests\BuildingRegulationReview.Core.Tests`：**1437 通過、0 失敗**（原 1419，新增 19、
+  移除 1 個 Theory 案例）。
+- 新測試：`VerticalCompartmentCheckTests` 11 條（含一條五案例的 Theory，共 15 個案例）、
+  `Article79_2VerticalCompartmentRuleTests` 1 條、`FireReviewIntegrationTests` 3 條。
+- 改寫的既有測試（五項，都是「多了一列／多了一個主體」造成的預期值，決議 23 已允許）：
+  - `Only_the_hoistway_and_the_shaft_carry_extra_requirements` → 改名
+    `Only_the_hoistway_and_the_shaft_hold_a_device_to_a_requirement`，斷言追加「挑空不在
+    `DeviceRequirements` 裡」與「`DeviceRequirements` 就是 `All` 去掉第 3 項」。
+  - `The_three_rows_are_always_reported_even_when_empty` → 改名 `The_four_rows_…`，列名多一列。
+  - `The_three_rules_are_one_priority_and_mutually_exclusive`：比對對象由 `All` 改成
+    `DeviceRequirements`（規則檔仍然只有三條，沒有變）。
+  - `A_use_with_no_extra_requirement_produces_no_subject`：移除 `挑空` 那個 InlineData——它現在
+    有自己的主體了；同一件事由新的挑空測試與上面那條守門測試接手。
+  - `A_shaft_maintenance_door_is_two_results_of_the_fifth_review_table_row`／
+    `A_zone_use_outside_the_vocabulary_produces_no_vertical_compartment_subject`：日誌抬頭字串
+    由「垂直區劃（第79條之2第1項）」改成「垂直區劃（第79條之2）」，前者並加上第四列的件數斷言。
+- **兩條證據基線守門測試沒有改，也仍然通過**（7c 已查證過，7d 同樣不需要）。
+
+**未實機驗證。** 本步驟沒有任何 Revit 端改動（面板、參數、標示都沒動），但要在模型上看到第 3 項
+的結果，需要 7c 的兩個參數已綁到 Areas、且挑空的「區劃用途」填成 `挑空`。驗時：開「開始檢討」，
+確認檢討表第五列「垂直區劃」底下出現第四條要求列「挑空免除（第3項）」、該列的類別欄是「區劃」、
+「定位／選取元素」指到該挑空的 Area，且日誌那行寫出四列件數。**第 3 項的結果永遠不會被塗紅。**

@@ -467,12 +467,14 @@ public static class FireReviewRunner
                      .Distinct(StringComparer.Ordinal))
             log.Add(ReviewErrorCode.ReviewCompleted, ReviewStage.Review, ReviewSeverity.Warning, warning);
 
-        // 垂直區劃規格 §7: the three rows are logged even when a row is empty, because a 管道間 whose
-        // 維修門 was never modelled reads the same as one that was not reviewed unless the count says 0.
+        // 垂直區劃規格 §7: all four rows are logged even when a row is empty, because a 管道間 whose
+        // 維修門 was never modelled — or a storey with no 挑空 — reads the same as a row that was not
+        // reviewed unless the count says 0. The fourth row is 第3項, so the line cites the article
+        // rather than 第1項 alone (§7.3).
         if (shaft.Findings.Count > 0)
         {
             log.Add(ReviewErrorCode.ReviewCompleted, ReviewStage.Review, ReviewSeverity.Info,
-                "垂直區劃（第79條之2第1項）：" + string.Join("；", shaft.Groups.Select(g =>
+                "垂直區劃（第79條之2）：" + string.Join("；", shaft.Groups.Select(g =>
                     $"{g.Label} {g.DeviceCount} 件{ReviewStatusText.Label(g.Status)}")) + "。");
         }
 

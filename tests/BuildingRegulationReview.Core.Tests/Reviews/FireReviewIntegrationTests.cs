@@ -1421,12 +1421,13 @@ public sealed class FireReviewIntegrationTests
         Assert.Equal(new[] { "管道間維修門防火時效", "管道間維修門遮煙性能" },
             section.GroupsBy(ReviewTableGrouping.ShaftRequirement).Select(g => g.Label));
 
-        // 昇降機道 is not this storey's business, so its row counts nothing — and the log still says so,
-        // because an empty row and an unreviewed one read alike without the count.
+        // 昇降機道 is not this storey's business, nor is 挑空, so their rows count nothing — and the log
+        // still says so, because an empty row and an unreviewed one read alike without the count.
         Assert.Contains(outcome.Log.Entries, e =>
-            e.UserMessage.Contains("垂直區劃（第79條之2第1項）") &&
+            e.UserMessage.Contains("垂直區劃（第79條之2）") &&
             e.UserMessage.Contains("昇降機道防火設備遮煙性能 0 件未檢討") &&
-            e.UserMessage.Contains("管道間維修門防火時效 1 件符合"));
+            e.UserMessage.Contains("管道間維修門防火時效 1 件符合") &&
+            e.UserMessage.Contains("挑空免除（第3項） 0 件未檢討"));
     }
 
     /// <summary>
@@ -1502,7 +1503,7 @@ public sealed class FireReviewIntegrationTests
         var outcome = Run(Request(parameters: parameters, openings: ShaftDoorOnly()));
 
         Assert.Equal(ReviewStatus.NotRun, outcome.Table!.Section(ReviewCheckTypes.VerticalCompartment).Status);
-        Assert.DoesNotContain(outcome.Log.Entries, e => e.UserMessage.Contains("垂直區劃（第79條之2第1項）"));
+        Assert.DoesNotContain(outcome.Log.Entries, e => e.UserMessage.Contains("垂直區劃（第79條之2）"));
     }
 
     // --- 第79條之2第3項 的兩個事實進來 (垂直區劃規格 §6 步驟 7c) -------------------------------
@@ -1593,6 +1594,79 @@ public sealed class FireReviewIntegrationTests
         // And the same for the other one, which is the other half of 第3項's facts.
         Assert.True(StoredRunInspection.Inspect(first.Package, first.Run!,
             CurrentBaseline(AtriumParameters(linksRefugeFloor: 0)), RuleSetId, ShippedVersion, Now).Freshness.IsStale);
+    }
+
+    // --- 第79條之2第3項 的結果 (垂直區劃規格 §7.3、§12 步驟 7d) ---------------------------------
+
+    /// <summary>
+    /// The judgement is wired into the run: one 挑空 is one result, counted in the fourth requirement
+    /// row of the fifth 檢討表 row. 免除成立 is 人工覆核 — the 樓地板面積 it hands back is not reviewed by
+    /// this tool, so the consequence can only go to a person (決議 25、26).
+    /// </summary>
+    [Fact]
+    public void An_exempt_atrium_is_one_manual_review_in_the_fourth_requirement_row()
+    {
+        var outcome = Run(Request(parameters: AtriumParameters(spannedFloors: 2), openings: ShaftDoorOnly()));
+
+        Assert.True(outcome.IsCompleted, outcome.Message);
+        var section = outcome.Table!.Section(ReviewCheckTypes.VerticalCompartment);
+        var entry = Assert.Single(section.Entries);
+
+        Assert.Equal(VerticalCompartmentRequirement.AtriumExemption, entry.ShaftRequirement);
+        Assert.Equal("挑空免除（第3項）", entry.ShaftRequirementLabel);
+        Assert.Equal(ReviewStatus.ManualReview, entry.EffectiveStatus);
+        Assert.Equal(new[] { "area-a" }, entry.LocateUniqueIds);
+        Assert.Equal("建築技術規則建築設計施工編第79條之2第3項（挑空得不受第1項限制）", entry.LegalReference);
+        Assert.DoesNotContain("第83條", entry.LegalReference, StringComparison.Ordinal);
+
+        // Its subject is a 區劃, so the table shows no element category and no Type — like 區劃面積.
+        Assert.Equal("區劃", entry.CategoryLabel);
+        Assert.Null(entry.TypeKey);
+
+        Assert.Equal(new[] { "挑空免除（第3項）" },
+            section.GroupsBy(ReviewTableGrouping.ShaftRequirement).Select(g => g.Label));
+        Assert.Contains(outcome.Log.Entries, e =>
+            e.UserMessage.Contains("垂直區劃（第79條之2）") &&
+            e.UserMessage.Contains("挑空免除（第3項） 1 件人工覆核") &&
+            e.UserMessage.Contains("管道間維修門防火時效 0 件未檢討"));
+    }
+
+    /// <summary>
+    /// 決議 23: the 挑空's own 防火設備 are held to none of 第1項's three requirements, so the 維修門 in
+    /// this fixture — which would be two results were A 區 a 管道間 — yields nothing but 第3項's result.
+    /// </summary>
+    [Fact]
+    public void An_atriums_openings_are_held_to_none_of_the_first_paragraphs_requirements()
+    {
+        var outcome = Run(Request(parameters: AtriumParameters(), openings: ShaftDoorOnly()));
+
+        Assert.DoesNotContain(outcome.Run!.Results,
+            r => r.CheckType == ReviewCheckTypes.VerticalCompartment && r.SubjectUniqueIds.Contains("D9-shaft"));
+    }
+
+    /// <summary>
+    /// 第3項 has no 未符合 to report, so it can never paint an element red (§3.6、決議 20) and can never
+    /// turn the run's verdict into 未符合 by itself.
+    /// </summary>
+    [Fact]
+    public void The_third_paragraph_never_fails_and_so_is_never_marked()
+    {
+        foreach (var spanned in new[] { 2, 9 })
+        {
+            var request = Request(parameters: AtriumParameters(spannedFloors: spanned, linksRefugeFloor: 0),
+                openings: ShaftDoorOnly());
+            var outcome = Run(request);
+            var entry = Assert.Single(outcome.Table!.Section(ReviewCheckTypes.VerticalCompartment).Entries);
+
+            Assert.NotEqual(ReviewStatus.Fail, entry.EffectiveStatus);
+            Assert.NotEqual(ReviewStatus.Pass, entry.EffectiveStatus);
+
+            var plan = ReviewMarkupPlan.Build(outcome.Table!, request.Candidates.Zones);
+            Assert.True(plan.IsSuccess, plan.IsSuccess ? string.Empty : plan.Error.ToString());
+            Assert.DoesNotContain(plan.Value.Overrides, o => o.ResultIds.Contains(entry.ResultId));
+            Assert.DoesNotContain(plan.Value.Overrides,
+                o => o.ShaftRequirements.Contains("AtriumExemption", StringComparer.Ordinal));
+        }
     }
 
     /// <summary>

@@ -232,8 +232,13 @@ public sealed class VerticalCompartmentCheckTests
 
     // --- 哪些區劃產生受檢主體 -------------------------------------------------------------------
 
+    /// <summary>
+    /// 挑空 is deliberately not in this list: 第3項 gives it a subject of its own (決議 23), which
+    /// <see cref="An_atrium_is_one_subject_of_its_own_whatever_openings_it_has"/> covers. What still
+    /// holds for it is that none of its 防火設備 is held to a requirement — that gate lives in
+    /// <c>Article79_2VerticalCompartmentRuleTests</c>.
+    /// </summary>
     [Theory]
-    [InlineData(ZoneUses.Atrium)]
     [InlineData(ZoneUses.EscalatorWell)]
     [InlineData(ZoneUses.Stairwell)]
     [InlineData("辦公")]
@@ -346,10 +351,244 @@ public sealed class VerticalCompartmentCheckTests
         Assert.Null(finding.Outcome);
     }
 
-    // --- 檢討表的三列與警告 ---------------------------------------------------------------------
+    // --- 第79條之2第3項：挑空的兩款免除（文件 §3.6、§7.3、§12 步驟 7d） --------------------------
+
+    /// <summary>
+    /// A 區 is the 挑空, carrying whichever of 第3項's facts the test states. B 區 is given no 用途 at
+    /// all, so the only subject in these fixtures is the one 第3項 makes.
+    /// </summary>
+    private static CompartmentAreaInputs AtriumContext(
+        bool? fireResistive = true,
+        bool? linksRefugeFloor = null,
+        string? interiorFinish = null,
+        int? spannedFloors = null)
+    {
+        var zone = new List<ReviewInput>
+        {
+            ReviewInput.Known("zone.use", ZoneUses.Atrium, "面積：" + ReviewInputSources.ZoneUse)
+        };
+        if (linksRefugeFloor is bool links)
+            zone.Add(ReviewInput.Known("zone.linksRefugeFloor", links, "面積：" + ReviewInputSources.LinksRefugeFloor));
+        if (interiorFinish is not null)
+            zone.Add(ReviewInput.Known("zone.interiorFinish", interiorFinish, "牆與天花板：" + ReviewInputSources.InteriorFinish));
+        if (spannedFloors is int floors)
+            zone.Add(ReviewInput.Known("zone.spannedFloors", floors, ReviewUnit.None, "面積：" + ReviewInputSources.SpannedFloors));
+
+        return new CompartmentAreaInputs(
+            fireResistive is bool f
+                ? new[] { ReviewInput.Known("building.fireResistiveConstruction", f, "專案資訊：" + ReviewInputSources.FireResistiveConstruction) }
+                : Array.Empty<ReviewInput>(),
+            new Dictionary<Guid, IEnumerable<ReviewInput>> { [ZoneA] = zone });
+    }
+
+    /// <summary>
+    /// 決議 23、24: the 挑空 itself is the subject, one result per 區劃 and no rule involved. Its 防火設備
+    /// are still held to nothing — 第1項's three requirements belong to 昇降機道 and 管道間.
+    /// </summary>
+    [Fact]
+    public void An_atrium_is_one_subject_of_its_own_whatever_openings_it_has()
+    {
+        var finding = Only(Review(Set(HoistwayDoor(), ShaftDoor()), AtriumContext(spannedFloors: 2)));
+
+        Assert.Equal(VerticalCompartmentRequirement.AtriumExemption, finding.Requirement);
+        Assert.Equal(ZoneA, finding.ZoneId);
+        Assert.Equal(new[] { "area-a" }, finding.Result.SubjectUniqueIds);
+        Assert.Equal("area-a", finding.ElementUniqueId);
+        Assert.Null(finding.Category);
+        Assert.Null(finding.Device);
+        Assert.Null(finding.Outcome);
+        Assert.NotNull(finding.Exemption);
+    }
+
+    /// <summary>第二款：連跨樓層數在三層以下，且樓地板面積在一千五百平方公尺以下（fixture 的 A 區是 100 ㎡）。</summary>
+    [Fact]
+    public void An_atrium_within_three_storeys_and_the_area_limit_is_exempt_and_manual_review()
+    {
+        var finding = Only(Review(Set(), AtriumContext(spannedFloors: 3)));
+
+        Assert.Equal(ReviewStatus.ManualReview, finding.Status);
+        Assert.Equal(AtriumExemptionClause.SecondClause, finding.Exemption!.Clause);
+        Assert.Contains("符合第二款", finding.Result.Message, StringComparison.Ordinal);
+        Assert.Contains("需人工覆核", finding.Result.Message, StringComparison.Ordinal);
+        Assert.Null(finding.ErrorCode);
+    }
+
+    /// <summary>第一款：避難層通達其直上層或直下層，且室內牆面與天花板以耐燃一級材料裝修。</summary>
+    [Fact]
+    public void An_atrium_linking_the_refuge_floor_with_a_class_one_finish_is_exempt()
+    {
+        var finding = Only(Review(Set(), AtriumContext(
+            linksRefugeFloor: true, interiorFinish: InteriorFinishGrades.ClassOne, spannedFloors: 9)));
+
+        Assert.Equal(ReviewStatus.ManualReview, finding.Status);
+        Assert.Equal(AtriumExemptionClause.FirstClause, finding.Exemption!.Clause);
+    }
+
+    /// <summary>
+    /// 不符合第3項不是違規: it only means 第1項 applies as usual, whose 牆壁 and 開口 the 第79條 區劃
+    /// rules already review. So the settled answer is 不適用 and never 未符合 (§3.6).
+    /// </summary>
+    [Fact]
+    public void An_atrium_that_meets_neither_clause_is_not_applicable_rather_than_a_failure()
+    {
+        var finding = Only(Review(Set(), AtriumContext(linksRefugeFloor: false, spannedFloors: 9)));
+
+        Assert.Equal(ReviewStatus.NotApplicable, finding.Status);
+        Assert.True(finding.Exemption!.IsInapplicable);
+        Assert.Contains("兩款均不成立", finding.Result.Message, StringComparison.Ordinal);
+        Assert.Contains("第1項之區劃分隔照常適用", finding.Result.Message, StringComparison.Ordinal);
+        Assert.Null(finding.Result.ActualValue);
+        Assert.Null(finding.Result.RequiredValue);
+    }
+
+    /// <summary>
+    /// 第1項 only reaches a 防火構造建築物, so outside one there is nothing to be exempt from — and the
+    /// message must not then promise that 第1項 applies after all.
+    /// </summary>
+    [Fact]
+    public void An_atrium_outside_a_fire_resistive_building_has_no_exemption_to_speak_of()
+    {
+        var finding = Only(Review(Set(), AtriumContext(fireResistive: false, spannedFloors: 9)));
+
+        Assert.Equal(ReviewStatus.NotApplicable, finding.Status);
+        Assert.Contains("非防火構造建築物", finding.Result.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("照常適用", finding.Result.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// 「這一款無法判定、另一款不成立」 is the only 資料不足: 避難層通達＝否 settles 第一款, and 第二款
+    /// is still waiting for 連跨樓層數.
+    /// </summary>
+    [Fact]
+    public void An_atrium_still_waiting_on_a_fact_is_insufficient_data_and_names_it()
+    {
+        var finding = Only(Review(Set(), AtriumContext(linksRefugeFloor: false)));
+
+        Assert.Equal(ReviewStatus.InsufficientData, finding.Status);
+        Assert.Equal(AtriumExemptionGap.SpannedFloors, finding.Exemption!.Gaps);
+        Assert.Contains("連跨樓層數", finding.Result.Message, StringComparison.Ordinal);
+        Assert.Equal(ReviewErrorCode.ParameterMissing, finding.ErrorCode);
+    }
+
+    /// <summary>
+    /// A Revit Integer parameter cannot be blank, so 連跨 0 層 must not sail through 「三層以下」. The
+    /// assembler already drops it, and the check asks again whichever way the input arrived (決議 30).
+    /// </summary>
+    [Fact]
+    public void A_span_below_one_storey_never_reaches_the_second_clause()
+    {
+        var finding = Only(Review(Set(), AtriumContext(linksRefugeFloor: false, spannedFloors: 0)));
+
+        Assert.Equal(ReviewStatus.InsufficientData, finding.Status);
+        Assert.Equal(AtriumExemptionGap.SpannedFloors, finding.Exemption!.Gaps);
+    }
+
+    /// <summary>
+    /// 「同一區劃的各 Area 填得不一致」 is the same kind of gap as 「未填」: the check turns an unreadable
+    /// input into no value rather than picking one of the readings (§3.6).
+    /// </summary>
+    [Fact]
+    public void An_unreadable_fact_is_the_same_gap_as_a_missing_one()
+    {
+        var context = new CompartmentAreaInputs(
+            new[] { ReviewInput.Known("building.fireResistiveConstruction", true, "專案資訊") },
+            new Dictionary<Guid, IEnumerable<ReviewInput>>
+            {
+                [ZoneA] = new[]
+                {
+                    ReviewInput.Known("zone.use", ZoneUses.Atrium, "面積：" + ReviewInputSources.ZoneUse),
+                    ReviewInput.Known("zone.linksRefugeFloor", false, "面積：" + ReviewInputSources.LinksRefugeFloor),
+                    ReviewInput.Unreadable("zone.spannedFloors", "此區劃的 2 個面積填寫不一致（2、5）",
+                        "面積：" + ReviewInputSources.SpannedFloors)
+                }
+            });
+
+        var finding = Only(Review(Set(), context));
+
+        Assert.Equal(ReviewStatus.InsufficientData, finding.Status);
+        Assert.Equal(AtriumExemptionGap.SpannedFloors, finding.Exemption!.Gaps);
+    }
+
+    /// <summary>
+    /// 第3項 lifts 第1項 and nothing else, so the result must not cite 第83條 — the same reason §5.3
+    /// gives for the other three rows. The evidence carries the row it belongs to and the 區劃 it was
+    /// decided in, because the 檢討表 is rebuilt from the stored results alone.
+    /// </summary>
+    [Fact]
+    public void The_third_paragraph_result_cites_its_own_paragraph_and_locates_the_areas()
+    {
+        var info = Shipped().RuleSet.RuleSet;
+        var finding = Only(Review(Set(), AtriumContext(spannedFloors: 2)));
+
+        Assert.Equal("建築技術規則建築設計施工編第79條之2第3項（挑空得不受第1項限制）", finding.Result.LegalReference);
+        Assert.DoesNotContain("第83條", finding.Result.LegalReference, StringComparison.Ordinal);
+        Assert.Equal(info.RuleSetId, finding.Result.RuleId);
+        Assert.Equal(info.Version, finding.Result.RuleVersion);
+
+        Assert.Equal("AtriumExemption", Text(finding, "shaft.requirement"));
+        Assert.Equal("挑空免除（第3項）", Text(finding, "shaft.requirementLabel"));
+        Assert.Equal("A 區", Text(finding, "zone.name"));
+
+        // And the facts it read, so a person can see what the judgement rested on.
+        Assert.Equal(ReviewValue.Quantity(2, ReviewUnit.None), finding.Result.Evidence.Find("zone.spannedFloors"));
+        var area = finding.Result.Evidence.Find("zone.area")!;
+        Assert.Equal(ReviewValueKind.Quantity, area.Kind);
+        Assert.Equal(ReviewUnit.SquareMeter, area.Unit);
+        Assert.Equal(100, area.Number, 6);
+        Assert.Equal(ReviewValue.OfBoolean(true), finding.Result.Evidence.Find("building.fireResistiveConstruction"));
+        Assert.Null(finding.Result.Evidence.Find("zone.linksRefugeFloor"));
+    }
+
+    /// <summary>
+    /// Whatever the facts say, 第3項 is only ever one of three states: there is no 符合 to report and
+    /// no 未符合 to paint red (§3.6、決議 20).
+    /// </summary>
+    [Theory]
+    [InlineData(true, null, null, null)]
+    [InlineData(true, true, "耐燃一級", 2)]
+    [InlineData(true, false, null, 9)]
+    [InlineData(false, true, "耐燃一級", 2)]
+    [InlineData(null, null, null, null)]
+    public void The_third_paragraph_never_passes_and_never_fails(
+        bool? fireResistive, bool? linksRefugeFloor, string? interiorFinish, int? spannedFloors)
+    {
+        var finding = Only(Review(Set(), AtriumContext(fireResistive, linksRefugeFloor, interiorFinish, spannedFloors)));
+
+        Assert.Contains(finding.Status,
+            new[] { ReviewStatus.ManualReview, ReviewStatus.InsufficientData, ReviewStatus.NotApplicable });
+    }
+
+    /// <summary>
+    /// A 區劃 whose extent is in doubt is not measured, and 第3項 needs its 樓地板面積 as much as any
+    /// other subject needs its geometry — so it is withheld on the same line (§3.6、§4).
+    /// </summary>
+    [Fact]
+    public void An_atrium_whose_extent_is_in_doubt_is_withheld()
+    {
+        var zones = new[]
+        {
+            Zone(ZoneA, "挑空", "area-a", Rect(0, 0, 10, 10)),
+            Zone(ZoneB, "B 區", "area-b", Rect(5, 0, 15, 10))
+        };
+        var set = CandidateResolver.Resolve(Observations(zones, Walls, Array.Empty<OpeningObservation>()));
+        Assert.False(set.Zone(ZoneA)!.IsClear);
+
+        var review = VerticalCompartmentCheck.Review(set,
+            new VerticalCompartmentInputs(AtriumContext(spannedFloors: 2), Array.Empty<ShaftDeviceProperties>()),
+            Shipped(), Today, RunId);
+        Assert.True(review.IsSuccess, review.IsSuccess ? string.Empty : review.Error.ToString());
+
+        var finding = Assert.Single(review.Value.Findings);
+        Assert.Equal(ReviewStatus.ManualReview, finding.Status);
+        Assert.Equal(ReviewErrorCode.CandidateZoneUnusable, finding.ErrorCode);
+        Assert.Null(finding.Exemption);
+        Assert.Contains("區劃範圍有問題", finding.Result.Message, StringComparison.Ordinal);
+    }
+
+    // --- 檢討表的四列與警告 ---------------------------------------------------------------------
 
     [Fact]
-    public void The_three_rows_are_always_reported_even_when_empty()
+    public void The_four_rows_are_always_reported_even_when_empty()
     {
         var review = Review(Set(), Context());
 
@@ -357,7 +596,7 @@ public sealed class VerticalCompartmentCheckTests
         Assert.All(review.Groups, g => Assert.Equal(ReviewStatus.NotRun, g.Status));
         Assert.All(review.Groups, g => Assert.Equal(0, g.DeviceCount));
         Assert.Equal(
-            new[] { "昇降機道防火設備遮煙性能", "管道間維修門防火時效", "管道間維修門遮煙性能" },
+            new[] { "昇降機道防火設備遮煙性能", "管道間維修門防火時效", "管道間維修門遮煙性能", "挑空免除（第3項）" },
             review.Groups.Select(g => g.Label));
     }
 

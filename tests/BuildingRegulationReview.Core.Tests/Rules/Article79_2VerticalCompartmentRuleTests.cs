@@ -46,10 +46,16 @@ public sealed class Article79_2VerticalCompartmentRuleTests
     private const string ShaftDoorRating = "tw-bcr-79-2-shaft-door-rating";
     private const string ShaftDoorSmoke = "tw-bcr-79-2-shaft-door-smoke-seal";
 
+    /// <summary>
+    /// The requirements a rule answers — <c>DeviceRequirements</c>, not <c>All</c>. 第3項 is also a
+    /// member of the vocabulary (it needs a <c>shaft.requirement</c> value to get its own 檢討表 row),
+    /// but it is a classification rather than a requirement: no rule decides it and no 用途 holds a
+    /// 防火設備 to it, so it is not what these two theories are about (§7.3、決議 23、24).
+    /// </summary>
     public static TheoryData<VerticalCompartmentRequirement> Requirements()
     {
         var data = new TheoryData<VerticalCompartmentRequirement>();
-        foreach (var requirement in VerticalCompartmentRequirements.All) data.Add(requirement);
+        foreach (var requirement in VerticalCompartmentRequirements.DeviceRequirements) data.Add(requirement);
         return data;
     }
 
@@ -81,7 +87,7 @@ public sealed class Article79_2VerticalCompartmentRuleTests
 
         Assert.All(rules, rule => Assert.Equal(10, rule.Priority));
         Assert.Equal(
-            VerticalCompartmentRequirements.All.Select(VerticalCompartmentRequirements.RuleText)
+            VerticalCompartmentRequirements.DeviceRequirements.Select(VerticalCompartmentRequirements.RuleText)
                 .OrderBy(x => x, StringComparer.Ordinal),
             rules.Select(x => Requirement(x.RuleId)).OrderBy(x => x, StringComparer.Ordinal));
     }
@@ -152,8 +158,13 @@ public sealed class Article79_2VerticalCompartmentRuleTests
         Assert.Contains(use, ZoneUses.VerticalCompartments);
     }
 
+    /// <summary>
+    /// 決議 23: the (設備, 要求) subjects belong to 昇降機道 and 管道間 alone. 挑空 now produces a subject
+    /// of its own — 第3項's — but it is reached by 用途 in the check, never through <c>ForUse</c>, so
+    /// no 防火設備 of an 挑空 is held to anything by this category.
+    /// </summary>
     [Fact]
-    public void Only_the_hoistway_and_the_shaft_carry_extra_requirements()
+    public void Only_the_hoistway_and_the_shaft_hold_a_device_to_a_requirement()
     {
         Assert.Equal(
             new[] { VerticalCompartmentRequirement.HoistwaySmokeSeal },
@@ -162,12 +173,41 @@ public sealed class Article79_2VerticalCompartmentRuleTests
             new[] { VerticalCompartmentRequirement.ShaftDoorRating, VerticalCompartmentRequirement.ShaftDoorSmokeSeal },
             VerticalCompartmentRequirements.ForUse(ZoneUses.Shaft));
 
-        // 挑空、昇降階梯間、樓梯間 are區劃分隔 by 第1項本文 alone: nothing here is asked of them.
+        // 挑空、昇降階梯間、樓梯間 are 區劃分隔 by 第1項本文 alone: no device of theirs is asked anything.
         Assert.Empty(VerticalCompartmentRequirements.ForUse(ZoneUses.Atrium));
         Assert.Empty(VerticalCompartmentRequirements.ForUse(ZoneUses.EscalatorWell));
         Assert.Empty(VerticalCompartmentRequirements.ForUse(ZoneUses.Stairwell));
         Assert.Empty(VerticalCompartmentRequirements.ForUse("辦公"));
         Assert.Empty(VerticalCompartmentRequirements.ForUse(null));
+
+        // And the device loop cannot reach 第3項 at all, whichever 用途 it is iterating.
+        Assert.DoesNotContain(VerticalCompartmentRequirement.AtriumExemption, VerticalCompartmentRequirements.DeviceRequirements);
+        Assert.Equal(
+            VerticalCompartmentRequirements.All.Where(x => x != VerticalCompartmentRequirement.AtriumExemption),
+            VerticalCompartmentRequirements.DeviceRequirements);
+    }
+
+    /// <summary>
+    /// 第3項 is the fourth row of the 檢討表 and the last, which is 條文 order: the three requirements
+    /// of 第1項 first (§7.3). Its <c>shaft.requirement</c> text is what gives it that row without a
+    /// grouping of its own, and no rule may claim it.
+    /// </summary>
+    [Fact]
+    public void The_third_paragraph_is_the_fourth_review_table_row_and_no_rule_answers_it()
+    {
+        Assert.Equal(VerticalCompartmentRequirement.AtriumExemption, VerticalCompartmentRequirements.All.Last());
+        Assert.Equal(3, VerticalCompartmentRequirements.Order(VerticalCompartmentRequirement.AtriumExemption));
+        Assert.Equal("挑空免除（第3項）", VerticalCompartmentRequirements.Label(VerticalCompartmentRequirement.AtriumExemption));
+
+        var text = VerticalCompartmentRequirements.RuleText(VerticalCompartmentRequirement.AtriumExemption);
+        Assert.Equal("AtriumExemption", text);
+        Assert.DoesNotContain(Shipped().OfCategory(RuleCategory.VerticalCompartment), x => Requirement(x.RuleId) == text);
+
+        // It answers no single field and its subject is no opening, so both ask-the-device questions refuse.
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            VerticalCompartmentRequirements.ActualField(VerticalCompartmentRequirement.AtriumExemption));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            VerticalCompartmentRequirements.Categories(VerticalCompartmentRequirement.AtriumExemption));
     }
 
     // --- 昇降機道之防火設備遮煙性能（第1項第2句、第2項但書） -------------------------------------
