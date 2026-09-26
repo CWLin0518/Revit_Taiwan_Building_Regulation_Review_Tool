@@ -201,6 +201,11 @@ public sealed class PlannedReviewRegion
 }
 
 /// <summary>A model element the review view should show red: it failed at least one element check.</summary>
+/// <remarks>
+/// One element, one mark, however many results it failed — the element is either red or it is not, and
+/// painting it twice would say nothing the first mark did not. What the results were is carried in
+/// <see cref="ResultIds"/>, <see cref="CheckTypes"/> and, for 第79條之2, <see cref="ShaftRequirements"/>.
+/// </remarks>
 public sealed class PlannedElementOverride
 {
     internal PlannedElementOverride(string elementUniqueId, IEnumerable<ReviewTableEntry> entries)
@@ -209,18 +214,49 @@ public sealed class PlannedElementOverride
         ElementUniqueId = elementUniqueId;
         ResultIds = new ReadOnlyCollection<Guid>(list.Select(e => e.ResultId).Distinct().ToList());
         CheckTypes = new ReadOnlyCollection<string>(list.Select(e => e.CheckType).Distinct(StringComparer.Ordinal).ToList());
+        ShaftRequirements = new ReadOnlyCollection<string>(ShaftRequirementsOf(list));
+
         var first = list[0];
-        Description = first.TypeName is null
+        var element = first.TypeName is null
             ? $"未符合{first.CategoryLabel} {elementUniqueId}"
             : $"未符合{first.CategoryLabel}「{first.TypeName}」 {elementUniqueId}";
+        Description = ShaftRequirements.Count == 0
+            ? element
+            : element + $"（{string.Join("、", ShaftRequirements)}）";
     }
 
     public string ElementUniqueId { get; }
     public IReadOnlyList<Guid> ResultIds { get; }
     public IReadOnlyList<string> CheckTypes { get; }
+
+    /// <summary>
+    /// The 第79條之2第1項 requirements this element failed, in 條文 order (垂直區劃規格 §7.2). A 管道間
+    /// 維修門 owes 防火時效 and 遮煙性能 at once, so it carries two results and is still painted once;
+    /// without the requirements in <see cref="Description"/> the two 檢討表 rows and this one mark read
+    /// as a duplicate rather than as two findings (§9 第 8 項). Empty for every other check — none of
+    /// them splits one element into several subjects.
+    /// </summary>
+    public IReadOnlyList<string> ShaftRequirements { get; }
+
     public string Description { get; }
 
     public override string ToString() => Description;
+
+    /// <summary>
+    /// The requirement labels as the results stored them, deduplicated and in 條文 order. The label is
+    /// read from the result, not from the current <see cref="VerticalCompartmentRequirements.Label"/>,
+    /// for the same reason the 檢討表 row is (§7.1): an older run is shown in the wording it was
+    /// written with.
+    /// </summary>
+    private static List<string> ShaftRequirementsOf(IReadOnlyList<ReviewTableEntry> entries) =>
+        entries.Where(e => e.ShaftRequirementLabel is not null)
+            .OrderBy(e => e.ShaftRequirement is VerticalCompartmentRequirement requirement
+                ? VerticalCompartmentRequirements.Order(requirement)
+                : VerticalCompartmentRequirements.All.Count)
+            .ThenBy(e => e.ShaftRequirementLabel, StringComparer.Ordinal)
+            .Select(e => e.ShaftRequirementLabel!)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
 }
 
 /// <summary>A failing result the run could not mark in the view, and why — never dropped without a word.</summary>
@@ -351,6 +387,12 @@ public sealed class ReviewMarkupPlan
                 continue;
             }
 
+            // Everything else — 構件, 門窗 and the 防火設備 of 第79條之2 — is marked by painting the
+            // element itself red. A 垂直區劃 failure is a device whose performance falls short, not a
+            // place in the plan, so it gets no annotation and no drawing number: there is nothing to
+            // stand a note at and nothing for a number to appear on (垂直區劃規格 §7.2, the same reason
+            // CW-O carries neither). What it does need is the requirement in the line, which
+            // PlannedElementOverride writes.
             foreach (var subject in entry.LocateUniqueIds)
                 failing.Add((subject, entry));
         }
@@ -503,7 +545,9 @@ public sealed class ReviewMarkupPlan
 
     /// <summary>
     /// What a skipped mark is about. A 帷幕牆交接 is named by its drawing number first: the 檢討表 shows
-    /// the same number, so "未標示 CW-V-02 …" names a row the reader can go and look at.
+    /// the same number, so "未標示 CW-V-02 …" names a row the reader can go and look at. A 第79條之2
+    /// subject is named by its requirement for the same reason the mark is (§7.2): one 維修門 is skipped
+    /// once per requirement, and two lines naming only the door would read as the tool saying it twice.
     /// </summary>
     private static string Subject(ReviewTableEntry entry, bool isArea, IReadOnlyDictionary<Guid, string> numbers)
     {
@@ -511,6 +555,7 @@ public sealed class ReviewMarkupPlan
 
         var number = CurtainWallMarkNumbers.Of(numbers, entry.ResultId);
         var subject = $"{entry.CategoryLabel} {string.Join(",", entry.LocateUniqueIds)}";
+        if (entry.ShaftRequirementLabel is string requirement) subject += $"（{requirement}）";
         return number is null ? subject : number + " " + subject;
     }
 }

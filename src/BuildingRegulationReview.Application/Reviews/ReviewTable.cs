@@ -493,23 +493,11 @@ public sealed class ReviewTable
                             ? VerticalCompartmentRequirements.RuleText(r)
                             : Unclassified,
                         e => e.ShaftRequirementLabel ?? Unclassified)
-                    .OrderBy(g => RequirementOrder(g.Key));
+                    .OrderBy(g => VerticalCompartmentRequirements.Order(g.Key));
 
             default:
                 return Enumerable.Empty<ReviewTableGroup>();
         }
-    }
-
-    /// <summary>
-    /// Where a requirement sits in <see cref="VerticalCompartmentRequirements.All"/>; an unrecognised
-    /// key sorts last rather than throwing, so a result written by a newer version is still shown.
-    /// </summary>
-    private static int RequirementOrder(string ruleText)
-    {
-        for (var i = 0; i < VerticalCompartmentRequirements.All.Count; i++)
-            if (string.Equals(VerticalCompartmentRequirements.RuleText(VerticalCompartmentRequirements.All[i]), ruleText, StringComparison.Ordinal))
-                return i;
-        return VerticalCompartmentRequirements.All.Count;
     }
 
     /// <summary>Groups in order of first appearance, so the statistics read in the order the run did.</summary>

@@ -2,9 +2,10 @@
 
 功能 ID：`vertical-compartment`
 
-狀態：**規則層、參數層、檢查層與一次檢討的接線已完成**（本文件 §5、§6、§7、§8、§10）。按「開始檢討」
-會產生第 79 條之 2 的結果、檢討表第五列與三條要求列，證據基線也看得見遮煙性能。檢討視圖的標示與
-圖號未開始（§12 步驟 6）。
+狀態：**規則層、參數層、檢查層、一次檢討的接線與檢討視圖標示已完成**（本文件 §5、§6、§7、§8、§10）。
+按「開始檢討」會產生第 79 條之 2 的結果、檢討表第五列與三條要求列，證據基線看得見遮煙性能，未符合的
+防火設備會在檢討視圖被塗紅、描述帶出是哪幾項要求未符合（不出註解、不發圖號，§7.2）。第 3 項挑空的
+兩款免除未開始（§12 步驟 7）。
 
 ## 1. 功能摘要
 
@@ -323,10 +324,39 @@ public enum RuleCategory
 日誌另有一行 `垂直區劃（第79條之2第1項）：…`，把三條列的件數與狀態寫出來（`FireReviewRunner.Findings`）。
 **空的列也會寫**：「昇降機道防火設備遮煙性能 0 件未檢討」與整列沒檢討讀起來一樣，沒有件數分不出來。
 
-### 7.2 檢討視圖標示（未開始）
+### 7.2 檢討視圖標示（已完成）
 
-見 §12 步驟 6。預期與 `OpeningProtection` 同形，但一扇維修門有兩筆結果，標示要用
-`shaft.requirementLabel` 讓使用者看得懂同一扇門為什麼出現兩次。
+垂直區劃的未符合**只塗紅，不出註解、不發圖號**，與門窗（`OpeningProtection`）和帷幕牆的 CW-O 同形：
+
+| 產出 | 垂直區劃 | 理由 |
+| --- | --- | --- |
+| 元素紅色覆寫（`PlannedElementOverride`） | **有** | 未符合的是這扇設備本身 |
+| 文字標註（`PlannedReviewNote`） | 沒有 | 未符合的是「設備性能不足」，不是平面上的某個位置；沒有交接處那種「要標在哪裡」的幾何問題 |
+| 填滿區域（`PlannedReviewRegion`／`PlannedSpandrelBand`） | 沒有 | 受檢主體是開口，不是區劃面積，也不是層間帶 |
+| 檢討圖號（`CurtainWallMarkNumbers`） | 沒有 | 圖號的用途是把檢討表的列、標註與產生的立面綁在一起；沒有註解也沒有產生的視圖，號碼沒有地方出現、也沒有東西可以對照（同 CW-O） |
+
+**一個元素只塗紅一次，不論它欠幾項要求。** `ReviewMarkupPlan` 依 `table.Entries` 泛用地跑，第 79 條之 2
+的 Fail 落在最後的「element override」分支（不是面積、不是連結模型、沒有 `JunctionKind`），再依元素
+group 起來，所以一扇兩項都不符合的維修門是**一筆** `PlannedElementOverride` 帶**兩個** `ResultIds`。
+元素是紅的或不是紅的，塗第二次不會多說任何事。
+
+**要求名要寫進標示的描述。** 否則同一扇門在檢討表出現兩次、在標示紀錄也出現兩次，讀起來像工具講了
+兩遍（§9 第 8 項）。`PlannedElementOverride` 因此多一個 `ShaftRequirements`（照條文順序、去重），
+`Description` 是：
+
+```
+未符合門「SD1」 D-shaft（管道間維修門防火時效、管道間維修門遮煙性能）
+```
+
+要求名與檢討表的列名同樣是從 `shaft.requirementLabel` **證據**讀回來的（決議 17 的同一個理由），
+`ShaftRequirements` 對其他四個檢討類型是空的——只有第 79 條之 2 把一個元素拆成多個受檢主體。
+略過的標示（`SkippedReviewMark.Subject`）也帶要求名，理由相同：一扇位於連結模型的維修門會被略過兩次。
+
+排序用 `VerticalCompartmentRequirements.Order`，檢討表的三條要求列與這裡共用同一個函式（原本是
+`ReviewTable` 的私有 `RequirementOrder`）。
+
+擁有權機制不變：`PlannedElementOverride` 沒有 `Signature`，`ReviewMarkupDiff` 對元素覆寫只比
+`ElementUniqueId` 與 `RunId`，所以描述改字不會讓既有標示被判成需重建。
 
 ## 8. 程式組成
 
@@ -343,7 +373,9 @@ public enum RuleCategory
 | `FireReviewRunner` 的接線 | 把新檢查併入一次檢討（第 5 段、進度 5/6、三列統計寫進日誌） | 已完成 |
 | `ReviewTable` 的第五列與 `ReviewTableGrouping.ShaftRequirement` | 檢討表列與三條要求列（§7.1） | 已完成 |
 | `ReviewBaselineBuilder` 的 `shaftDevice｜` 行 | 遮煙性能與門的設計防火時效納入證據基線 | 已完成 |
-| `ReviewMarkupPlan`／`RevitReviewViewMarker` | 檢討視圖標示與圖號 | **未開始** |
+| `ReviewMarkupPlan` 的 `PlannedElementOverride.ShaftRequirements` | 標示描述帶要求名；不出註解、不發圖號（§7.2） | 已完成 |
+| `VerticalCompartmentRequirements.Order` | 條文順序，檢討表要求列與標示描述共用 | 已完成 |
+| `RevitReviewViewMarker` | 不需改動——它只把 `Description` 寫進標示紀錄 | 已完成 |
 | `SmokeProtectionParameters.Provided` | 參數名（`防火檢討_遮煙性能`），與 `FireProtectionParameters` 分立 | 已完成 |
 | `ReviewInputSources` 的兩筆 `shaft.*` 來源 | 讀取器、前置檢查都照 `All` 跑，不需另接串接層 | 已完成 |
 | `FireReviewTypeRow.ProvidedSmokeProtection`／批次面板「遮煙性能」欄 | 使用者填值的地方 | 已完成 |
@@ -367,9 +399,11 @@ public enum RuleCategory
 6. **地下建築物的第 203 條未實作。** 條文幾乎與第 79 條之 2 第 1、2 項同字，但**樓梯也要遮煙**，
    且區劃對象是「與其他部分之間」。不可直接套用本功能的規則。
 7. **遮煙性能無法由模型推導。** 它是第 1 條第 45 款的試驗結果，和阻熱性一樣只能由設計者宣告。
-8. **一扇維修門會產生兩筆結果**（時效、遮煙）。這是 §3.1 的直接後果；檢討表與標示要設計得讓
-   使用者看得懂同一扇門為什麼出現兩次。檢查層已經把要求名寫進結果訊息與
-   `shaft.requirementLabel` 證據，檢討表（§7.1）已經照著用，標示（步驟 6）還沒有。
+8. ~~**一扇維修門會產生兩筆結果**（時效、遮煙）。~~ **步驟 6 已解決**：這是 §3.1 的直接後果。
+   檢查層把要求名寫進結果訊息與 `shaft.requirementLabel` 證據，檢討表（§7.1）分成兩條要求列，
+   標示（§7.2）把要求名寫進 `PlannedElementOverride.Description` 與略過訊息的主體。門仍然只塗紅
+   一次——這是對的，元素是紅的或不是紅的。守門測試
+   `A_maintenance_door_failing_both_requirements_is_painted_once_and_the_mark_names_both`。
 9. ~~**證據基線還沒有看到遮煙性能。**~~ **步驟 5 已解決**：`ReviewBaselineBuilder` 為每個候選開口
    寫一行 `shaftDevice｜`，收 `遮煙性能` 與（門的）`設計防火時效`。兩者都不在其他輸入的涵蓋範圍內
    ——維修門是開口，不是構件，所以 `rating｜` 那行從來看不到它——改了任一個，既有檢討就會變成
@@ -453,6 +487,17 @@ public enum RuleCategory
 | `Vertical_compartment_results_are_counted_by_requirement_in_clause_order` | 三條要求列照條文順序、一扇維修門在兩條列各一次（決議 16） |
 | `A_stored_requirement_label_is_what_the_row_shows` | 列名取自已存證據，不由新版用字覆寫（決議 17） |
 
+`tests/BuildingRegulationReview.Core.Tests/Reviews/ReviewMarkupTests.cs`（§7.2）：
+
+| 測試 | 守的事 |
+| --- | --- |
+| `A_maintenance_door_failing_both_requirements_is_painted_once_and_the_mark_names_both` | 一筆 override、兩個 `ResultIds`，描述帶兩項要求且照條文順序（決議 21） |
+| `A_vertical_compartment_failure_is_only_painted_red_and_carries_no_number_or_note` | 沒有註解、沒有填滿區域、`Numbers` 是空的（決議 20）；沒有 Type 名稱時描述仍成立 |
+| `The_wording_a_mark_shows_is_the_one_the_result_stored` | 要求名取自 `shaft.requirementLabel` 證據（同決議 17） |
+| `A_skipped_vertical_compartment_result_is_named_by_its_requirement` | 連結模型的維修門被略過兩次，兩行主體分得開 |
+| `A_door_that_fails_a_shaft_requirement_and_an_opening_check_is_still_one_mark` | 兩個檢討類型共用一筆標示，只有第 79 條之 2 的要求被寫出來 |
+| `Re_running_takes_a_shaft_doors_mark_over_instead_of_painting_it_again` | 擁有權不變：改描述不會讓既有標示被重建（決議 22）；修好一項要求後仍是同一筆標示 |
+
 ## 11. 決議紀錄
 
 | # | 決議 | 理由 |
@@ -476,6 +521,9 @@ public enum RuleCategory
 | 17 | 列名從 `shaft.requirementLabel` **證據**讀回來，讀不到才退回 `VerticalCompartmentRequirements.Label` | 檢討表是只讀已存結果重建的（spec 11.7），不能回頭讀模型；而舊版結果的用字要照它當時存下來的顯示，不可被新版用字覆寫 |
 | 18 | `shaftDevice｜` 這行對**每個候選開口**都寫，不只寫垂直區劃的開口 | 基線是在檢查之外建的，和決議 14 同一個理由：這一層不知道哪些區劃是垂直區劃。而且改了用途之後才發現某扇門的遮煙性能早就變過，也必須算「需更新」 |
 | 19 | 垂直區劃的 `Context`（建築、區劃輸入）也進 context 指紋（`shaft.building`／`shaft.zone`） | 與 `rating`／`protection` 同形。組裝出來的三者其實是同一個 `CompartmentAreaInputs`，多寫一次不會漏；但若有人只傳垂直區劃輸入，`zone.use` 仍然要在基線裡 |
+| 20 | 垂直區劃的未符合**只塗紅**，不出文字標註、不發檢討圖號 | 未符合的是「這扇設備的性能不足」，不是平面上的某個位置，沒有帷幕牆交接那種「要標在哪裡」的幾何問題；圖號的用途是綁住檢討表列、標註與產生的立面，沒有註解也沒有產生的視圖時，號碼沒有地方出現（§7.2，同 CW-O 的理由）。守門測試 `A_vertical_compartment_failure_is_only_painted_red_and_carries_no_number_or_note` |
+| 21 | 一個元素**只塗紅一次**，要求名寫進 `Description` 與略過訊息，不改成一元素多筆標示 | 元素是紅的或不是紅的，塗第二次不會多說任何事；但不寫要求名，同一扇門在檢討表與標示紀錄都出現兩次，讀起來像工具講了兩遍（§9 第 8 項）。要求名從 `shaft.requirementLabel` 證據讀回來（同決議 17） |
+| 22 | 改 `Description` 不動擁有權機制 | `PlannedElementOverride` 沒有 `Signature`，`ReviewMarkupDiff` 對元素覆寫只比 `ElementUniqueId` 與 `RunId`；若描述進了簽章，改一句話就會讓全模型既有標示被判成需重建 |
 
 ## 12. 實作進度
 
@@ -486,7 +534,7 @@ public enum RuleCategory
 | 3 | Shared Parameter `防火檢討_遮煙性能`（Big5 定義檔、輸入來源、讀取器、批次參數面板欄位） | **已完成** |
 | 4 | `VerticalCompartmentCheck`／`VerticalCompartmentInputs`：由候選開口產生主體並跑引擎 | **已完成** |
 | 5 | `FireReviewRunner` 接線、`ReviewTable` 三列、證據基線納入遮煙性能 | **已完成** |
-| 6 | 檢討視圖標示與圖號 | 未開始 |
+| 6 | 檢討視圖標示與圖號（只塗紅、描述帶要求名、不發圖號） | **已完成** |
 | 7 | 第 3 項挑空的兩款免除（需要連跨樓層數與避難層通達的事實） | 未開始 |
 
 ### 步驟 1、2 的驗證
@@ -603,3 +651,40 @@ public enum RuleCategory
 模型上，把該區劃各 Area 的 `防火檢討_區劃用途` 填成 `昇降機道`／`管道間`，門窗嵌板類型填
 `防火檢討_遮煙性能`、門再填 `防火檢討_設計防火時效`，按「開始檢討」應看到檢討表第五列「垂直區劃」
 展開成要求列，一扇維修門在兩條列各出現一次。步驟 3 的參數綁定實機驗證仍然待辦。
+
+### 步驟 6 的產出與驗證
+
+改動的檔案（3 個程式檔，Revit 端不需改動）：
+
+- `src/BuildingRegulationReview.Application/Checks/VerticalCompartmentInputs.cs`：
+  `VerticalCompartmentRequirements.Order(string?)` 與 `Order(VerticalCompartmentRequirement)`
+  ——條文順序，檢討表的三條要求列與標示描述共用。
+- `src/BuildingRegulationReview.Application/Reviews/ReviewTable.cs`：私有 `RequirementOrder` 刪除，
+  改叫 `VerticalCompartmentRequirements.Order`。行為不變（守門測試
+  `Vertical_compartment_results_are_counted_by_requirement_in_clause_order` 未改）。
+- `src/BuildingRegulationReview.Application/Reviews/ReviewMarkup.cs`：
+  `PlannedElementOverride.ShaftRequirements`（照條文順序、去重、取自 `shaft.requirementLabel` 證據）、
+  `Description` 在有要求時附上要求名、`ReviewMarkupPlan.Subject` 對略過的標示也附上要求名；
+  element override 分支加上「為什麼不出註解、不發圖號」的註解。
+
+**沒有改動的地方，以及為什麼：**
+
+- `RevitReviewViewMarker`：它只把 `PlannedElementOverride.Description` 寫進標示紀錄
+  （`ApplyOverrides`），描述變長就自動反映，沒有邏輯要改。
+- `ReviewMarkupDiff`：元素覆寫只比 `ElementUniqueId` 與 `RunId`，`PlannedElementOverride` 沒有
+  `Signature`，所以描述改字不會讓既有標示被判成需重建（決議 22，守門測試
+  `Re_running_takes_a_shaft_doors_mark_over_instead_of_painting_it_again`）。
+- `CurtainWallMarkNumbers`：`Assign` 只收 `JunctionKind is not null` 的列，垂直區劃本來就拿不到
+  號碼，決議 20 是把這件事確認下來並加上守門測試，不是改它。帷幕牆的既有圖號守門測試未動。
+- `VerticalCompartmentCheck` 的證據：`opening.EvidenceFor(zone)` 已經帶了
+  `source.category`／`source.typeName`／`source.linkInstanceUniqueId`（走 `CandidateEvidence.Source`），
+  所以描述讀得到「門「SD1」」，連結模型的維修門也已經走略過那條路。
+
+測試：`dotnet test` **1382 通過、0 失敗**（原 1376）。新增 6 項，全部在 `ReviewMarkupTests`
+（§10 最後一張表）。**沒有既有測試需要改寫**；唯一調整的是把該檔的私有輔助 `JunctionRun` 改名為
+`HandRun`（它現在也用來組垂直區劃的檢討紀錄）。`BuildingRegulationReview.sln` 與 WPF 外掛專案皆
+0 警告 0 錯誤。
+
+**未實機驗證**——本階段沒有任何 Revit 端改動。要驗時：照「步驟 5 的產出與驗證」把模型填好，讓一扇
+管道間維修門兩項要求都不符合，按「開始檢討」後標示檢討視圖，該扇門應只被塗紅一次，標示紀錄的那一行
+應寫出兩項要求名。

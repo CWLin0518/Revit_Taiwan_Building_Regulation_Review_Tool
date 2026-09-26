@@ -90,6 +90,23 @@ public static class VerticalCompartmentRequirements
         _ => throw new ArgumentOutOfRangeException(nameof(requirement))
     };
 
+    /// <summary>
+    /// Where a requirement sits in <see cref="All"/>, which is 條文 order. Both the 檢討表 rows
+    /// (垂直區劃規格 §7.1) and the 標示 description (§7.2) sort by it rather than by the order the run
+    /// happened to meet them, so the same project reads the same way on every storey. An unrecognised
+    /// <c>shaft.requirement</c> sorts last instead of throwing, so a result written by a newer version
+    /// of the tool is still shown.
+    /// </summary>
+    public static int Order(string? ruleText)
+    {
+        for (var i = 0; i < All.Count; i++)
+            if (string.Equals(RuleText(All[i]), ruleText, StringComparison.Ordinal)) return i;
+        return All.Count;
+    }
+
+    /// <inheritdoc cref="Order(string)"/>
+    public static int Order(VerticalCompartmentRequirement requirement) => Order(RuleText(requirement));
+
     /// <summary>The row of the 檢討表 this requirement is counted in.</summary>
     public static string Label(VerticalCompartmentRequirement requirement) => requirement switch
     {

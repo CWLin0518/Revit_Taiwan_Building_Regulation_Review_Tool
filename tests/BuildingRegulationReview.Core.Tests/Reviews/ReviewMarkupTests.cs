@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using BuildingRegulationReview.Application.Candidates;
 using BuildingRegulationReview.Application.Checks;
 using BuildingRegulationReview.Application.Diagnostics;
 using BuildingRegulationReview.Application.Reviews;
@@ -365,7 +366,7 @@ public sealed class ReviewMarkupTests
             "cw", "1", "條文", "交接處未維持區劃連續性", new ReviewEvidence(evidence));
     }
 
-    private static ReviewRun JunctionRun(Guid runId, params ReviewResult[] results) =>
+    private static ReviewRun HandRun(Guid runId, params ReviewResult[] results) =>
         new ReviewRun(runId, PackageId, ReviewRunValidityTests.RuleSetId, ReviewRunValidityTests.Version, 1,
             ReviewRunValidityTests.Started).Complete(results, ReviewRunValidityTests.Ended);
 
@@ -379,7 +380,7 @@ public sealed class ReviewMarkupTests
     [Fact]
     public void A_failing_CW_H_junction_paints_the_panels_it_covers_and_annotates_the_intersection()
     {
-        var plan = Plan(JunctionRun(ReviewRunValidityTests.RunId,
+        var plan = Plan(HandRun(ReviewRunValidityTests.RunId,
             HorizontalJunction(ReviewRunValidityTests.RunId, "panel-1", "panel-2")), new Model());
 
         // Not the curtain wall and not the 區劃牆: §7.1 asks for the panels at the junction.
@@ -401,7 +402,7 @@ public sealed class ReviewMarkupTests
     [Fact]
     public void A_failing_CW_V_junction_draws_the_spandrel_band_and_annotates_it_instead_of_painting_panels()
     {
-        var plan = Plan(JunctionRun(ReviewRunValidityTests.RunId, SpandrelJunction(ReviewRunValidityTests.RunId)), new Model());
+        var plan = Plan(HandRun(ReviewRunValidityTests.RunId, SpandrelJunction(ReviewRunValidityTests.RunId)), new Model());
 
         Assert.Empty(plan.Overrides);
         var band = Assert.Single(plan.Bands);
@@ -422,7 +423,7 @@ public sealed class ReviewMarkupTests
     [Fact]
     public void A_failing_CW_O_junction_paints_its_panels_and_has_nothing_to_annotate()
     {
-        var plan = Plan(JunctionRun(ReviewRunValidityTests.RunId,
+        var plan = Plan(HandRun(ReviewRunValidityTests.RunId,
             Junction(ReviewRunValidityTests.RunId, CurtainWallJunctionKind.CurtainPanelOther, "CW-O:cw-1",
                 new[] { "panel-9" })), new Model());
 
@@ -435,7 +436,7 @@ public sealed class ReviewMarkupTests
     [Fact]
     public void A_measurement_the_run_never_took_is_annotated_as_未量得_rather_than_as_zero()
     {
-        var plan = Plan(JunctionRun(ReviewRunValidityTests.RunId,
+        var plan = Plan(HandRun(ReviewRunValidityTests.RunId,
             Junction(ReviewRunValidityTests.RunId, CurtainWallJunctionKind.WallToCurtainWall, "CW-H:cw-1:wall-1",
                 new[] { "panel-1" }, Crossing, runMeters: null, projectionMeters: 0.0, host: "wall-1")), new Model());
 
@@ -445,7 +446,7 @@ public sealed class ReviewMarkupTests
     [Fact]
     public void A_junction_with_no_recorded_place_or_no_recorded_panels_is_skipped_with_a_reason()
     {
-        var run = JunctionRun(ReviewRunValidityTests.RunId,
+        var run = HandRun(ReviewRunValidityTests.RunId,
             Junction(ReviewRunValidityTests.RunId, CurtainWallJunctionKind.WallToCurtainWall, "CW-H:cw-1:wall-1",
                 new[] { "panel-1" }, placement: null, host: "wall-1"),
             Junction(ReviewRunValidityTests.RunId, CurtainWallJunctionKind.CurtainPanelOther, "CW-O:cw-1"));
@@ -466,7 +467,7 @@ public sealed class ReviewMarkupTests
         var model = new Model();
         var view = new FakeView();
 
-        var first = view.Mark(Plan(JunctionRun(ReviewRunValidityTests.RunId,
+        var first = view.Mark(Plan(HandRun(ReviewRunValidityTests.RunId,
             HorizontalJunction(ReviewRunValidityTests.RunId, "panel-1"),
             SpandrelJunction(ReviewRunValidityTests.RunId)), model));
 
@@ -474,11 +475,11 @@ public sealed class ReviewMarkupTests
         Assert.Equal(4, first.Count(ReviewMarkAction.Create));
         Assert.Equal(3, view.Marks.Count);
 
-        Assert.False(view.Mark(Plan(JunctionRun(ReviewRunValidityTests.RunId,
+        Assert.False(view.Mark(Plan(HandRun(ReviewRunValidityTests.RunId,
             HorizontalJunction(ReviewRunValidityTests.RunId, "panel-1"),
             SpandrelJunction(ReviewRunValidityTests.RunId)), model)).HasChanges);
 
-        var next = view.Mark(Plan(JunctionRun(ReviewRunValidityTests.NextRunId,
+        var next = view.Mark(Plan(HandRun(ReviewRunValidityTests.NextRunId,
             HorizontalJunction(ReviewRunValidityTests.NextRunId, "panel-1"),
             SpandrelJunction(ReviewRunValidityTests.NextRunId)), model));
 
@@ -494,7 +495,7 @@ public sealed class ReviewMarkupTests
         var model = new Model();
         var run = ReviewTableTests.ReviewAll(model, areaLimitM2: 50);
         var zones = Plan(run, model);
-        var junctions = Plan(JunctionRun(ReviewRunValidityTests.RunId,
+        var junctions = Plan(HandRun(ReviewRunValidityTests.RunId,
             SpandrelJunction(ReviewRunValidityTests.RunId)), model);
 
         // The zone run plans no band, so the band it finds is its own package's — and still not a
@@ -543,7 +544,7 @@ public sealed class ReviewMarkupTests
     // --- 未符合交接的檢討圖號（帷幕牆規格 §7.1）-------------------------------------------------------
 
     /// <summary>A run with two CW-H, two CW-V and one CW-O 未符合, deliberately out of junction order.</summary>
-    private static ReviewRun NumberedRun(Guid runId) => JunctionRun(runId,
+    private static ReviewRun NumberedRun(Guid runId) => HandRun(runId,
         Junction(runId, CurtainWallJunctionKind.FloorToCurtainWall, "CW-V:cw-1:floor-2:0",
             new[] { "panel-4" }, SpandrelBand, 0.6, 0.0, "floor-2"),
         Junction(runId, CurtainWallJunctionKind.WallToCurtainWall, "CW-H:cw-1:wall-2",
@@ -602,7 +603,7 @@ public sealed class ReviewMarkupTests
     [Fact]
     public void Only_a_failing_junction_that_is_still_current_is_numbered()
     {
-        var run = JunctionRun(ReviewRunValidityTests.RunId,
+        var run = HandRun(ReviewRunValidityTests.RunId,
             HorizontalJunction(ReviewRunValidityTests.RunId, "panel-1"),
             Junction(ReviewRunValidityTests.RunId, CurtainWallJunctionKind.WallToCurtainWall, "CW-H:cw-1:wall-9",
                 new[] { "panel-9" }, Crossing, 0.45, 0.12, "wall-9", ReviewStatus.Pass));
@@ -649,6 +650,134 @@ public sealed class ReviewMarkupTests
         Assert.Equal("CW-H-100", CurtainWallMarkNumbers.Format(CurtainWallMarkNumbers.HorizontalPrefix, 100));
         Assert.Null(CurtainWallMarkNumbers.Prefix(CurtainWallJunctionKind.CurtainPanelOther));
         Assert.Throws<ArgumentOutOfRangeException>(() => CurtainWallMarkNumbers.Format("CW-V", 0));
+    }
+
+    // --- 垂直區劃的標示（垂直區劃規格 §7.2、§9 第 8 項）-----------------------------------------------
+
+    /// <summary>
+    /// A failing 第79條之2 result, with the evidence <see cref="VerticalCompartmentCheck"/> writes for
+    /// one: the requirement, the label the 檢討表 row and the mark are both read from, and the source
+    /// fields every opening candidate carries.
+    /// </summary>
+    private static ReviewResult Shaft(
+        VerticalCompartmentRequirement requirement,
+        string element,
+        string? typeName = "SD1",
+        string? label = null,
+        string? linkInstance = null,
+        Guid? runId = null)
+    {
+        var evidence = new List<ReviewEvidenceItem>
+        {
+            new("source.category", ReviewValue.OfText(CandidateCategories.RuleText(CandidateCategory.Door))),
+            new(VerticalCompartmentRequirements.RequirementField,
+                ReviewValue.OfText(VerticalCompartmentRequirements.RuleText(requirement))),
+            new("shaft.requirementLabel", ReviewValue.OfText(label ?? VerticalCompartmentRequirements.Label(requirement))),
+            new(VerticalCompartmentRequirements.ElementField, ReviewValue.OfText(element))
+        };
+        if (typeName is not null) evidence.Add(new("source.typeName", ReviewValue.OfText(typeName)));
+        if (linkInstance is not null) evidence.Add(new("source.linkInstanceUniqueId", ReviewValue.OfText(linkInstance)));
+
+        return new ReviewResult(Guid.NewGuid(), runId ?? ReviewRunValidityTests.RunId, PackageId, ReviewCheckTypes.VerticalCompartment,
+            new[] { element }, ZoneA.ToString("D"), ReviewStatus.Fail, ReviewValue.OfText("否"), ReviewValue.OfText("是"),
+            "tw-bcr-79-2-shaft", "1", "建築技術規則建築設計施工編第79條之2", "未符合", new ReviewEvidence(evidence));
+    }
+
+    [Fact]
+    public void A_maintenance_door_failing_both_requirements_is_painted_once_and_the_mark_names_both()
+    {
+        // 條文 order is 時效 then 遮煙性能; the run met them the other way round on purpose.
+        var plan = Plan(HandRun(ReviewRunValidityTests.RunId,
+            Shaft(VerticalCompartmentRequirement.ShaftDoorSmokeSeal, "D-shaft"),
+            Shaft(VerticalCompartmentRequirement.ShaftDoorRating, "D-shaft")), new Model());
+
+        var painted = Assert.Single(plan.Overrides);
+        Assert.Equal("D-shaft", painted.ElementUniqueId);
+        Assert.Equal(2, painted.ResultIds.Count);
+        Assert.Equal(new[] { ReviewCheckTypes.VerticalCompartment }, painted.CheckTypes);
+        Assert.Equal(new[] { "管道間維修門防火時效", "管道間維修門遮煙性能" }, painted.ShaftRequirements);
+        Assert.Equal("未符合門「SD1」 D-shaft（管道間維修門防火時效、管道間維修門遮煙性能）", painted.Description);
+        Assert.Empty(plan.Skipped);
+    }
+
+    [Fact]
+    public void A_vertical_compartment_failure_is_only_painted_red_and_carries_no_number_or_note()
+    {
+        var plan = Plan(HandRun(ReviewRunValidityTests.RunId,
+            Shaft(VerticalCompartmentRequirement.HoistwaySmokeSeal, "D-hoistway", typeName: null)), new Model());
+
+        // §7.2: the failure is a device whose performance falls short, not a place in the plan.
+        Assert.Empty(plan.Notes);
+        Assert.Empty(plan.Bands);
+        Assert.Empty(plan.Regions);
+        Assert.Empty(plan.Numbers);
+        var painted = Assert.Single(plan.Overrides);
+        Assert.Equal("未符合門 D-hoistway（昇降機道防火設備遮煙性能）", painted.Description);
+    }
+
+    [Fact]
+    public void The_wording_a_mark_shows_is_the_one_the_result_stored()
+    {
+        var plan = Plan(HandRun(ReviewRunValidityTests.RunId,
+            Shaft(VerticalCompartmentRequirement.ShaftDoorRating, "D-shaft", label: "管道間維修門防火時效（舊版用字）")), new Model());
+
+        Assert.Equal("未符合門「SD1」 D-shaft（管道間維修門防火時效（舊版用字））", Assert.Single(plan.Overrides).Description);
+    }
+
+    [Fact]
+    public void A_skipped_vertical_compartment_result_is_named_by_its_requirement()
+    {
+        var plan = Plan(HandRun(ReviewRunValidityTests.RunId,
+            Shaft(VerticalCompartmentRequirement.ShaftDoorRating, "D-linked", linkInstance: "link-1"),
+            Shaft(VerticalCompartmentRequirement.ShaftDoorSmokeSeal, "D-linked", linkInstance: "link-1")), new Model());
+
+        Assert.Empty(plan.Overrides);
+        Assert.Equal(2, plan.Skipped.Count);
+        Assert.Contains("門 D-linked（管道間維修門防火時效）", plan.Skipped.Select(s => s.Subject));
+        Assert.Contains("門 D-linked（管道間維修門遮煙性能）", plan.Skipped.Select(s => s.Subject));
+        Assert.All(plan.Skipped, s => Assert.Contains("連結模型", s.Reason, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_door_that_fails_a_shaft_requirement_and_an_opening_check_is_still_one_mark()
+    {
+        var opening = new ReviewResult(Guid.NewGuid(), ReviewRunValidityTests.RunId, PackageId, ReviewCheckTypes.OpeningProtection,
+            new[] { "D-shaft" }, ZoneA.ToString("D"), ReviewStatus.Fail, ReviewValue.OfText("否"), ReviewValue.OfText("是"),
+            "tw-bcr-79-opening", "1", "第79條", "非防火設備", new ReviewEvidence(new[]
+            {
+                new ReviewEvidenceItem("source.category", ReviewValue.OfText(CandidateCategories.RuleText(CandidateCategory.Door))),
+                new ReviewEvidenceItem("source.typeName", ReviewValue.OfText("SD1"))
+            }));
+        var plan = Plan(HandRun(ReviewRunValidityTests.RunId,
+            opening, Shaft(VerticalCompartmentRequirement.ShaftDoorRating, "D-shaft")), new Model());
+
+        var painted = Assert.Single(plan.Overrides);
+        Assert.Equal(2, painted.ResultIds.Count);
+        Assert.Equal(new[] { ReviewCheckTypes.OpeningProtection, ReviewCheckTypes.VerticalCompartment }, painted.CheckTypes);
+
+        // Only 第79條之2 splits one element into several subjects, so only its requirement is named.
+        Assert.Equal(new[] { "管道間維修門防火時效" }, painted.ShaftRequirements);
+    }
+
+    [Fact]
+    public void Re_running_takes_a_shaft_doors_mark_over_instead_of_painting_it_again()
+    {
+        var view = new FakeView();
+        var first = view.Mark(Plan(HandRun(ReviewRunValidityTests.RunId,
+            Shaft(VerticalCompartmentRequirement.ShaftDoorRating, "D-shaft"),
+            Shaft(VerticalCompartmentRequirement.ShaftDoorSmokeSeal, "D-shaft")), new Model()));
+
+        Assert.Equal(1, first.Count(ReviewMarkAction.Create));
+        Assert.Single(view.Records);
+        Assert.Equal("red", view.Looks["D-shaft"]);
+
+        // The door now meets 時效 but still not 遮煙性能: one mark, taken over, not a second one.
+        var next = view.Mark(Plan(HandRun(ReviewRunValidityTests.NextRunId,
+            Shaft(VerticalCompartmentRequirement.ShaftDoorSmokeSeal, "D-shaft", runId: ReviewRunValidityTests.NextRunId)), new Model()));
+
+        Assert.Equal(1, next.Count(ReviewMarkAction.Update));
+        Assert.Single(view.Records);
+        Assert.Equal(new[] { "管道間維修門遮煙性能" }, Assert.Single(next.Overrides).Planned!.ShaftRequirements);
     }
 
     [Fact]
