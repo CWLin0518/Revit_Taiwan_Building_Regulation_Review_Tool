@@ -37,6 +37,7 @@ public sealed class FireReviewIntegrationTests
         var source = ReviewInputSources.For("zone.interiorFinish")!;
 
         Assert.Equal(ReviewParameterLevel.Type, source.Level);
+        Assert.Equal("室內裝修耐燃等級", source.Label);
         Assert.Equal(new[] { ReviewParameterHost.Walls, ReviewParameterHost.Ceilings }, source.Hosts);
         Assert.DoesNotContain(ReviewParameterHost.Areas, source.Hosts);
     }
