@@ -340,7 +340,8 @@ public sealed class ReviewMarkupTests
         CurtainWallJunctionPlacement? placement = null,
         double? runMeters = null,
         double? projectionMeters = null,
-        string? host = null)
+        string? host = null,
+        ReviewStatus status = ReviewStatus.Fail)
     {
         var panelList = (panels ?? Array.Empty<string>()).ToList();
         var evidence = new List<ReviewEvidenceItem>
@@ -360,7 +361,7 @@ public sealed class ReviewMarkupTests
 
         var subjects = new[] { CurtainWall }.Concat(host is null ? Array.Empty<string>() : new[] { host }).Concat(panelList);
         return new ReviewResult(Guid.NewGuid(), runId, PackageId, ReviewCheckTypes.CompartmentContinuity,
-            subjects, ZoneA.ToString("D"), ReviewStatus.Fail, ReviewValue.OfText("0"), ReviewValue.OfText("0.9"),
+            subjects, ZoneA.ToString("D"), status, ReviewValue.OfText("0"), ReviewValue.OfText("0.9"),
             "cw", "1", "條文", "交接處未維持區劃連續性", new ReviewEvidence(evidence));
     }
 
@@ -386,7 +387,8 @@ public sealed class ReviewMarkupTests
 
         var note = Assert.Single(plan.Notes);
         Assert.Equal(CurtainWallJunctionKind.WallToCurtainWall, note.JunctionKind);
-        Assert.Equal("交接帶連續具時效長度 450 mm／突出 120 mm", note.Text);
+        Assert.Equal("CW-H-01　交接帶連續具時效長度 450 mm／突出 120 mm", note.Text);
+        Assert.Equal("CW-H-01", note.Number);
         Assert.Equal(ReviewMarkKind.JunctionNote, note.Key.Kind);
         Assert.Equal("CW-H:cw-1:wall-1", note.Key.Subject);
         Assert.Equal(ZoneA, note.Key.ZoneId);
@@ -409,7 +411,9 @@ public sealed class ReviewMarkupTests
         Assert.Equal(1800, band.Placement.HeightMm, 3);
 
         var note = Assert.Single(plan.Notes);
-        Assert.Equal("層間帶連續具時效高度 600 mm／突出 0 mm", note.Text);
+        Assert.Equal("CW-V-01　層間帶連續具時效高度 600 mm／突出 0 mm（詳見立面 CW-V-01）", note.Text);
+        Assert.Equal("CW-V-01", note.Number);
+        Assert.Equal("CW-V-01", band.Number);
         Assert.Equal(band.Key.Subject, note.Key.Subject);
         Assert.NotEqual(band.Key.Slot, note.Key.Slot);
         Assert.Empty(plan.Skipped);
@@ -435,7 +439,7 @@ public sealed class ReviewMarkupTests
             Junction(ReviewRunValidityTests.RunId, CurtainWallJunctionKind.WallToCurtainWall, "CW-H:cw-1:wall-1",
                 new[] { "panel-1" }, Crossing, runMeters: null, projectionMeters: 0.0, host: "wall-1")), new Model());
 
-        Assert.Equal("交接帶連續具時效長度 未量得／突出 0 mm", Assert.Single(plan.Notes).Text);
+        Assert.Equal("CW-H-01　交接帶連續具時效長度 未量得／突出 0 mm", Assert.Single(plan.Notes).Text);
     }
 
     [Fact]
@@ -534,6 +538,117 @@ public sealed class ReviewMarkupTests
             new ReviewMarkKey(PackageId, ReviewRunValidityTests.RunId, ZoneA, 0, ReviewMarkKind.JunctionNote, "  "));
         Assert.Throws<ArgumentException>(() =>
             new ReviewMarkKey(PackageId, ReviewRunValidityTests.RunId, ZoneA, 0, ReviewMarkKind.Zone, "x"));
+    }
+
+    // --- 未符合交接的檢討圖號（帷幕牆規格 §7.1）-------------------------------------------------------
+
+    /// <summary>A run with two CW-H, two CW-V and one CW-O 未符合, deliberately out of junction order.</summary>
+    private static ReviewRun NumberedRun(Guid runId) => JunctionRun(runId,
+        Junction(runId, CurtainWallJunctionKind.FloorToCurtainWall, "CW-V:cw-1:floor-2:0",
+            new[] { "panel-4" }, SpandrelBand, 0.6, 0.0, "floor-2"),
+        Junction(runId, CurtainWallJunctionKind.WallToCurtainWall, "CW-H:cw-1:wall-2",
+            new[] { "panel-2" }, Crossing, 0.45, 0.12, "wall-2"),
+        Junction(runId, CurtainWallJunctionKind.FloorToCurtainWall, "CW-V:cw-1:floor-1:0",
+            new[] { "panel-3" }, SpandrelBand, 0.6, 0.0, "floor-1"),
+        Junction(runId, CurtainWallJunctionKind.WallToCurtainWall, "CW-H:cw-1:wall-1",
+            new[] { "panel-1" }, Crossing, 0.45, 0.12, "wall-1"),
+        Junction(runId, CurtainWallJunctionKind.CurtainPanelOther, "CW-O:cw-1", new[] { "panel-9" }));
+
+    private static string? NumberOf(ReviewMarkupPlan plan, ReviewRun run, string junctionId) =>
+        CurtainWallMarkNumbers.Of(plan.Numbers, run.Results
+            .Single(r => r.Evidence.Find("junction.id")?.Text == junctionId).ResultId);
+
+    [Fact]
+    public void Each_failing_junction_gets_a_drawing_number_numbered_per_kind_and_in_junction_order()
+    {
+        var run = NumberedRun(ReviewRunValidityTests.RunId);
+        var plan = Plan(run, new Model());
+
+        // Listed out of order in the run; numbered by the junction's own ID, so the junctions of one
+        // curtain wall stay together and the same run always numbers them the same way.
+        Assert.Equal("CW-H-01", NumberOf(plan, run, "CW-H:cw-1:wall-1"));
+        Assert.Equal("CW-H-02", NumberOf(plan, run, "CW-H:cw-1:wall-2"));
+        Assert.Equal("CW-V-01", NumberOf(plan, run, "CW-V:cw-1:floor-1:0"));
+        Assert.Equal("CW-V-02", NumberOf(plan, run, "CW-V:cw-1:floor-2:0"));
+
+        // CW-O paints panels and writes no annotation, so it has nothing a number could appear on.
+        Assert.Null(NumberOf(plan, run, "CW-O:cw-1"));
+
+        Assert.Equal(new[] { "CW-H-01", "CW-H-02", "CW-V-01", "CW-V-02" },
+            plan.Notes.Select(n => n.Number).OrderBy(n => n, StringComparer.Ordinal));
+        Assert.Equal(new[] { "CW-V-01", "CW-V-02" },
+            plan.Bands.Select(b => b.Number).OrderBy(n => n, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void The_number_the_table_shows_is_the_number_the_marks_carry()
+    {
+        var run = NumberedRun(ReviewRunValidityTests.RunId);
+        var plan = Plan(run, new Model());
+
+        // The window numbers straight from the table, without building a plan. Both have to agree, or
+        // a 未符合 row would send the reader to a drawing that is not the one it was judged on.
+        var fromTable = CurtainWallMarkNumbers.Assign(ReviewTable.Build(run, null));
+
+        Assert.Equal(plan.Numbers.OrderBy(p => p.Key), fromTable.OrderBy(p => p.Key));
+        foreach (var note in plan.Notes) Assert.Equal(note.Number, CurtainWallMarkNumbers.Of(fromTable, note.ResultId));
+        foreach (var band in plan.Bands) Assert.Equal(band.Number, CurtainWallMarkNumbers.Of(fromTable, band.ResultId));
+
+        // The number is what the note says and what the mark's description is filed under.
+        foreach (var note in plan.Notes) Assert.StartsWith(note.Number, note.Text, StringComparison.Ordinal);
+        foreach (var band in plan.Bands) Assert.StartsWith(band.Number, band.Description, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Only_a_failing_junction_that_is_still_current_is_numbered()
+    {
+        var run = JunctionRun(ReviewRunValidityTests.RunId,
+            HorizontalJunction(ReviewRunValidityTests.RunId, "panel-1"),
+            Junction(ReviewRunValidityTests.RunId, CurtainWallJunctionKind.WallToCurtainWall, "CW-H:cw-1:wall-9",
+                new[] { "panel-9" }, Crossing, 0.45, 0.12, "wall-9", ReviewStatus.Pass));
+
+        var numbers = CurtainWallMarkNumbers.Assign(ReviewTable.Build(run, null));
+
+        // A pass is not a 未符合, so it neither takes a number nor pushes the next one along.
+        Assert.Equal("CW-H-01", Assert.Single(numbers).Value);
+    }
+
+    [Fact]
+    public void Two_spandrels_of_one_wall_differ_by_their_number_alone_so_a_renumber_is_a_change()
+    {
+        var plan = Plan(NumberedRun(ReviewRunValidityTests.RunId), new Model());
+        var bands = plan.Bands.OrderBy(b => b.Number, StringComparer.Ordinal).ToList();
+
+        // Same wall, same 層間帶 rectangle: without the number in the signature a renumbered band would
+        // read as unchanged, and the elevation's name would go on pointing at the old number.
+        Assert.Equal(bands[0].CurtainWallUniqueId, bands[1].CurtainWallUniqueId);
+        Assert.Equal(bands[0].Placement.LengthMm, bands[1].Placement.LengthMm, 3);
+        Assert.NotEqual(bands[0].Signature, bands[1].Signature);
+    }
+
+    [Fact]
+    public void A_generated_curtain_wall_elevation_is_named_after_the_numbers_it_shows()
+    {
+        Assert.Equal("防火_1F_防火檢討_CW-V-01_CW-A_帷幕牆立面",
+            ReviewOutputNaming.CurtainWallElevation("防火_1F_防火檢討", "CW-A", "CW-V-01"));
+
+        // No number to give (an older caller, or a wall whose bands were all skipped): the name it
+        // always had, so nothing that exists in a model stops being recognisable.
+        Assert.Equal("防火_1F_防火檢討_CW-A_帷幕牆立面",
+            ReviewOutputNaming.CurtainWallElevation("防火_1F_防火檢討", "CW-A"));
+
+        // Up to three numbers are named; past that the name says how many instead of listing them.
+        Assert.Equal("CW-V-01", CurtainWallMarkNumbers.Join(new[] { "CW-V-01" }));
+        Assert.Equal("CW-V-01、CW-V-02、CW-V-03",
+            CurtainWallMarkNumbers.Join(new[] { "CW-V-03", "CW-V-01", "CW-V-02" }));
+        Assert.Equal("CW-V-01等4處",
+            CurtainWallMarkNumbers.Join(new[] { "CW-V-04", "CW-V-01", "CW-V-02", "CW-V-03" }));
+        Assert.Equal(string.Empty, CurtainWallMarkNumbers.Join(Array.Empty<string>()));
+
+        Assert.Equal("CW-V-01", CurtainWallMarkNumbers.Format(CurtainWallMarkNumbers.SpandrelPrefix, 1));
+        Assert.Equal("CW-H-100", CurtainWallMarkNumbers.Format(CurtainWallMarkNumbers.HorizontalPrefix, 100));
+        Assert.Null(CurtainWallMarkNumbers.Prefix(CurtainWallJunctionKind.CurtainPanelOther));
+        Assert.Throws<ArgumentOutOfRangeException>(() => CurtainWallMarkNumbers.Format("CW-V", 0));
     }
 
     [Fact]

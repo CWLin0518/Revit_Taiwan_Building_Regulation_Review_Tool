@@ -62,6 +62,14 @@ namespace BuildingRegulationReview.FireReview
         private ReviewRun _run;
         private ReviewRunFreshness _freshness;
         private ReviewTable _table;
+
+        /// <summary>
+        /// The 圖號 of every 未符合 帷幕牆交接 in the run that is shown. The same numbers the marks and the
+        /// generated 帷幕牆立面 carry, worked out from the table the window is showing, so a row of the
+        /// table and a drawing in the project browser can be matched by eye (帷幕牆規格 §7.1).
+        /// </summary>
+        private IReadOnlyDictionary<Guid, string> _marks = new Dictionary<Guid, string>();
+
         private CancellationTokenSource _cancellation;
         private bool _busy;
 
@@ -311,6 +319,7 @@ namespace BuildingRegulationReview.FireReview
             _run = run;
             _freshness = freshness;
             _table = table ?? (run == null ? null : ReviewTable.Build(run, freshness));
+            _marks = _table == null ? new Dictionary<Guid, string>() : CurtainWallMarkNumbers.Assign(_table);
             _tree.Items.Clear();
             _detail.Text = string.Empty;
 
@@ -376,13 +385,14 @@ namespace BuildingRegulationReview.FireReview
             _ => ReviewTableGrouping.OpeningKind
         };
 
-        private static string EntryText(ReviewTableEntry entry)
+        private string EntryText(ReviewTableEntry entry)
         {
             var subject = entry.CheckType == ReviewCheckTypes.CompartmentArea
                 ? entry.ZoneName ?? entry.ZoneId
                 : $"{entry.CategoryLabel}{(entry.TypeName == null ? string.Empty : "「" + entry.TypeName + "」")} {Shorten(entry.LocateUniqueIds.FirstOrDefault())}" +
                   (entry.ZoneName == null ? string.Empty : "＠" + entry.ZoneName);
-            return $"{entry.StatusText}　{subject}　{entry.Message}";
+            var number = CurtainWallMarkNumbers.Of(_marks, entry.ResultId);
+            return $"{entry.StatusText}　{(number == null ? string.Empty : number + "　")}{subject}　{entry.Message}";
         }
 
         private void ShowSelection()
@@ -408,6 +418,11 @@ namespace BuildingRegulationReview.FireReview
         {
             var text = new StringBuilder();
             text.AppendLine($"項目：{ReviewTable.Title(entry.CheckType)}");
+            if (CurtainWallMarkNumbers.Of(_marks, entry.ResultId) is string number)
+                text.AppendLine($"檢討圖號：{number}" +
+                                (entry.JunctionKind == CurtainWallJunctionKind.FloorToCurtainWall
+                                    ? $"　（層間帶立面視圖名稱含「{number}」）"
+                                    : "　（標註於檢討平面）"));
             if (entry.ZoneName != null || entry.ZoneId != null) text.AppendLine($"區劃：{entry.ZoneName ?? entry.ZoneId}");
             text.AppendLine($"類別：{entry.CategoryLabel}" + (entry.TypeName == null ? string.Empty : $"　Type：{entry.TypeName}"));
             text.AppendLine($"狀態：{entry.StatusText}");

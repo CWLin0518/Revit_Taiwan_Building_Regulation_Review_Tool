@@ -267,7 +267,8 @@ public sealed class ReviewMarkupPlan
         IEnumerable<PlannedElementOverride> overrides,
         IEnumerable<PlannedReviewNote> notes,
         IEnumerable<PlannedSpandrelBand> bands,
-        IEnumerable<SkippedReviewMark> skipped)
+        IEnumerable<SkippedReviewMark> skipped,
+        IReadOnlyDictionary<Guid, string> numbers)
     {
         PackageId = packageId;
         RunId = runId;
@@ -276,6 +277,7 @@ public sealed class ReviewMarkupPlan
         Notes = new ReadOnlyCollection<PlannedReviewNote>(notes.ToList());
         Bands = new ReadOnlyCollection<PlannedSpandrelBand>(bands.ToList());
         Skipped = new ReadOnlyCollection<SkippedReviewMark>(skipped.ToList());
+        Numbers = numbers;
     }
 
     public Guid PackageId { get; }
@@ -292,6 +294,13 @@ public sealed class ReviewMarkupPlan
     public IReadOnlyList<SkippedReviewMark> Skipped { get; }
 
     /// <summary>
+    /// The drawing number of every 未符合 帷幕牆交接 in the run, by result ID
+    /// (<see cref="CurtainWallMarkNumbers"/>). It covers the junctions this plan could not mark as well
+    /// as the ones it could, so a skipped one can still be named by the number the 檢討表 shows.
+    /// </summary>
+    public IReadOnlyDictionary<Guid, string> Numbers { get; }
+
+    /// <summary>
     /// Builds the plan from the run's table and the zones as the candidate set resolved them — the same
     /// zones the run was computed from, which is what the geometry of the red regions has to follow.
     /// </summary>
@@ -305,6 +314,7 @@ public sealed class ReviewMarkupPlan
                 $"檢討紀錄 {table.RunId:D} 的狀態是 {table.Run.State}，只有完成的檢討可以標示在檢討視圖。",
                 "Only a completed review run can be marked in the review view."));
 
+        var numbers = CurtainWallMarkNumbers.Assign(table);
         var byZone = zones.GroupBy(z => z.ZoneIdText, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
         var regions = new List<PlannedReviewRegion>();
         var notes = new List<PlannedReviewNote>();
@@ -317,27 +327,27 @@ public sealed class ReviewMarkupPlan
             var isArea = string.Equals(entry.CheckType, ReviewCheckTypes.CompartmentArea, StringComparison.Ordinal);
             if (entry.IsStale)
             {
-                skipped.Add(new SkippedReviewMark(entry.ResultId, Subject(entry, isArea),
+                skipped.Add(new SkippedReviewMark(entry.ResultId, Subject(entry, isArea, numbers),
                     "結果已過期（模型或規則已變更），請重新檢討後再標示"));
                 continue;
             }
 
             if (isArea)
             {
-                PlanRegions(table, entry, byZone, regions, skipped);
+                PlanRegions(table, entry, byZone, regions, skipped, numbers);
                 continue;
             }
 
             if (entry.IsLinked)
             {
-                skipped.Add(new SkippedReviewMark(entry.ResultId, Subject(entry, false),
+                skipped.Add(new SkippedReviewMark(entry.ResultId, Subject(entry, false, numbers),
                     "元素位於連結模型，主模型的檢討視圖無法逐元素覆寫，請在連結模型中確認"));
                 continue;
             }
 
             if (entry.JunctionKind is CurtainWallJunctionKind junctionKind)
             {
-                PlanJunction(table, entry, junctionKind, byZone, notes, bands, failing, skipped);
+                PlanJunction(table, entry, junctionKind, byZone, notes, bands, failing, skipped, numbers);
                 continue;
             }
 
@@ -353,7 +363,7 @@ public sealed class ReviewMarkupPlan
         return Result.Success(new ReviewMarkupPlan(table.PackageId, table.RunId,
             regions.OrderBy(r => r.Key.Slot, StringComparer.Ordinal), overrides,
             notes.OrderBy(n => n.Key.Slot, StringComparer.Ordinal),
-            bands.OrderBy(b => b.Key.Slot, StringComparer.Ordinal), skipped));
+            bands.OrderBy(b => b.Key.Slot, StringComparer.Ordinal), skipped, numbers));
     }
 
     internal static string RegionSignature(string zoneName, IReadOnlyList<IReadOnlyList<Point2D>> loops) =>
@@ -365,11 +375,12 @@ public sealed class ReviewMarkupPlan
         ReviewTableEntry entry,
         IReadOnlyDictionary<string, CandidateZone> zones,
         List<PlannedReviewRegion> regions,
-        List<SkippedReviewMark> skipped)
+        List<SkippedReviewMark> skipped,
+        IReadOnlyDictionary<Guid, string> numbers)
     {
         if (entry.ZoneId is null || !zones.TryGetValue(entry.ZoneId, out var zone))
         {
-            skipped.Add(new SkippedReviewMark(entry.ResultId, Subject(entry, true),
+            skipped.Add(new SkippedReviewMark(entry.ResultId, Subject(entry, true, numbers),
                 "找不到這個區劃目前的範圍，請重新讀取區劃後再標示"));
             return;
         }
@@ -386,7 +397,7 @@ public sealed class ReviewMarkupPlan
         }
 
         if (drawn == 0)
-            skipped.Add(new SkippedReviewMark(entry.ResultId, Subject(entry, true),
+            skipped.Add(new SkippedReviewMark(entry.ResultId, Subject(entry, true, numbers),
                 "區劃沒有封閉的面積，無法建立填滿區域"));
     }
 
@@ -408,10 +419,11 @@ public sealed class ReviewMarkupPlan
         List<PlannedReviewNote> notes,
         List<PlannedSpandrelBand> bands,
         List<(string ElementUniqueId, ReviewTableEntry Entry)> failing,
-        List<SkippedReviewMark> skipped)
+        List<SkippedReviewMark> skipped,
+        IReadOnlyDictionary<Guid, string> numbers)
     {
         var evidence = entry.Result.Evidence;
-        var subject = Subject(entry, false);
+        var subject = Subject(entry, false, numbers);
 
         // CW-V is marked by its 層間帶, not by its panels: a spandrel's panels are shown in the
         // elevation the band is drawn in, and painting them in the plan would say nothing (§7.1).
@@ -445,6 +457,16 @@ public sealed class ReviewMarkupPlan
             return;
         }
 
+        // Every junction that gets this far was numbered by CurtainWallMarkNumbers, which reads the same
+        // table and the same 未符合 rows; a junction with no number would be a mark nothing can be
+        // matched against, so it is said out loud rather than drawn anonymously.
+        var number = CurtainWallMarkNumbers.Of(numbers, entry.ResultId);
+        if (number is null)
+        {
+            skipped.Add(new SkippedReviewMark(entry.ResultId, subject, "無法指派檢討圖號，無法標示"));
+            return;
+        }
+
         if (kind == CurtainWallJunctionKind.FloorToCurtainWall)
         {
             if (placement.IsPoint)
@@ -455,15 +477,15 @@ public sealed class ReviewMarkupPlan
 
             bands.Add(new PlannedSpandrelBand(
                 new ReviewMarkKey(table.PackageId, table.RunId, zone.ZoneId, 0, ReviewMarkKind.SpandrelBand, junctionId),
-                entry.ResultId, junctionId, JunctionCurtainWall(entry, evidence), placement, zone.Name));
+                entry.ResultId, junctionId, JunctionCurtainWall(entry, evidence), placement, number, zone.Name));
         }
 
         notes.Add(new PlannedReviewNote(
             new ReviewMarkKey(table.PackageId, table.RunId, zone.ZoneId, 0, ReviewMarkKind.JunctionNote, junctionId),
-            entry.ResultId, junctionId, kind, placement,
+            entry.ResultId, junctionId, kind, placement, number,
             kind == CurtainWallJunctionKind.WallToCurtainWall
-                ? CurtainWallReviewMarks.HorizontalNoteText(evidence)
-                : CurtainWallReviewMarks.SpandrelNoteText(evidence),
+                ? CurtainWallReviewMarks.HorizontalNoteText(evidence, number)
+                : CurtainWallReviewMarks.SpandrelNoteText(evidence, number),
             zone.Name));
     }
 
@@ -479,9 +501,18 @@ public sealed class ReviewMarkupPlan
             : entry.LocateUniqueIds.FirstOrDefault() ?? string.Empty;
     }
 
-    private static string Subject(ReviewTableEntry entry, bool isArea) => isArea
-        ? $"區劃「{entry.ZoneName ?? entry.ZoneId ?? "?"}」"
-        : $"{entry.CategoryLabel} {string.Join(",", entry.LocateUniqueIds)}";
+    /// <summary>
+    /// What a skipped mark is about. A 帷幕牆交接 is named by its drawing number first: the 檢討表 shows
+    /// the same number, so "未標示 CW-V-02 …" names a row the reader can go and look at.
+    /// </summary>
+    private static string Subject(ReviewTableEntry entry, bool isArea, IReadOnlyDictionary<Guid, string> numbers)
+    {
+        if (isArea) return $"區劃「{entry.ZoneName ?? entry.ZoneId ?? "?"}」";
+
+        var number = CurtainWallMarkNumbers.Of(numbers, entry.ResultId);
+        var subject = $"{entry.CategoryLabel} {string.Join(",", entry.LocateUniqueIds)}";
+        return number is null ? subject : number + " " + subject;
+    }
 }
 
 /// <summary>A red region already in the review view, as the adapter read its mark.</summary>

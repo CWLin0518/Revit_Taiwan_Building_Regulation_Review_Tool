@@ -273,6 +273,13 @@ public sealed class RevitReviewViewMarker
         Dictionary<string, ViewSection> elevations,
         List<ReviewMarkupItem> items)
     {
+        // What the elevation is called comes from every band this run plans for the wall, not only the
+        // ones that changed: the name lists the 圖號 the 檢討表 shows, and a name that only mentioned
+        // this run's new bands would point at half the drawing.
+        var numbersByWall = diff.Plan.Bands
+            .GroupBy(b => b.CurtainWallUniqueId, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => CurtainWallMarkNumbers.Join(g.Select(b => b.Number)), StringComparer.Ordinal);
+
         var groups = diff.Bands
             .Where(b => b.Action == ReviewMarkAction.Create || b.Action == ReviewMarkAction.Update)
             .Select(b => b.Planned!)
@@ -297,9 +304,11 @@ public sealed class RevitReviewViewMarker
                 continue;
             }
 
+            numbersByWall.TryGetValue(group.Key, out var numbers);
             if (elevations.TryGetValue(group.Key, out var existing))
             {
                 EnsureVisible(existing, bands, items);
+                EnsureNumberedName(existing, reviewView, diff.Plan.PackageId, group.Key, numbers ?? string.Empty, items);
                 continue;
             }
 
@@ -312,7 +321,7 @@ public sealed class RevitReviewViewMarker
                 continue;
             }
 
-            var created = CreateCurtainWallElevation(reviewView, diff.Plan.PackageId, group.Key, frame, typeId, items);
+            var created = CreateCurtainWallElevation(reviewView, diff.Plan.PackageId, group.Key, frame, typeId, numbers ?? string.Empty, items);
             if (created is not null) elevations[group.Key] = created;
         }
     }
@@ -323,6 +332,7 @@ public sealed class RevitReviewViewMarker
         string curtainWallUniqueId,
         SpandrelFrame frame,
         ElementId sectionTypeId,
+        string markNumbers,
         List<ReviewMarkupItem> items)
     {
         var subject = ManagedOutputKey.Describe(ManagedOutputKind.CurtainWallElevation);
@@ -330,7 +340,7 @@ public sealed class RevitReviewViewMarker
         {
             var section = ViewSection.CreateSection(_document, sectionTypeId, frame.SectionBox());
             section.Name = ReviewOutputNaming.MakeUnique(
-                ReviewOutputNaming.CurtainWallElevation(reviewView.Name, CurtainWallLabel(curtainWallUniqueId)),
+                ReviewOutputNaming.CurtainWallElevation(reviewView.Name, CurtainWallLabel(curtainWallUniqueId), markNumbers),
                 IsViewNameTaken);
             ManagedElementMark.Write(
                 section,
@@ -346,6 +356,54 @@ public sealed class RevitReviewViewMarker
         {
             items.Add(new ReviewMarkupItem(ApplyOutcome.Failed, subject, null, "Revit 拒絕建立帷幕牆檢討立面：" + exception.Message));
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Keeps the 圖號 in an elevation's name in step with the 層間帶 it now holds (帷幕牆規格 §7.1): a run
+    /// where one junction was fixed renumbers the rest, and a section whose name still says CW-V-03
+    /// would send a reviewer to the wrong drawing.
+    /// </summary>
+    /// <remarks>
+    /// Only renamed while the name is still the one the tool last wrote — which is what the ownership
+    /// mark's signature holds. A name the user has since chosen is theirs, like the crop they narrowed
+    /// and the view they renamed: the tool says the number changed instead of taking the name back.
+    /// </remarks>
+    private void EnsureNumberedName(
+        ViewSection elevation,
+        View reviewView,
+        Guid packageId,
+        string curtainWallUniqueId,
+        string markNumbers,
+        List<ReviewMarkupItem> items)
+    {
+        if (markNumbers.Length == 0) return;
+        if (!ManagedElementMark.TryRead(elevation, out _, out var written)) return;
+
+        var wanted = ReviewOutputNaming.CurtainWallElevation(reviewView.Name, CurtainWallLabel(curtainWallUniqueId), markNumbers);
+        if (string.Equals(elevation.Name, wanted, StringComparison.Ordinal)) return;
+
+        var subject = $"檢討立面「{elevation.Name}」的圖號";
+        if (!string.Equals(elevation.Name, written, StringComparison.Ordinal))
+        {
+            items.Add(new ReviewMarkupItem(ApplyOutcome.Skipped, subject, elevation.UniqueId,
+                $"視圖名稱已由使用者變更，未改名；本次的層間帶圖號為 {markNumbers}"));
+            return;
+        }
+
+        try
+        {
+            var name = ReviewOutputNaming.MakeUnique(wanted, candidate =>
+                !string.Equals(candidate, elevation.Name, StringComparison.Ordinal) && IsViewNameTaken(candidate));
+            elevation.Name = name;
+            ManagedElementMark.Write(elevation,
+                new ManagedOutputKey(packageId, ManagedOutputKind.CurtainWallElevation, curtainWallUniqueId), name);
+            items.Add(new ReviewMarkupItem(ApplyOutcome.Updated, subject, elevation.UniqueId, $"改為「{name}」"));
+        }
+        catch (RevitApplicationException exception)
+        {
+            items.Add(new ReviewMarkupItem(ApplyOutcome.Skipped, subject, elevation.UniqueId,
+                $"Revit 拒絕改名，圖號仍為原名；本次的層間帶圖號為 {markNumbers}：" + exception.Message));
         }
     }
 
@@ -703,7 +761,10 @@ public sealed class RevitReviewViewMarker
 
             var region = FilledRegion.Create(_document, typeId, elevation.Id, new List<CurveLoop> { loop });
             ManagedElementMark.Write(region, planned.Key, planned.Signature);
-            WriteComment(region, planned.Key.ToLabel());
+
+            // The band has no text of its own, so its 圖號 goes where a schedule and the Properties
+            // palette can read it — the same number the elevation is named after.
+            WriteComment(region, planned.Number + "　" + planned.Key.ToLabel());
 
             if (old is not null) _document.Delete(old.Id);
             items.Add(new ReviewMarkupItem(old is null ? ApplyOutcome.Created : ApplyOutcome.Updated, planned.Description,

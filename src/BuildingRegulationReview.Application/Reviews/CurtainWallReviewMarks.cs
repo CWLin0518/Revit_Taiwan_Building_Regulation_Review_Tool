@@ -23,6 +23,7 @@ public sealed class PlannedReviewNote
         string junctionId,
         CurtainWallJunctionKind junctionKind,
         CurtainWallJunctionPlacement placement,
+        string number,
         string text,
         string zoneName)
     {
@@ -31,6 +32,7 @@ public sealed class PlannedReviewNote
         JunctionId = junctionId;
         JunctionKind = junctionKind;
         Placement = placement;
+        Number = number;
         Text = text;
         ZoneName = zoneName;
         Signature = CurtainWallReviewMarks.NoteSignature(text, placement);
@@ -38,6 +40,12 @@ public sealed class PlannedReviewNote
 
     public ReviewMarkKey Key { get; }
     public Guid ResultId { get; }
+
+    /// <summary>
+    /// The drawing number this 未符合 is referred to by (<c>CW-H-01</c>, <c>CW-V-01</c>). It opens
+    /// <see cref="Text"/>, so the note on the plan and the row of the 檢討表 read the same.
+    /// </summary>
+    public string Number { get; }
 
     /// <summary>The junction this note is about; the same ID a later run keys its mark on.</summary>
     public string JunctionId { get; }
@@ -56,7 +64,7 @@ public sealed class PlannedReviewNote
     public string Signature { get; }
 
     public string Description =>
-        $"未符合{CurtainWallJunctionKinds.Label(JunctionKind)}標註（區劃「{ZoneName}」，{JunctionId}）";
+        $"{Number} 未符合{CurtainWallJunctionKinds.Label(JunctionKind)}標註（區劃「{ZoneName}」，{JunctionId}）";
 
     public override string ToString() => Description;
 }
@@ -74,6 +82,7 @@ public sealed class PlannedSpandrelBand
         string junctionId,
         string curtainWallUniqueId,
         CurtainWallJunctionPlacement placement,
+        string number,
         string zoneName)
     {
         Key = key;
@@ -81,13 +90,21 @@ public sealed class PlannedSpandrelBand
         JunctionId = junctionId;
         CurtainWallUniqueId = curtainWallUniqueId;
         Placement = placement;
+        Number = number;
         ZoneName = zoneName;
-        Signature = CurtainWallReviewMarks.BandSignature(curtainWallUniqueId, placement);
+        Signature = CurtainWallReviewMarks.BandSignature(curtainWallUniqueId, placement, number);
     }
 
     public ReviewMarkKey Key { get; }
     public Guid ResultId { get; }
     public string JunctionId { get; }
+
+    /// <summary>
+    /// The drawing number of this 層間帶 (<c>CW-V-01</c>). The section the band is drawn in is named
+    /// after it, and the note the plan carries for the same junction says the same thing — that pair
+    /// is what lets a reviewer get from a 未符合 row to the section it was judged on (帷幕牆規格 §7.1).
+    /// </summary>
+    public string Number { get; }
 
     /// <summary>The curtain wall whose plane the band lies on — which view the band belongs in.</summary>
     public string CurtainWallUniqueId { get; }
@@ -98,7 +115,7 @@ public sealed class PlannedSpandrelBand
     public string ZoneName { get; }
     public string Signature { get; }
 
-    public string Description => $"未符合層間帶紅色填滿區域（區劃「{ZoneName}」，{JunctionId}）";
+    public string Description => $"{Number} 未符合層間帶紅色填滿區域（區劃「{ZoneName}」，{JunctionId}）";
 
     public override string ToString() => Description;
 }
@@ -140,21 +157,30 @@ internal static class CurtainWallReviewMarks
         CurtainWallJunctionPlacement.TryParseEvidence(Text(evidence, PlacementField), out var placement) ? placement : null;
 
     /// <summary>
-    /// CW-H：實測連續具時效長度與突出深度. A measurement the run never took is said to be missing rather
-    /// than shown as zero — the same distinction the check keeps between 未符合 and 資料不足.
+    /// CW-H：實測連續具時效長度與突出深度, opened by the junction's drawing number. A measurement the run
+    /// never took is said to be missing rather than shown as zero — the same distinction the check keeps
+    /// between 未符合 and 資料不足.
     /// </summary>
-    public static string HorizontalNoteText(ReviewEvidence evidence) =>
-        $"交接帶連續具時效長度 {Millimeters(evidence, LengthField)}／突出 {Millimeters(evidence, ProjectionField)}";
+    public static string HorizontalNoteText(ReviewEvidence evidence, string number) =>
+        $"{number}　交接帶連續具時效長度 {Millimeters(evidence, LengthField)}／突出 {Millimeters(evidence, ProjectionField)}";
 
-    /// <summary>CW-V：實測連續具時效高度與突出深度.</summary>
-    public static string SpandrelNoteText(ReviewEvidence evidence) =>
-        $"層間帶連續具時效高度 {Millimeters(evidence, HeightField)}／突出 {Millimeters(evidence, ProjectionField)}";
+    /// <summary>
+    /// CW-V：實測連續具時效高度與突出深度. The note stands in the plan and the 層間帶 itself is drawn in a
+    /// section, so the note says which section: the number is the section's name (帷幕牆規格 §7.1).
+    /// </summary>
+    public static string SpandrelNoteText(ReviewEvidence evidence, string number) =>
+        $"{number}　層間帶連續具時效高度 {Millimeters(evidence, HeightField)}／突出 {Millimeters(evidence, ProjectionField)}" +
+        $"（詳見立面 {number}）";
 
     public static string NoteSignature(string text, CurtainWallJunctionPlacement placement) =>
         "note|" + text + "|" + Extent(placement);
 
-    public static string BandSignature(string curtainWallUniqueId, CurtainWallJunctionPlacement placement) =>
-        "band|" + curtainWallUniqueId + "|" + Extent(placement);
+    /// <summary>
+    /// The band carries no text of its own, but its number is written to its Comments and names the
+    /// section it lives in, so a renumbered band is a changed band: the signature says so.
+    /// </summary>
+    public static string BandSignature(string curtainWallUniqueId, CurtainWallJunctionPlacement placement, string number) =>
+        "band|" + curtainWallUniqueId + "|" + number + "|" + Extent(placement);
 
     private static string Extent(CurtainWallJunctionPlacement placement) => string.Format(
         CultureInfo.InvariantCulture,

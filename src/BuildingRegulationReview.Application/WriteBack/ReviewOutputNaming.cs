@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 
@@ -44,20 +45,29 @@ public static class ReviewOutputNaming
     public const string CurtainWallElevationSuffix = "帷幕牆立面";
 
     /// <summary>
-    /// Builds <c>{ReviewView}_{CurtainWall}_帷幕牆立面</c>, the default name of the elevation a 層間帶
-    /// is drawn red in. It is named after the review view rather than the Area Scheme because that is
-    /// what it belongs to: one review view, one elevation per curtain wall that failed.
+    /// Builds <c>{ReviewView}_{圖號}_{CurtainWall}_帷幕牆立面</c>, the default name of the elevation a
+    /// 層間帶 is drawn red in. It is named after the review view rather than the Area Scheme because that
+    /// is what it belongs to: one review view, one elevation per curtain wall that failed.
+    /// <para>
+    /// The 圖號 is what the 檢討表 row and the note on the plan also say
+    /// (<c>CurtainWallMarkNumbers</c>), and it comes before the wall's name because that is what a
+    /// reviewer holding a 未符合 row is looking for in the project browser. Left out only when the
+    /// caller has no number to give.
+    /// </para>
     /// </summary>
     /// <remarks>
     /// The review view's name is kept whole, separators and all. It is a name the user has already seen
-    /// and may have chosen, not a part assembled here, and the two pieces that follow are enough to see
+    /// and may have chosen, not a part assembled here, and the pieces that follow are enough to see
     /// where it ends.
     /// </remarks>
-    public static string CurtainWallElevation(string? reviewViewName, string? curtainWallLabel) => string.Join(
-        Separator.ToString(),
-        Clean(reviewViewName, keepSeparator: true),
-        Clean(curtainWallLabel),
-        CurtainWallElevationSuffix);
+    public static string CurtainWallElevation(string? reviewViewName, string? curtainWallLabel, string? markNumbers = null)
+    {
+        var parts = new List<string> { Clean(reviewViewName, keepSeparator: true) };
+        if (!string.IsNullOrWhiteSpace(markNumbers)) parts.Add(Clean(markNumbers));
+        parts.Add(Clean(curtainWallLabel));
+        parts.Add(CurtainWallElevationSuffix);
+        return string.Join(Separator.ToString(), parts);
+    }
 
     /// <summary>Builds <c>{AreaScheme}_{SourceFloorPlan}_防火區劃</c>.</summary>
     public static string Default(string? areaSchemeName, string? sourceFloorPlanName) => string.Join(

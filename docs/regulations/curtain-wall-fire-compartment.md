@@ -1,6 +1,6 @@
 # 防火區劃與帷幕牆交接：第 79 條、第 79-3 條、第 79-4 條
 
-> 狀態：**實作中**。§12 的步驟 1–9 已完成。步驟 9 依設計決策取消 Area 上人工填寫室內裝修等級，改由區劃實際關聯的牆與天花板類型推導 `zone.interiorFinish`；**Revit 端尚未實機驗證**。
+> 狀態：**實作中**。§12 的步驟 1–10 已完成。步驟 9 依設計決策取消 Area 上人工填寫室內裝修等級，改由區劃實際關聯的牆與天花板類型推導 `zone.interiorFinish`；**Revit 端尚未實機驗證**。
 
 ## 1. 功能摘要
 
@@ -374,13 +374,40 @@ junction.projectionDepth >= 500 mm || (junction.continuousFireRatedLength >= 900
 
 | 項目 | 表現 |
 | --- | --- |
-| CW-H 未符合 | 交接處帷幕嵌板 By Element Override 紅色；平面圖於交點標註實測 `continuousFireRatedLength` 與 `projectionDepth` |
-| CW-V 未符合 | 立面／剖面 View 之層間帶 Filled Region 紅色；標註實測 `continuousFireRatedHeight` |
+| CW-H 未符合 | 交接處帷幕嵌板 By Element Override 紅色；平面圖於交點標註**檢討圖號**與實測 `continuousFireRatedLength`、`projectionDepth` |
+| CW-V 未符合 | 立面／剖面 View 之層間帶 Filled Region 紅色；平面圖標註**檢討圖號**、實測 `continuousFireRatedHeight` 與「詳見立面 {圖號}」 |
 | CW-O 未符合 | 嵌板紅色 Override |
+
+#### 檢討圖號
+
+每一筆未符合的 CW-H／CW-V 交接都有一個**檢討圖號**：`CW-H-01`、`CW-V-01`（`CurtainWallMarkNumbers`）。
+同一個圖號同時出現在三個地方，未符合的那一列才找得到它被判定時看的那張圖：
+
+1. 檢討表該列（檢討視窗的清單列與明細的「檢討圖號」）；
+2. 檢討平面上的文字標註（標註內容以圖號開頭，CW-V 另加「詳見立面 {圖號}」）；
+3. CW-V 自動產生的立面視圖名稱：`{檢討視圖}_{圖號}_{帷幕牆}_帷幕牆立面`；層間帶填滿區域的
+   `Comments` 也寫入圖號。
+
+編號規則與其理由：
+
+- **圖號由檢討表推導，不是由標示計畫推導**（`CurtainWallMarkNumbers.Assign(ReviewTable)`）。檢討視窗不
+  建標示計畫也要顯示同一組號碼，而兩邊各自算一次就必須保證算出同一個答案。
+- 依類別（CW-H 先、CW-V 後）分別流水，同類別內**依 `junction.id` 排序**——同一片帷幕牆的層間帶因此
+  號碼相連，共用同一張立面時名稱才短。
+- **圖號是這一次檢討的圖面參照，不是身分。**交接處的身分仍然是 `junction.id`，重跑仍以它覆蓋既有標示。
+  修好一處之後其後的號碼會遞補，與圖面刪掉一張詳圖後重新編號相同。
+- 只有 CW-H 與 CW-V 編號。CW-O 只塗紅嵌板、不寫任何標註，號碼沒有地方可以出現、也沒有東西可以對應。
+- 未符合但無法標示（缺位置、缺嵌板、區劃找不到）的交接**仍然有圖號**，略過訊息會講出那個號碼，
+  使用者才知道檢討表上的哪一列沒有對應的圖。
+
+一片帷幕牆的立面同時畫著多層的層間帶時，視圖名稱列出至多 3 個圖號，超過就寫 `CW-V-01等 N 處`。
+重跑若使號碼改變，**只有在視圖名稱仍然是工具上次寫進去的那個名字時才改名**（比對擁有權標記裡存的
+簽章）；使用者改過名就不動它，只在結果清單說明本次的圖號是什麼——與裁剪範圍只放大不縮小、
+視圖改名照樣接手是同一個原則。
 
 所有標示元素寫入 Package ID、Run ID、Zone ID，僅更新目前 Run 管理的元素，沿用 Phase 3 既有的 `ReviewMarkup` 機制。帷幕牆標示的擁有權標記另外帶 `ReviewMarkKind`（`JunctionNote`／`SpandrelBand`）與 `JunctionId`，重跑時以 `JunctionId` 覆蓋既有標示而非重複產生（案例 19）；區劃填滿區域維持原本的 token 格式，既有模型不受影響。
 
-CW-V 的立面**由工具自己建立**，使用者不必事先備妥：每片有層間帶的帷幕牆一個剖面視圖，以
+CW-V 的立面**由工具自己建立**，名稱帶著上面說的檢討圖號，使用者不必事先備妥：每片有層間帶的帷幕牆一個剖面視圖，以
 `ManagedOutputKind.CurtainWallElevation` 加上帷幕牆 UniqueId 為擁有權標記（與檢討平面圖、單線圖視圖、
 色彩配置同一套機制），重跑時依標記找回而不是依名稱，使用者改名照樣接手。同一片帷幕牆在多個樓層的
 層間帶共用一個立面——層間帶都落在該牆的平面定位線所在的垂直面上，一個立面就看得完。
@@ -413,7 +440,8 @@ CW-V 的立面**由工具自己建立**，使用者不必事先備妥：每片�
 | `RuleFieldCatalog` | Domain/Rules | 新增 `junction.*` 欄位 |
 | `FireReviewRunner` | Application/Reviews | 串接第四類檢查與檢討表彙總 |
 | `ReviewMarkup`（`ReviewMarkKind`／`PlannedReviewNote`／`PlannedSpandrelBand`） | Application/Reviews | §7.1 三種標示的標示計畫與依類別分家的差異比對 |
-| `RevitReviewViewMarker` | Revit/Reviews | 實作：交接處 `TextNote`、層間帶 `FilledRegion` 與帷幕牆檢討立面 |
+| `CurtainWallMarkNumbers` | Application/Reviews | §7.1 檢討圖號：由檢討表指派 `CW-H-01`／`CW-V-01`，供檢討表、標註與立面名稱共用 |
+| `RevitReviewViewMarker` | Revit/Reviews | 實作：交接處 `TextNote`、層間帶 `FilledRegion` 與帶圖號的帷幕牆檢討立面 |
 
 `FireReviewRunner` 的總狀態規則不變：任一 `Fail` 為未符合；無 `Fail` 但有 `InsufficientData` 或 `ManualReview` 為待確認；其餘皆 `Pass`／`NotApplicable` 才顯示符合。
 
@@ -498,6 +526,7 @@ CW-V 的立面**由工具自己建立**，使用者不必事先備妥：每片�
 | 7 | 第 83 條面積規則 `tw-bcr-83-area` 與 `zone.interiorFinish`，規則集版本升至 `2026.4-provisional` | **已完成** |
 | 8 | `防火檢討_室內裝修等級` 進批次參數面板的「區劃」分頁，「適用上限」欄改為兩條規則共用的 `ZoneAreaLimit` | **已完成**（Revit 端待實機驗證） |
 | 9 | 取消 Area 人工輸入；由區劃內牆／天花板類型的耐燃等級彙總第 83 條輸入，最弱者控制、缺值不猜測 | **已完成**（取代步驟 8 的輸入方式，Revit 端待實機驗證） |
+| 10 | 未符合交接的**檢討圖號** `CW-H-01`／`CW-V-01`：檢討表列、平面標註、自動產生的帷幕牆立面名稱三者共用 | **已完成**（Revit 端待實機驗證） |
 
 ### 步驟 9：室內裝修等級改由模型推導
 
@@ -815,3 +844,32 @@ Revit 不接受的字元）、`Candidates/CurtainWallJunctionResolverTests.cs` 1
 `BuildingRegulationReview.sln` 與 WPF 外掛專案皆 0 警告 0 錯誤。
 
 桌面上那份 `防火檢討_Revit參數設定清單.md` 的附錄 I 已改寫成面板的操作說明（原本寫「尚未進面板」）。
+
+### 步驟 10 的產出與驗證
+
+§7.1「檢討圖號」的實作。未符合的 CW-H／CW-V 從檢討表的一列走到圖面之前少了一個參照，這一步把它補上。
+
+- `src/BuildingRegulationReview.Application/Reviews/CurtainWallMarkNumbers.cs`（新檔）：`Assign(ReviewTable)`
+  回傳「結果 ID → 圖號」，`Of`、`Format`、`Join`、`Prefix`。編號只看檢討表，所以檢討視窗不必建標示
+  計畫就能顯示同一組號碼。
+- `CurtainWallReviewMarks.cs`：`PlannedReviewNote.Number`、`PlannedSpandrelBand.Number`；標註文字改以
+  圖號開頭，CW-V 另加「（詳見立面 {圖號}）」；`BandSignature` 納入圖號，**號碼變了就是變了**，
+  否則重新編號之後立面名稱會繼續指著舊號碼卻判定為 `Unchanged`。
+- `ReviewMarkup.cs`：`ReviewMarkupPlan.Numbers`；`PlanJunction` 取號碼、略過訊息（`Subject`）帶上號碼。
+- `ReviewOutputNaming.CurtainWallElevation(reviewViewName, curtainWallLabel, markNumbers)`：多一個可選的
+  圖號段，不給就是原本的名字，既有模型裡的立面照樣認得。
+- `RevitReviewViewMarker.cs`：立面名稱由**這一次計畫的全部層間帶**算出（不是只有變動的那些）；
+  新增 `EnsureNumberedName`，只有在視圖名稱仍等於擁有權標記存的簽章時才改名，使用者改過名就只回報；
+  層間帶填滿區域的 `Comments` 寫入圖號。
+- `FireReviewWindow.cs`：清單列與明細顯示「檢討圖號」，號碼來自 `CurtainWallMarkNumbers.Assign(_table)`。
+
+新增 5 個測試（`Reviews/ReviewMarkupTests.cs`），其中兩個是這一步的關鍵：
+**`The_number_the_table_shows_is_the_number_the_marks_carry`** 斷言視窗那條路徑（只有檢討表）與標示計畫
+那條路徑算出完全相同的號碼——兩邊各算一次，唯一會壞的方式就是講得不一樣；
+**`Two_spandrels_of_one_wall_differ_by_their_number_alone_so_a_renumber_is_a_change`** 用同一片牆、同一個
+矩形、不同號碼的兩條層間帶，守住簽章必須納入圖號這件事。全套 **1278 個測試通過**，
+`BuildingRegulationReview.sln` 與 WPF 外掛專案皆 0 警告 0 錯誤。
+
+**Revit 端待驗證**：立面名稱是否為 `{檢討視圖}_{圖號}_{帷幕牆}_帷幕牆立面`；同一片牆多層層間帶時
+名稱是否列出至多 3 個號碼、超過寫「等 N 處」；修好其中一處後重跑，號碼遞補且立面自動改名；
+把立面手動改名後重跑，名稱不被改回、結果清單出現「視圖名稱已由使用者變更」的說明。
