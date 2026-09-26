@@ -65,12 +65,13 @@ public enum ZoneAreaLimitGap
 /// </remarks>
 public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
 {
-    private ZoneAreaLimit(double? squareMeters, string? clause, ZoneAreaLimitGap gaps, bool finishUnrecognised)
+    private ZoneAreaLimit(double? squareMeters, string? clause, ZoneAreaLimitGap gaps, bool finishUnrecognised, bool exempt)
     {
         SquareMeters = squareMeters;
         Clause = clause;
         Gaps = gaps;
         FinishUnrecognised = finishUnrecognised;
+        IsExempt = exempt;
     }
 
     /// <summary>The limit in square metres, or null while <see cref="Gaps"/> names something unfilled.</summary>
@@ -87,15 +88,22 @@ public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
     /// </summary>
     public bool FinishUnrecognised { get; }
 
+    /// <summary>
+    /// True when 區劃用途 is one of the 第79條之2 垂直區劃 both area rules exempt: no limit applies,
+    /// and the review will report 免適用 rather than measure the area.
+    /// </summary>
+    public bool IsExempt { get; }
+
     public bool IsKnown => Gaps == ZoneAreaLimitGap.None;
 
     /// <summary>
-    /// What the limit cell shows: the article and its limit, or the boxes still to fill.
+    /// What the limit cell shows: the article and its limit, the exemption, or the boxes still to fill.
     /// </summary>
     public string Description
     {
         get
         {
+            if (IsExempt) return $"{Clause} 免適用（第79條之2 垂直區劃）";
             if (Gaps != ZoneAreaLimitGap.None) return "未填" + string.Join("、", Labels(Gaps)) + "，無法判定上限";
 
             var limit = SquareMeters!.Value.ToString("0.##", CultureInfo.InvariantCulture);
@@ -107,33 +115,50 @@ public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
     /// <summary>
     /// The limit for one zone. 第83條 decides from the eleventh storey up and 第79條 below it, which
     /// is the two rules' priority order: every 第83條 tier, even doubled by 第四款, is stricter than
-    /// 第79條's 一、五○○平方公尺.
+    /// 第79條's 一、五○○平方公尺. Whichever decides, a 第79條之2 垂直區劃 is exempt from it.
     /// </summary>
-    public static ZoneAreaLimit For(int? floorNumber, bool? sprinklered, string? interiorFinish, string? buildingUse)
+    public static ZoneAreaLimit For(
+        int? floorNumber, bool? sprinklered, string? interiorFinish, string? buildingUse, string? use = null)
     {
         // 樓層序 is the rule's applicability, so until it is filled neither article is known to apply.
         if (floorNumber is null) return Unknown(ZoneAreaLimitGap.FloorNumber);
+
+        var clause = floorNumber >= 11 ? "第83條" : "第79條";
+
+        // The engine decides an exemption before the requirement, so an exempt 區劃 needs none of
+        // the boxes the limit would otherwise wait on.
+        if (ZoneUses.IsVerticalCompartment(use)) return new ZoneAreaLimit(null, clause, ZoneAreaLimitGap.None, false, true);
 
         return floorNumber >= 11
             ? Article83(sprinklered, interiorFinish, buildingUse)
             : Article79(sprinklered);
     }
 
+    /// <summary>
+    /// The limit for a 區劃 as the panel currently holds it — the typed values, not the stored ones,
+    /// so each box shows its consequence as it is filled.
+    /// </summary>
+    public static ZoneAreaLimit ForZone(int? floorNumber, bool? sprinklered, string? buildingUse, string? use)
+    {
+        // The grade is derived during review from the modelled walls and ceilings. The batch panel
+        // no longer pretends an Area carries that fact, so it can only show the Article 79 limit —
+        // unless the 用途 exempts the 區劃, which needs no grade at all.
+        return floorNumber >= 11 && !ZoneUses.IsVerticalCompartment(use)
+            ? Unknown(ZoneAreaLimitGap.InteriorFinish)
+            : For(floorNumber, sprinklered, null, buildingUse, use);
+    }
+
     /// <summary>The limit for a zone as it currently stands in the model.</summary>
     public static ZoneAreaLimit For(FireReviewZoneRow zone, string? buildingUse)
     {
         if (zone is null) throw new ArgumentNullException(nameof(zone));
-        // The grade is derived during review from the modelled walls and ceilings. The batch panel
-        // no longer pretends an Area carries that fact, so it can only show the Article 79 limit.
-        return zone.FloorNumber >= 11
-            ? Unknown(ZoneAreaLimitGap.InteriorFinish)
-            : For(zone.FloorNumber, zone.Sprinklered, null, buildingUse);
+        return ForZone(zone.FloorNumber, zone.Sprinklered, buildingUse, zone.Use);
     }
 
     private static ZoneAreaLimit Article79(bool? sprinklered) =>
         sprinklered is null
             ? Unknown(ZoneAreaLimitGap.Sprinklered)
-            : new ZoneAreaLimit(sprinklered == true ? 3000 : 1500, "第79條", ZoneAreaLimitGap.None, false);
+            : new ZoneAreaLimit(sprinklered == true ? 3000 : 1500, "第79條", ZoneAreaLimitGap.None, false, false);
 
     private static ZoneAreaLimit Article83(bool? sprinklered, string? interiorFinish, string? buildingUse)
     {
@@ -159,10 +184,11 @@ public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
             (sprinklered == true ? 2 : 1) * baseLimit,
             "第83條",
             ZoneAreaLimitGap.None,
-            !InteriorFinishGrades.IsKnown(finish));
+            !InteriorFinishGrades.IsKnown(finish),
+            false);
     }
 
-    private static ZoneAreaLimit Unknown(ZoneAreaLimitGap gaps) => new(null, null, gaps, false);
+    private static ZoneAreaLimit Unknown(ZoneAreaLimitGap gaps) => new(null, null, gaps, false, false);
 
     private static IEnumerable<string> Labels(ZoneAreaLimitGap gaps)
     {
@@ -176,7 +202,8 @@ public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
         Nullable.Equals(SquareMeters, other.SquareMeters) &&
         string.Equals(Clause, other.Clause, StringComparison.Ordinal) &&
         Gaps == other.Gaps &&
-        FinishUnrecognised == other.FinishUnrecognised;
+        FinishUnrecognised == other.FinishUnrecognised &&
+        IsExempt == other.IsExempt;
 
     public override bool Equals(object? obj) => obj is ZoneAreaLimit other && Equals(other);
 
@@ -187,7 +214,8 @@ public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
             var hash = SquareMeters?.GetHashCode() ?? 0;
             hash = (hash * 397) ^ (Clause?.GetHashCode() ?? 0);
             hash = (hash * 397) ^ (int)Gaps;
-            return (hash * 397) ^ (FinishUnrecognised ? 1 : 0);
+            hash = (hash * 397) ^ (FinishUnrecognised ? 1 : 0);
+            return (hash * 397) ^ (IsExempt ? 1 : 0);
         }
     }
 

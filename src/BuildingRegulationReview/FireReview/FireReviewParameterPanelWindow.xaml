@@ -229,14 +229,28 @@
                             <DataGridTextColumn Header="面積配置" Binding="{Binding AreaSchemeName}" IsReadOnly="True" Width="130" />
                             <DataGridTextColumn Header="面積" Binding="{Binding AreaText}" IsReadOnly="True" Width="96" />
 
-                            <DataGridTextColumn Header="區劃用途" Width="140"
-                                                Binding="{Binding Use, UpdateSourceTrigger=LostFocus}">
-                                <DataGridTextColumn.CellStyle>
+                            <!-- 可選的下拉，但仍可自行輸入：清單只列會改變判定的五個垂直區劃字樣，
+                                 其餘用途是自由文字，綁 Text 而非 SelectedItem 才不會被清單清成空值。 -->
+                            <DataGridTemplateColumn Header="區劃用途" Width="140" SortMemberPath="Use">
+                                <DataGridTemplateColumn.CellStyle>
                                     <Style TargetType="DataGridCell">
-                                        <Setter Property="ToolTip" Value="自由文字。目前規則只有一個特例：值等於「樓梯間」時免適用面積上限。" />
+                                        <Setter Property="ToolTip" Value="清單上的是第79條之2的垂直區劃（挑空、昇降階梯間、樓梯間、昇降機道、管道間）；填這五個字樣時，第79條與第83條的面積上限都免適用。其餘用途可自行輸入，不影響判定。" />
                                     </Style>
-                                </DataGridTextColumn.CellStyle>
-                            </DataGridTextColumn>
+                                </DataGridTemplateColumn.CellStyle>
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Use}" Margin="6,0" VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                                <DataGridTemplateColumn.CellEditingTemplate>
+                                    <DataTemplate>
+                                        <ComboBox IsEditable="True" IsTextSearchEnabled="False"
+                                                  ItemsSource="{Binding UseChoices}"
+                                                  Text="{Binding Use, UpdateSourceTrigger=PropertyChanged}" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellEditingTemplate>
+                            </DataGridTemplateColumn>
 
                             <DataGridComboBoxColumn Header="自動滅火設備" Width="110"
                                                     SelectedItemBinding="{Binding Sprinklered, UpdateSourceTrigger=PropertyChanged}">

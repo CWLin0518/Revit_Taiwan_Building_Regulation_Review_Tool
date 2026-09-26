@@ -110,12 +110,22 @@ namespace BuildingRegulationReview.FireReview
         public string AreaSchemeName => Source.AreaSchemeName ?? "—";
         public string AreaText => Source.AreaText;
 
-        /// <summary>防火檢討_區劃用途. Free text; 「樓梯間」 is the one value a rule reads.</summary>
+        /// <summary>
+        /// 防火檢討_區劃用途. Still free text — the box only offers the 第79條之2 垂直區劃, because
+        /// those are the values that change an answer (see <see cref="ZoneUses"/>).
+        /// </summary>
         public string Use
         {
             get => _use;
-            set => Set(ref _use, value);
+            set
+            {
+                if (Set(ref _use, value)) Raise(nameof(LimitText));
+            }
         }
+
+        /// <summary>What the 區劃用途 box offers; anything else can still be typed in.</summary>
+        public IReadOnlyList<string> UseChoices { get; } =
+            new[] { "" }.Concat(ZoneUses.VerticalCompartments).ToList();
 
         /// <summary>防火檢討_自動滅火設備 — doubles the area limit in both 第79條 and 第83條.</summary>
         public string Sprinklered
@@ -146,8 +156,9 @@ namespace BuildingRegulationReview.FireReview
         /// </summary>
         public string LimitText => Limit.Description;
 
+        /// <summary>Built from what the row currently holds, so an unsaved edit shows its effect.</summary>
         internal ZoneAreaLimit Limit =>
-            ZoneAreaLimit.For(Source, _buildingUse);
+            ZoneAreaLimit.ForZone(IntegerOf(_floorNumber), YesNoOf(_sprinklered), _buildingUse, _use);
 
         /// <summary>防火檢討_所在樓層序 — 第70條 counts storeys from the top with it.</summary>
         public string FloorNumber
