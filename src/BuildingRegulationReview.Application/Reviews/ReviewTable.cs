@@ -148,7 +148,14 @@ public enum ReviewTableGrouping
     JunctionKind,
 
     /// <summary>帷幕牆區劃交接: one group per kind and 區劃來源條文, which is how CW-H splits 第79條 from 第83條.</summary>
-    JunctionLegalReference
+    JunctionLegalReference,
+
+    /// <summary>
+    /// 垂直區劃: the three rows of 第79條之2第1項 (垂直區劃規格 §7), in 條文 order. A 管道間維修門 owes two
+    /// of them at once, so grouping by element would show the same door twice with nothing to tell the
+    /// lines apart; grouping by requirement is what makes the two results readable.
+    /// </summary>
+    ShaftRequirement
 }
 
 /// <summary>One line of a row's statistics.</summary>
@@ -202,6 +209,8 @@ public sealed class ReviewTableEntry
         string? openingKind,
         CurtainWallJunctionKind? junctionKind,
         string? junctionLegalReference,
+        VerticalCompartmentRequirement? shaftRequirement,
+        string? shaftRequirementLabel,
         bool isLinked)
     {
         Result = result;
@@ -215,6 +224,8 @@ public sealed class ReviewTableEntry
         OpeningKind = openingKind;
         JunctionKind = junctionKind;
         JunctionLegalReference = junctionLegalReference;
+        ShaftRequirement = shaftRequirement;
+        ShaftRequirementLabel = shaftRequirementLabel;
         IsLinked = isLinked;
     }
 
@@ -255,6 +266,18 @@ public sealed class ReviewTableEntry
 
     /// <summary>第79條／第83條／第79條之3 — the clause the junction's compartment came from (docs §2.5).</summary>
     public string? JunctionLegalReference { get; }
+
+    /// <summary>
+    /// Which of the three 第79條之2 requirements a 垂直區劃 result answers, as its evidence recorded
+    /// <c>shaft.requirement</c>; null for every other check type.
+    /// </summary>
+    public VerticalCompartmentRequirement? ShaftRequirement { get; }
+
+    /// <summary>
+    /// The 檢討表 row name of that requirement, from the <c>shaft.requirementLabel</c> evidence the
+    /// check stored — the table is rebuilt from the results alone and never reads the model again.
+    /// </summary>
+    public string? ShaftRequirementLabel { get; }
 
     /// <summary>The subject lives in a linked model, which the host view cannot select or override by element.</summary>
     public bool IsLinked { get; }
@@ -343,14 +366,15 @@ public sealed class ReviewTableSection
 public sealed class ReviewTable
 {
     /// <summary>
-    /// The rows, in the order spec 11.7 lists them, with 帷幕牆區劃交接 after them (帷幕牆規格 §7.2).
-    /// They are always present, empty or not: a row with nothing in it reads 未檢討, which is what a
-    /// package with no curtain wall — or one reviewed without reading its geometry — actually is.
+    /// The rows, in the order spec 11.7 lists them, with 帷幕牆區劃交接 (帷幕牆規格 §7.2) and 垂直區劃
+    /// (垂直區劃規格 §7) after them. They are always present, empty or not: a row with nothing in it
+    /// reads 未檢討, which is what a package with no curtain wall — or one whose storey holds no
+    /// 昇降機道 or 管道間 — actually is.
     /// </summary>
     public static readonly IReadOnlyList<string> CheckTypes = new ReadOnlyCollection<string>(new[]
     {
         ReviewCheckTypes.CompartmentArea, ReviewCheckTypes.FireResistance, ReviewCheckTypes.OpeningProtection,
-        ReviewCheckTypes.CompartmentContinuity
+        ReviewCheckTypes.CompartmentContinuity, ReviewCheckTypes.VerticalCompartment
     });
 
     internal const string CurtainWallKind = "幕牆";
@@ -431,6 +455,7 @@ public sealed class ReviewTable
         ReviewCheckTypes.FireResistance => "構件防火時效",
         ReviewCheckTypes.OpeningProtection => "防火門窗",
         ReviewCheckTypes.CompartmentContinuity => "帷幕牆區劃交接",
+        ReviewCheckTypes.VerticalCompartment => "垂直區劃",
         _ => checkType
     };
 
@@ -459,9 +484,32 @@ public sealed class ReviewTable
                         e => e.CategoryLabel + "/" + e.JunctionLegalReference,
                         e => e.CategoryLabel + "：" + e.JunctionLegalReference));
 
+            // 垂直區劃規格 §7: the three requirements of 第79條之2第1項 are the rows, always read in
+            // 條文 order rather than in the order the run happened to meet them, because a 管道間's two
+            // rows and a 昇降機道's one row otherwise interleave differently per storey.
+            case ReviewCheckTypes.VerticalCompartment:
+                return Group(ReviewTableGrouping.ShaftRequirement, entries,
+                        e => e.ShaftRequirement is VerticalCompartmentRequirement r
+                            ? VerticalCompartmentRequirements.RuleText(r)
+                            : Unclassified,
+                        e => e.ShaftRequirementLabel ?? Unclassified)
+                    .OrderBy(g => RequirementOrder(g.Key));
+
             default:
                 return Enumerable.Empty<ReviewTableGroup>();
         }
+    }
+
+    /// <summary>
+    /// Where a requirement sits in <see cref="VerticalCompartmentRequirements.All"/>; an unrecognised
+    /// key sorts last rather than throwing, so a result written by a newer version is still shown.
+    /// </summary>
+    private static int RequirementOrder(string ruleText)
+    {
+        for (var i = 0; i < VerticalCompartmentRequirements.All.Count; i++)
+            if (string.Equals(VerticalCompartmentRequirements.RuleText(VerticalCompartmentRequirements.All[i]), ruleText, StringComparison.Ordinal))
+                return i;
+        return VerticalCompartmentRequirements.All.Count;
     }
 
     /// <summary>Groups in order of first appearance, so the statistics read in the order the run did.</summary>
@@ -495,6 +543,7 @@ public sealed class ReviewTable
         var category = CategoryOf(evidence);
         var isArea = string.Equals(result.CheckType, ReviewCheckTypes.CompartmentArea, StringComparison.Ordinal);
         var junctionKind = JunctionKindOf(evidence);
+        var shaftRequirement = ShaftRequirementOf(evidence);
 
         var typeUniqueId = TextOf(evidence, "source.typeUniqueId");
         var typeName = TextOf(evidence, "source.typeName");
@@ -520,7 +569,24 @@ public sealed class ReviewTable
             openingKind,
             junctionKind,
             TextOf(evidence, "junction.hostLegalReference"),
+            shaftRequirement,
+            shaftRequirement is VerticalCompartmentRequirement requirement
+                ? TextOf(evidence, "shaft.requirementLabel") ?? VerticalCompartmentRequirements.Label(requirement)
+                : TextOf(evidence, "shaft.requirementLabel"),
             evidence.Has("source.linkInstanceUniqueId"));
+    }
+
+    /// <summary>
+    /// The 第79條之2 requirement a result answers, as its evidence recorded
+    /// <see cref="VerticalCompartmentRequirements.RequirementField"/>.
+    /// </summary>
+    private static VerticalCompartmentRequirement? ShaftRequirementOf(ReviewEvidence evidence)
+    {
+        var text = TextOf(evidence, VerticalCompartmentRequirements.RequirementField);
+        if (text is null) return null;
+        foreach (var requirement in VerticalCompartmentRequirements.All)
+            if (string.Equals(VerticalCompartmentRequirements.RuleText(requirement), text, StringComparison.Ordinal)) return requirement;
+        return null;
     }
 
     /// <summary>The 帷幕牆 check a result belongs to, as its evidence recorded <c>junction.kind</c>.</summary>

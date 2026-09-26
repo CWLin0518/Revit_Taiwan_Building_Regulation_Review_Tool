@@ -124,13 +124,15 @@ public sealed class ReviewTableTests
     {
         var table = ReviewTable.Build(ReviewAll(new Model()));
 
-        Assert.Equal(new[] { "防火區劃面積", "構件防火時效", "防火門窗", "帷幕牆區劃交接" }, table.Sections.Select(s => s.Title));
-        Assert.All(table.Sections.Where(s => s.CheckType != ReviewCheckTypes.CompartmentContinuity),
+        Assert.Equal(new[] { "防火區劃面積", "構件防火時效", "防火門窗", "帷幕牆區劃交接", "垂直區劃" },
+            table.Sections.Select(s => s.Title));
+        var empty = new[] { ReviewCheckTypes.CompartmentContinuity, ReviewCheckTypes.VerticalCompartment };
+        Assert.All(table.Sections.Where(s => !empty.Contains(s.CheckType)),
             s => Assert.Equal(ReviewStatus.Pass, s.Status));
 
-        // 帷幕牆區劃交接 has no result in this model: an empty row is 未檢討 and adds nothing to the
-        // verdict — the table counts results, not rows (spec 11.7).
-        Assert.Equal(ReviewStatus.NotRun, table.Section(ReviewCheckTypes.CompartmentContinuity).Status);
+        // 帷幕牆區劃交接 and 垂直區劃 have no result in this model: an empty row is 未檢討 and adds nothing
+        // to the verdict — the table counts results, not rows (spec 11.7).
+        Assert.All(empty, type => Assert.Equal(ReviewStatus.NotRun, table.Section(type).Status));
         Assert.Equal(ReviewVerdict.Pass, table.Verdict);
         Assert.False(table.IsStale);
         Assert.Empty(table.OtherEntries);
@@ -260,6 +262,58 @@ public sealed class ReviewTableTests
         if (reference is not null) evidence.Add(("junction.hostLegalReference", ReviewValue.OfText(reference)));
         return Hand(status, ReviewCheckTypes.CompartmentContinuity, subject, evidence.ToArray());
     }
+
+    /// <summary>
+    /// 垂直區劃規格 §7: the 垂直區劃 row breaks down into the three requirements of 第79條之2第1項, always
+    /// in 條文 order however the run met them, and one 維修門 appears in two of those rows — which is
+    /// the whole point of grouping by requirement rather than by element (§9 第8項).
+    /// </summary>
+    [Fact]
+    public void Vertical_compartment_results_are_counted_by_requirement_in_clause_order()
+    {
+        var run = HandRun(
+            Shaft(ReviewStatus.Pass, VerticalCompartmentRequirement.ShaftDoorSmokeSeal, "D-shaft"),
+            Shaft(ReviewStatus.Fail, VerticalCompartmentRequirement.ShaftDoorRating, "D-shaft"),
+            Shaft(ReviewStatus.InsufficientData, VerticalCompartmentRequirement.HoistwaySmokeSeal, "D-hoistway"));
+
+        var section = ReviewTable.Build(run).Section(ReviewCheckTypes.VerticalCompartment);
+        Assert.Equal("垂直區劃", section.Title);
+        Assert.Equal(ReviewStatus.Fail, section.Status);
+
+        var rows = section.GroupsBy(ReviewTableGrouping.ShaftRequirement).ToList();
+        Assert.Equal(new[] { "昇降機道防火設備遮煙性能", "管道間維修門防火時效", "管道間維修門遮煙性能" },
+            rows.Select(g => g.Label));
+        Assert.All(rows, g => Assert.Equal(1, g.Counts.Total));
+        Assert.Equal(new[] { "D-shaft" }, rows[1].ResultIds.Select(id => run.Result(id)!.SubjectUniqueIds.Single()));
+        Assert.Equal(new[] { "D-shaft" }, rows[2].ResultIds.Select(id => run.Result(id)!.SubjectUniqueIds.Single()));
+
+        var rating = section.Entries.Single(e => e.ShaftRequirement == VerticalCompartmentRequirement.ShaftDoorRating);
+        Assert.Equal("管道間維修門防火時效", rating.ShaftRequirementLabel);
+        Assert.Equal("門", rating.CategoryLabel);
+    }
+
+    /// <summary>
+    /// The row name is the one the check stored with the result: the 檢討表 is rebuilt from the run
+    /// alone, so a stored label is shown as it was written and never re-derived from the model.
+    /// </summary>
+    [Fact]
+    public void A_stored_requirement_label_is_what_the_row_shows()
+    {
+        var run = HandRun(Hand(ReviewStatus.Pass, ReviewCheckTypes.VerticalCompartment, "D-shaft",
+            (VerticalCompartmentRequirements.RequirementField,
+                ReviewValue.OfText(VerticalCompartmentRequirements.RuleText(VerticalCompartmentRequirement.ShaftDoorRating))),
+            ("shaft.requirementLabel", ReviewValue.OfText("管道間維修門防火時效（舊版用字）"))));
+
+        var group = Assert.Single(ReviewTable.Build(run).Section(ReviewCheckTypes.VerticalCompartment)
+            .GroupsBy(ReviewTableGrouping.ShaftRequirement));
+        Assert.Equal("管道間維修門防火時效（舊版用字）", group.Label);
+    }
+
+    private static ReviewResult Shaft(ReviewStatus status, VerticalCompartmentRequirement requirement, string subject) =>
+        Hand(status, ReviewCheckTypes.VerticalCompartment, subject,
+            (VerticalCompartmentRequirements.RequirementField, ReviewValue.OfText(VerticalCompartmentRequirements.RuleText(requirement))),
+            ("shaft.requirementLabel", ReviewValue.OfText(VerticalCompartmentRequirements.Label(requirement))),
+            ("source.category", ReviewValue.OfText(CandidateCategories.RuleText(CandidateCategory.Door))));
 
     [Fact]
     public void A_result_of_an_unknown_check_is_kept_and_counted()

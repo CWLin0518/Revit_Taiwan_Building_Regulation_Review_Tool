@@ -88,6 +88,7 @@ public enum FireReviewStep
     FireResistance,
     OpeningProtection,
     CurtainWallJunction,
+    VerticalCompartment,
     Evidence
 }
 
@@ -224,8 +225,8 @@ public sealed class ReviewPerformance
 }
 
 /// <summary>
-/// P3-T09: runs 區劃面積, 構件防火時效, 防火門窗 and 帷幕牆區劃交接 as one review (spec 11, 帷幕牆規格
-/// §8), on data the adapter has already read — except the curtain walls, which can only be measured
+/// P3-T09: runs 區劃面積, 構件防火時效, 防火門窗, 帷幕牆區劃交接 and 垂直區劃 as one review (spec 11,
+/// 帷幕牆規格 §8, 垂直區劃規格 §12 步驟 5), on data the adapter has already read — except the curtain walls, which can only be measured
 /// once the required ratings are known and are therefore read in the step itself
 /// (<see cref="FireReviewRequest.CurtainWallReader"/>). Between checks is a safe point: a cancellation there returns without a run, so
 /// nothing is stored and the model is not touched. A completed run carries its evidence baseline
@@ -262,7 +263,7 @@ public static class FireReviewRunner
         var run = new ReviewRun(runId, request.Package.PackageId, ruleSet.RuleSetId, ruleSet.Version,
             request.Package.BoundaryRevision, started);
         var engine = new RuleEngine(request.RuleSet);
-        const int total = 5;
+        const int total = 6;
 
         if (cancellation.IsCancellationRequested) return Cancelled(request, log, Performance());
 
@@ -295,11 +296,19 @@ public static class FireReviewRunner
         if (cancellation.IsCancellationRequested) return Cancelled(request, log, Performance());
 
         watch.Restart();
+        var shaft = VerticalCompartmentCheck.Review(set, request.Inputs.VerticalCompartment, engine, request.Context, runId, newId);
+        stages.Add(Stage(FireReviewStep.VerticalCompartment, watch));
+        if (shaft.IsFailure) return Failed(request, log, Performance(), shaft.Error, FireReviewStep.VerticalCompartment);
+        progress?.Report(new FireReviewProgress(FireReviewStep.VerticalCompartment, 5, total));
+        if (cancellation.IsCancellationRequested) return Cancelled(request, log, Performance());
+
+        watch.Restart();
         var baseline = ReviewBaselineBuilder.Build(set, request.Environment, request.Inputs);
         var results = area.Value.Results
             .Concat(rating.Value.Results)
             .Concat(opening.Value.Results)
             .Concat(junction.Value.Results)
+            .Concat(shaft.Value.Results)
             .ToList();
         var completedAt = clock().ToUniversalTime();
         if (completedAt < started) completedAt = started;
@@ -312,12 +321,12 @@ public static class FireReviewRunner
             completed = carryOver.Run;
         }
         stages.Add(Stage(FireReviewStep.Evidence, watch));
-        progress?.Report(new FireReviewProgress(FireReviewStep.Evidence, 5, total));
+        progress?.Report(new FireReviewProgress(FireReviewStep.Evidence, 6, total));
 
         var package = request.Package.WithReviewRun(ruleSet.RuleSetId, ruleSet.Version, runId,
             ReviewPackageStatus.Reviewed, completedAt);
 
-        Findings(log, area.Value, rating.Value, opening.Value, junction.Value);
+        Findings(log, area.Value, rating.Value, opening.Value, junction.Value, shaft.Value);
         if (carryOver is not null) CarryOverLog(log, carryOver);
         var table = ReviewTable.Build(completed);
         log.Add(ReviewErrorCode.ReviewCompleted, ReviewStage.Review,
@@ -337,6 +346,7 @@ public static class FireReviewRunner
         FireReviewStep.FireResistance => "構件防火時效",
         FireReviewStep.OpeningProtection => "防火門窗",
         FireReviewStep.CurtainWallJunction => "帷幕牆區劃交接",
+        FireReviewStep.VerticalCompartment => "垂直區劃",
         FireReviewStep.Evidence => "保存證據與人工覆寫",
         _ => step.ToString()
     };
@@ -449,16 +459,28 @@ public static class FireReviewRunner
         CompartmentAreaReview area,
         FireResistanceReview rating,
         OpeningProtectionReview opening,
-        CurtainWallJunctionReview junction)
+        CurtainWallJunctionReview junction,
+        VerticalCompartmentReview shaft)
     {
         foreach (var warning in area.Warnings.Concat(rating.Warnings).Concat(opening.Warnings).Concat(junction.Warnings)
+                     .Concat(shaft.Warnings)
                      .Distinct(StringComparer.Ordinal))
             log.Add(ReviewErrorCode.ReviewCompleted, ReviewStage.Review, ReviewSeverity.Warning, warning);
+
+        // 垂直區劃規格 §7: the three rows are logged even when a row is empty, because a 管道間 whose
+        // 維修門 was never modelled reads the same as one that was not reviewed unless the count says 0.
+        if (shaft.Findings.Count > 0)
+        {
+            log.Add(ReviewErrorCode.ReviewCompleted, ReviewStage.Review, ReviewSeverity.Info,
+                "垂直區劃（第79條之2第1項）：" + string.Join("；", shaft.Groups.Select(g =>
+                    $"{g.Label} {g.DeviceCount} 件{ReviewStatusText.Label(g.Status)}")) + "。");
+        }
 
         var findings = area.Findings.Select(f => (f.Result, f.ErrorCode, Element: (string?)f.Zone.AreaUniqueIds.FirstOrDefault()))
             .Concat(rating.Findings.Select(f => (f.Result, f.ErrorCode, Element: (string?)f.ElementUniqueId)))
             .Concat(opening.Findings.Select(f => (f.Result, f.ErrorCode, Element: (string?)f.ElementUniqueId)))
-            .Concat(junction.Findings.Select(f => (f.Result, f.ErrorCode, Element: (string?)f.Junction.CurtainWallUniqueId)));
+            .Concat(junction.Findings.Select(f => (f.Result, f.ErrorCode, Element: (string?)f.Junction.CurtainWallUniqueId)))
+            .Concat(shaft.Findings.Select(f => (f.Result, f.ErrorCode, Element: (string?)f.ElementUniqueId)));
         foreach (var (result, code, element) in findings)
         {
             if (code is null && result.Status != ReviewStatus.Fail) continue;

@@ -8,6 +8,7 @@ using BuildingRegulationReview.Application.Abstractions;
 using BuildingRegulationReview.Application.Candidates;
 using BuildingRegulationReview.Application.Checks;
 using BuildingRegulationReview.Application.Diagnostics;
+using BuildingRegulationReview.Application.Parameters;
 using BuildingRegulationReview.Application.Reviews;
 using BuildingRegulationReview.Application.Rules;
 using BuildingRegulationReview.Domain.Common;
@@ -1005,7 +1006,7 @@ public sealed class FireReviewIntegrationTests
     // --- one review, three checks ---------------------------------------------------------------
 
     [Fact]
-    public void Review_runs_all_three_checks_and_leaves_the_package_reviewed_with_the_rule_set_locked()
+    public void Review_runs_every_check_and_leaves_the_package_reviewed_with_the_rule_set_locked()
     {
         var progress = new Recorder();
         var outcome = Run(Request(), progress: progress);
@@ -1018,7 +1019,8 @@ public sealed class FireReviewIntegrationTests
         Assert.True(run.Baseline.IsRecorded);
         Assert.All(new[] { ReviewCheckTypes.CompartmentArea, ReviewCheckTypes.FireResistance, ReviewCheckTypes.OpeningProtection },
             type => Assert.Contains(run.Results, r => r.CheckType == type));
-        Assert.All(outcome.Table!.Sections.Where(s => s.CheckType != ReviewCheckTypes.CompartmentContinuity),
+        var empty = new[] { ReviewCheckTypes.CompartmentContinuity, ReviewCheckTypes.VerticalCompartment };
+        Assert.All(outcome.Table!.Sections.Where(s => !empty.Contains(s.CheckType)),
             s => Assert.NotEqual(ReviewStatus.NotRun, s.Status));
         Assert.Empty(outcome.Table.OtherEntries);
 
@@ -1026,14 +1028,24 @@ public sealed class FireReviewIntegrationTests
         Assert.Equal(ReviewStatus.NotRun, outcome.Table.Section(ReviewCheckTypes.CompartmentContinuity).Status);
         Assert.Contains(outcome.Log.Entries, e => e.UserMessage.Contains("帷幕牆區劃交接未檢討"));
 
+        // 垂直區劃 is 未檢討 for the same kind of reason: this storey's 區劃用途 are 辦公 and none at
+        // all, so 第79條之2 holds no 防火設備 of it to anything (垂直區劃規格 §3.2).
+        Assert.Equal(ReviewStatus.NotRun, outcome.Table.Section(ReviewCheckTypes.VerticalCompartment).Status);
+        Assert.DoesNotContain(run.Results, r => r.CheckType == ReviewCheckTypes.VerticalCompartment);
+
         Assert.Equal(ReviewPackageStatus.Reviewed, outcome.Package.Status);
         Assert.Equal(RuleSetId, outcome.Package.RuleSetId);
         Assert.Equal(ShippedVersion, outcome.Package.RuleSetVersion);
         Assert.Equal(run.RunId.ToString("D"), outcome.Package.LastReviewRunId);
         Assert.Equal(1, outcome.Package.BoundaryRevision);
 
-        Assert.Equal(new[] { FireReviewStep.CompartmentArea, FireReviewStep.FireResistance, FireReviewStep.OpeningProtection, FireReviewStep.CurtainWallJunction, FireReviewStep.Evidence },
+        Assert.Equal(new[]
+            {
+                FireReviewStep.CompartmentArea, FireReviewStep.FireResistance, FireReviewStep.OpeningProtection,
+                FireReviewStep.CurtainWallJunction, FireReviewStep.VerticalCompartment, FireReviewStep.Evidence
+            },
             progress.Reports.Select(p => p.Step));
+        Assert.Equal("垂直區劃（5/6）", progress.Reports[4].Message);
         Assert.Contains(outcome.Log.Entries, e => e.Code == ReviewErrorCode.ReviewCompleted && e.UserMessage.StartsWith("檢討完成"));
     }
 
@@ -1360,6 +1372,139 @@ public sealed class FireReviewIntegrationTests
         Assert.Equal(ReviewStatus.Fail, again.EffectiveStatus);
     }
 
+    // --- 垂直區劃 (垂直區劃規格 §12 步驟 5) -------------------------------------------------------
+
+    private const string ShaftDoorType = "type-shaft-door";
+
+    /// <summary>
+    /// A 管道間's 維修門 on the boundary of A 區. The fixture's whole opening list is replaced rather
+    /// than added to: 第79條之2 holds every 防火設備 of the 區劃 to its requirements, so the other ten
+    /// openings would bury the two results these tests are about.
+    /// </summary>
+    private static IReadOnlyList<OpeningObservation> ShaftDoorOnly() => new[]
+    {
+        new OpeningObservation(Source("D9-shaft"), CandidateCategory.Door, "W2-shared", P(10, 7),
+            M(0.9), M(2.1), ShaftDoorType, "維修門")
+    };
+
+    /// <summary>A 區 is 管道間, and its 維修門 Type declares 遮煙性能 and 設計防火時效.</summary>
+    private static Parameters ShaftParameters(int smokeSeal = 1, string rating = "1 小時")
+    {
+        var parameters = new Parameters();
+        parameters.Elements["area-a"][ReviewInputSources.ZoneUse] = ParameterReading.OfText(ZoneUses.Shaft);
+        parameters.Elements[ShaftDoorType] = new Dictionary<string, ParameterReading>
+        {
+            [SmokeProtectionParameters.Provided] = ParameterReading.OfYesNo(smokeSeal),
+            [FireRatingParameters.Provided] = ParameterReading.OfText(rating)
+        };
+        return parameters;
+    }
+
+    /// <summary>
+    /// The check is wired into the run: one 維修門 of a 管道間 yields the two results 第79條之2第1項第3句
+    /// asks of it, counted in the fifth row of the 檢討表 as two of its three requirement lines.
+    /// </summary>
+    [Fact]
+    public void A_shaft_maintenance_door_is_two_results_of_the_fifth_review_table_row()
+    {
+        var outcome = Run(Request(parameters: ShaftParameters(), openings: ShaftDoorOnly()));
+
+        Assert.True(outcome.IsCompleted, outcome.Message);
+        var section = outcome.Table!.Section(ReviewCheckTypes.VerticalCompartment);
+        Assert.Equal(2, section.Entries.Count);
+        Assert.All(section.Entries, e => Assert.Equal(ReviewStatus.Pass, e.EffectiveStatus));
+        Assert.All(section.Entries, e => Assert.Equal(new[] { "D9-shaft" }, e.LocateUniqueIds));
+        Assert.All(section.Entries, e => Assert.Contains("第79條之2", e.LegalReference, StringComparison.Ordinal));
+        Assert.Equal(ReviewStatus.Pass, section.Status);
+        Assert.Empty(outcome.Table.OtherEntries);
+
+        Assert.Equal(new[] { "管道間維修門防火時效", "管道間維修門遮煙性能" },
+            section.GroupsBy(ReviewTableGrouping.ShaftRequirement).Select(g => g.Label));
+
+        // 昇降機道 is not this storey's business, so its row counts nothing — and the log still says so,
+        // because an empty row and an unreviewed one read alike without the count.
+        Assert.Contains(outcome.Log.Entries, e =>
+            e.UserMessage.Contains("垂直區劃（第79條之2第1項）") &&
+            e.UserMessage.Contains("昇降機道防火設備遮煙性能 0 件未檢討") &&
+            e.UserMessage.Contains("管道間維修門防火時效 1 件符合"));
+    }
+
+    /// <summary>
+    /// The two requirements are answered apart: a 維修門 that seals against smoke but falls short of the
+    /// hour fails the 時效 row alone (決議 12 — one subject carries one field).
+    /// </summary>
+    [Fact]
+    public void A_maintenance_door_short_of_an_hour_fails_only_the_rating_row()
+    {
+        var outcome = Run(Request(parameters: ShaftParameters(rating: "30 min"), openings: ShaftDoorOnly()));
+        var section = outcome.Table!.Section(ReviewCheckTypes.VerticalCompartment);
+
+        Assert.Equal(ReviewStatus.Fail,
+            section.Entries.Single(e => e.ShaftRequirement == VerticalCompartmentRequirement.ShaftDoorRating).EffectiveStatus);
+        Assert.Equal(ReviewStatus.Pass,
+            section.Entries.Single(e => e.ShaftRequirement == VerticalCompartmentRequirement.ShaftDoorSmokeSeal).EffectiveStatus);
+        Assert.Equal(ReviewVerdict.Fail, outcome.Table.Verdict);
+    }
+
+    /// <summary>
+    /// 垂直區劃規格 §9 第9項: 遮煙性能 is a Type parameter no other check reads, so the evidence baseline
+    /// has to record it itself — otherwise unticking the box would leave the stored 檢討 reading 有效.
+    /// </summary>
+    [Fact]
+    public void Unticking_a_types_smoke_seal_makes_the_stored_run_need_an_update()
+    {
+        var first = Run(Request(parameters: ShaftParameters(), openings: ShaftDoorOnly()));
+        var smokeSeal = first.Table!.Section(ReviewCheckTypes.VerticalCompartment).Entries
+            .Single(e => e.ShaftRequirement == VerticalCompartmentRequirement.ShaftDoorSmokeSeal);
+        Assert.Equal(ReviewStatus.Pass, smokeSeal.EffectiveStatus);
+
+        var inspection = StoredRunInspection.Inspect(first.Package, first.Run!,
+            CurrentBaseline(ShaftParameters(smokeSeal: 0), openings: ShaftDoorOnly()), RuleSetId, ShippedVersion, Now);
+
+        Assert.True(inspection.Freshness.IsStale);
+        Assert.Equal(new[] { "D9-shaft" }, inspection.Freshness.ChangedSubjects);
+        Assert.Contains(inspection.Freshness.StaleResultIds, id => id == smokeSeal.ResultId);
+        Assert.Equal(ReviewVerdict.NeedsUpdate, inspection.Table.Verdict);
+
+        // And the next run says the new value: 遮煙性能 否 with no answer about a 昇降機間 is 未符合 for a
+        // 管道間's 維修門, whose 但書 belongs to 昇降機道 alone.
+        var second = Run(Request(parameters: ShaftParameters(smokeSeal: 0), openings: ShaftDoorOnly(), previous: first.Run), prefix: 2);
+        Assert.Equal(ReviewStatus.Fail, second.Table!.Section(ReviewCheckTypes.VerticalCompartment).Entries
+            .Single(e => e.ShaftRequirement == VerticalCompartmentRequirement.ShaftDoorSmokeSeal).EffectiveStatus);
+    }
+
+    /// <summary>
+    /// 垂直區劃規格 §9 第9項 again, for the other half of the pair: a 門's 設計防火時效 is read by no
+    /// member check either — a 維修門 is an opening — so the baseline has to record it here as well.
+    /// </summary>
+    [Fact]
+    public void Changing_a_maintenance_doors_rating_makes_the_stored_run_need_an_update()
+    {
+        var first = Run(Request(parameters: ShaftParameters(), openings: ShaftDoorOnly()));
+
+        var inspection = StoredRunInspection.Inspect(first.Package, first.Run!,
+            CurrentBaseline(ShaftParameters(rating: "30 min"), openings: ShaftDoorOnly()), RuleSetId, ShippedVersion, Now);
+
+        Assert.True(inspection.Freshness.IsStale);
+        Assert.Equal(new[] { "D9-shaft" }, inspection.Freshness.ChangedSubjects);
+    }
+
+    /// <summary>
+    /// 垂直區劃規格 §9 第10項: a 區劃 whose 用途 says nothing 第79條之2 names produces no subject at all,
+    /// so the row stays 未檢討 and the run is not held up by the 遮煙性能 of doors nobody asked about.
+    /// </summary>
+    [Fact]
+    public void A_zone_use_outside_the_vocabulary_produces_no_vertical_compartment_subject()
+    {
+        var parameters = ShaftParameters();
+        parameters.Elements["area-a"][ReviewInputSources.ZoneUse] = ParameterReading.OfText("機房");
+
+        var outcome = Run(Request(parameters: parameters, openings: ShaftDoorOnly()));
+
+        Assert.Equal(ReviewStatus.NotRun, outcome.Table!.Section(ReviewCheckTypes.VerticalCompartment).Status);
+        Assert.DoesNotContain(outcome.Log.Entries, e => e.UserMessage.Contains("垂直區劃（第79條之2第1項）"));
+    }
+
     // --- a stored run judged again (spec 13.1, 16.3 情境 8) -------------------------------------
 
     private static ReviewBaseline CurrentBaseline(
@@ -1492,7 +1637,7 @@ public sealed class FireReviewIntegrationTests
         var set = Set();
         Assert.Equal(set.Members.Count + set.Openings.Count + set.UnrelatedMemberCount + set.UnrelatedOpeningCount, outcome.Performance.CandidateCount);
         Assert.Equal(TimeSpan.FromSeconds(1), outcome.Performance.Prescan);
-        Assert.Equal(5, outcome.Performance.Stages.Count);
+        Assert.Equal(6, outcome.Performance.Stages.Count);
     }
 
     // --- domain ---------------------------------------------------------------------------------

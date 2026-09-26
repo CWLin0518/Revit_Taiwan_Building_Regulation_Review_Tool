@@ -89,7 +89,8 @@ public static class ReviewBaselineKeys
 /// <summary>
 /// Turns what a run read — candidate set, check inputs, environment — into the evidence baseline the
 /// run is stored with (spec 13.1). Every subject's fingerprint covers exactly what could change its
-/// verdict: its geometry, Type, relation to each zone and the design value read for it; a zone's
+/// verdict: its geometry, Type, relation to each zone and every design value read for
+/// it — 設計防火時效, 設計防火保護 and 遮煙性能 alike; a zone's
 /// covers its Areas, their outlines and the zone inputs. Everything shared by all results goes into
 /// the context fingerprint.
 /// </summary>
@@ -109,7 +110,8 @@ public static class ReviewBaselineBuilder
     public static ReviewBaseline Build(CandidateSet set, ReviewEnvironment? environment, ReviewInputAssembly inputs)
     {
         if (inputs is null) throw new ArgumentNullException(nameof(inputs));
-        return Build(set, environment, inputs.Area, inputs.Rating, inputs.Protection, inputs.PanelRatings);
+        return Build(set, environment, inputs.Area, inputs.Rating, inputs.Protection, inputs.PanelRatings,
+            inputs.VerticalCompartment);
     }
 
     public static ReviewBaseline Build(
@@ -118,7 +120,8 @@ public static class ReviewBaselineBuilder
         CompartmentAreaInputs? areaInputs = null,
         FireResistanceInputs? ratingInputs = null,
         OpeningProtectionInputs? protectionInputs = null,
-        IEnumerable<TypeFireRating>? curtainPanelRatings = null)
+        IEnumerable<TypeFireRating>? curtainPanelRatings = null,
+        VerticalCompartmentInputs? verticalCompartmentInputs = null)
     {
         if (set is null) throw new ArgumentNullException(nameof(set));
         var env = environment ?? ReviewEnvironment.Empty;
@@ -127,7 +130,8 @@ public static class ReviewBaselineBuilder
         {
             ("area", areaInputs),
             ("rating", ratingInputs?.Context),
-            ("protection", protectionInputs?.Context)
+            ("protection", protectionInputs?.Context),
+            ("shaft", verticalCompartmentInputs?.Context)
         };
 
         var context = new StringBuilder();
@@ -187,6 +191,13 @@ public static class ReviewBaselineBuilder
                 .Append("|w=").Append(Length(o.WidthFeet)).Append("|h=").Append(Length(o.HeightFeet)).Append('\n');
             AppendRelations(text, opening.Relations);
             if (protectionInputs is not null) text.Append("protection|").Append(Protection(protectionInputs.For(o))).Append('\n');
+
+            // 第79條之2 reads 遮煙性能 on every opening Type and 設計防火時效 on a 門's, neither of which
+            // any other input covers — a 維修門 is not a member, so <c>rating|</c> above never sees it
+            // (垂直區劃規格 §9 第9項). Without this line, editing 防火檢討_遮煙性能 would leave the stored
+            // run reading 有效 (spec 13.1).
+            if (verticalCompartmentInputs is not null)
+                text.Append("shaftDevice|").Append(Device(verticalCompartmentInputs.ForType(o.TypeUniqueId))).Append('\n');
 
             // A 帷幕嵌板's 設計防火時效 decides the 90 cm 交接帶 (帷幕牆規格 §4), so a panel whose Type
             // rating changed is a changed subject and the junction results that named it go stale.
@@ -281,6 +292,12 @@ public static class ReviewBaselineBuilder
     private static string Protection(OpeningFireProtection? value) => value is null
         ? "-"
         : $"{value.Scope}|{value.UniqueId}|{value.Protection.Kind}|{value.Protection.RawText ?? "-"}|{value.Protection.Reason ?? "-"}|{value.Source}";
+
+    /// <summary>What a 防火設備 Type declared for 第79條之2: 遮煙性能 and — for a 門 — 設計防火時效.</summary>
+    private static string Device(ShaftDeviceProperties? value) => value is null
+        ? "-"
+        : $"{value.SmokeProtection.Kind}|{value.SmokeProtection.RawText ?? "-"}|{value.SmokeProtection.Reason ?? "-"}|" +
+          $"{value.FireRating.Kind}|{Number(value.FireRating.Minutes)}|{value.FireRating.RawText ?? "-"}|{value.FireRating.Reason ?? "-"}";
 
     private static string Value(ReviewValue value) => value.Kind switch
     {

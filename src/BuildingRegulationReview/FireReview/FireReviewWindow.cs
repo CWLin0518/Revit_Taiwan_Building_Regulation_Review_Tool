@@ -382,6 +382,7 @@ namespace BuildingRegulationReview.FireReview
             ReviewCheckTypes.CompartmentArea => ReviewTableGrouping.Zone,
             ReviewCheckTypes.FireResistance => ReviewTableGrouping.Type,
             ReviewCheckTypes.CompartmentContinuity => ReviewTableGrouping.JunctionKind,
+            ReviewCheckTypes.VerticalCompartment => ReviewTableGrouping.ShaftRequirement,
             _ => ReviewTableGrouping.OpeningKind
         };
 
