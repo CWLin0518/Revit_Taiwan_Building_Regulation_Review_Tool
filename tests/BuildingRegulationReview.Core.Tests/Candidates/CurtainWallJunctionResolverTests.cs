@@ -1005,6 +1005,129 @@ public sealed class CurtainWallJunctionResolverTests
         }, corners);
     }
 
+    // --- CW-O 的兩路作答（決議 16、§10 案例 40–44）-----------------------------------------------
+
+    /// <summary>案例 40：一片帷幕牆同時有實心與玻璃嵌板 → CW-O 兩列，各自只帶自己那一路的讀值。</summary>
+    [Fact]
+    public void Case40_solid_and_glazed_other_panels_are_two_rows()
+    {
+        var set = Set(Wall(new[]
+        {
+            Panel("P-solid", 0, 5000, 60),
+            Glass("P-glass", 5000, WallLengthMm, ProvidedFireProtection.Yes("是"))
+        }));
+
+        var others = Resolve(set).Where(j => j.Kind == CurtainWallJunctionKind.CurtainPanelOther).ToList();
+
+        Assert.Equal(2, others.Count);
+
+        var solid = Assert.Single(others, j => j.PanelAnswerKind == CurtainPanelKinds.SolidRuleText);
+        Assert.EndsWith(":solid", solid.JunctionId, StringComparison.Ordinal);
+        Assert.Equal(new[] { "P-solid" }, solid.PanelUniqueIds);
+        Assert.Equal(60, solid.MinFireRating!.Minutes!.Value);
+        Assert.Null(solid.MinFireProtection);
+
+        var glazed = Assert.Single(others, j => j.PanelAnswerKind == CurtainPanelKinds.GlazedRuleText);
+        Assert.EndsWith(":glazed", glazed.JunctionId, StringComparison.Ordinal);
+        Assert.Equal(new[] { "P-glass" }, glazed.PanelUniqueIds);
+        Assert.Equal(ProvidedFireProtectionKind.Yes, glazed.MinFireProtection!.Kind);
+        Assert.Null(glazed.MinFireRating);
+    }
+
+    /// <summary>案例 41：玻璃嵌板已綁定未勾選 → 讀到「否」，那是未符合而不是資料不足。</summary>
+    [Fact]
+    public void Case41_an_unticked_glazed_panel_reads_as_no()
+    {
+        var set = Set(Wall(new[] { Glass("P-glass", 0, WallLengthMm, ProvidedFireProtection.No("否")) }));
+
+        var junction = Single(Resolve(set), CurtainWallJunctionKind.CurtainPanelOther);
+
+        Assert.Equal(ProvidedFireProtectionKind.No, junction.MinFireProtection!.Kind);
+    }
+
+    /// <summary>
+    /// 案例 42：一片沒填、一片填否 → 取沒填的那一片。與時效那一路同一套理由：先講補得起來的缺口。
+    /// </summary>
+    [Fact]
+    public void Case42_a_missing_protection_outranks_a_declared_no()
+    {
+        var set = Set(Wall(new[]
+        {
+            Glass("P-no", 0, 5000, ProvidedFireProtection.No("否")),
+            Glass("P-missing", 5000, WallLengthMm, ProvidedFireProtection.Missing("型別未提供防火保護"))
+        }));
+
+        var junction = Single(Resolve(set), CurtainWallJunctionKind.CurtainPanelOther);
+
+        Assert.Equal(ProvidedFireProtectionKind.Missing, junction.MinFireProtection!.Kind);
+    }
+
+    /// <summary>
+    /// 案例 43：沒宣告種類的嵌板自成一列，<c>panelKind</c> 不供值——判定層據此讓引擎答資料不足。
+    /// </summary>
+    [Fact]
+    public void Case43_panels_without_a_declared_kind_are_their_own_row()
+    {
+        var set = Set(Wall(new[]
+        {
+            Panel("P-solid", 0, 5000, 60),
+            Panel("P-unknown", 5000, WallLengthMm, 60, kind: null)
+        }));
+
+        var others = Resolve(set).Where(j => j.Kind == CurtainWallJunctionKind.CurtainPanelOther).ToList();
+
+        Assert.Equal(2, others.Count);
+        var undeclared = Assert.Single(others, j => j.PanelAnswerKind is null);
+        Assert.EndsWith(":undeclared", undeclared.JunctionId, StringComparison.Ordinal);
+        Assert.Equal(new[] { "P-unknown" }, undeclared.PanelUniqueIds);
+        Assert.Null(undeclared.MinFireRating);
+        Assert.Null(undeclared.MinFireProtection);
+    }
+
+    /// <summary>
+    /// 案例 44：帷幕牆門窗與玻璃同一路（決議 16）。這順手修掉一個舊缺陷——窗本來就不帶時效，過去
+    /// 它會被算進時效那一路的取小，一扇窗就把整片牆的第79條之4 拖成資料不足。
+    /// </summary>
+    [Fact]
+    public void Case44_a_curtain_wall_window_answers_with_its_protection_not_a_rating()
+    {
+        var set = Set(Wall(new[]
+        {
+            Panel("P-solid", 0, 5000, 60),
+            Panel("P-window", 5000, WallLengthMm, null, isOpening: true, protection: ProvidedFireProtection.Yes("是"))
+        }));
+
+        var others = Resolve(set).Where(j => j.Kind == CurtainWallJunctionKind.CurtainPanelOther).ToList();
+
+        var solid = Assert.Single(others, j => j.PanelAnswerKind == CurtainPanelKinds.SolidRuleText);
+        Assert.Equal(60, solid.MinFireRating!.Minutes!.Value);
+        Assert.DoesNotContain("P-window", solid.PanelUniqueIds);
+
+        var glazed = Assert.Single(others, j => j.PanelAnswerKind == CurtainPanelKinds.GlazedRuleText);
+        Assert.Equal(new[] { "P-window" }, glazed.PanelUniqueIds);
+        Assert.Equal(ProvidedFireProtectionKind.Yes, glazed.MinFireProtection!.Kind);
+    }
+
+    /// <summary>
+    /// 案例 47（守門）：玻璃嵌板勾了防火保護也不供給 CW-V 的 900 mm 但書高度。第79條之3 但書要的是
+    /// 「同等以上防火時效」，防火設備不是防火時效（§9、決議 13 與 16）。
+    /// </summary>
+    [Fact]
+    public void Case47_a_protected_glazed_panel_does_not_supply_the_vertical_but_clause()
+    {
+        var panels = new[] { Glass("P-glass", 0, WallLengthMm, ProvidedFireProtection.Yes("是")) };
+        var floor = new CompartmentFloorObservation("F1",
+            new[] { Rectangle(-500, -50, WallLengthMm + 500, 8000) }, StoreyMm, 60);
+        var set = new CurtainWallObservationSet(Package, "LVL", "2F", StoreyMm,
+            new[] { Zone() }, new[] { Wall(panels) }, compartmentFloors: new[] { floor },
+            levelElevationsMm: new[] { 0.0, StoreyMm });
+
+        var junction = Single(Resolve(set), CurtainWallJunctionKind.FloorToCurtainWall);
+
+        Assert.Null(junction.ContinuousFireRatedHeightMm);
+        Assert.Null(junction.MinFireProtection);
+    }
+
     [Fact]
     public void Other_panels_have_no_placement_because_they_are_a_set_of_panels_not_a_place()
     {
@@ -1039,15 +1162,30 @@ public sealed class CurtainWallJunctionResolverTests
         double bottom = 0,
         double top = StoreyMm,
         bool isOpening = false,
-        ProvidedFireProtection? protection = null) =>
+        ProvidedFireProtection? protection = null,
+        CurtainPanelKind? kind = CurtainPanelKind.Solid) =>
         new(uniqueId, startMm, endMm, bottom, top,
             minutes is double m ? ProvidedFireRating.Rated(m, m.ToString("0")) : ProvidedFireRating.Missing("參數值為空白"),
-            isOpening, protection);
+            isOpening, protection, kind: kind);
+
+    /// <summary>
+    /// 一片宣告為玻璃的嵌板（決議 16）：它答的是 <c>防火檢討_設計防火保護</c>，時效讀值刻意留空白，
+    /// 因為玻璃填不出構造時效——這正是分兩路的理由。
+    /// </summary>
+    private static CurtainPanelObservation Glass(
+        string uniqueId,
+        double startMm,
+        double endMm,
+        ProvidedFireProtection protection,
+        double bottom = 0,
+        double top = StoreyMm) =>
+        new(uniqueId, startMm, endMm, bottom, top, ProvidedFireRating.Missing("玻璃嵌板不填構造時效"),
+            false, protection, kind: CurtainPanelKind.Glazed);
 
     /// <summary>A panel whose rating is whatever the adapter made of the parameter — absent, blank or a value.</summary>
     private static CurtainPanelObservation Unrated(
         string uniqueId, double startMm, double endMm, double bottom, double top, ProvidedFireRating rating) =>
-        new(uniqueId, startMm, endMm, bottom, top, rating, false, null);
+        new(uniqueId, startMm, endMm, bottom, top, rating, false, null, kind: CurtainPanelKind.Solid);
 
     private static CurtainGridLineObservation Grid(string uniqueId, CurtainGridLineDirection direction, double positionMm) =>
         new(uniqueId, direction, positionMm);

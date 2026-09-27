@@ -67,8 +67,13 @@ public sealed class CurtainWallJunctionRuleTests
         var set = Shipped();
         var rules = set.OfCategory(RuleCategory.CompartmentContinuity).ToList();
 
+        // 第79條之4 自決議 16 起分兩條：實心讀設計防火時效，玻璃與帷幕牆門窗讀設計防火保護。
         Assert.Equal(
-            new[] { "tw-bcr-79-3-curtain-wall-spandrel", "tw-bcr-79-4-curtain-wall-other", "tw-bcr-79-curtain-wall-junction" },
+            new[]
+            {
+                "tw-bcr-79-3-curtain-wall-spandrel", "tw-bcr-79-4-curtain-wall-other",
+                "tw-bcr-79-4-curtain-wall-other-glazed", "tw-bcr-79-curtain-wall-junction"
+            },
             rules.Select(x => x.RuleId).OrderBy(x => x, StringComparer.Ordinal));
 
         // The junction rules are written against junction.*, which only this category may read.
@@ -208,14 +213,59 @@ public sealed class CurtainWallJunctionRuleTests
     [Fact]
     public void Other_panels_need_half_an_hour()
     {
-        var enough = Junction("CurtainPanelOther").Set("junction.minFireRating", 30, ReviewUnit.Minute);
-        var notEnough = Junction("CurtainPanelOther").Set("junction.minFireRating", 29, ReviewUnit.Minute);
-        var unknown = Junction("CurtainPanelOther");
+        var enough = Solid().Set("junction.minFireRating", 30, ReviewUnit.Minute);
+        var notEnough = Solid().Set("junction.minFireRating", 29, ReviewUnit.Minute);
+        var unknown = Solid();
 
         Assert.Equal(ReviewStatus.Pass, Status(enough));
         Assert.Equal(ReviewStatus.Fail, Status(notEnough));
         Assert.Equal(ReviewStatus.InsufficientData, Status(unknown));
     }
+
+    /// <summary>決議 16：玻璃嵌板答的是防火設備，不是分鐘數。</summary>
+    [Fact]
+    public void Glazed_other_panels_need_a_fire_rated_opening_assembly()
+    {
+        var protected_ = Glazed().Set("junction.minFireProtection", "是");
+        var not = Glazed().Set("junction.minFireProtection", "否");
+        var unknown = Glazed();
+
+        Assert.Equal(ReviewStatus.Pass, Status(protected_));
+        Assert.Equal(ReviewStatus.Fail, Status(not));
+        Assert.Equal(ReviewStatus.InsufficientData, Status(unknown));
+    }
+
+    /// <summary>
+    /// 決議 16：玻璃那一路不讀時效，實心那一路不讀防火保護。填錯欄位不會讓另一路通過——這正是分兩列
+    /// 而不是取一個最不利值的理由。
+    /// </summary>
+    [Fact]
+    public void The_two_other_panel_paths_do_not_answer_for_each_other()
+    {
+        Assert.Equal(ReviewStatus.InsufficientData, Status(Glazed().Set("junction.minFireRating", 120, ReviewUnit.Minute)));
+        Assert.Equal(ReviewStatus.InsufficientData, Status(Solid().Set("junction.minFireProtection", "是")));
+    }
+
+    /// <summary>
+    /// 決議 16：沒宣告 <c>防火檢討_嵌板種類</c> 時，兩條 CW-O 規則的適用條件都算不出來，引擎答資料不足
+    /// 並指名缺的欄位——工具不猜是玻璃還是實心。
+    /// </summary>
+    [Fact]
+    public void Other_panels_without_a_declared_kind_are_insufficient_data()
+    {
+        var outcome = Outcome(Junction("CurtainPanelOther")
+            .Set("junction.minFireRating", 120, ReviewUnit.Minute)
+            .Set("junction.minFireProtection", "是"));
+
+        Assert.Equal(ReviewStatus.InsufficientData, outcome.Status);
+        Assert.Contains(outcome.Gaps, g => g.Field == "junction.panelKind");
+    }
+
+    private static RuleFacts Solid() =>
+        Junction("CurtainPanelOther").Set("junction.panelKind", "Solid");
+
+    private static RuleFacts Glazed() =>
+        Junction("CurtainPanelOther").Set("junction.panelKind", "Glazed");
 
     // --- 適用性 ------------------------------------------------------------------------------------
 
@@ -244,8 +294,10 @@ public sealed class CurtainWallJunctionRuleTests
     [Fact]
     public void The_three_kinds_never_apply_at_the_same_time()
     {
-        // 三條規則以 junction.kind 互斥；同一交接處不會有兩條同時適用而落入 Conflict。
-        foreach (var kind in new[] { "WallToCurtainWall", "FloorToCurtainWall", "CurtainPanelOther" })
+        // 前三條以 junction.kind 互斥、兩條 CW-O 再以 junction.panelKind 互斥；同一交接處不會有兩條
+        // 同時適用而落入 Conflict。CW-H、CW-V 不設 panelKind，靠 kind 不符時 `false && unknown` 仍為
+        // false，兩條 CW-O 不會因此變成「適用與否不明」。
+        foreach (var kind in new[] { "WallToCurtainWall", "FloorToCurtainWall" })
         {
             var outcome = Outcome(Junction(kind)
                 .Set("junction.projectionDepth", 0.6, ReviewUnit.Meter)
@@ -253,6 +305,19 @@ public sealed class CurtainWallJunctionRuleTests
 
             Assert.NotEqual(RuleOutcomeReason.Conflict, outcome.Reason);
             Assert.Equal(ReviewStatus.Pass, outcome.Status);
+        }
+
+        foreach (var facts in new[]
+                 {
+                     Solid().Set("junction.minFireRating", 60, ReviewUnit.Minute),
+                     Glazed().Set("junction.minFireProtection", "是")
+                 })
+        {
+            var outcome = Outcome(facts);
+
+            Assert.NotEqual(RuleOutcomeReason.Conflict, outcome.Reason);
+            Assert.Equal(ReviewStatus.Pass, outcome.Status);
+            Assert.Single(outcome.ConsideredRuleIds);
         }
     }
 }

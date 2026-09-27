@@ -1,6 +1,10 @@
 # 防火區劃與帷幕牆交接：第 79 條、第 79-3 條、第 79-4 條
 
-> 狀態：**實作中**。§12 的步驟 1–15 已完成（步驟 11、12 隨決議 13 移除）。步驟 13 已於 2026-09-27 實機驗證 `Fail` 路徑。**步驟 14（決議 14）與步驟 15（決議 15）已於 2026-09-28 部署並實機驗證，使用者確認 CW-H 檢討結果無誤**——CW-H 的但書路徑因此首次在 Revit 端驗到。步驟 14：防火帶一律以實體牆元素取代該段帷幕牆，交點因此落在帷幕牆定位線的延長線上，CW-H 照樣判定；交接帶的高程已改為區劃牆與帷幕牆的交集，未符合的實體外牆會被塗紅，躺在立面內的區劃牆不再產出 CW-H。步驟 15：外側法線不再採信 `wall.Orientation` 的正負，改由所屬區劃落在哪一側推定（§4.6 的三站多數決）——2026-09-27 於 Revit 量到帷幕牆的 `wall.Orientation` 純由定位線方向決定、`Wall.Flipped` 改不了它，反向畫的那一片會整片從檢討中消失，而步驟 14 預期的交接處擁有者正好是這一片。步驟 9 依設計決策取消 Area 上人工填寫室內裝修等級，改由區劃實際關聯的牆與天花板類型推導 `zone.interiorFinish`；**Revit 端尚未實機驗證**。
+> 狀態：**實作中**。§12 的步驟 1–15 已完成（步驟 11、12 隨決議 13 移除），**步驟 16a 已完成、16b–16e 未開始**。
+> 步驟 16（決議 16）把帷幕嵌板分成兩路作答：實心嵌板以 `防火檢討_設計防火時效` 作答且時效比照牆體由
+> 模型尺寸推定，玻璃嵌板與帷幕牆門窗以 `防火檢討_設計防火保護` 作答；種類由新參數 `防火檢討_嵌板種類`
+> 宣告，未宣告為資料不足。16a 是判定層（規則、幾何分流、六態），Revit 端尚未接線——**在 16c 做完前不要
+> 部署**，現行模型會因為新的必要參數未綁定而被前置檢查擋下。CW-H、CW-V 不受決議 16 影響。步驟 13 已於 2026-09-27 實機驗證 `Fail` 路徑。**步驟 14（決議 14）與步驟 15（決議 15）已於 2026-09-28 部署並實機驗證，使用者確認 CW-H 檢討結果無誤**——CW-H 的但書路徑因此首次在 Revit 端驗到。步驟 14：防火帶一律以實體牆元素取代該段帷幕牆，交點因此落在帷幕牆定位線的延長線上，CW-H 照樣判定；交接帶的高程已改為區劃牆與帷幕牆的交集，未符合的實體外牆會被塗紅，躺在立面內的區劃牆不再產出 CW-H。步驟 15：外側法線不再採信 `wall.Orientation` 的正負，改由所屬區劃落在哪一側推定（§4.6 的三站多數決）——2026-09-27 於 Revit 量到帷幕牆的 `wall.Orientation` 純由定位線方向決定、`Wall.Flipped` 改不了它，反向畫的那一片會整片從檢討中消失，而步驟 14 預期的交接處擁有者正好是這一片。步驟 9 依設計決策取消 Area 上人工填寫室內裝修等級，改由區劃實際關聯的牆與天花板類型推導 `zone.interiorFinish`；**Revit 端尚未實機驗證**。
 
 ## 1. 功能摘要
 
@@ -11,7 +15,7 @@
 | 核心目的 | 當防火區劃（區劃牆壁／區劃樓地板）的邊界落在帷幕外牆上時，檢查交接處是否維持區劃連續性 |
 | 模型輸入 | 區劃邊界牆、區劃樓地板、帷幕牆（Curtain Wall／Curtain System）、帷幕嵌板、Area 區劃 |
 | 主要產出 | 交接處六態檢討結果、檢討 View 紅色標示與註記、檢討表列 |
-| 前置 | Phase 2 區劃範圍已建立且未過期；`防火檢討_設計防火時效` 已綁定至 Curtain Panels；交接帶已依 §4.5 整理 grid line |
+| 前置 | Phase 2 區劃範圍已建立且未過期；`防火檢討_設計防火時效` 與 `防火檢討_嵌板種類` 已綁定至 Curtain Panels；交接帶已依 §4.5 整理 grid line |
 
 適用邊界：本功能只處理**防火構造建築物**。非防火構造建築物的區劃牆突出規定（第 80 條第 2 項、第 84 條）數值雖相同，但適用前提不同，列為後續版本。
 
@@ -119,11 +123,36 @@
 
 ### 3.3 CW-O：其餘帷幕牆面（第 79-4 條）
 
+對象為不落在 CW-H 之 90 cm 帶、也不落在 CW-V 之 90 cm 帶內的帷幕嵌板。**嵌板分兩路作答**（決議 16）：
+
 ```text
-Pass ⟺ panelMinFireRating >= 30 min
+實心嵌板  Pass ⟺ panelMinFireRating >= 30 min
+玻璃嵌板  Pass ⟺ panelMinFireProtection == "是"
 ```
 
-對象為不落在 CW-H 之 90 cm 帶、也不落在 CW-V 之 90 cm 帶內的帷幕嵌板。
+一片帷幕牆上兩種嵌板都有時，**產出兩列**：同一個 `junction.kind`（`CurtainPanelOther`），但 `junction.id`
+分別以 `:solid`／`:glazed` 結尾，`junction.panelKind` 為 `Solid`／`Glazed`。分兩列而不是取一個最不利值，
+是因為兩路量的是不同的東西：一路是分鐘數，一路是是非題，湊不成同一個門檻。§7.2 的檢討表仍是三列——
+分組看的是 `junction.kind`，兩列都落在「帷幕牆其他部分時效」那一列裡。
+
+嵌板屬於哪一路由型別參數 `防火檢討_嵌板種類`（`實心`／`玻璃`）宣告，**嵌板為牆者不必填**（一片 `Wall`
+必然是實心構造，讀取層直接認定）。帷幕牆上的門與窗跟玻璃嵌板同一路：它們是防火設備，答的是防火保護，
+沒有自己的時效可讀（決議 16）。
+
+為什麼要宣告、不由工具猜：沒有種類就分不出「實心嵌板漏填時效」（`InsufficientData`，使用者補得起來）
+與「玻璃嵌板宣告不是防火設備」（`Fail`，是設計本身不符合）。這兩個狀態的處置完全不同，猜錯的代價是
+把未符合說成資料不足。工具**可以提案**——`Material.MaterialClass` 是 `Glass` 或材料名含「玻璃」時預設
+提 `玻璃`——但提案要使用者在參數面板確認後寫入參數，與 `結構材料` ＋ 推定時效 同一套模式。
+
+實心嵌板的時效**比照牆體由模型尺寸推定**（決議 16、§6）：第 72 條第 1 款第 1 目（RC／SRC 厚 10 cm 以上
+→ 二小時）、第 73 條第 1 款第 1 目（厚 7 cm 以上 → 一小時），SC 走被覆厚度。第 72、73 條的「牆壁」款
+未限於承重牆壁，帷幕嵌板是外牆構造，套同一款與工具對一般牆的處置一致。推定只是提案，檢討讀的仍是
+使用者接受後寫入的 `防火檢討_設計防火時效`（spec 11.5 步驟 3）。
+
+以「防火設備」回答第 79-4 條的「半小時以上防火時效」是**解釋選擇**，記在 §11 決議 16：條文的文字是
+時效而非設備。採認的理由是玻璃嵌板無法填寫構造時效，若不容許以認可的防火玻璃（防火設備）作答，
+任何玻璃帷幕牆都必然在第 79-4 條判未符合。若個案審查機關採狹義見解，在規則集
+`tw-bcr-79-4-curtain-wall-other-glazed` 的 `appliesWhen` 排除即可，不需改程式。
 
 ### 3.4 六態對照
 
@@ -134,6 +163,9 @@ Pass ⟺ panelMinFireRating >= 30 min
 | 本文與但書皆不成立，且所有輸入齊備 | `Fail` |
 | CW-H：交點上的實體外牆型別缺 `防火檢討_設計防火時效` 值，且該項需依 900 mm 但書判定 | `InsufficientData` |
 | CW-V／CW-O：`防火檢討_設計防火時效` 未綁定至 Curtain Panels，或層間帶內任一嵌板型別缺值 | `InsufficientData` |
+| CW-O 玻璃嵌板：型別已綁定 `防火檢討_設計防火保護` 但未勾選 | `Fail`（spec 11.6「已綁定未勾選視為否」） |
+| CW-O 玻璃嵌板：`防火檢討_設計防火保護` 未綁定或讀不出是非 | `InsufficientData` |
+| CW-O：嵌板型別未填 `防火檢討_嵌板種類`（嵌板為牆者除外） | `InsufficientData`，訊息明示請指定嵌板種類 |
 | 帷幕牆為曲面、傾斜面、雙曲面，或嵌板非平面 | `ManualReview` |
 | 交點解析出兩組以上候選，或區劃牆端點與帷幕牆距離超過搜尋公差 | `ManualReview` |
 | CW-H：同一段立面同時有嵌板與實體外牆（沿牆位置與高程都重疊） | `ManualReview` |
@@ -406,6 +438,8 @@ public enum RuleCategory
 | 欄位 | 型別 | 說明 |
 | --- | --- | --- |
 | `junction.kind` | Text | `WallToCurtainWall` / `FloorToCurtainWall` / `CurtainPanelOther` |
+| `junction.panelKind` | Text | CW-O 這一列答的是哪一路嵌板：`Solid`（實心，讀時效）／`Glazed`（玻璃與帷幕牆門窗，讀防火保護）。CW-H、CW-V 不設此欄位 |
+| `junction.minFireProtection` | Text | CW-O 玻璃那一路的最不利防火保護讀值：`是`／`否`；未設定或讀不出時不設值，落入 `InsufficientData` |
 | `junction.zoneId` | Text | 所屬區劃 |
 | `junction.curtainWallUniqueId` | Text | 帷幕牆 UniqueId |
 | `junction.hostUniqueId` | Text | 區劃牆或樓地板 UniqueId |
@@ -466,21 +500,40 @@ public enum RuleCategory
 ```json
 {
   "ruleId": "tw-bcr-79-4-curtain-wall-other",
-  "version": "1",
+  "version": "2",
   "category": "CompartmentContinuity",
   "legalReference": "建築技術規則建築設計施工編第79條之4",
   "effectiveDate": "2024-01-01",
   "jurisdiction": "TW",
   "priority": 20,
-  "appliesWhen": "building.fireResistiveConstruction == true && junction.kind == \"CurtainPanelOther\"",
+  "appliesWhen": "building.fireResistiveConstruction == true && junction.kind == \"CurtainPanelOther\" && junction.panelKind == \"Solid\"",
   "requiredValue": "junction.minFireRating >= 30 min",
   "exemptions": [],
-  "evidenceFields": [ "junction.curtainWallUniqueId", "junction.zoneId" ],
+  "evidenceFields": [ "junction.curtainWallUniqueId", "junction.zoneId", "junction.panelKind" ],
   "severity": "Error"
 }
 ```
 
-三條規則以 `junction.kind` 互斥，同一交接處不會有兩條同時適用，因此不會落入引擎的 Conflict 路徑。
+```json
+{
+  "ruleId": "tw-bcr-79-4-curtain-wall-other-glazed",
+  "version": "1",
+  "category": "CompartmentContinuity",
+  "legalReference": "建築技術規則建築設計施工編第79條之4（玻璃嵌板以認可之防火設備作答，解釋選擇見決議 16）",
+  "effectiveDate": "2024-01-01",
+  "jurisdiction": "TW",
+  "priority": 20,
+  "appliesWhen": "building.fireResistiveConstruction == true && junction.kind == \"CurtainPanelOther\" && junction.panelKind == \"Glazed\"",
+  "requiredValue": "junction.minFireProtection == \"是\"",
+  "exemptions": [],
+  "evidenceFields": [ "junction.curtainWallUniqueId", "junction.zoneId", "junction.panelKind", "junction.minFireProtection" ],
+  "severity": "Error"
+}
+```
+
+四條規則互斥：前三條以 `junction.kind` 分開，後兩條再以 `junction.panelKind` 分開，同一交接處不會有兩條
+同時適用，因此不會落入引擎的 Conflict 路徑。兩條 CW-O 規則同為優先序 20，這不衝突——引擎只在同一優先序
+有**兩條都適用**時才判 Conflict，而 `panelKind` 保證只有一條適用。
 
 第四條是第 83 條的區劃面積規則。它不是 `CompartmentContinuity` 而是 `CompartmentArea`，因為它判定的是區劃本身的面積；它出現在這份文件裡，是因為 §7.2 的第 83 條那一列與 §2.5 的來源標記都靠它：
 
@@ -583,7 +636,9 @@ candidate.insideLength   = 0 m
 | 參數 | 類型 | 綁定 | 用途 |
 | --- | --- | --- | --- |
 | `防火檢討_設計防火時效` | Type（沿用既有定義） | **新增綁定** Curtain Panels；Walls 既有 | 嵌板之設計時效（CW-V、CW-O）與交接處實體外牆之設計時效（CW-H，決議 13），同為 `junction.minFireRating` 來源。不綁 Curtain Wall Mullions |
-| `防火檢討_設計防火保護` | Type、YESNO（既有） | 既有 Doors、Windows、Curtain Panels | 交接帶內開口是否受防護 |
+| `防火檢討_設計防火保護` | Type、YESNO（既有） | 既有 Doors、Windows、Curtain Panels | 交接帶內開口是否受防護；**自決議 16 起同時是 CW-O 玻璃那一路的答案**（`junction.minFireProtection`） |
+| `防火檢討_嵌板種類` | Type、TEXT（共享參數 GUID `…0013`） | **新增綁定** Curtain Panels（只綁這一個類別） | 宣告 `實心`／`玻璃`，決定 CW-O 這一列讀時效還是讀防火保護（`junction.panelKind`）。未填為 `InsufficientData`——工具可由材料類別提案，但不替使用者決定 |
+| `結構材料`、`防火被覆厚度` | Type（既有，GUID `…000b`／`…000c`） | **加綁** Curtain Panels（既有 Walls、Columns、Floors、結構柱） | 實心嵌板的時效比照牆體由尺寸推定所需（決議 16、§3.3） |
 | `防火檢討_法規要求防火時效` | Type、寫回（既有） | 不新增綁定 | 交接檢討不寫回型別，結果只存在 ReviewRun |
 | `防火檢討_室內裝修等級` | Type、TEXT（共享參數 GUID `…000e`） | **綁定** Walls、Ceilings | 第 83 條第一至三款的區劃面積上限；檢討時以區劃內最弱等級推導 `zone.interiorFinish` |
 | `建築物用途類組` | Instance、TEXT（既有，原本規則未讀） | 既有 Project Information | 第 83 條第一、二款的Ｈ–２組但書，`building.use` 來源 |
@@ -593,6 +648,12 @@ candidate.insideLength   = 0 m
 未綁定時 `InsufficientData`；已綁定但空值，對嵌板亦為 `InsufficientData`——時效是量值，不適用 spec 11.6 針對門窗 YESNO 的「已綁定未勾選視為否」界定。
 
 此參數的存在正是 §3.2「樓板不突出」情境的先決條件：沒有它就無法證明層間嵌板達到該樓層樓地板的同等時效，該交接點只能停在 `InsufficientData`。設定流程（`FireReviewSetupFeature`）須把 Curtain Panels 列入必要綁定清單，並在前置檢查未綁定時明示「帷幕嵌板未綁定設計防火時效，層間交接無法判定」。
+
+`防火檢討_嵌板種類` 同樣是**必要參數**：`junction.panelKind` 寫在兩條 CW-O 規則的 `appliesWhen` 裡，
+`ReviewInputSources.NeededBy` 因此會要求它綁到 Curtain Panels 才能開始檢討（`BCR-PARAM-001`）。這與
+`室內裝修等級`、`建築物用途類組` 同一個道理——沒有它工具分不出該讀哪一個參數。**嵌板為牆的嵌板不需要
+這個宣告**：它的型別是 `WallType`，讀取層由元素類別直接認定為實心，參數面板上它也本來就出現在「牆」
+那一列（`結構材料` 與尺寸推定都已可用）。
 
 **CW-H 讀的是 Walls 上的同一個參數**（決議 13），那個綁定早就存在（第 79 條第 1 項的牆壁時效在用），
 所以 Curtain Panels 的綁定與否不影響 CW-H；反過來，交接處那道實體外牆的型別沒填時，CW-H 停在
@@ -690,9 +751,17 @@ CW-V 的立面**由工具自己建立**，名稱帶著上面說的檢討圖號�
 - **CW-V** 的層間帶被帷幕牆自身的頂底截斷、且不足 900 mm 時不供給，判 `InsufficientData`：立面在那裡
   接到另一片未讀取的牆，工具不知道它是否延續，而不是知道它不足。整棟通高的帷幕牆不受此限。
   **CW-H 沒有這個問題**：實體外牆是獨立元素，延伸到帷幕牆範圍之外的那一段照樣讀得到、照樣計入。
-- 嵌板時效以型別參數為唯一來源，不解析複合構造層，也不判斷玻璃種類。此來源只服務 CW-V 與 CW-O；
-  CW-H 不讀嵌板時效（§3.1、§4.2）。
-- **CW-H 的但書只認立面內的實體外牆，因此認可的防火玻璃嵌板無法作答。** 若專案確實以認證防火玻璃
+- 嵌板時效以型別參數為唯一來源，不解析複合構造層，也**不由模型判斷玻璃種類**——是不是玻璃由
+  `防火檢討_嵌板種類` 宣告（決議 16），工具只在參數面板提案。此來源只服務 CW-V 與 CW-O；CW-H 不讀嵌板
+  時效（§3.1、§4.2）。
+- **玻璃嵌板只在 CW-O 答得出來。** 勾了 `防火檢討_設計防火保護` 的玻璃嵌板滿足第 79-4 條（決議 16），
+  但**不供給 CW-H 的 90 cm 長度、也不供給 CW-V 的 90 cm 高度**：那兩條但書要的是「同等以上防火時效」，
+  防火設備不是防火時效。層間帶全為玻璃時 CW-V 仍然只能靠樓板突出 500 mm 過關（§3.2、案例 13）。
+- **玻璃嵌板的防火時效讀值不進 CW-O 的判定。** 玻璃填了 `設計防火時效` 也不會改變玻璃那一路的答案
+  （規則只讀 `junction.minFireProtection`），反之實心填了防火保護也不會讓時效那一路通過。填錯欄位的
+  代價是 `InsufficientData`，不是誤判為通過（守門測試釘住）。
+- **CW-H 的但書只認立面內的實體外牆，因此認可的防火玻璃嵌板無法作答**（決議 16 讓玻璃嵌板答得出
+  第 79-4 條，但**沒有**鬆動這一條——兩者問的不是同一件事）。 若專案確實以認證防火玻璃
   達成第 79 條第 3 項但書，本版會判 `Fail`，須由審查者以其他方式說明。要支援這種做法必須讓嵌板重新
   參與 CW-H 的時效判定，那是**未決議的設計擴張**（使用者已明確選擇以實體牆建模為唯一路徑）。
 - **CW-H 的實體外牆要在帷幕牆的定位面內。** 區劃牆通常垂直於立面，不會被登錄為實體外牆；把實體牆
@@ -791,6 +860,20 @@ CW-V 的立面**由工具自己建立**，名稱帶著上面說的檢討圖號�
 | 38 | 立面跨兩個區劃，法線朝室內，三個測站中兩站在 `+n` 側找到區劃、一站兩側皆無 | 取反（多數決，`2 > 0`） |
 | 39 | 定向前後的 `Start`／`End`／`Direction`／`ExteriorOffsetMm`／`LengthMm` | 完全相同（守門測試：定向不得動到位置與長度） |
 
+決議 16 新增：
+
+| # | 情境 | 期望 |
+| --- | --- | --- |
+| 40 | 一片帷幕牆上同時有實心嵌板（60 min）與玻璃嵌板（防火保護＝是），兩者都在 90 cm 帶外 | CW-O **兩列**：`:solid` 帶時效讀值、`:glazed` 帶防火保護讀值，各自只含自己那些嵌板；兩列都 `Pass`，檢討表仍是同一列「帷幕牆其他部分時效」 |
+| 41 | 玻璃嵌板型別已綁定 `防火檢討_設計防火保護` 但未勾選 | CW-O 玻璃那一路 `Fail`（不是資料不足） |
+| 42 | 兩片玻璃，一片未填防火保護、一片填否 | 取未填的那一片 → `InsufficientData`（先講補得起來的缺口，與時效那一路同一套順序） |
+| 43 | 嵌板型別未填 `防火檢討_嵌板種類` | 自成一列 `:undeclared`，`junction.panelKind` 不供值 → `InsufficientData`，訊息指名該參數 |
+| 44 | 帷幕牆上一扇窗（不帶時效）與一片 60 min 實心嵌板，都在帶外 | 窗歸玻璃那一路以防火保護作答；實心那一路仍讀到 60 min（修掉「一扇窗把整片牆拖成資料不足」的舊缺陷） |
+| 45 | 玻璃那一路的三態 | 是 → `Pass`、否 → `Fail`、未設定 → `InsufficientData`，證據帶 `protection.kind` 與 `protection.parameter` |
+| 46 | 未宣告種類時的訊息 | 含 `防火檢討_嵌板種類` 與「實心／玻璃」，錯誤碼 `BCR-PARAM-001` |
+| 47 | 層間帶全為玻璃嵌板且都勾了防火保護、樓板不突出 | CW-V **仍不**成立但書（`continuousFireRatedHeight` 不供值）——守門測試，防火設備不是防火時效 |
+| 48 | 實心嵌板填錯欄位（勾了防火保護、沒填時效）／玻璃嵌板填錯欄位（填了時效、沒勾防火保護） | 兩者都 `InsufficientData`，不因為填了「另一路」的值而通過（守門測試） |
+
 ## 11. 決議紀錄
 
 | # | 議題 | 決議 | 落在文件何處 |
@@ -806,7 +889,16 @@ CW-V 的立面**由工具自己建立**，名稱帶著上面說的檢討圖號�
 | 14 | 防火帶怎麼建模、交點不在帷幕牆上時怎麼判 | **一律以實體牆元素取代該段帷幕牆**（帷幕牆切成兩片），不再要求保留連續帷幕牆並刪嵌板。交點落在帷幕牆定位線的延長線上、且被與該帷幕牆相接的實體外牆連續段覆蓋時，**照樣以 CW-H 判該段長度 ≥ 90 cm**；同一交接處只由相接端點座標字典序最小的帷幕牆產出一列。另外三件配套：交接帶高程改為**區劃牆 × 帷幕牆的交集**；未符合時**塗紅該實體外牆**；**躺在立面內的區劃牆不產出 CW-H** | §3.1、§4.2「交點落在實體外牆上」「建模要求」、§7.1、§9、§12 步驟 14 |
 | 15 | 帷幕牆的外側法線從哪裡來 | **不採信 `wall.Orientation` 的正負，改由所屬區劃落在哪一側推定**（沿定位線三站、兩側各探一點、多數決；相同或兩側皆無則不動）。實測證實帷幕牆的 `wall.Orientation` 純由定位線方向決定、`Wall.Flipped` 改不了它，「外側法線方向要一致」因此不能當成建模要求 | §4.6、§4.2「建模要求」、§9、§10 案例 34–39、§12 步驟 15 |
 
+| 16 | 帷幕嵌板分實心與玻璃兩種，各以什麼作答 | **實心嵌板以 `防火檢討_設計防火時效` 作答，時效比照牆體由模型尺寸推定；玻璃嵌板與帷幕牆門窗以 `防火檢討_設計防火保護` 作答（同玻璃窗）。** 種類由型別參數 `防火檢討_嵌板種類` 宣告，未宣告為 `InsufficientData`；一片帷幕牆兩種都有時 CW-O 產出兩列。CW-H、CW-V 完全不受影響——防火設備不供給 90 cm 但書 | §3.3、§3.4、§5.2、§5.3、§6、§9、§10 案例 40–48、§12 步驟 16 |
+
 第 4 項屬解釋選擇而非條文明文（第 83 條本身未規定突出或 90 cm），若個案審查機關採狹義見解，於規則集 `appliesWhen` 排除即可，不需改程式。
+
+第 16 項有三個層次，要分開看：**分兩路作答是實務對齊**（玻璃嵌板無法填構造時效，工具卻要求它填，
+結果是整片玻璃帷幕牆永遠停在資料不足）；**以防火設備回答「半小時以上防火時效」是解釋選擇**，條文
+第 79-4 條寫的是時效而非設備，若個案審查機關採狹義見解，在 `tw-bcr-79-4-curtain-wall-other-glazed`
+的 `appliesWhen` 排除即可；**要求宣告種類則是拒絕猜測**——工具讀得到材料、讀得到厚度，但那些只夠拿來
+提案，不足以把「未符合」與「資料不足」分開，而這兩者的處置完全不同。三者都不鬆動決議 13：CW-H 的
+但書仍然只認立面內的實體外牆，玻璃嵌板在那裡照樣無法作答（§9）。
 
 第 7 項原本與條文字面有落差，**決議 13 已解除這個落差**。舊採認的問題是：第 79 條第 3 項但書寫的是「與其交接處之外牆面**長度**有九十公分以上」，是沿外牆面量的**水平**尺寸；上下帷幕牆之間的實體牆所提供的 900 mm 卻是**垂直**尺寸（那是第 79-3 條「外牆面**高度**」的量法）。決議 13 改由立面內的實體外牆沿立面**水平**供給長度，量測方向與條文一致，不再需要這項採認。
 
@@ -845,6 +937,11 @@ CW-V 的立面**由工具自己建立**，名稱帶著上面說的檢討圖號�
 | 13 | CW-H 改由立面內的實體外牆供給但書長度（決議 13）：新增 `FacadeWallObservation`／`CurtainWallObservation.IsInFacadePlane`／`FacadeRun`，移除 `SolidWallBand`、`PanelLookup` 與 `WallJunction` 的嵌板量測路徑 | **已完成並實機驗證**（建置 0 警告、1620 條測試全通過；2026-09-27 於 Revit 重跑，`CW-H-01` 由「資料不足」轉為 `Fail`／0 m，七項證據逐項相符）。但書成立的路徑（`NotApplicable`）當時未驗到，使用者依 §4.2 建模要求改立面後，已隨步驟 14、15 於 2026-09-28 驗到 |
 | 14 | 交點落在實體外牆連續段上也判 CW-H（決議 14）：交點求解擴充到延長線、交接帶高程改為交集、未符合時塗紅實體外牆、躺在立面內的區劃牆不產出 CW-H | **已完成並實機驗證**（建置 0 警告、1637 條測試全通過；§10 案例 26–33 已釘住，含整合層的「一列且 `NotApplicable`」）。2026-09-28 與步驟 15 一併部署後重跑，使用者確認 CW-H 檢討結果無誤 |
 | 15 | 外側法線改由所屬區劃推定（決議 15）：`CurtainWallJunctionResolver` 新增定向步驟，`§4.6` 的三站多數決 | **已完成並實機驗證**（建置 0 警告、1637 條測試全通過；§10 案例 34–39 已釘住，含守門測試）。2026-09-28 與步驟 14 一併部署後重跑，使用者確認 CW-H 檢討結果無誤 |
+| 16a | 決議 16 的**判定層**：`CurtainPanelKind`／`CurtainPanelKinds`、`CurtainPanelObservation.Kind`、`junction.panelKind` 與 `junction.minFireProtection` 兩個白名單欄位、`CurtainWallJunctionResolver` 把 CW-O 拆三路、`CurtainWallJunctionCheck` 寫入兩個新 fact、規則集加 `tw-bcr-79-4-curtain-wall-other-glazed`（規則集版本升至 `2026.7-provisional`） | **已完成**（建置 0 警告、1650 條測試全通過；§10 案例 40–48 已釘住）。Revit 端尚未接線 |
+| 16b | 決議 16 的**參數層**：`FireRatingDeriver` 支援 `CandidateCategory.CurtainPanel`（沿用牆壁門檻）、`FireReviewTypeRow` 的 `PanelKind` 欄位與 `CarriesRating`／`CarriesProtection` 改看種類、共享參數檔加 `防火檢討_嵌板種類`（`…0013`） | 未開始 |
+| 16c | 決議 16 的**Revit 讀取層**：`RevitCurtainWallGeometryReader.ReadPanels` 分類並一律讀防火保護、`RevitFireReviewTypeScanner` 讀嵌板厚度與種類（含材料類別提案）、`RevitFireReviewParameterWriter` 寫種類、`FireReviewSetupFeature` 加三個綁定 | 未開始 |
+| 16d | 決議 16 的**參數面板**：帷幕嵌板列的種類下拉、選實心才亮結構材料與推定時效、選玻璃只亮防火保護 | 未開始 |
+| 16e | 決議 16 的部署與實機驗證：綁定三個參數、填值、重跑，核對 CW-O 由 `InsufficientData` 轉為有判定 | 未開始 |
 
 ### 步驟 9：室內裝修等級改由模型推導
 
@@ -1555,3 +1652,47 @@ CW-H 都判 `ManualReview`：
 
 決議 15 刻意不猜的兩種情形仍未被實機觸及，維持 §9 的記載：兩側都有區劃的帷幕牆保留原法線，
 兩側都找不到區劃的帷幕牆整片靜默消失。
+
+### 步驟 16：帷幕嵌板分實心與玻璃兩路作答（決議 16）
+
+起因是 CW-O 在實機上全部 `InsufficientData`：模型裡的嵌板型別 `玻璃 1.0cm`（TypeId `12611`）沒有、
+也填不出 `防火檢討_設計防火時效`。追下去發現缺的不是一個值，而是一個分類——玻璃嵌板根本沒有構造
+時效可填，它的防火性能是以認可之防火設備表達的。§3.3 與決議 16 是這個分類的結論。
+
+#### 步驟 16a 的產出（已完成，0 警告、1650 條測試全通過）
+
+| 檔案 | 改了什麼 |
+| --- | --- |
+| `Application/Checks/CurtainPanelKinds.cs`（新增） | `CurtainPanelKind`（`Solid`／`Glazed`／`Opening`）、參數名 `防火檢討_嵌板種類`、用字解析（`實心`／`玻璃` 及別名）、`RuleText` 兩路映射 |
+| `Application/Candidates/CurtainWallObservations.cs` | `CurtainPanelObservation.Kind`、`AnswersByRating`／`AnswersByProtection`；門窗一律 `Opening`；`Protection` 不再是門窗專屬讀值 |
+| `Domain/Rules/RuleFieldCatalog.cs` | `junction.panelKind`、`junction.minFireProtection` 兩個欄位，仍只對 `CompartmentContinuity` 開放 |
+| `Application/Checks/CurtainWallJunctionInputs.cs` | `PanelAnswerKind`、`MinFireProtection` 兩個屬性；`OtherPanels`（實心，簽章不變）、`OtherGlazedPanels`、`OtherUndeclaredPanels` 三個工廠 |
+| `Application/Candidates/CurtainWallJunctionResolver.cs` | `OtherPanelJunctions` 把其餘嵌板拆成最多三列（`:solid`／`:glazed`／`:undeclared`），新增防火保護的 `Worst` 取值 |
+| `Application/Checks/CurtainWallJunctionCheck.cs` | 寫入兩個新 fact、`protection.*` 證據、未宣告種類時的訊息與 `BCR-PARAM-001` |
+| `Application/Reviews/ReviewInputSources.cs` | 登錄 `junction.panelKind` → `防火檢討_嵌板種類`（Type、Curtain Panels），使它成為前置檢查要求的必要參數 |
+| `Data/fire-review-rules.json` | `tw-bcr-79-4-curtain-wall-other` 升版本 2（`appliesWhen` 加 `panelKind == "Solid"`）、新增 `tw-bcr-79-4-curtain-wall-other-glazed`；規則集版本 `2026.6-provisional` → `2026.7-provisional` |
+
+**為什麼未宣告種類不必在判定層特判**：兩條 CW-O 規則的 `appliesWhen` 都讀 `junction.panelKind`，
+不供值時兩條的適用與否都算不出來，引擎的 `UndecidedApplicability` 自己就答 `InsufficientData` 並指名
+缺的欄位。判定層只把訊息改寫得更白話（指名參數與兩個可填的值）。反過來，CW-H、CW-V 不設 `panelKind`
+也不會被這兩條規則誤傷：`junction.kind` 先不符，三值邏輯的 `false && unknown` 仍是 `false`（案例已釘住）。
+
+**為什麼是三列而不是一列取最不利**：一路是分鐘數、一路是是非題，湊不成同一個門檻；而且合成一列之後，
+「實心漏填時效」與「玻璃宣告不是防火設備」會退化成同一個狀態，前者使用者補得起來，後者是設計本身
+不符合。三列同為 `CurtainPanelOther`，所以 §7.2 的檢討表仍是三列、`Groups.Count == 3` 的守門測試不動。
+
+#### 改動過的既有測試（誠實記錄）
+
+- `CurtainWallJunctionRuleTests.Shipped_rule_set_compiles_the_three_continuity_rules`：釘住的規則 id 由
+  三個變四個。
+- `CurtainWallJunctionRuleTests.Other_panels_need_half_an_hour`／`The_three_kinds_never_apply_at_the_same_time`：
+  加上 `junction.panelKind`，斷言本身不變。
+- `CurtainWallJunctionResolverTests` 的 `Panel`／`Unrated` fixture：預設宣告為實心，既有案例的語意不變。
+- `FireReviewIntegrationTests`：規則集版本字串、`NeededBy` 的預期清單加 `防火檢討_嵌板種類`，
+  fixture 的玻璃嵌板改為宣告玻璃並勾防火保護（第四列因此改由 `-glazed` 那條規則作答）。
+
+#### 下一步（步驟 16b 起）
+
+16b 參數層、16c Revit 讀取層、16d 參數面板、16e 部署與實機驗證，內容見 §12 進度表。**16c 的三個綁定
+（`防火檢討_嵌板種類`、`結構材料`、`防火被覆厚度` 綁到 Curtain Panels）在做完之前，現行模型會在前置
+檢查被 `BCR-PARAM-001` 擋下**——這是刻意的，但也表示 16a 單獨部署沒有意義，要等 16c 一起。

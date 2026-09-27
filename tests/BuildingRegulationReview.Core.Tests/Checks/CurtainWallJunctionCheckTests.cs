@@ -314,6 +314,51 @@ public sealed class CurtainWallJunctionCheckTests
         Assert.Equal(ZoneA.ToString("D"), Assert.IsType<ReviewValue>(finding.Result.Evidence.Find("junction.zoneId")).Text);
     }
 
+    /// <summary>案例 45：玻璃嵌板的三態，答的是防火設備而不是分鐘數（決議 16）。</summary>
+    [Theory]
+    [InlineData(ProvidedFireProtectionKind.Yes, ReviewStatus.Pass)]
+    [InlineData(ProvidedFireProtectionKind.No, ReviewStatus.Fail)]
+    [InlineData(ProvidedFireProtectionKind.Missing, ReviewStatus.InsufficientData)]
+    public void Case45_glazed_other_panels_answer_with_their_protection(ProvidedFireProtectionKind kind, ReviewStatus expected)
+    {
+        var protection = kind switch
+        {
+            ProvidedFireProtectionKind.Yes => ProvidedFireProtection.Yes("是"),
+            ProvidedFireProtectionKind.No => ProvidedFireProtection.No("否"),
+            _ => ProvidedFireProtection.Missing("型別未提供防火保護")
+        };
+
+        var finding = Single(new[]
+        {
+            CurtainWallJunction.OtherGlazedPanels("j-o1", ZoneA, "cw-1", protection, new[] { "panel-9" })
+        });
+
+        Assert.Equal(expected, finding.Status);
+        Assert.Equal("tw-bcr-79-4-curtain-wall-other-glazed", finding.Result.RuleId);
+        Assert.Equal(ReviewValue.OfText(kind.ToString()), finding.Result.Evidence.Find("protection.kind"));
+        Assert.Equal(ReviewValue.OfText(FireProtectionParameters.Provided), finding.Result.Evidence.Find("protection.parameter"));
+        if (expected == ReviewStatus.InsufficientData)
+            Assert.Equal(ReviewErrorCode.ParameterMissing, finding.ErrorCode);
+    }
+
+    /// <summary>
+    /// 案例 46：沒宣告嵌板種類時判資料不足，而且訊息要指名那個參數——使用者補得起來，前提是知道
+    /// 要補什麼（決議 16）。
+    /// </summary>
+    [Fact]
+    public void Case46_other_panels_without_a_declared_kind_name_the_parameter_to_fill()
+    {
+        var finding = Single(new[]
+        {
+            CurtainWallJunction.OtherUndeclaredPanels("j-o1", ZoneA, "cw-1", new[] { "panel-9" })
+        });
+
+        Assert.Equal(ReviewStatus.InsufficientData, finding.Status);
+        Assert.Contains("junction.panelKind", finding.Outcome!.Gaps.Select(g => g.Field));
+        Assert.Contains(CurtainPanelKindParameters.Provided, finding.Result.Message);
+        Assert.Equal(ReviewErrorCode.ParameterMissing, finding.ErrorCode);
+    }
+
     [Fact]
     public void Case15_panels_with_no_bound_rating_parameter_are_insufficient_data()
     {

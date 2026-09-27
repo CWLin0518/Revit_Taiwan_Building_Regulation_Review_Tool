@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1.0",
   "ruleSetId": "tw-bcr-fire",
-  "version": "2026.6-provisional",
+  "version": "2026.7-provisional",
   "title": "建築技術規則建築設計施工編 防火構造與防火區劃（暫定示意規則：條文、版本與生效日期待 spec 19 第 2 項確認）。第70條主要構造規則列於優先序 20、第79條防火區劃規則列於優先序 10：兩者重疊的樓地板與承重牆壁，第70條的要求恆不低於第79條，故由第70條決定；非承重的區劃牆壁不屬第70條的主要構造，落回第79條。CompartmentArea 同樣分兩層：`tw-bcr-83-area` 是十一層以上部分的區劃面積規則，列於優先序 20，其上限（即使備有自動滅火設備而加倍，最寬也只到一○○○平方公尺）恆嚴於優先序 10 的 `tw-bcr-79-area`，故十一層以上由前者決定，十層以下前者的適用條件不成立而落回後者。兩條面積規則的豁免清單一致，都是第79條之2第1項的垂直區劃（挑空、昇降階梯間、樓梯間、昇降機道、管道間）：那些空間由第79條之2 單獨區劃，不因所在樓層而改由另一條面積規則管；「其他類似部分」無法逐一列舉，清單外的用字一律不豁免。CompartmentContinuity 規則檢討防火區劃與帷幕外牆的交接，依條文結構把「應突出五十公分」寫成要求值、把「得免突出」的九十公分但書寫成豁免條件，詳見 docs/regulations/curtain-wall-fire-compartment.md。VerticalCompartment 規則接手上述豁免的垂直區劃，但只寫第79條之2第1項本文之外的附加要求——昇降機道防火設備的遮煙性能、管道間維修門的一小時防火時效與遮煙性能；本文的一小時區劃牆壁與防火設備不分區劃來源，仍由 tw-bcr-79-wall-rating 與 tw-bcr-79-opening 檢討，不在此重複，詳見 docs/regulations/vertical-compartment.md。",
   "rules": [
     {
@@ -176,16 +176,30 @@
     },
     {
       "ruleId": "tw-bcr-79-4-curtain-wall-other",
-      "version": "1",
+      "version": "2",
       "category": "CompartmentContinuity",
       "legalReference": "建築技術規則建築設計施工編第79條之4",
       "effectiveDate": "2024-01-01",
       "jurisdiction": "TW",
       "priority": 20,
-      "appliesWhen": "building.fireResistiveConstruction == true && junction.kind == \"CurtainPanelOther\"",
+      "appliesWhen": "building.fireResistiveConstruction == true && junction.kind == \"CurtainPanelOther\" && junction.panelKind == \"Solid\"",
       "requiredValue": "junction.minFireRating >= 30 min",
       "exemptions": [],
-      "evidenceFields": [ "junction.curtainWallUniqueId", "junction.zoneId" ],
+      "evidenceFields": [ "junction.curtainWallUniqueId", "junction.zoneId", "junction.panelKind" ],
+      "severity": "Error"
+    },
+    {
+      "ruleId": "tw-bcr-79-4-curtain-wall-other-glazed",
+      "version": "1",
+      "category": "CompartmentContinuity",
+      "legalReference": "建築技術規則建築設計施工編第79條之4（玻璃嵌板以認可之防火設備作答，解釋選擇見帷幕牆規格決議 16）",
+      "effectiveDate": "2024-01-01",
+      "jurisdiction": "TW",
+      "priority": 20,
+      "appliesWhen": "building.fireResistiveConstruction == true && junction.kind == \"CurtainPanelOther\" && junction.panelKind == \"Glazed\"",
+      "requiredValue": "junction.minFireProtection == \"是\"",
+      "exemptions": [],
+      "evidenceFields": [ "junction.curtainWallUniqueId", "junction.zoneId", "junction.panelKind", "junction.minFireProtection" ],
       "severity": "Error"
     },
     {

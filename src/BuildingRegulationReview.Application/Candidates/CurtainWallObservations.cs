@@ -70,7 +70,8 @@ public sealed class CurtainPanelObservation
         bool isOpening = false,
         ProvidedFireProtection? protection = null,
         string? typeUniqueId = null,
-        string? typeName = null)
+        string? typeName = null,
+        CurtainPanelKind? kind = null)
     {
         if (string.IsNullOrWhiteSpace(uniqueId)) throw new ArgumentException("Panel UniqueId is required.", nameof(uniqueId));
         Finite(startMm, nameof(startMm));
@@ -92,6 +93,7 @@ public sealed class CurtainPanelObservation
         Protection = protection;
         TypeUniqueId = string.IsNullOrWhiteSpace(typeUniqueId) ? null : typeUniqueId!.Trim();
         TypeName = string.IsNullOrWhiteSpace(typeName) ? null : typeName!.Trim();
+        Kind = isOpening ? CurtainPanelKind.Opening : kind;
     }
 
     public string UniqueId { get; }
@@ -111,8 +113,25 @@ public sealed class CurtainPanelObservation
     /// <summary>True for a curtain wall door／window or an openable panel.</summary>
     public bool IsOpening { get; }
 
-    /// <summary>防火檢討_設計防火保護, for an opening; null when the panel is not one.</summary>
+    /// <summary>
+    /// 防火檢討_設計防火保護 as it was read. Every panel carries it since 決議 16 — a 玻璃嵌板 answers
+    /// 第79條之4 with it, not with a rating — so this is no longer an openings-only reading; it is null
+    /// only when the adapter did not read it at all.
+    /// </summary>
     public ProvidedFireProtection? Protection { get; }
+
+    /// <summary>
+    /// 實心／玻璃／門窗, as 防火檢討_嵌板種類 declares it (帷幕牆規格 §3.3, 決議 16); null is 未宣告,
+    /// which CW-O answers 資料不足 rather than guessing. An opening is always
+    /// <see cref="CurtainPanelKind.Opening"/> — the category says so, the user does not declare it.
+    /// </summary>
+    public CurtainPanelKind? Kind { get; }
+
+    /// <summary>實心嵌板以設計防火時效作答；玻璃嵌板與門窗讀防火保護；未宣告時兩者都不作答。</summary>
+    public bool AnswersByRating => Kind is CurtainPanelKind declared && CurtainPanelKinds.AnswersByRating(declared);
+
+    /// <summary>玻璃嵌板或帷幕牆門窗：第79條之4 由 <see cref="Protection"/> 回答。</summary>
+    public bool AnswersByProtection => Kind is CurtainPanelKind declared && !CurtainPanelKinds.AnswersByRating(declared);
 
     public string? TypeUniqueId { get; }
     public string? TypeName { get; }

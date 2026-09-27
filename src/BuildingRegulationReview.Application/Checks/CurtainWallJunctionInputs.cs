@@ -325,7 +325,9 @@ public sealed class CurtainWallJunction
         IEnumerable<string>? panelUniqueIds,
         IEnumerable<string>? facadeWallUniqueIds,
         CurtainWallJunctionPlacement? placement,
-        CurtainWallJunctionDoubt? doubt)
+        CurtainWallJunctionDoubt? doubt,
+        string? panelAnswerKind = null,
+        ProvidedFireProtection? minFireProtection = null)
     {
         if (string.IsNullOrWhiteSpace(junctionId)) throw new ArgumentException("Junction ID is required.", nameof(junctionId));
         if (!Enum.IsDefined(typeof(CurtainWallJunctionKind), kind)) throw new ArgumentOutOfRangeException(nameof(kind));
@@ -352,6 +354,8 @@ public sealed class CurtainWallJunction
             .Distinct(StringComparer.Ordinal).OrderBy(x => x, StringComparer.Ordinal).ToList());
         Placement = placement;
         Doubt = doubt;
+        PanelAnswerKind = Trimmed(panelAnswerKind);
+        MinFireProtection = minFireProtection;
     }
 
     /// <summary>CW-H：一個交點。Every measurement is supplied except a run that could not be measured.</summary>
@@ -402,8 +406,9 @@ public sealed class CurtainWallJunction
     }
 
     /// <summary>
-    /// CW-O：帷幕牆上不落在任一 90 cm 帶內的嵌板，統一以其最小設計時效判定。The rating is always
-    /// supplied, even as <see cref="ProvidedFireRating.Missing"/>: 未綁定參數 is 資料不足, not a pass.
+    /// CW-O 的實心那一路：帷幕牆上不落在任一 90 cm 帶內的**實心**嵌板，統一以其最小設計時效判定。
+    /// The rating is always supplied, even as <see cref="ProvidedFireRating.Missing"/>: 未綁定參數 is
+    /// 資料不足, not a pass.
     /// </summary>
     public static CurtainWallJunction OtherPanels(
         string junctionId,
@@ -414,7 +419,36 @@ public sealed class CurtainWallJunction
         new(junctionId, CurtainWallJunctionKind.CurtainPanelOther, zoneId, curtainWallUniqueId,
             null, null, null,
             minFireRating ?? throw new ArgumentNullException(nameof(minFireRating)),
-            null, null, null, null, panelUniqueIds, null, null, null);
+            null, null, null, null, panelUniqueIds, null, null, null,
+            CurtainPanelKinds.SolidRuleText);
+
+    /// <summary>
+    /// CW-O 的玻璃那一路（決議 16）：玻璃嵌板與帷幕牆門窗以最不利的 <c>防火檢討_設計防火保護</c> 判定。
+    /// 同樣一律供值，即使是 <see cref="ProvidedFireProtection.Missing"/>——未綁定是資料不足，不是通過。
+    /// </summary>
+    public static CurtainWallJunction OtherGlazedPanels(
+        string junctionId,
+        Guid zoneId,
+        string curtainWallUniqueId,
+        ProvidedFireProtection minFireProtection,
+        IEnumerable<string>? panelUniqueIds = null) =>
+        new(junctionId, CurtainWallJunctionKind.CurtainPanelOther, zoneId, curtainWallUniqueId,
+            null, null, null, null, null, null, null, null, panelUniqueIds, null, null, null,
+            CurtainPanelKinds.GlazedRuleText,
+            minFireProtection ?? throw new ArgumentNullException(nameof(minFireProtection)));
+
+    /// <summary>
+    /// CW-O 的未宣告那一路（決議 16）：型別沒填 <c>防火檢討_嵌板種類</c>，因此不知道該讀時效還是讀
+    /// 防火保護。<c>junction.panelKind</c> 刻意不供值，讓引擎自己答「資料不足，無法判定規則是否適用」
+    /// 並指出缺的就是這個欄位——工具不替使用者猜是玻璃還是實心（帷幕牆規格 §3.3）。
+    /// </summary>
+    public static CurtainWallJunction OtherUndeclaredPanels(
+        string junctionId,
+        Guid zoneId,
+        string curtainWallUniqueId,
+        IEnumerable<string>? panelUniqueIds = null) =>
+        new(junctionId, CurtainWallJunctionKind.CurtainPanelOther, zoneId, curtainWallUniqueId,
+            null, null, null, null, null, null, null, null, panelUniqueIds, null, null, null);
 
     /// <summary>A junction the geometry could not measure, or one that belongs to another clause (docs §3.4).</summary>
     public static CurtainWallJunction Doubtful(
@@ -447,6 +481,15 @@ public sealed class CurtainWallJunction
 
     /// <summary>The lowest 設計防火時效 in the band, as it was read.</summary>
     public ProvidedFireRating? MinFireRating { get; }
+
+    /// <summary>
+    /// CW-O only：<c>Solid</c> 或 <c>Glazed</c>，即這一列答的是哪一路嵌板（決議 16）。null 有兩種意思——
+    /// 這不是 CW-O，或者是 CW-O 但嵌板型別沒宣告種類，後者讓引擎判資料不足。
+    /// </summary>
+    public string? PanelAnswerKind { get; }
+
+    /// <summary>CW-O 玻璃那一路的最不利防火保護讀值；其餘各種交接處為 null。</summary>
+    public ProvidedFireProtection? MinFireProtection { get; }
 
     /// <summary>How far the host projects past the curtain wall; 0 when it does not project at all.</summary>
     public double? ProjectionDepthMm { get; }

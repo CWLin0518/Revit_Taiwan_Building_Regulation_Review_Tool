@@ -130,6 +130,8 @@ public sealed class CurtainWallJunctionReview
 public static class CurtainWallJunctionCheck
 {
     private const string MinRatingField = "junction.minFireRating";
+    private const string PanelKindField = "junction.panelKind";
+    private const string MinProtectionField = "junction.minFireProtection";
     private const double MillimetersPerMeter = 1000.0;
 
     /// <summary>The 90 cm bands, whose absence the missing panel rating explains (docs §12 輸入契約).</summary>
@@ -212,6 +214,22 @@ public static class CurtainWallJunctionCheck
                 break;
         }
 
+        // CW-O 分兩路（決議 16）。種類沒宣告時 panelKind 刻意不供值：兩條 CW-O 規則的適用條件都算不出來，
+        // 引擎自己會答「資料不足，無法判定規則是否適用」並指出缺的欄位，不必在這裡特判。
+        if (junction.PanelAnswerKind is string panelKind) facts.Set(PanelKindField, panelKind);
+
+        var protection = junction.MinFireProtection;
+        switch (protection?.Kind)
+        {
+            case ProvidedFireProtectionKind.Yes:
+            case ProvidedFireProtectionKind.No:
+                facts.Set(MinProtectionField, protection!.RuleText!);
+                break;
+            case ProvidedFireProtectionKind.Unreadable:
+                facts.MarkUnreadable(MinProtectionField, $"「{protection!.RawText}」{protection.Reason}");
+                break;
+        }
+
         var supplied = inputs.Context.Building.Concat(inputs.Context.ForZone(zone.ZoneId)).ToList();
         foreach (var input in supplied) input.ApplyTo(facts);
 
@@ -248,10 +266,28 @@ public static class CurtainWallJunctionCheck
             }
         }
 
+        // 決議 16 的兩個新缺口。種類沒宣告時，缺的不是時效也不是防火保護，而是「該讀哪一個」，所以訊息
+        // 要指名參數——使用者在面板上補得起來，但前提是知道要補什麼。
+        if (status == ReviewStatus.InsufficientData && outcome.Gaps.Any(g => g.Field == PanelKindField))
+        {
+            message = $"{subject}：嵌板型別未宣告 {CurtainPanelKindParameters.Provided}（{CurtainPanelKinds.SolidText}／" +
+                      $"{CurtainPanelKinds.GlazedText}），無法判定應以設計防火時效或設計防火保護作答。";
+            errorCode ??= ReviewErrorCode.ParameterMissing;
+        }
+        else if (status == ReviewStatus.InsufficientData &&
+                 outcome.Gaps.Any(g => g.Field == MinProtectionField) &&
+                 protection is not null)
+        {
+            errorCode ??= protection.Kind == ProvidedFireProtectionKind.Missing
+                ? ReviewErrorCode.ParameterMissing
+                : ReviewErrorCode.ParameterTypeMismatch;
+        }
+
         var evidence = Merge(
             outcome.Evidence.Items,
             JunctionEvidence(junction, zone),
             ProvidedEvidence(provided),
+            ProvidedEvidence(protection),
             OptionEvidence(options),
             InputEvidence(supplied),
             GapEvidence(outcome));
@@ -368,6 +404,22 @@ public static class CurtainWallJunctionCheck
             yield return new ReviewEvidenceItem("provided.raw", ReviewValue.OfText(provided.RawText));
         if (provided.Reason is not null)
             yield return new ReviewEvidenceItem("provided.reason", ReviewValue.OfText(provided.Reason));
+    }
+
+    /// <summary>
+    /// CW-O 玻璃那一路讀到什麼（決議 16）。欄位名與時效那組刻意分開（<c>protection.*</c>），因為同一列
+    /// 只會有一組——審查者看到哪一組，就知道這一列是以時效還是以防火設備作答的。
+    /// </summary>
+    private static IEnumerable<ReviewEvidenceItem> ProvidedEvidence(ProvidedFireProtection? protection)
+    {
+        if (protection is null) yield break;
+
+        yield return new ReviewEvidenceItem("protection.kind", ReviewValue.OfText(protection.Kind.ToString()));
+        yield return new ReviewEvidenceItem("protection.parameter", ReviewValue.OfText(FireProtectionParameters.Provided));
+        if (protection.RawText is not null)
+            yield return new ReviewEvidenceItem("protection.raw", ReviewValue.OfText(protection.RawText));
+        if (protection.Reason is not null)
+            yield return new ReviewEvidenceItem("protection.reason", ReviewValue.OfText(protection.Reason));
     }
 
     /// <summary>Spec docs §3.4: a 連跨複數樓層 space has to record what it was handed on to.</summary>

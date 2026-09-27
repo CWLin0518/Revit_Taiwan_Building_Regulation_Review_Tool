@@ -164,6 +164,8 @@ public sealed class RuleFieldCatalog
             // 主體是「交接處」而非單一元素：一個交接處由區劃牆或區劃樓地板、帷幕牆與兩者相交
             // 的那一段牆面共同構成，因此長度、高度、突出深度都是交接處自己的量測值。
             new RuleFieldDefinition("junction.kind", text, "交接種類（WallToCurtainWall／FloorToCurtainWall／CurtainPanelOther）", junction),
+            new RuleFieldDefinition("junction.panelKind", text, "其他部分嵌板以哪一路作答（Solid 讀設計防火時效／Glazed 讀設計防火保護）", junction),
+            new RuleFieldDefinition("junction.minFireProtection", text, "其他部分玻璃嵌板與門窗之最不利設計防火保護（是／否）", junction),
             new RuleFieldDefinition("junction.zoneId", text, "所屬區劃 Zone ID", junction),
             new RuleFieldDefinition("junction.curtainWallUniqueId", text, "帷幕牆 UniqueId", junction),
             new RuleFieldDefinition("junction.hostUniqueId", text, "區劃牆或區劃樓地板 UniqueId", junction),

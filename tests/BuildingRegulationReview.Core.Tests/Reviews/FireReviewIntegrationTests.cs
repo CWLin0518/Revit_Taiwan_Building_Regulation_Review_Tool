@@ -30,7 +30,7 @@ namespace BuildingRegulationReview.Core.Tests.Reviews;
 public sealed class FireReviewIntegrationTests
 {
     private const string RuleSetId = "tw-bcr-fire";
-    private const string ShippedVersion = "2026.6-provisional";
+    private const string ShippedVersion = "2026.7-provisional";
 
     [Fact]
     public void Interior_finish_is_a_model_derived_wall_and_ceiling_type_fact_not_an_area_input()
@@ -225,7 +225,10 @@ public sealed class FireReviewIntegrationTests
         Assert.Equal(new[]
         {
             ReviewInputSources.FireResistiveConstruction, ReviewInputSources.FloorsAboveGround,
-            ReviewInputSources.BuildingUse, FireRatingParameters.Provided, FireProtectionParameters.Provided,
+            ReviewInputSources.BuildingUse, FireRatingParameters.Provided,
+            // 決議 16：junction.panelKind 是 第79條之4 兩路作答的前提，沒綁定就判不出適用哪一條。
+            CurtainPanelKindParameters.Provided,
+            FireProtectionParameters.Provided,
             // 設計防火時效 twice: element.providedFireRating for a 主要構造, shaft.providedFireRating for
             // a 管道間之維修門. Two fields with different categories, so the pre-review check needs both.
             FireRatingParameters.Provided, SmokeProtectionParameters.Provided,
@@ -1280,7 +1283,7 @@ public sealed class FireReviewIntegrationTests
                 new[]
                 {
                     Panel("P-glass-left", 0, 4000, 30),
-                    Panel("P2-panel", 4000, 4500, _bandMinutes),
+                    Panel("P2-panel", 4000, 4500, _bandMinutes, CurtainPanelKind.Solid),
                     Panel("P-glass-right", 6000, WallMm, 30)
                 },
                 typeName: "帷幕牆");
@@ -1324,8 +1327,20 @@ public sealed class FireReviewIntegrationTests
                 levelElevationsMm: new[] { 0.0, StoreyMm });
         }
 
-        private static CurtainPanelObservation Panel(string uniqueId, double startMm, double endMm, double minutes) =>
-            new(uniqueId, startMm, endMm, 0, StoreyMm, ProvidedFireRating.Rated(minutes, minutes.ToString("0")), false, null);
+        /// <summary>
+        /// 決議 16：玻璃嵌板宣告 <c>玻璃</c> 並以 <c>防火檢討_設計防火保護</c> 作答（認可之防火玻璃），
+        /// 實板宣告 <c>實心</c> 並以設計防火時效作答。兩種都在這個 fixture 裡出現過。
+        /// </summary>
+        private static CurtainPanelObservation Panel(
+            string uniqueId,
+            double startMm,
+            double endMm,
+            double minutes,
+            CurtainPanelKind kind = CurtainPanelKind.Glazed) =>
+            new(uniqueId, startMm, endMm, 0, StoreyMm, ProvidedFireRating.Rated(minutes, minutes.ToString("0")),
+                false,
+                kind == CurtainPanelKind.Glazed ? ProvidedFireProtection.Yes("是") : null,
+                kind: kind);
 
         private static IReadOnlyList<Point2D> Loop(double x0, double y0, double x1, double y1) =>
             new[] { new Point2D(x0, y0), new Point2D(x1, y0), new Point2D(x1, y1), new Point2D(x0, y1) };
@@ -1366,8 +1381,10 @@ public sealed class FireReviewIntegrationTests
         Assert.Equal(CurtainWallJunctionReferences.Article79, wall.JunctionLegalReference);
         Assert.Equal("帷幕牆區劃交接（水平）", wall.CategoryLabel);
 
+        // 決議 16：帶外剩下的是玻璃嵌板，它以認可之防火設備作答，不是以分鐘數。
         var other = Assert.Single(section.Entries, e => e.JunctionKind == CurtainWallJunctionKind.CurtainPanelOther);
         Assert.Equal(ReviewStatus.Pass, other.EffectiveStatus);
+        Assert.Equal("tw-bcr-79-4-curtain-wall-other-glazed", other.RuleId);
         Assert.Equal(ReviewStatus.Pass, section.Status);
         Assert.Empty(outcome.Table.OtherEntries);
         Assert.Equal(new[] { "帷幕牆區劃交接（水平）：第79條" },

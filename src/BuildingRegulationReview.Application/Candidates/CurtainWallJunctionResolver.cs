@@ -96,8 +96,7 @@ public static class CurtainWallJunctionResolver
                         panelUniqueIds: wall.Panels.Select(p => p.UniqueId));
                 }
 
-                var all = OtherPanels(wallZone, wall, wall.Panels);
-                if (all is not null) yield return all;
+                foreach (var all in OtherPanelJunctions(wallZone, wall, wall.Panels)) yield return all;
             }
 
             yield break;
@@ -128,8 +127,7 @@ public static class CurtainWallJunctionResolver
 
         if (wallZone is null) yield break;
         var rest = wall.Panels.Where(p => !covered.Any(b => b.Covers(p))).ToList();
-        var other = OtherPanels(wallZone, wall, rest);
-        if (other is not null) yield return other;
+        foreach (var other in OtherPanelJunctions(wallZone, wall, rest)) yield return other;
     }
 
     // --- CW-H：區劃牆與帷幕牆之水平交接（docs §4.2）--------------------------------------------
@@ -583,20 +581,45 @@ public static class CurtainWallJunctionResolver
 
     // --- CW-O：其餘嵌板（第79條之4）-------------------------------------------------------------
 
-    private static CurtainWallJunction? OtherPanels(
+    /// <summary>
+    /// 其餘嵌板依作答方式分成最多三列（決議 16）：實心讀設計防火時效，玻璃與帷幕牆門窗讀設計防火保護，
+    /// 沒宣告種類的自成一列讓引擎判資料不足。不取一個最不利值合成一列，是因為分鐘數與是非題湊不成
+    /// 同一個門檻；三列同為 <see cref="CurtainWallJunctionKind.CurtainPanelOther"/>，所以 §7.2 的檢討表
+    /// 仍是三列。
+    /// </summary>
+    private static IEnumerable<CurtainWallJunction> OtherPanelJunctions(
         CurtainWallZoneObservation zone,
         CurtainWallObservation wall,
         IEnumerable<CurtainPanelObservation> panels)
     {
         var rest = panels.ToList();
-        if (rest.Count == 0) return null;
+        if (rest.Count == 0) yield break;
 
-        return CurtainWallJunction.OtherPanels(
-            JunctionId(CurtainWallJunctionKind.CurtainPanelOther, wall.UniqueId),
-            zone.ZoneId,
-            wall.UniqueId,
-            Worst(rest.Select(p => p.Rating))!,
-            rest.Select(p => p.UniqueId));
+        var solid = rest.Where(p => p.AnswersByRating).ToList();
+        if (solid.Count > 0)
+            yield return CurtainWallJunction.OtherPanels(
+                JunctionId(CurtainWallJunctionKind.CurtainPanelOther, wall.UniqueId, SolidSuffix),
+                zone.ZoneId,
+                wall.UniqueId,
+                Worst(solid.Select(p => p.Rating))!,
+                solid.Select(p => p.UniqueId));
+
+        var glazed = rest.Where(p => p.AnswersByProtection).ToList();
+        if (glazed.Count > 0)
+            yield return CurtainWallJunction.OtherGlazedPanels(
+                JunctionId(CurtainWallJunctionKind.CurtainPanelOther, wall.UniqueId, GlazedSuffix),
+                zone.ZoneId,
+                wall.UniqueId,
+                Worst(glazed.Select(p => p.Protection)),
+                glazed.Select(p => p.UniqueId));
+
+        var undeclared = rest.Where(p => p.Kind is null).ToList();
+        if (undeclared.Count > 0)
+            yield return CurtainWallJunction.OtherUndeclaredPanels(
+                JunctionId(CurtainWallJunctionKind.CurtainPanelOther, wall.UniqueId, UndeclaredSuffix),
+                zone.ZoneId,
+                wall.UniqueId,
+                undeclared.Select(p => p.UniqueId));
     }
 
     // --- run measurement -------------------------------------------------------------------------
@@ -801,6 +824,24 @@ public static class CurtainWallJunctionResolver
             })
             .ThenBy(r => r.Minutes ?? 0.0)
             .FirstOrDefault();
+
+    /// <summary>
+    /// 玻璃那一路的讀值，順序與 <see cref="Worst(IEnumerable{ProvidedFireRating})"/> 同一套理由：
+    /// 未設定最先（那是使用者要補的），再是讀不出來的值，然後才是「否」——一片沒填、一片填否時，
+    /// 先講沒填的那一片，因為補了它答案才可能改變。整組都沒讀到值時回 <c>Missing</c>，不回 null：
+    /// CW-O 一律供值，未綁定是資料不足而不是通過。
+    /// </summary>
+    private static ProvidedFireProtection Worst(IEnumerable<ProvidedFireProtection?> protections) =>
+        protections
+            .Select(p => p ?? ProvidedFireProtection.Missing("讀取層未提供防火保護讀值"))
+            .OrderBy(p => p.Kind switch
+            {
+                ProvidedFireProtectionKind.Missing => 0,
+                ProvidedFireProtectionKind.Unreadable => 1,
+                ProvidedFireProtectionKind.No => 2,
+                _ => 3
+            })
+            .First();
 
     /// <summary>
     /// §4.5 的提問，只有 CW-V 會走到：CW-H 自決議 13 起不再量嵌板，grid line 切不到它的但書長度。
@@ -1125,6 +1166,13 @@ public static class CurtainWallJunctionResolver
     }
 
     private static bool IsSameElevation(double first, double second) => Math.Abs(first - second) <= SnapMm;
+
+    /// <summary>CW-O 三路的 <c>junction.id</c> 尾碼（決議 16）；同一片帷幕牆最多三列，彼此不會撞號。</summary>
+    private const string SolidSuffix = "solid";
+
+    private const string GlazedSuffix = "glazed";
+
+    private const string UndeclaredSuffix = "undeclared";
 
     private static string JunctionId(CurtainWallJunctionKind kind, params string[] parts) =>
         string.Join(":", new[] { Prefix(kind) }.Concat(parts));

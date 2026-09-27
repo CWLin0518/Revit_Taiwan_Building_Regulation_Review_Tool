@@ -143,6 +143,11 @@ public static class ReviewInputSources
         new ReviewInputSource("element.providedFireRating", FireRatingParameters.Provided, ReviewParameterLevel.Type, "設計／認證防火時效", FireRatingHosts.ToArray()),
         new ReviewInputSource("opening.providedFireProtection", FireProtectionParameters.Provided, ReviewParameterLevel.Type, "設計防火保護", OpeningHosts.ToArray()),
 
+        // 第79條之4 的兩路作答（帷幕牆規格 §3.3、決議 16）。只有種類需要自己的參數：玻璃那一路讀的
+        // junction.minFireProtection 就是上面那個 設計防火保護，同一個參數答兩個欄位，前置檢查看的是
+        // 參數有沒有綁，所以不必再登錄一次。種類沒綁時 CW-O 兩條規則都判不出適用與否，這是必要參數。
+        new ReviewInputSource("junction.panelKind", CurtainPanelKindParameters.Provided, ReviewParameterLevel.Type, "帷幕嵌板種類（實心／玻璃）", ReviewParameterHost.CurtainPanels),
+
         // 第79條之2 (垂直區劃文件 §6). Two fields, and 設計防火時效 therefore appears twice in this list:
         // the same parameter answers 第70條 for a 主要構造 and 第79條之2第1項 for a 管道間維修門, but they
         // are different fields with different categories, so neither entry can stand for the other.
