@@ -292,15 +292,24 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
                 request.BareNumberUnit);
 
             var isOpening = element.Category?.BuiltInCategory is BuiltInCategory.OST_Doors or BuiltInCategory.OST_Windows;
-            var protection = isOpening
-                ? ReviewInputAssembler.Protection(
-                    RevitReviewParameterReader.ReadingOf(type?.LookupParameter(FireProtectionParameters.Provided)))
-                : null;
+
+            // 防火保護每一片嵌板都讀，不再是門窗專屬（決議 16）：一片玻璃嵌板就是以 防火檢討_設計防火保護
+            // 回答第79條之4，不讀它等於讓每一片玻璃嵌板永遠資料不足。門窗的 IsUnprotectedOpening 仍然
+            // 只看門窗，所以 CW-H、CW-V 的連續段判定不受這一行影響。
+            var protection = ReviewInputAssembler.Protection(
+                RevitReviewParameterReader.ReadingOf(type?.LookupParameter(FireProtectionParameters.Provided)));
+
+            // 種類的三個事實交給 Application 層判：類別是不是門窗、這片嵌板本身是不是一道牆、型別參數
+            // 寫了什麼。述詞只有一份，讀取層不自己另訂一套（決議 16、步驟 16c）。
+            var kind = CurtainPanelKinds.Classify(
+                isOpening,
+                element is Wall,
+                Text(type, CurtainPanelKindParameters.Provided));
 
             panels.Add(new CurtainPanelObservation(
                 element.UniqueId,
                 extent.Value.StartMm, extent.Value.EndMm, extent.Value.BottomMm, extent.Value.TopMm,
-                rating, isOpening, protection, type?.UniqueId, type?.Name));
+                rating, isOpening, protection, type?.UniqueId, type?.Name, kind));
         }
 
         return panels;
@@ -353,6 +362,18 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
                top - bottom <= CurtainPanelObservation.TouchToleranceMm
             ? (ValueTuple<double, double, double, double>?)null
             : (startMm, endMm, bottom, top);
+    }
+
+    /// <summary>
+    /// A text Type parameter as it stands, or null when the Type does not carry it or holds nothing.
+    /// 「沒有綁這個參數」與「綁了但空白」對種類是同一件事——都是未宣告，所以兩者不必分開。
+    /// </summary>
+    private static string? Text(Element? element, string name)
+    {
+        var parameter = element?.LookupParameter(name);
+        return parameter is not null && parameter.HasValue && parameter.StorageType == StorageType.String
+            ? parameter.AsString()
+            : null;
     }
 
     private double? Size(Element element, params BuiltInParameter[] parameters)

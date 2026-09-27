@@ -1,11 +1,14 @@
 # 防火區劃與帷幕牆交接：第 79 條、第 79-3 條、第 79-4 條
 
-> 狀態：**實作中**。§12 的步驟 1–15 已完成（步驟 11、12 隨決議 13 移除），**步驟 16a、16b 已完成、16c–16e 未開始**。
+> 狀態：**實作中**。§12 的步驟 1–15 已完成（步驟 11、12 隨決議 13 移除），**步驟 16a、16b、16c 已完成
+> （16c 的 Revit 端待實機驗證）、16d–16e 未開始**。
 > 步驟 16（決議 16）把帷幕嵌板分成兩路作答：實心嵌板以 `防火檢討_設計防火時效` 作答且時效比照牆體由
 > 模型尺寸推定，玻璃嵌板與帷幕牆門窗以 `防火檢討_設計防火保護` 作答；種類由新參數 `防火檢討_嵌板種類`
 > 宣告，未宣告為資料不足。16a 是判定層（規則、幾何分流、六態），16b 是參數層（尺寸推定支援帷幕嵌板、
-> 型別列依種類決定要填哪一格、共享參數檔加 `…0013`）；兩者 Revit 端都尚未接線——**在 16c 做完前不要
-> 部署**，現行模型會因為新的必要參數未綁定而被前置檢查擋下。CW-H、CW-V 不受決議 16 影響。步驟 13 已於 2026-09-27 實機驗證 `Fail` 路徑。**步驟 14（決議 14）與步驟 15（決議 15）已於 2026-09-28 部署並實機驗證，使用者確認 CW-H 檢討結果無誤**——CW-H 的但書路徑因此首次在 Revit 端驗到。步驟 14：防火帶一律以實體牆元素取代該段帷幕牆，交點因此落在帷幕牆定位線的延長線上，CW-H 照樣判定；交接帶的高程已改為區劃牆與帷幕牆的交集，未符合的實體外牆會被塗紅，躺在立面內的區劃牆不再產出 CW-H。步驟 15：外側法線不再採信 `wall.Orientation` 的正負，改由所屬區劃落在哪一側推定（§4.6 的三站多數決）——2026-09-27 於 Revit 量到帷幕牆的 `wall.Orientation` 純由定位線方向決定、`Wall.Flipped` 改不了它，反向畫的那一片會整片從檢討中消失，而步驟 14 預期的交接處擁有者正好是這一片。步驟 9 依設計決策取消 Area 上人工填寫室內裝修等級，改由區劃實際關聯的牆與天花板類型推導 `zone.interiorFinish`；**Revit 端尚未實機驗證**。
+> 型別列依種類決定要填哪一格、共享參數檔加 `…0013`），16c 是 Revit 讀取層（讀種類與嵌板厚、每片嵌板都
+> 讀防火保護、由材料提案種類、綁定用的共享參數檔加 `…0013`）。**部署前必須先完成 §12 的綁定程序**：
+> `防火檢討_嵌板種類` 已是必要參數，Curtain Panels 沒綁到它時整個檢討會被 `BCR-PARAM-001` 擋下。
+> CW-H、CW-V 不受決議 16 影響。步驟 13 已於 2026-09-27 實機驗證 `Fail` 路徑。**步驟 14（決議 14）與步驟 15（決議 15）已於 2026-09-28 部署並實機驗證，使用者確認 CW-H 檢討結果無誤**——CW-H 的但書路徑因此首次在 Revit 端驗到。步驟 14：防火帶一律以實體牆元素取代該段帷幕牆，交點因此落在帷幕牆定位線的延長線上，CW-H 照樣判定；交接帶的高程已改為區劃牆與帷幕牆的交集，未符合的實體外牆會被塗紅，躺在立面內的區劃牆不再產出 CW-H。步驟 15：外側法線不再採信 `wall.Orientation` 的正負，改由所屬區劃落在哪一側推定（§4.6 的三站多數決）——2026-09-27 於 Revit 量到帷幕牆的 `wall.Orientation` 純由定位線方向決定、`Wall.Flipped` 改不了它，反向畫的那一片會整片從檢討中消失，而步驟 14 預期的交接處擁有者正好是這一片。步驟 9 依設計決策取消 Area 上人工填寫室內裝修等級，改由區劃實際關聯的牆與天花板類型推導 `zone.interiorFinish`；**Revit 端尚未實機驗證**。
 
 ## 1. 功能摘要
 
@@ -940,9 +943,26 @@ CW-V 的立面**由工具自己建立**，名稱帶著上面說的檢討圖號�
 | 15 | 外側法線改由所屬區劃推定（決議 15）：`CurtainWallJunctionResolver` 新增定向步驟，`§4.6` 的三站多數決 | **已完成並實機驗證**（建置 0 警告、1637 條測試全通過；§10 案例 34–39 已釘住，含守門測試）。2026-09-28 與步驟 14 一併部署後重跑，使用者確認 CW-H 檢討結果無誤 |
 | 16a | 決議 16 的**判定層**：`CurtainPanelKind`／`CurtainPanelKinds`、`CurtainPanelObservation.Kind`、`junction.panelKind` 與 `junction.minFireProtection` 兩個白名單欄位、`CurtainWallJunctionResolver` 把 CW-O 拆三路、`CurtainWallJunctionCheck` 寫入兩個新 fact、規則集加 `tw-bcr-79-4-curtain-wall-other-glazed`（規則集版本升至 `2026.7-provisional`） | **已完成**（建置 0 警告、1650 條測試全通過；§10 案例 40–48 已釘住）。Revit 端尚未接線 |
 | 16b | 決議 16 的**參數層**：`FireRatingDeriver` 支援 `CandidateCategory.CurtainPanel`（沿用牆壁門檻）、`FireReviewTypeRow` 的 `PanelKind` 欄位與 `CarriesRating`／`CarriesProtection` 改看種類、共享參數檔加 `防火檢討_嵌板種類`（`…0013`） | **已完成**（建置 0 警告、1672 條測試全通過）。Revit 端尚未接線 |
-| 16c | 決議 16 的**Revit 讀取層**：`RevitCurtainWallGeometryReader.ReadPanels` 分類並一律讀防火保護、`RevitFireReviewTypeScanner` 讀嵌板厚度與種類（含材料類別提案）、`RevitFireReviewParameterWriter` 寫種類、`FireReviewSetupFeature` 加三個綁定 | 未開始 |
+| 16c | 決議 16 的**Revit 讀取層**：`RevitCurtainWallGeometryReader.ReadPanels` 分類並一律讀防火保護、`RevitFireReviewTypeScanner` 讀嵌板厚度與種類（含材料提案）、`fire-review-openings-type.txt` 加 `…0013` | **已完成**（建置 0 警告、1707 條測試全通過）。**Revit 端待實機驗證**；`RevitFireReviewParameterWriter` 早就寫得到（依名稱查參數、`FireReviewEditKind.Text`），不必改 |
 | 16d | 決議 16 的**參數面板**：帷幕嵌板列的種類下拉、選實心才亮結構材料與推定時效、選玻璃只亮防火保護 | 未開始 |
-| 16e | 決議 16 的部署與實機驗證：綁定三個參數、填值、重跑，核對 CW-O 由 `InsufficientData` 轉為有判定 | 未開始 |
+| 16e | 決議 16 的部署與實機驗證：依下方「16c 的綁定程序」綁參數、填值、重跑，核對 CW-O 由 `InsufficientData` 轉為有判定 | 未開始 |
+
+#### 16c 的綁定程序（16e 要執行的那一段）
+
+Curtain Panels 需要**兩次** `load_shared_parameters`，兩次都 `categories: ["CurtainPanels"]`、
+`bindToInstance: false`：
+
+| 檔案 | 綁過去的參數 | 為什麼 |
+| --- | --- | --- |
+| `assets/SharedParameters/fire-review-openings-type.txt` | `防火檢討_設計防火保護`（`…000d`）、`防火檢討_遮煙性能`（`…000f`）、`防火檢討_嵌板種類`（`…0013`）、`防火檢討_設計防火時效`（`…0008`） | 前三個是玻璃那一路與昇降機道出入口要答的，最後一個是實心那一路與 CW-O 的輸入 |
+| `assets/SharedParameters/fire-review-members-type.txt` | `結構材料`（`…000b`）、`防火被覆厚度`（`…000c`） | 實心嵌板的時效由厚度＋材料推定（決議 16），這兩個原本只綁主要構造 |
+
+`…0008` 在兩個檔裡都有，第二次會回報「已存在相符綁定，跳過」。**不必新增第三個檔**：構件檔本來就
+只有這三個參數，把它對 Curtain Panels 再跑一次剛好補上缺的兩個，而且不會讓門窗拿到 `結構材料`。
+反過來，`fire-review-openings-type.txt` 綁到門或窗時會把 `防火檢討_嵌板種類` 一起綁上——對門窗無害
+（種類由類別認定，`RevitFireReviewTypeScanner` 的 `PanelKind` 旗標由類別把關，面板不會在門窗列上顯示
+它），只是 Revit 的性質面板上會多一格空欄位。前置檢查也不會因為多綁而抱怨：`ReviewReadiness.Parameters`
+只查「有沒有綁到需要的類別」，不查有沒有綁到別的類別。
 
 ### 步驟 9：室內裝修等級改由模型推導
 
@@ -1430,7 +1450,11 @@ withhold 不供給。證據應**出現** `junction.minFireRating` 且 `junction.
 - **CW-O（第 79-4 條，其餘嵌板 ≥ 30 min）保留**，不移除也不預設停用。因此 `防火檢討_設計防火時效`
   **仍須綁定至 Curtain Panels**——那是 CW-O 的輸入，與 CW-H 無關。
 
-#### 待辦的綁定（尚未執行）
+#### 待辦的綁定（決議 13 當時的紀錄）
+
+> 這一段是決議 13 當時寫下的三個參數。下面「參數綁定：已確認早已綁定（實機查證）」證實它們早就綁好了，
+> 而決議 16 之後 Curtain Panels 還要多綁三個（`防火檢討_嵌板種類`、`結構材料`、`防火被覆厚度`）——
+> **要照做的是 §12「16c 的綁定程序」那兩次呼叫，不是這一段。**
 
 `fire-review-openings-type.txt` 的三個參數須以 **Type** 層級綁到 CurtainPanels，GUID 與構件檔同一組：
 
@@ -1695,7 +1719,8 @@ CW-H 都判 `ManualReview`：
 #### 步驟 16b 的產出（已完成，0 警告、1672 條測試全通過）
 
 參數層：尺寸推定認得帷幕嵌板，型別列依種類決定該填哪一格，共享參數檔補上 `…0013`。**Revit 端仍然
-完全沒有接線**——讀取層還不會讀 `防火檢討_嵌板種類`，所以目前每一片嵌板在型別列上都是未宣告。
+完全沒有接線**——讀取層還不會讀 `防火檢討_嵌板種類`，所以當時每一片嵌板在型別列上都是未宣告。
+（這一句是 16b 當下的狀態；**16c 已經接上讀取層**，見下一節。）
 
 | 檔案 | 改了什麼 |
 | --- | --- |
@@ -1726,10 +1751,56 @@ CW-H 都判 `ManualReview`：
   這是「未宣告」的行為，不是「帷幕嵌板」的行為。
 - `SharedParameterFileTests.Every_parameter_keeps_its_own_guid_and_name`：`PARAM` 行數 16 → 17。
 
-#### 下一步（步驟 16c 起）
+#### 步驟 16c 的產出（已完成，0 警告、1707 條測試全通過）
 
-16c Revit 讀取層、16d 參數面板、16e 部署與實機驗證，內容見 §12 進度表。**16c 的三個綁定
-（`防火檢討_嵌板種類`、`結構材料`、`防火被覆厚度` 綁到 Curtain Panels）在做完之前，現行模型會在前置
-檢查被 `BCR-PARAM-001` 擋下**——這是刻意的，但也表示 16a、16b 單獨部署沒有意義，要等 16c 一起。
-`assets/SharedParameters/fire-review-openings-type.txt`（`load_shared_parameters` 實際綁定用的那一份）
-**尚未加入 `防火檢討_嵌板種類`**，那是 16c 設定流程的一部分。
+Revit 讀取層接線：嵌板的種類讀得到了，嵌板厚度讀得到了，每一片嵌板都讀防火保護，未宣告的型別由材料
+提案一個種類給使用者確認。**Revit 端尚未實機驗證**——這一段幾乎全在 Revit API 上，核心測試專案只參照
+Domain 與 Application，蓋不到轉接層。
+
+| 檔案 | 改了什麼 |
+| --- | --- |
+| `Application/Checks/CurtainPanelKinds.cs` | 新增 `Classify(isOpening, isPanelAsWall, declaredText)` 與 `ProposeFrom(materialClass, materialName, typeName)`。**兩個判斷都寫在 Application 層**，讀取層只負責把 Revit 的事實交進來，述詞因此只有一份而且測得到 |
+| `Application/Parameters/FireReviewTypeTable.cs` | `FireReviewTypeRow` 建構子尾端加 `CurtainPanelKind? proposedPanelKind`；新增 `ProposedPanelKind`（讀取層的提案，不是模型的值）與 `PanelKindProposal`（只在型別還沒宣告時才有值）。`Opening` 不接受為提案——它沒有 `ParameterText`，沒有任何 edit 載得動它 |
+| `FireReview/FireReviewTypeRowViewModel.cs` | 建構子在 `防火檢討_嵌板種類` 完全空白時用提案當下拉初值（已宣告或填了讀不懂的字都照原樣顯示）；新增 `PanelKindIsProposed`／`PanelKindProposalNote` 供 16d 在列上說明「這是提案、還沒寫入」 |
+| `Revit/Geometry/RevitCurtainWallGeometryReader.cs` | `ReadPanels` 改為**每片嵌板都讀** `防火檢討_設計防火保護`（原本只有門窗讀），種類交給 `CurtainPanelKinds.Classify`（`element is Wall` 即「嵌板為牆」），結果填進 `CurtainPanelObservation` 的 `kind`；新增私有 `Text(element, name)` 讀型別的文字參數 |
+| `Revit/Parameters/RevitFireReviewTypeScanner.cs` | `Dimension` 對 `CurtainPanel` 回 `Structure(type)`（`PanelType` 也是 `HostObjAttributes`，複合構造與牆、樓板同一條路）；`Row` 讀 `防火檢討_嵌板種類`、在**帷幕嵌板類別**帶這個參數時設 `FireReviewTypeParameters.PanelKind` 旗標、並以新增的 `PanelMaterial`（複合構造最厚的一層，其次 `MATERIAL_ID_PARAM`）算出提案 |
+| `assets/SharedParameters/fire-review-openings-type.txt` | 加入 `PARAM …0013 防火檢討_嵌板種類 TEXT`（定義行自主檔逐位元組複製），並在檔頭補上它只對帷幕嵌板有意義、以及帷幕嵌板另需構件檔那兩個參數的說明。**檔案仍是 Big5/cp950＋LF**（主檔是 CRLF，差異是刻意的），`git diff --numstat` 為 `7 0` |
+| `tests/…/BuildingRegulationReview.Core.Tests.csproj` | 把 `fire-review-openings-type.txt` 一併複製到輸出，讓新的位元組層級測試讀得到 |
+
+**為什麼宣告優先於「嵌板為牆」**：`防火檢討_嵌板種類` 只綁 Curtain Panels，牆型別實務上讀到的是 null，
+於是落到 `Solid`——與決議 16 原本寫的「嵌板為牆一律實心」同一個結果。但真有人在牆型別上明寫了種類時，
+明寫的那句話比推論可靠，所以 `Classify` 先看宣告。這是嚴格的超集，不是改判。
+
+**為什麼提案只往玻璃一邊**：「不是玻璃」推不出「是實心」。一片 3 mm 鋁板不是玻璃，但把它宣告成實心
+等於說它的防火時效由厚度推定，那是法規上的分類，不是工具替設計者決定的事。型別名稱是三個訊號裡最弱的
+一個，只在材料類別與材料名稱都沒話說時才看——系統嵌板常常沒設材料，而型別就叫「玻璃 1.0cm」，那正是
+起初讓 CW-O 全部資料不足的那一列。
+
+**提案不等於宣告**：`ProposedPanelKind` 不影響 `AwaitsPanelKind`、不影響 `Present`、不影響
+`SupportsDerivation`，所以該列照樣出現在面板的「待宣告」清單裡，CW-O 照樣答資料不足。值只進下拉，
+寫入要使用者按下套用才發生（`A_proposed_kind_is_not_a_declaration` 是守門測試）。
+
+**為什麼每片嵌板都讀防火保護是安全的**：`IsUnprotectedOpening` 仍然以 `IsOpening` 把關，所以 CW-H 與
+CW-V 的連續段判定一個字都沒變；改的只是玻璃嵌板從此拿得到 `Protection`，`OtherGlazedPanels` 才答得出
+第 79 條之 4。型別沒綁這個參數時讀到的是 `ProvidedFireProtection.Missing`（原本是 null），兩者對
+`AnswersByProtection` 那一路都一樣是不作答。
+
+#### 16c 新增與改動過的測試（誠實記錄）
+
+- **新增** `Checks/CurtainPanelKindsTests.cs`（9 個測試方法、26 個案例）：`Classify` 的四條分支（門窗一律 Opening、嵌板為牆
+  未宣告即實心、宣告優先於推論、其餘未宣告為 null）與 `ProposeFrom`（材料類別、材料名、型別名三個訊號；
+  **任何輸入都不提案實心**；提案一定是使用者可宣告的那兩種）。
+- **新增** `Parameters/OpeningsSharedParameterFileTests.cs`（6 條）：綁定用檔案的 Big5＋LF、`…0013` 的欄位、
+  四個 PARAM、每個 PARAM 的 GROUP 在同一個檔裡有宣告、與主檔的 GUID／名稱／資料型別逐位元組相符。
+  **`DESCRIPTION` 與 `GROUP` 刻意不比對**：說明文字是寫給綁這一份的人看的，兩個檔對 `…000d` 的說明
+  本來就不同（主檔點名「門窗帷幕嵌板類型」，這一份講未勾選的意思），GROUP 的編號是檔案內部的。
+  這件事是新測試第一次跑就抓出來的，不是事後放寬。
+- `Parameters/FireReviewTypeTableTests.cs`：`Row` 輔助方法加 `proposedPanelKind` 參數（既有斷言一個字
+  沒動），另新增 `A_proposed_kind_is_not_a_declaration`、`A_declared_kind_leaves_no_proposal_to_offer`、
+  `An_opening_is_never_proposed_as_a_kind` 三條。
+
+#### 下一步（步驟 16d 起）
+
+16d 參數面板（XAML 與轉換器；ViewModel 這一側 16b、16c 已全部備妥）、16e 部署與實機驗證，內容見 §12
+進度表與上方「16c 的綁定程序」。**部署之前一定要先跑那兩次綁定**：`防火檢討_嵌板種類` 已是必要參數，
+Curtain Panels 沒綁到它時整個檢討會被 `BCR-PARAM-001` 擋下。

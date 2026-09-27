@@ -37,7 +37,8 @@ public sealed class FireReviewTypeRow
         bool? providedProtection = null,
         bool? providedSmokeProtection = null,
         FireReviewTypeParameters present = FireReviewTypeParameters.None,
-        string? panelKind = null)
+        string? panelKind = null,
+        CurtainPanelKind? proposedPanelKind = null)
     {
         if (string.IsNullOrWhiteSpace(typeUniqueId)) throw new ArgumentException("Type UniqueId is required.", nameof(typeUniqueId));
         if (instanceCount < 0) throw new ArgumentOutOfRangeException(nameof(instanceCount));
@@ -61,6 +62,9 @@ public sealed class FireReviewTypeRow
         ProvidedSmokeProtection = providedSmokeProtection;
         Present = present;
         PanelKind = string.IsNullOrWhiteSpace(panelKind) ? null : panelKind!.Trim();
+        // 門窗的種類由類別認定，不是提案，也不寫回；把它當提案帶進來只會讓面板在門窗列上出現一個
+        // 使用者不該碰的下拉值（CurtainPanelKinds.ParameterText 對 Opening 也回 null）。
+        ProposedPanelKind = proposedPanelKind == CurtainPanelKind.Opening ? null : proposedPanelKind;
     }
 
     public string TypeUniqueId { get; }
@@ -112,6 +116,19 @@ public sealed class FireReviewTypeRow
 
     /// <summary>實心／玻璃, or null when the declaration is blank or is neither.</summary>
     public CurtainPanelKind? ParsedPanelKind => CurtainPanelKinds.Parse(PanelKind);
+
+    /// <summary>
+    /// 種類的提案，由讀取層從嵌板型別的材料算出（<see cref="CurtainPanelKinds.ProposeFrom"/>、決議 16、
+    /// 步驟 16c）。這**不是**模型裡的值：<see cref="PanelKind"/> 才是。面板用它當下拉的初值，寫入仍然
+    /// 要使用者按下套用，因此 <see cref="AwaitsPanelKind"/> 與 <see cref="Present"/> 都不受它影響。
+    /// </summary>
+    public CurtainPanelKind? ProposedPanelKind { get; }
+
+    /// <summary>
+    /// 真正該拿去當面板初值的提案：只在型別自己還沒宣告時才有意義，已宣告的值不該被提案蓋掉。
+    /// </summary>
+    public CurtainPanelKind? PanelKindProposal =>
+        Category == CandidateCategory.CurtainPanel && ParsedPanelKind is null ? ProposedPanelKind : null;
 
     public bool IsOpening => CandidateCategories.IsOpening(Category);
 

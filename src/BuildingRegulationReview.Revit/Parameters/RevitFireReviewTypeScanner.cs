@@ -133,6 +133,7 @@ public sealed class RevitFireReviewTypeScanner
     private FireReviewTypeRow Row(ElementType type, CandidateCategory category, IReadOnlyList<Element> instances, int inProject)
     {
         var opening = CandidateCategories.IsOpening(category);
+        var panel = category == CandidateCategory.CurtainPanel;
 
         var present = FireReviewTypeParameters.None;
         if (Find(type, FireRatingParameters.Provided) is not null) present |= FireReviewTypeParameters.Rating;
@@ -142,6 +143,10 @@ public sealed class RevitFireReviewTypeScanner
             present |= FireReviewTypeParameters.Protection;
         if (opening && Find(type, SmokeProtectionParameters.Provided) is not null)
             present |= FireReviewTypeParameters.SmokeSeal;
+        // 只有帷幕嵌板該帶種類。這份共享參數檔綁 Curtain Panels 時會連門窗一起綁到（同一個檔），所以
+        // 旗標由類別把關，而不是「型別上找得到這個參數」（決議 16、步驟 16c）。
+        if (panel && Find(type, CurtainPanelKindParameters.Provided) is not null)
+            present |= FireReviewTypeParameters.PanelKind;
 
         return new FireReviewTypeRow(
             type.UniqueId,
@@ -156,7 +161,46 @@ public sealed class RevitFireReviewTypeScanner
             providedRating: Text(type, FireRatingParameters.Provided),
             providedProtection: opening ? Ticked(type, FireProtectionParameters.Provided) : null,
             providedSmokeProtection: opening ? Ticked(type, SmokeProtectionParameters.Provided) : null,
-            present: present);
+            present: present,
+            panelKind: panel ? Text(type, CurtainPanelKindParameters.Provided) : null,
+            proposedPanelKind: panel ? ProposedPanelKind(type) : null);
+    }
+
+    /// <summary>
+    /// 由嵌板型別的材料替使用者提案一個種類（決議 16、步驟 16c）。這**不是**寫入：值只進面板的下拉，
+    /// 由使用者留下或改掉，寫入是按下套用才發生的事，與 結構材料＋推定時效 同一套模式。
+    /// </summary>
+    private CurtainPanelKind? ProposedPanelKind(ElementType type)
+    {
+        var material = PanelMaterial(type);
+        return CurtainPanelKinds.ProposeFrom(material?.MaterialClass, material?.Name, type.Name);
+    }
+
+    /// <summary>
+    /// The material a panel Type is made of: the thickest layer of a layered 嵌板 (a system panel is
+    /// one layer, so this is simply its material), or the 材料 parameter of a panel family. Null when
+    /// the Type names none, which proposes nothing rather than guessing.
+    /// </summary>
+    private Material? PanelMaterial(ElementType type)
+    {
+        CompoundStructure? structure = null;
+        try
+        {
+            structure = (type as HostObjAttributes)?.GetCompoundStructure();
+        }
+        catch (Autodesk.Revit.Exceptions.ApplicationException)
+        {
+            structure = null;
+        }
+
+        var layered = structure?.GetLayers()
+            .Where(l => l.MaterialId is not null && l.MaterialId != ElementId.InvalidElementId)
+            .OrderByDescending(l => l.Width)
+            .Select(l => l.MaterialId)
+            .FirstOrDefault();
+
+        var id = layered ?? type.get_Parameter(BuiltInParameter.MATERIAL_ID_PARAM)?.AsElementId();
+        return id is null || id == ElementId.InvalidElementId ? null : _document.GetElement(id) as Material;
     }
 
     /// <summary>
@@ -170,12 +214,15 @@ public sealed class RevitFireReviewTypeScanner
         return parameter.HasValue && parameter.AsInteger() == 1;
     }
 
-    /// <summary>牆厚、板厚 or 柱短邊 in metres — the value the clause compares its threshold against.</summary>
+    /// <summary>牆厚、板厚、柱短邊 or 嵌板厚 in metres — the value the clause compares its threshold against.</summary>
     private double? Dimension(ElementType type, CandidateCategory category) => category switch
     {
         CandidateCategory.Wall => WallThickness(type),
         CandidateCategory.Floor => FloorThickness(type),
         CandidateCategory.Column => ColumnShortSide(type),
+        // 一片實心嵌板的時效比照牆體由厚度推定（決議 16），而 PanelType 也是 HostObjAttributes，所以
+        // 厚度與牆、樓板讀的是同一個複合構造。嵌板是族群實體（例如訂製嵌板族）時讀不到，報 null。
+        CandidateCategory.CurtainPanel => Structure(type),
         _ => null
     };
 

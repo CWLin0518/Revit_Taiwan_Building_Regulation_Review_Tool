@@ -98,6 +98,66 @@ public static class CurtainPanelKinds
     /// <summary>只有實心嵌板以設計防火時效作答；玻璃與門窗讀防火保護。</summary>
     public static bool AnswersByRating(CurtainPanelKind kind) => kind == CurtainPanelKind.Solid;
 
+    /// <summary>
+    /// 讀取層怎麼認一片嵌板的種類（決議 16、步驟 16c）。判斷寫在這裡而不是在 Revit 讀取層，是為了讓它
+    /// 測得到——讀取層只負責把 Revit 的三個事實（類別是不是門窗、嵌板是不是一道牆、型別參數的字）交進來。
+    /// </summary>
+    /// <param name="isOpening">類別是門或窗：它是防火設備，種類由類別認定，不由使用者宣告。</param>
+    /// <param name="isPanelAsWall">
+    /// 「嵌板為牆」：這片嵌板本身是一道 <c>Wall</c>。它是構造，一律以自己的時效作答，不需宣告
+    /// （見 <see cref="CurtainPanelKind.Solid"/>）。
+    /// </param>
+    /// <param name="declaredText"><c>防火檢討_嵌板種類</c> 讀到的字；空白或不認得的字視為未宣告。</param>
+    /// <returns>三種之一，或 null 表示未宣告——那不是實心也不是玻璃，CW-O 會答資料不足。</returns>
+    /// <remarks>
+    /// 宣告優先於「嵌板為牆」，不是反過來。牆型別本來就不該帶 <c>防火檢討_嵌板種類</c>（那個參數只綁
+    /// Curtain Panels），所以實務上讀到的是 null 而落到 <see cref="CurtainPanelKind.Solid"/>；但真有人
+    /// 在牆型別上明寫了種類時，明寫的那句話比推論可靠。
+    /// </remarks>
+    public static CurtainPanelKind? Classify(bool isOpening, bool isPanelAsWall, string? declaredText)
+    {
+        if (isOpening) return CurtainPanelKind.Opening;
+        if (Parse(declaredText) is CurtainPanelKind declared) return declared;
+        return isPanelAsWall ? CurtainPanelKind.Solid : (CurtainPanelKind?)null;
+    }
+
+    /// <summary>材料名稱裡代表玻璃的字；比對時不分大小寫。</summary>
+    private static readonly string[] GlassWords = { "玻璃", "Glass", "Glazing", "Glazed" };
+
+    /// <summary>Revit 材料的 <c>MaterialClass</c> 是玻璃時的值。</summary>
+    private const string GlassMaterialClass = "Glass";
+
+    /// <summary>
+    /// 由嵌板型別的材料替使用者**提案**一個種類（決議 16、步驟 16c）。只提案玻璃：材料類別是
+    /// <c>Glass</c>，或材料名稱裡有玻璃的字。
+    /// </summary>
+    /// <remarks>
+    /// 只往玻璃這一邊提案是刻意的。「不是玻璃」推不出「是實心」——一片 3 mm 的鋁板不是玻璃，但把它宣告
+    /// 成實心就等於說它的防火時效由厚度推定，那是工具在替設計者決定法規上的分類。提案也不等於寫入：
+    /// 值先進面板的下拉，由使用者留下或改掉，寫入是使用者按下套用才發生的事（決議 16、D1）。
+    /// </remarks>
+    public static CurtainPanelKind? ProposeFrom(string? materialClass, string? materialName, string? typeName = null)
+    {
+        if (!string.IsNullOrWhiteSpace(materialClass) &&
+            string.Equals(materialClass!.Trim(), GlassMaterialClass, StringComparison.OrdinalIgnoreCase))
+            return CurtainPanelKind.Glazed;
+
+        // 型別名稱是最弱的訊號，只在材料兩個欄位都沒話說時才看：系統嵌板常常沒設材料，而型別就叫
+        // 「玻璃 1.0cm」。名字錯得起——提案本來就只是下拉的初值。
+        return NamesGlass(materialName) || NamesGlass(typeName) ? CurtainPanelKind.Glazed : (CurtainPanelKind?)null;
+    }
+
+    private static bool NamesGlass(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return false;
+
+        foreach (var word in GlassWords)
+            if (text!.IndexOf(word, StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+
+        return false;
+    }
+
     /// <summary><c>junction.panelKind</c> 的值：兩路而非三種，門窗與玻璃走同一條規則。</summary>
     public static string RuleText(CurtainPanelKind kind) =>
         AnswersByRating(kind) ? SolidRuleText : GlazedRuleText;

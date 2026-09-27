@@ -23,6 +23,11 @@
       編碼不會在複製時被改掉。
     -->
     <None Include="..\..\assets\SharedParameters\fire-review-shared-params.txt" Link="Assets\fire-review-shared-params.txt" CopyToOutputDirectory="PreserveNewest" />
+    <!--
+      load_shared_parameters 實際綁定門、窗與帷幕嵌板用的那一份。同樣是 Big5／cp950，但換行是 LF，
+      與主檔的 CRLF 不同——這個不一致是刻意的，OpeningsSharedParameterFileTests 逐位元組守著它。
+    -->
+    <None Include="..\..\assets\SharedParameters\fire-review-openings-type.txt" Link="Assets\fire-review-openings-type.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\BuildingRegulationReview.Domain\BuildingRegulationReview.Domain.csproj" />

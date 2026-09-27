@@ -31,9 +31,13 @@ namespace BuildingRegulationReview.FireReview
         public FireReviewTypeRowViewModel(FireReviewTypeRow source)
         {
             Source = source ?? throw new ArgumentNullException(nameof(source));
+            // 已宣告的值照原樣顯示；讀不懂的字也照原樣留著，使用者才看得出模型裡填了什麼。只有完全
+            // 空白時才用讀取層由材料算出的提案當初值——提案進得了下拉，但要按下套用才會寫進模型。
             _panelKind = source.ParsedPanelKind.HasValue
                 ? CurtainPanelKinds.ParameterText(source.ParsedPanelKind.Value)
-                : source.PanelKind ?? "";
+                : !string.IsNullOrWhiteSpace(source.PanelKind) ? source.PanelKind
+                : source.PanelKindProposal.HasValue ? CurtainPanelKinds.ParameterText(source.PanelKindProposal.Value)
+                : "";
             _material = source.ParsedMaterial.HasValue ? StructuralMaterialText.Code(source.ParsedMaterial.Value) : source.Material ?? "";
             _coverCm = Centimetres(source.CoverMeters);
             _rating = source.ProvidedRating ?? "";
@@ -103,6 +107,18 @@ namespace BuildingRegulationReview.FireReview
             new[] { "" }.Concat(CurtainPanelKinds.Declarable.Select(CurtainPanelKinds.ParameterText)).ToList();
 
         /// <summary>
+        /// The kind shown here is the reader's proposal from the panel's material, not something the
+        /// model holds — so the panel can say so, and so a row left alone is still listed as 待宣告
+        /// by <see cref="Application.Parameters.FireReviewTypeTable.AwaitingPanelKind"/> (決議 16).
+        /// </summary>
+        public bool PanelKindIsProposed => Source.PanelKindProposal.HasValue &&
+            Same(_panelKind, CurtainPanelKinds.ParameterText(Source.PanelKindProposal.Value));
+
+        public string PanelKindProposalNote => PanelKindIsProposed
+            ? $"由嵌板材料提案為「{CurtainPanelKinds.Label(Source.PanelKindProposal.Value)}」，尚未寫入模型；確認後請按套用。"
+            : "";
+
+        /// <summary>
         /// 防火檢討_嵌板種類 on the Type. Blank means 未宣告, which the review reads as 資料不足 rather
         /// than guessing — see <see cref="CarriesRating"/>.
         /// </summary>
@@ -112,6 +128,8 @@ namespace BuildingRegulationReview.FireReview
             set
             {
                 if (!Set(ref _panelKind, value ?? "")) return;
+                Raise(nameof(PanelKindIsProposed));
+                Raise(nameof(PanelKindProposalNote));
                 Raise(nameof(CarriesRating));
                 Raise(nameof(CarriesProtection));
                 Raise(nameof(CarriesMaterial));

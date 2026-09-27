@@ -21,13 +21,14 @@ public sealed class FireReviewTypeTableTests
         int inView = 3,
         int inProject = 9,
         FireReviewTypeParameters present = FireReviewTypeParameters.Rating | FireReviewTypeParameters.Material,
-        string? panelKind = null) =>
+        string? panelKind = null,
+        CurtainPanelKind? proposedPanelKind = null) =>
         new(uid, category, "RC20", familyName: null, instanceCount: inView, projectInstanceCount: inProject,
             dimensionMeters: dimensionCm is double d ? d / 100 : (double?)null,
             material: material,
             coverMeters: coverCm is double c ? c / 100 : (double?)null,
             providedRating: rating, providedProtection: protection, providedSmokeProtection: smokeProtection,
-            present: present, panelKind: panelKind);
+            present: present, panelKind: panelKind, proposedPanelKind: proposedPanelKind);
 
     [Fact]
     public void A_row_derives_the_rating_its_material_and_thickness_give()
@@ -388,6 +389,58 @@ public sealed class FireReviewTypeTableTests
         Assert.Equal(CurtainPanelKinds.GlazedText, panel.PanelKindEdit(CurtainPanelKind.Glazed)!.Text);
         Assert.Null(panel.PanelKindEdit(CurtainPanelKind.Opening));
         Assert.Null(Row("T-wall", CandidateCategory.Wall).PanelKindEdit(CurtainPanelKind.Solid));
+    }
+
+    /// <summary>
+    /// 步驟 16c: the reader's proposal is not a declaration. The row still reports 未宣告 — it still
+    /// waits on a kind, still answers both questions, still derives nothing — because nothing has been
+    /// written to the model. Only the panel's dropdown starts out on the proposal.
+    /// </summary>
+    [Fact]
+    public void A_proposed_kind_is_not_a_declaration()
+    {
+        var panel = Row("T-panel", CandidateCategory.CurtainPanel, dimensionCm: 10, material: "RC",
+            proposedPanelKind: CurtainPanelKind.Glazed);
+
+        Assert.Equal(CurtainPanelKind.Glazed, panel.ProposedPanelKind);
+        Assert.Equal(CurtainPanelKind.Glazed, panel.PanelKindProposal);
+        Assert.Null(panel.PanelKind);
+        Assert.Null(panel.ParsedPanelKind);
+        Assert.True(panel.AwaitsPanelKind);
+        Assert.True(panel.CarriesRating);
+        Assert.True(panel.CarriesProtection);
+        Assert.False(panel.SupportsDerivation);
+        Assert.False(panel.WouldChangeRating);
+        Assert.Equal(FireReviewTypeParameters.None, panel.Present & FireReviewTypeParameters.PanelKind);
+    }
+
+    /// <summary>
+    /// A declaration outranks the proposal: the model has spoken, and a reading of the panel's material
+    /// must not put the dropdown back on something the designer already decided against.
+    /// </summary>
+    [Fact]
+    public void A_declared_kind_leaves_no_proposal_to_offer()
+    {
+        var declared = Row("T-solid", CandidateCategory.CurtainPanel,
+            panelKind: CurtainPanelKinds.SolidText, proposedPanelKind: CurtainPanelKind.Glazed);
+
+        Assert.Equal(CurtainPanelKind.Solid, declared.ParsedPanelKind);
+        Assert.Null(declared.PanelKindProposal);
+        Assert.Equal(CurtainPanelKind.Glazed, declared.ProposedPanelKind);
+    }
+
+    /// <summary>
+    /// 帷幕牆門窗 is read from the category and never written (<see cref="CurtainPanelKinds.ParameterText"/>
+    /// returns null for it), so it is not a proposal either — offering it would put a value in the
+    /// dropdown that no edit could ever carry.
+    /// </summary>
+    [Fact]
+    public void An_opening_is_never_proposed_as_a_kind()
+    {
+        Assert.Null(Row("T-panel", CandidateCategory.CurtainPanel, proposedPanelKind: CurtainPanelKind.Opening)
+            .ProposedPanelKind);
+        Assert.Null(Row("T-wall", CandidateCategory.Wall, proposedPanelKind: CurtainPanelKind.Glazed)
+            .PanelKindProposal);
     }
 
     /// <summary>A 主要構造 is untouched by 決議 16: it never waits on a kind and derives exactly as before.</summary>
