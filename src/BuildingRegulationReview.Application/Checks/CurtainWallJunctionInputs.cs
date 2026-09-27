@@ -82,8 +82,13 @@ public enum CurtainWallJunctionDoubtKind
     /// <summary>交點解析出兩組以上候選，或區劃牆端點與帷幕牆距離超過搜尋公差.</summary>
     UnresolvedIntersection,
 
-    /// <summary>交接帶被 grid line 分割，且兩側嵌板時效皆足夠——疑為多餘 grid line（docs §4.5）.</summary>
+    /// <summary>層間帶被 grid line 分割，且兩側嵌板時效皆足夠——疑為多餘 grid line（docs §4.5）.</summary>
     SplitByGridLine,
+
+    /// <summary>
+    /// 交接處的立面上，實體外牆與帷幕嵌板重疊：模型對同一片外牆講了兩件互相矛盾的事（docs §4.2）.
+    /// </summary>
+    FacadeWallOverlapsPanel,
 
     /// <summary>連跨複數樓層之挑空帷幕牆：改依第79條之2垂直區劃檢討，不是本項的未符合.</summary>
     VerticalCompartmentSpace
@@ -125,6 +130,7 @@ public sealed class CurtainWallJunctionDoubt
         CurtainWallJunctionDoubtKind.NonPlanarCurtainWall => ReviewErrorCode.CurtainWallNotPlanar,
         CurtainWallJunctionDoubtKind.UnresolvedIntersection => ReviewErrorCode.CurtainWallJunctionUnresolved,
         CurtainWallJunctionDoubtKind.SplitByGridLine => ReviewErrorCode.CurtainWallJunctionSplitByGridLine,
+        CurtainWallJunctionDoubtKind.FacadeWallOverlapsPanel => ReviewErrorCode.CurtainWallFacadeOverlapsPanel,
         _ => ReviewErrorCode.CurtainWallVerticalSpace
     };
 
@@ -317,6 +323,7 @@ public sealed class CurtainWallJunction
         double? continuousFireRatedHeightMm,
         bool? hasUnprotectedOpening,
         IEnumerable<string>? panelUniqueIds,
+        IEnumerable<string>? facadeWallUniqueIds,
         CurtainWallJunctionPlacement? placement,
         CurtainWallJunctionDoubt? doubt)
     {
@@ -340,6 +347,9 @@ public sealed class CurtainWallJunction
         PanelUniqueIds = new ReadOnlyCollection<string>((panelUniqueIds ?? Array.Empty<string>())
             .Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim())
             .Distinct(StringComparer.Ordinal).OrderBy(x => x, StringComparer.Ordinal).ToList());
+        FacadeWallUniqueIds = new ReadOnlyCollection<string>((facadeWallUniqueIds ?? Array.Empty<string>())
+            .Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim())
+            .Distinct(StringComparer.Ordinal).OrderBy(x => x, StringComparer.Ordinal).ToList());
         Placement = placement;
         Doubt = doubt;
     }
@@ -357,14 +367,16 @@ public sealed class CurtainWallJunction
         string hostLegalReference = CurtainWallJunctionReferences.Article79,
         bool? hasUnprotectedOpening = null,
         IEnumerable<string>? panelUniqueIds = null,
-        CurtainWallJunctionPlacement? placement = null)
+        CurtainWallJunctionPlacement? placement = null,
+        IEnumerable<string>? facadeWallUniqueIds = null)
     {
         if (string.IsNullOrWhiteSpace(hostUniqueId)) throw new ArgumentException("The compartment wall's UniqueId is required.", nameof(hostUniqueId));
         if (string.IsNullOrWhiteSpace(hostLegalReference)) throw new ArgumentException("Name the clause the compartment comes from.", nameof(hostLegalReference));
 
         return new CurtainWallJunction(junctionId, CurtainWallJunctionKind.WallToCurtainWall, zoneId, curtainWallUniqueId,
             hostUniqueId, hostLegalReference, hostRequiredFireRatingMinutes, minFireRating,
-            projectionDepthMm, continuousFireRatedLengthMm, null, hasUnprotectedOpening, panelUniqueIds, placement, null);
+            projectionDepthMm, continuousFireRatedLengthMm, null, hasUnprotectedOpening, panelUniqueIds,
+            facadeWallUniqueIds, placement, null);
     }
 
     /// <summary>CW-V：一個層間帶的最不利取樣點（docs §4.3）.</summary>
@@ -385,7 +397,8 @@ public sealed class CurtainWallJunction
 
         return new CurtainWallJunction(junctionId, CurtainWallJunctionKind.FloorToCurtainWall, zoneId, curtainWallUniqueId,
             hostUniqueId, CurtainWallJunctionReferences.Article79_3, hostRequiredFireRatingMinutes, minFireRating,
-            projectionDepthMm, null, continuousFireRatedHeightMm, hasUnprotectedOpening, panelUniqueIds, placement, null);
+            projectionDepthMm, null, continuousFireRatedHeightMm, hasUnprotectedOpening, panelUniqueIds,
+            null, placement, null);
     }
 
     /// <summary>
@@ -401,7 +414,7 @@ public sealed class CurtainWallJunction
         new(junctionId, CurtainWallJunctionKind.CurtainPanelOther, zoneId, curtainWallUniqueId,
             null, null, null,
             minFireRating ?? throw new ArgumentNullException(nameof(minFireRating)),
-            null, null, null, null, panelUniqueIds, null, null);
+            null, null, null, null, panelUniqueIds, null, null, null);
 
     /// <summary>A junction the geometry could not measure, or one that belongs to another clause (docs §3.4).</summary>
     public static CurtainWallJunction Doubtful(
@@ -411,9 +424,10 @@ public sealed class CurtainWallJunction
         string curtainWallUniqueId,
         CurtainWallJunctionDoubt doubt,
         string? hostUniqueId = null,
-        IEnumerable<string>? panelUniqueIds = null) =>
+        IEnumerable<string>? panelUniqueIds = null,
+        IEnumerable<string>? facadeWallUniqueIds = null) =>
         new(junctionId, kind, zoneId, curtainWallUniqueId, hostUniqueId, null, null, null, null, null, null, null,
-            panelUniqueIds, null, doubt ?? throw new ArgumentNullException(nameof(doubt)));
+            panelUniqueIds, facadeWallUniqueIds, null, doubt ?? throw new ArgumentNullException(nameof(doubt)));
 
     /// <summary>Identifies this junction within the run; results and repeat runs key off it.</summary>
     public string JunctionId { get; }
@@ -446,8 +460,18 @@ public sealed class CurtainWallJunction
     /// <summary>Whether an unprotected opening sits in the band; the run already stops there.</summary>
     public bool? HasUnprotectedOpening { get; }
 
-    /// <summary>The curtain panels the junction covers — what a failed result marks red (docs §7.1).</summary>
+    /// <summary>
+    /// The curtain panels the junction covers — what a failed result marks red (docs §7.1). For CW-H
+    /// these are the panels the 交接帶 covers, which is also what CW-O deducts; they no longer supply
+    /// the run itself (決議 13).
+    /// </summary>
     public IReadOnlyList<string> PanelUniqueIds { get; }
+
+    /// <summary>
+    /// CW-H：the solid exterior walls the run was measured on (docs §4.2, 決議 13); empty for the other
+    /// kinds and for a junction where the façade carries none.
+    /// </summary>
+    public IReadOnlyList<string> FacadeWallUniqueIds { get; }
 
     /// <summary>
     /// Where the junction is, for the review view's annotation (CW-H) and 層間帶 (CW-V); null for
@@ -460,11 +484,12 @@ public sealed class CurtainWallJunction
 
     public bool IsDoubtful => Doubt is not null;
 
-    /// <summary>The curtain wall, its host and its panels: everything a result is about.</summary>
+    /// <summary>The curtain wall, its host, its panels and its façade walls: everything a result is about.</summary>
     public IEnumerable<string> SubjectUniqueIds =>
         new[] { CurtainWallUniqueId }
             .Concat(HostUniqueId is null ? Array.Empty<string>() : new[] { HostUniqueId })
             .Concat(PanelUniqueIds)
+            .Concat(FacadeWallUniqueIds)
             .Concat(Doubt?.SubjectUniqueIds ?? (IEnumerable<string>)Array.Empty<string>());
 
     public override string ToString() =>

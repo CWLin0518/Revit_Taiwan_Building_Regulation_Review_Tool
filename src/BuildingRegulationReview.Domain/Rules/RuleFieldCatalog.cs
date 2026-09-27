@@ -169,7 +169,7 @@ public sealed class RuleFieldCatalog
             new RuleFieldDefinition("junction.hostUniqueId", text, "區劃牆或區劃樓地板 UniqueId", junction),
             new RuleFieldDefinition("junction.hostLegalReference", text, "區劃來源條文（第79條／第83條）", junction),
             new RuleFieldDefinition("junction.hostRequiredFireRating", RuleValueType.Quantity(ReviewUnit.Minute), "區劃牆或樓地板之要求防火時效", junction),
-            new RuleFieldDefinition("junction.minFireRating", RuleValueType.Quantity(ReviewUnit.Minute), "交接帶內嵌板之最小設計防火時效", junction),
+            new RuleFieldDefinition("junction.minFireRating", RuleValueType.Quantity(ReviewUnit.Minute), "交接帶內構造之最小設計防火時效（水平交接讀實體外牆，層間與其他部分讀嵌板）", junction),
             new RuleFieldDefinition("junction.continuousFireRatedLength", RuleValueType.Quantity(ReviewUnit.Meter), "交點兩側連續具時效之外牆面長度總和", junction),
             new RuleFieldDefinition("junction.continuousFireRatedHeight", RuleValueType.Quantity(ReviewUnit.Meter), "層間連續具時效之外牆面高度總和", junction),
             new RuleFieldDefinition("junction.projectionDepth", RuleValueType.Quantity(ReviewUnit.Meter), "區劃牆或樓地板突出帷幕牆外牆面之深度", junction),

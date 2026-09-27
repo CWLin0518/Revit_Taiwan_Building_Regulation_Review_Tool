@@ -221,8 +221,9 @@ public static class CurtainWallJunctionCheck
         var message = $"{subject}：{outcome.Message}";
         var errorCode = RuleOutcomeErrorCode.For(outcome);
 
-        // 資料不足時，缺的多半就是嵌板的設計防火時效：要麼規則直接讀不到它（CW-O），要麼幾何層因為
-        // 它而量不出 90 cm 帶（CW-H、CW-V 的輸入契約）。兩者都指向同一個參數，錯誤碼要說得出是哪一個。
+        // 資料不足時，缺的多半就是 防火檢討_設計防火時效：要麼規則直接讀不到它（CW-O），要麼幾何層
+        // 因為它而量不出 90 cm 帶（CW-H、CW-V 的輸入契約）。三者讀的是同一個參數，只是元素不同——
+        // CW-H 讀立面內的實體外牆，另兩項讀嵌板（決議 13），所以訊息的主詞要跟著 kind 走。
         var ratingGap = outcome.Gaps.FirstOrDefault(g => g.Field == MinRatingField);
         var measurementGap = ratingGap is not null || outcome.Gaps.Any(g => MeasurementFields.Contains(g.Field, StringComparer.Ordinal));
         if (status == ReviewStatus.InsufficientData && measurementGap && provided is { Kind: not ProvidedFireRatingKind.Rated })
@@ -232,7 +233,7 @@ public static class CurtainWallJunctionCheck
             if (provided.Kind == ProvidedFireRatingKind.Undeterminable && ratingGap is not null && outcome.Gaps.Count == 1)
             {
                 status = ReviewStatus.ManualReview;
-                message = $"{subject}：嵌板設計防火時效「{provided.RawText}」{provided.Reason}，需人工覆核是否達到要求" +
+                message = $"{subject}：{RatingSubject(junction.Kind)}「{provided.RawText}」{provided.Reason}，需人工覆核是否達到要求" +
                           (outcome.RequiredValue is { } need ? $" {FireRatingText.Format(need.Number)}。" : "。");
                 errorCode = ReviewErrorCode.FireRatingUndetermined;
             }
@@ -315,6 +316,14 @@ public static class CurtainWallJunctionCheck
         junction.HostLegalReference is null ? string.Empty : $"（{junction.HostLegalReference}）";
 
     /// <summary>
+    /// Whose 設計防火時效 <c>junction.minFireRating</c> is, in the words that send the user to the right
+    /// element: CW-H reads it off the solid exterior walls in the façade (決議 13), the other two off
+    /// the curtain panels.
+    /// </summary>
+    private static string RatingSubject(CurtainWallJunctionKind kind) =>
+        kind == CurtainWallJunctionKind.WallToCurtainWall ? "交接處實體外牆之設計防火時效" : "嵌板設計防火時效";
+
+    /// <summary>
     /// Evidence the rules did not already record: the engine only keeps what the deciding rule read,
     /// so a junction still has to say which it is and what it covers. <see cref="Merge"/> lets the
     /// rules' own values win wherever the two overlap.
@@ -341,6 +350,12 @@ public static class CurtainWallJunctionCheck
         yield return new ReviewEvidenceItem("junction.panelCount", ReviewValue.Quantity(junction.PanelUniqueIds.Count, ReviewUnit.Count));
         if (junction.PanelUniqueIds.Count > 0)
             yield return new ReviewEvidenceItem("junction.panels", ReviewValue.OfText(string.Join(",", junction.PanelUniqueIds)));
+
+        // CW-H 的但書長度是這幾道實體外牆量出來的（決議 13）。要能回答「這個 900 mm 是哪一段外牆」，
+        // 證據就得記下它們——嵌板清單答的是另一個問題（帶內有哪些嵌板）。
+        if (junction.FacadeWallUniqueIds.Count > 0)
+            yield return new ReviewEvidenceItem("junction.facadeWallUniqueIds",
+                ReviewValue.OfText(string.Join(",", junction.FacadeWallUniqueIds)));
     }
 
     private static IEnumerable<ReviewEvidenceItem> ProvidedEvidence(ProvidedFireRating? provided)

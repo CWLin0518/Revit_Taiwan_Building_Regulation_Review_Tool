@@ -14,19 +14,27 @@ namespace BuildingRegulationReview.Application.Candidates;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The measurement obeys one rule that shapes everything else: <b>a continuous run never crosses a
-/// grid line</b> (docs §4.1). A run is therefore measured inside the one panel the junction falls
-/// in — the sum of what lies either side of the point, never split 450/450 (docs §3.1 案例 7). Only
-/// when that falls short does the resolver look across the grid lines that bound it, and only to
-/// answer §4.5's question: would deleting them make the band reach 900 mm? If so the grid lines are
-/// suspected of being redundant and the junction is 人工覆核 with their ElementIds; if not, the break
-/// is real and the measured run stands.
+/// The two 90 cm 但書 are measured on different things, and that is the shape of this file. CW-H's
+/// 交接處之外牆面 comes from the <b>solid exterior walls standing in the curtain wall's plane</b>
+/// (<see cref="FacadeRun"/>, docs §4.2, 決議 13): the 但書's subject is 該外牆構造, so a glazed panel —
+/// certified or not — and the 區劃牆 that reaches the façade both answer nothing. CW-V's 層間帶 is
+/// measured on the panels, because 第79條之3 really is about them.
+/// </para>
+/// <para>
+/// The panel measurement obeys one rule that shapes the rest: <b>a continuous run never crosses a
+/// grid line</b> (docs §4.1). A run is therefore measured inside the one panel the sample falls
+/// in — the sum of what lies either side of it, never split 450/450 (docs §3.1 案例 7). Only when that
+/// falls short does the resolver look across the grid lines that bound it, and only to answer §4.5's
+/// question: would deleting them make the band reach 900 mm? If so the grid lines are suspected of
+/// being redundant and the junction is 人工覆核 with their ElementIds; if not, the break is real and the
+/// measured run stands.
 /// </para>
 /// <para>
 /// The input contract of §12 is enforced here, not left to the caller: 突出 is always supplied (0 when
-/// there is none), and a run is supplied only when every panel the measurement looked at had a
-/// readable design rating — otherwise nothing is supplied and the engine answers 資料不足 rather than
-/// 未符合.
+/// there is none), and a run is supplied only when everything the measurement looked at — panel or
+/// solid wall — had a readable design rating; otherwise nothing is supplied and the engine answers
+/// 資料不足 rather than 未符合. A façade with no solid wall at the junction is the one case where 0 is
+/// the answer and not a gap: the 外牆面 there is glazing, which is a fact, not an unknown.
 /// </para>
 /// </remarks>
 public static class CurtainWallJunctionResolver
@@ -94,9 +102,12 @@ public static class CurtainWallJunctionResolver
         var covered = new List<PanelBand>();
         var results = new List<CurtainWallJunction>();
 
+        // 這片帷幕牆立面內的實體外牆，先投影到它自己的軸上：CW-H 的但書長度由這些牆供給（決議 13）。
+        var facades = FacadeSegments(set, wall);
+
         foreach (var host in set.CompartmentWalls)
         {
-            var junction = WallJunction(set, wall, host, options, covered);
+            var junction = WallJunction(set, wall, host, options, covered, facades);
             if (junction is not null) results.Add(junction);
         }
 
@@ -124,7 +135,8 @@ public static class CurtainWallJunctionResolver
         CurtainWallObservation wall,
         CompartmentWallObservation host,
         CurtainWallJunctionOptions options,
-        List<PanelBand> covered)
+        List<PanelBand> covered,
+        IReadOnlyList<FacadeSegment> facades)
     {
         if (host.TopElevationMm <= wall.BaseElevationMm + SnapMm || host.BottomElevationMm >= wall.TopElevationMm - SnapMm)
             return null;
@@ -151,163 +163,225 @@ public static class CurtainWallJunctionResolver
                 hostUniqueId: host.UniqueId);
         }
 
-        // 嵌板是從豎框內緣起算的，交點落在豎框上（含帷幕牆端部的收邊豎框）時整個嵌板柱是空的。
-        // 那不是「這一柱沒有嵌板」，所以查詢位置要先移到那一格真正的嵌板上（§4.2）。
-        var lookup = PanelLookup(wall, at);
+        // 交接帶：交點左右各 MinFireRatedRunMm，高程為區劃牆在該處的高程帶。它有兩個用途——CW-O
+        // 要扣掉帶內的嵌板，標示層要把帶內的嵌板塗紅。帶長本身**不由這些嵌板供給**（決議 13）。
+        var reach = options.MinFireRatedRunMm;
+        var band = PanelBand.Horizontal(at, reach, host.BottomElevationMm, host.TopElevationMm);
+        covered.Add(band);
+        var panels = wall.Panels.Where(band.Covers).Select(p => p.UniqueId).ToList();
 
-        // Every panel row the compartment wall reaches is measured; the worst of them answers, the
-        // same way a spandrel band takes its most unfavourable sample.
-        var rows = wall.Panels
-            .Where(p => p.CoversAlong(lookup) && p.OverlapsElevations(host.BottomElevationMm, host.TopElevationMm))
-            .OrderBy(p => p.BottomMm)
+        // 交接帶附近、且與區劃牆高程重疊的實體外牆。高程只要求「重疊」是為了先問矛盾；要計入帶長
+        // 還得「涵蓋」整個高程帶，那是 FacadeRun 的事。
+        //
+        // 只看交點左右各 900 mm：門檻就是 900 mm，任何達標的連續段必定有一部分落在這個窗裡，不足的
+        // 更是整段都在裡面——所以窗不會改變判定，只會讓一道很長的外牆回報的長度停在窗邊。
+        var nearby = facades
+            .Where(f => f.OverlapsAlong(at - reach, at + reach))
+            .Where(f => f.Wall.OverlapsElevations(host.BottomElevationMm, host.TopElevationMm))
             .ToList();
 
-        var measurements = rows.Count == 0
-            ? new List<RunMeasurement> { SolidWallBand(wall, lookup, host) }
-            : rows.Select(row => Measure(
-                    Along(wall, row),
-                    lookup,
-                    host.RequiredFireRatingMinutes,
-                    options.MinFireRatedRunMm,
-                    wall.GridLines.Where(g => g.Direction == CurtainGridLineDirection.Vertical).ToList(),
-                    0.0,
-                    wall.LengthMm))
-                .ToList();
-
-        var measurement = RunMeasurement.Worst(measurements);
-        covered.Add(PanelBand.Horizontal(at, options.MinFireRatedRunMm, host.BottomElevationMm, host.TopElevationMm));
-
-        if (measurement.Split.Count > 0)
+        var clash = Clash(wall, nearby);
+        if (clash is not null)
         {
+            var (panel, facade) = clash.Value;
             return CurtainWallJunction.Doubtful(
                 id, CurtainWallJunctionKind.WallToCurtainWall, zone.ZoneId, wall.UniqueId,
                 new CurtainWallJunctionDoubt(
-                    CurtainWallJunctionDoubtKind.SplitByGridLine,
-                    SplitMessage(wall, measurement, options, "交接帶"),
-                    measurement.Split.Select(g => g.UniqueId).Concat(new[] { wall.UniqueId, host.UniqueId })),
+                    CurtainWallJunctionDoubtKind.FacadeWallOverlapsPanel,
+                    $"帷幕牆（Id {wall.UniqueId}）與區劃牆（Id {host.UniqueId}）的交接帶上，" +
+                    $"實體外牆（Id {facade.Wall.UniqueId}）與帷幕嵌板（Id {panel.UniqueId}）重疊，" +
+                    "模型對同一片外牆同時說了兩種構造，無法判定交接處之外牆面，需人工覆核：" +
+                    "以實體牆達成但書時，該段立面的帷幕嵌板應一併刪除。",
+                    new[] { wall.UniqueId, host.UniqueId, facade.Wall.UniqueId, panel.UniqueId }),
                 hostUniqueId: host.UniqueId,
-                panelUniqueIds: measurement.PanelUniqueIds);
+                panelUniqueIds: panels,
+                facadeWallUniqueIds: new[] { facade.Wall.UniqueId });
         }
+
+        var measurement = FacadeRun(nearby, at, host, options);
 
         return CurtainWallJunction.WallJunction(
             id, zone.ZoneId, wall.UniqueId, host.UniqueId,
             Projection(wall, host),
             measurement.RunMm,
             host.RequiredFireRatingMinutes,
-            measurement.MinRating,
+            measurement.Rating,
             host.LegalReference,
-            measurement.HasUnprotectedOpening,
-            measurement.PanelUniqueIds,
-            CurtainWallJunctionPlacement.At(wall.PointAt(at), host.BottomElevationMm, host.TopElevationMm));
+            // 實體外牆上另開的門窗不讀，所以這個交接處**沒有**開口的事實可交（docs §9）。供 false
+            // 會讓證據講出一件工具沒有查的事。
+            null,
+            panels,
+            CurtainWallJunctionPlacement.At(wall.PointAt(at), host.BottomElevationMm, host.TopElevationMm),
+            measurement.WallUniqueIds);
+    }
+
+    // --- CW-H 的但書：立面內的實體外牆（docs §4.2「交接處之外牆面」、決議 13）----------------------
+
+    /// <summary>One solid exterior wall seen on the curtain wall's own axis, as the interval [Low, High].</summary>
+    private sealed class FacadeSegment
+    {
+        public FacadeSegment(FacadeWallObservation wall, double lowMm, double highMm)
+        {
+            Wall = wall;
+            LowMm = lowMm;
+            HighMm = highMm;
+        }
+
+        public FacadeWallObservation Wall { get; }
+        public double LowMm { get; }
+        public double HighMm { get; }
+        public double LengthMm => HighMm - LowMm;
+
+        public bool CoversAlong(double millimeters) =>
+            millimeters >= LowMm - CurtainPanelObservation.TouchToleranceMm &&
+            millimeters <= HighMm + CurtainPanelObservation.TouchToleranceMm;
+
+        public bool OverlapsAlong(double startMm, double endMm) =>
+            endMm > LowMm + CurtainPanelObservation.TouchToleranceMm &&
+            startMm < HighMm - CurtainPanelObservation.TouchToleranceMm;
     }
 
     /// <summary>
-    /// Where to look for the panels of a junction that falls on a mullion (docs §4.2「交點落在豎框上」).
+    /// The solid exterior walls lying in this curtain wall's plane, projected onto its axis so a run
+    /// can be walked along it. Nothing is clipped to the curtain wall's own extent: 但書 asks about the
+    /// 外牆面, and a rated wall continuing past the end of the glazing is exactly that.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// A panel's extent along the wall starts at the inner face of its mullion, so a junction landing
-    /// on a mullion — and the end mullion of the curtain wall is one — is covered by no panel at all.
-    /// 豎框不判定 (docs §4.1) and that is right, but an empty column there means「這個位置被豎框佔著」,
-    /// not「這一柱沒有嵌板」. Left alone it reads as the second: the panel row comes out empty, 決議 7's
-    /// gate runs on a junction that is fully glazed, and <see cref="Measure"/> would answer
-    /// <see cref="RunMeasurement.Nothing"/> even if the row had been found. A compartment wall aligned
-    /// to a mullion is ordinary practice, so this is the common case, not the odd one.
-    /// </para>
-    /// <para>
-    /// The vertical grid lines say which is which. They bound the cell the junction falls in; a panel
-    /// overlapping that cell is the one the mullion stands beside, and the lookup moves onto its near
-    /// edge. A cell with no panel in it is the gap 決議 7 speaks of, and the lookup stays put so the
-    /// band is still measured. The junction's own position is never moved: the placement, the zone and
-    /// the covered band all keep the true crossing point.
-    /// </para>
-    /// </remarks>
-    private static double PanelLookup(CurtainWallObservation wall, double at)
-    {
-        var touch = CurtainPanelObservation.TouchToleranceMm;
-        if (wall.Panels.Any(p => p.CoversAlong(at))) return at;
-
-        // The cell is bounded by the grid lines either side of the junction, or by the curtain wall's
-        // own ends. A junction sitting exactly on a grid line belongs to both neighbouring cells, so
-        // both are searched and the nearer panel answers.
-        var lines = wall.GridLines
-            .Where(g => g.Direction == CurtainGridLineDirection.Vertical)
-            .Select(g => g.PositionMm)
+    private static IReadOnlyList<FacadeSegment> FacadeSegments(CurtainWallObservationSet set, CurtainWallObservation wall) =>
+        set.FacadeWalls
+            .Where(f => wall.IsInFacadePlane(f.Start, f.End))
+            .Select(f => new FacadeSegment(
+                f,
+                Math.Min(wall.ParameterOf(f.Start), wall.ParameterOf(f.End)),
+                Math.Max(wall.ParameterOf(f.Start), wall.ParameterOf(f.End))))
+            .Where(s => s.LengthMm > CurtainPanelObservation.TouchToleranceMm)
+            .OrderBy(s => s.LowMm)
+            .ThenBy(s => s.Wall.UniqueId, StringComparer.Ordinal)
             .ToList();
-        var low = Math.Min(at, lines.Where(p => p < at - touch).DefaultIfEmpty(0.0).Max());
-        var high = Math.Max(at, lines.Where(p => p > at + touch).DefaultIfEmpty(wall.LengthMm).Min());
 
-        var nearest = wall.Panels
-            .Where(p => p.OverlapsAlong(low, high))
-            .OrderBy(p => Math.Min(Math.Abs(p.StartMm - at), Math.Abs(p.EndMm - at)))
-            .ThenBy(p => p.StartMm)
-            .FirstOrDefault();
+    /// <summary>What the façade came to at one CW-H junction, and what the evidence has to name.</summary>
+    private sealed class FacadeMeasurement
+    {
+        /// <summary>立面在交點上沒有實體外牆：外牆面是玻璃，但書不成立——這是答案，不是不知道。</summary>
+        public static readonly FacadeMeasurement Glazed = new(0.0, null, Array.Empty<string>());
 
-        if (nearest is null) return at;
-        return at <= nearest.StartMm ? nearest.StartMm : nearest.EndMm;
+        public FacadeMeasurement(double? runMm, ProvidedFireRating? rating, IReadOnlyList<string> wallUniqueIds)
+        {
+            RunMm = runMm;
+            Rating = rating;
+            WallUniqueIds = wallUniqueIds;
+        }
+
+        /// <summary>The continuous rated run along the façade; null when it could not be measured.</summary>
+        public double? RunMm { get; }
+
+        /// <summary>The lowest reading among the walls the measurement looked at.</summary>
+        public ProvidedFireRating? Rating { get; }
+
+        public IReadOnlyList<string> WallUniqueIds { get; }
     }
 
     /// <summary>
-    /// The 90 cm band formed not by a rated panel but by a real opaque wall built into the gap the
-    /// curtain wall leaves between its upper and lower portions (docs §4.2「實體牆防火帶」, 決議 7).
+    /// The continuous rated length of 外牆面 at the junction: walk the façade both ways from the
+    /// crossing over solid walls that span the compartment wall's whole height and reach its required
+    /// rating, and take the total (docs §4.2, 決議 13). Seams closer than
+    /// <see cref="CurtainPanelObservation.TouchToleranceMm"/> are continuous — two walls butted
+    /// together are one piece of façade.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Three things must hold before anything is measured, and together they are what stops the
-    /// clause being hollowed out. No panel of the curtain wall reaches the host's elevations; the
-    /// panel column at the junction point closes the gap from below and from above — 下面帷幕牆 and
-    /// 上面帷幕牆; and those two panels sit <b>against the wall's own edges</b>, which is the only way
-    /// the model can say the wall fills the gap rather than floating in it.
-    /// </para>
-    /// <para>
-    /// Drop that last requirement and a storey-high rated compartment wall exempts itself wherever
-    /// the façade happens to be unpanelled, and a 900 mm wall passes while 900 mm of the gap beside
-    /// it stays open. So a wall that only partly fills the gap is not a band at all: it answers
-    /// <see cref="RunMeasurement.Nothing"/> exactly as this junction did before the band existed.
-    /// What is measured is then the gap itself, which the wall has been shown to fill.
-    /// </para>
-    /// <para>
-    /// The tolerance is <see cref="CurtainPanelObservation.TouchToleranceMm"/>, the same one that
-    /// decided the panels did not reach the wall — one number, so the two questions cannot disagree
-    /// and drop a band into the gap between them.
-    /// </para>
-    /// </remarks>
-    private static RunMeasurement SolidWallBand(
-        CurtainWallObservation wall,
+    private static FacadeMeasurement FacadeRun(
+        IReadOnlyList<FacadeSegment> nearby,
         double at,
-        CompartmentWallObservation host)
+        CompartmentWallObservation host,
+        CurtainWallJunctionOptions options)
+    {
+        // 只有高程上涵蓋整個交接帶的牆才計入：只封住其中一段等於留了缺口（docs §4.2 步驟 2）。
+        var band = nearby
+            .Where(f => f.Wall.CoversElevations(host.BottomElevationMm, host.TopElevationMm))
+            .ToList();
+
+        var here = band.FirstOrDefault(f => f.CoversAlong(at));
+        if (here is null) return FacadeMeasurement.Glazed;
+
+        // 沒有人說區劃牆要求多少時效，就沒有門檻可比，也就沒有可供給的長度（輸入契約，docs §12）。
+        // 供 0 會讓一段沒有量過的外牆面讀起來像「未符合」。
+        if (host.RequiredFireRatingMinutes is null)
+            return new FacadeMeasurement(null, here.Wall.ProvidedFireRating, new[] { here.Wall.UniqueId });
+
+        // 交點上那道牆讀不出時效：不得推定，也不得填 0——交由引擎判資料不足。
+        if (!here.Wall.HasReadableRating)
+            return new FacadeMeasurement(null, here.Wall.ProvidedFireRating, new[] { here.Wall.UniqueId });
+
+        if (!here.Wall.Qualifies(host.RequiredFireRatingMinutes))
+            return new FacadeMeasurement(0.0, here.Wall.ProvidedFireRating, new[] { here.Wall.UniqueId });
+
+        var qualifying = band.Where(f => f.Wall.Qualifies(host.RequiredFireRatingMinutes)).ToList();
+        var chain = Chain(qualifying, at);
+        var low = chain.Min(f => f.LowMm);
+        var high = chain.Max(f => f.HighMm);
+        var run = high - low;
+        var walls = chain.Select(f => f.Wall.UniqueId).ToList();
+        var ratings = chain.Select(f => f.Wall.ProvidedFireRating!).ToList();
+
+        // 不足 900 mm，而止於一道讀不出時效的外牆：那道牆若有時效就可能夠了。這與嵌板路徑的
+        // 輸入契約同一個道理——量得到的是「至少這麼長」，不是「就是這麼長」。
+        var unreadable = band
+            .Where(f => !f.Wall.HasReadableRating && Adjoins(f, low, high))
+            .ToList();
+        if (run < options.MinFireRatedRunMm && unreadable.Count > 0)
+            return new FacadeMeasurement(
+                null,
+                Worst(ratings.Concat(unreadable.Select(f => f.Wall.ProvidedFireRating).Where(r => r is not null).Select(r => r!))),
+                walls.Concat(unreadable.Select(f => f.Wall.UniqueId)).Distinct(StringComparer.Ordinal).ToList());
+
+        return new FacadeMeasurement(run, Worst(ratings), walls);
+    }
+
+    /// <summary>
+    /// The maximal run of touching segments that contains <paramref name="at"/>. The caller has
+    /// already found a segment covering it, so the answer is never empty.
+    /// </summary>
+    private static IReadOnlyList<FacadeSegment> Chain(IReadOnlyList<FacadeSegment> segments, double at)
     {
         var touch = CurtainPanelObservation.TouchToleranceMm;
-        var column = wall.Panels.Where(p => p.CoversAlong(at)).ToList();
-        var below = column
-            .Where(p => p.TopMm <= host.BottomElevationMm + touch)
-            .Select(p => (double?)p.TopMm)
-            .Max();
-        var above = column
-            .Where(p => p.BottomMm >= host.TopElevationMm - touch)
-            .Select(p => (double?)p.BottomMm)
-            .Min();
+        var groups = new List<List<FacadeSegment>>();
 
-        // 上下兩段帷幕牆之一不在這個交點上，或牆沒有把間隔填滿，就沒有決議 7 所稱的防火帶——
-        // 照舊不供給長度，與這條路徑存在之前完全相同。
-        if (below is null || above is null ||
-            Math.Abs(below.Value - host.BottomElevationMm) > touch ||
-            Math.Abs(above.Value - host.TopElevationMm) > touch)
-            return RunMeasurement.Nothing;
+        foreach (var segment in segments.OrderBy(s => s.LowMm).ThenBy(s => s.HighMm))
+        {
+            var last = groups.Count == 0 ? null : groups[groups.Count - 1];
+            if (last is null || segment.LowMm > last.Max(s => s.HighMm) + touch)
+                groups.Add(new List<FacadeSegment> { segment });
+            else
+                last.Add(segment);
+        }
 
-        var band = above.Value - below.Value;
-        if (band <= touch) return RunMeasurement.Nothing;
+        return groups.First(g => at >= g.Min(s => s.LowMm) - touch && at <= g.Max(s => s.HighMm) + touch);
+    }
 
-        // 填入的牆體讀不出時效，或連要求時效都不知道，就不得推定合格——交由引擎判資料不足。
-        // 時效不可讀時不轉述給 MinRating：那個欄位的訊息是以嵌板措辭的，會把使用者指去查錯的元素。
-        var rating = host.ProvidedFireRating;
-        if (host.RequiredFireRatingMinutes is null || rating is null || rating.Kind != ProvidedFireRatingKind.Rated)
-            return new RunMeasurement(null, null, false, Array.Empty<string>(),
-                Array.Empty<CurtainGridLineObservation>(), 0.0);
+    /// <summary>Whether a segment butts against either end of the run measured so far.</summary>
+    private static bool Adjoins(FacadeSegment segment, double lowMm, double highMm) =>
+        Math.Abs(segment.HighMm - lowMm) <= CurtainPanelObservation.TouchToleranceMm ||
+        Math.Abs(segment.LowMm - highMm) <= CurtainPanelObservation.TouchToleranceMm;
 
-        var qualifies = rating.Minutes >= host.RequiredFireRatingMinutes.Value;
-        return new RunMeasurement(qualifies ? band : 0.0, rating, false, Array.Empty<string>(),
-            Array.Empty<CurtainGridLineObservation>(), 0.0);
+    /// <summary>
+    /// A curtain panel and a solid exterior wall on the same stretch of façade, at the same
+    /// elevations: the model says two contradictory things about one piece of exterior wall, and the
+    /// tool will not pick one for the user (docs §4.2). It is also the detector for the easiest
+    /// modelling mistake this design invites — a solid wall laid over glazing nobody deleted.
+    /// </summary>
+    private static (CurtainPanelObservation Panel, FacadeSegment Wall)? Clash(
+        CurtainWallObservation wall,
+        IReadOnlyList<FacadeSegment> nearby)
+    {
+        foreach (var segment in nearby)
+        {
+            foreach (var panel in wall.Panels)
+            {
+                if (panel.OverlapsAlong(segment.LowMm, segment.HighMm) &&
+                    panel.OverlapsElevations(segment.Wall.BottomElevationMm, segment.Wall.TopElevationMm))
+                    return (panel, segment);
+            }
+        }
+
+        return null;
     }
 
     // --- CW-V：區劃樓地板與帷幕牆之層間交接（docs §4.3）-----------------------------------------
@@ -359,7 +433,7 @@ public static class CurtainWallJunctionResolver
                     id, CurtainWallJunctionKind.FloorToCurtainWall, zone.ZoneId, wall.UniqueId,
                     new CurtainWallJunctionDoubt(
                         CurtainWallJunctionDoubtKind.SplitByGridLine,
-                        SplitMessage(wall, worst, options, "層間帶"),
+                        SplitMessage(wall, worst, options),
                         worst.Split.Select(g => g.UniqueId).Concat(new[] { wall.UniqueId, floor.UniqueId })),
                     hostUniqueId: floor.UniqueId,
                     panelUniqueIds: worst.PanelUniqueIds);
@@ -455,14 +529,6 @@ public static class CurtainWallJunctionResolver
         public double Low { get; }
         public double High { get; }
     }
-
-    /// <summary>The panel row a CW-H run walks along: every panel sharing the junction's elevations.</summary>
-    private static IReadOnlyList<Slab> Along(CurtainWallObservation wall, CurtainPanelObservation row) =>
-        wall.Panels
-            .Where(p => p.OverlapsElevations(row.BottomMm, row.TopMm))
-            .OrderBy(p => p.StartMm)
-            .Select(p => new Slab(p, p.StartMm, p.EndMm))
-            .ToList();
 
     /// <summary>The panel column a CW-V run walks up: every panel at the sample's distance along.</summary>
     private static IReadOnlyList<Slab> Up(IReadOnlyList<CurtainPanelObservation> column) =>
@@ -650,14 +716,16 @@ public static class CurtainWallJunctionResolver
             .ThenBy(r => r.Minutes ?? 0.0)
             .FirstOrDefault();
 
+    /// <summary>
+    /// §4.5 的提問，只有 CW-V 會走到：CW-H 自決議 13 起不再量嵌板，grid line 切不到它的但書長度。
+    /// </summary>
     private static string SplitMessage(
         CurtainWallObservation wall,
         RunMeasurement measurement,
-        CurtainWallJunctionOptions options,
-        string band)
+        CurtainWallJunctionOptions options)
     {
         var ids = string.Join("、", measurement.Split.Select(g => $"Id {g.UniqueId}（{g.PositionMm.ToString("0.#", CultureInfo.InvariantCulture)} mm）"));
-        return $"帷幕牆（Id {wall.UniqueId}）的{band}被 grid line {ids} 分割，" +
+        return $"帷幕牆（Id {wall.UniqueId}）的層間帶被 grid line {ids} 分割，" +
                $"兩側嵌板的設計防火時效皆足夠，合計 {measurement.BridgedMm.ToString("0.#", CultureInfo.InvariantCulture)} mm " +
                $"已達 {options.MinFireRatedRunMm.ToString("0.#", CultureInfo.InvariantCulture)} mm，" +
                $"但實際連續段僅 {(measurement.RunMm ?? 0.0).ToString("0.#", CultureInfo.InvariantCulture)} mm。" +

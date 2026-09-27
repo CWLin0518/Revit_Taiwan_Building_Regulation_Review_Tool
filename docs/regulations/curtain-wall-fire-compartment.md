@@ -254,6 +254,15 @@ Pass ⟺ panelMinFireRating >= 30 min
 | `JunctionSearchToleranceMm` | 300 | 工具設定 |
 | `SamplingIntervalMm` | 600 | 工具設定 |
 
+另有三個幾何容差不屬於「工具設定」而屬於「什麼算同一片構造」，因此與判定式無關、也不開放調整，
+分別掛在它們所描述的那個觀測型別上（與 `CurtainPanelObservation.TouchToleranceMm` 同一個作法）：
+
+| 常數 | 預設值 | 位置 | 意義 |
+| --- | --- | --- | --- |
+| `TouchToleranceMm` | 0.5 | `CurtainPanelObservation` | 兩片構造貼在一起（嵌板、實體外牆的接縫） |
+| `FacadePlaneToleranceMm` | 150 | `FacadeWallObservation` | 實體外牆的定位線離帷幕牆定位線多遠還算同一個立面（半個常見牆厚） |
+| `FacadeAngleToleranceDeg` | 5 | `FacadeWallObservation` | 實體外牆與帷幕牆定位線的夾角多大還算平行 |
+
 長度一律以 mm 進入 Domain 層；Revit internal feet 的轉換只發生在 `BuildingRegulationReview.Revit` 邊界。
 
 ### 4.5 建模前置條件：交接帶不得被多餘 grid line 分割
@@ -261,10 +270,14 @@ Pass ⟺ panelMinFireRating >= 30 min
 本檢討把 grid line 當作構造斷點，因此模型必須先滿足這個條件：
 
 - **層間帶**（樓板上下各 900 mm 範圍）內，同一垂直線上的實板應為**單一連續嵌板**；純粹為了分割立面而拉的水平 grid line 應刪除。
-- **區劃牆交接帶**（交點左右合計 900 mm 範圍）內，同一水平帶上的實板應為單一連續嵌板；多餘的垂直 grid line 應刪除。
 - 真正代表構造斷點的 grid line（例如視線玻璃與實板的交界）必須保留——那正是累積應該停止的地方。
 
-Phase 3 前置檢查會掃出違反此條件的位置：當交接帶內偵測到 grid line，且其兩側嵌板的設計時效皆足夠時，判 `ManualReview`，訊息列出該 grid line 的 ElementId 與位置，提示「交接帶被 grid line 分割，請確認是否為真實構造斷點；若否，請刪除該 grid line 後重跑」。
+**這一節只約束 CW-V。** 決議 13 之後 CW-H 不讀嵌板，grid line 切不到它的但書長度；CW-H 的建模前置
+條件改成 §4.2「建模要求」那三條（交接帶不鋪嵌板、實體外牆與帷幕牆共面、高程涵蓋整個交接帶）。實體
+外牆之間的接縫以 `TouchToleranceMm` 判連續，因此把一道牆切成幾段不影響判定——牆不是嵌板，切開它
+不代表構造斷點。
+
+Phase 3 前置檢查會掃出違反此條件的位置：當層間帶內偵測到 grid line，且其兩側嵌板的設計時效皆足夠時，判 `ManualReview`，訊息列出該 grid line 的 ElementId 與位置，提示「層間帶被 grid line 分割，請確認是否為真實構造斷點；若否，請刪除該 grid line 後重跑」。
 
 刪除 grid line 後重跑，該點即依連續嵌板的實際尺寸正常判定。工具不提供「自動忽略豎框」的開關——一旦可以忽略，就無法分辨真斷點與假斷點。
 
@@ -465,7 +478,7 @@ candidate.insideLength   = 0 m
 
 | 參數 | 類型 | 綁定 | 用途 |
 | --- | --- | --- | --- |
-| `防火檢討_設計防火時效` | Type（沿用既有定義） | **新增綁定** Curtain Panels | 嵌板之設計時效，`junction.minFireRating` 來源。不綁 Curtain Wall Mullions |
+| `防火檢討_設計防火時效` | Type（沿用既有定義） | **新增綁定** Curtain Panels；Walls 既有 | 嵌板之設計時效（CW-V、CW-O）與交接處實體外牆之設計時效（CW-H，決議 13），同為 `junction.minFireRating` 來源。不綁 Curtain Wall Mullions |
 | `防火檢討_設計防火保護` | Type、YESNO（既有） | 既有 Doors、Windows、Curtain Panels | 交接帶內開口是否受防護 |
 | `防火檢討_法規要求防火時效` | Type、寫回（既有） | 不新增綁定 | 交接檢討不寫回型別，結果只存在 ReviewRun |
 | `防火檢討_室內裝修等級` | Type、TEXT（共享參數 GUID `…000e`） | **綁定** Walls、Ceilings | 第 83 條第一至三款的區劃面積上限；檢討時以區劃內最弱等級推導 `zone.interiorFinish` |
@@ -477,13 +490,17 @@ candidate.insideLength   = 0 m
 
 此參數的存在正是 §3.2「樓板不突出」情境的先決條件：沒有它就無法證明層間嵌板達到該樓層樓地板的同等時效，該交接點只能停在 `InsufficientData`。設定流程（`FireReviewSetupFeature`）須把 Curtain Panels 列入必要綁定清單，並在前置檢查未綁定時明示「帷幕嵌板未綁定設計防火時效，層間交接無法判定」。
 
+**CW-H 讀的是 Walls 上的同一個參數**（決議 13），那個綁定早就存在（第 79 條第 1 項的牆壁時效在用），
+所以 Curtain Panels 的綁定與否不影響 CW-H；反過來，交接處那道實體外牆的型別沒填時，CW-H 停在
+`InsufficientData`，與嵌板沒填時 CW-V 的處境相同。
+
 ## 7. Revit 產出
 
 ### 7.1 檢討 View 標示
 
 | 項目 | 表現 |
 | --- | --- |
-| CW-H 未符合 | 交接處帷幕嵌板 By Element Override 紅色；平面圖於交點標註**檢討圖號**與實測 `continuousFireRatedLength`、`projectionDepth` |
+| CW-H 未符合 | 交接帶涵蓋的帷幕嵌板 By Element Override 紅色（帶內無嵌板時只有標註，見 §9）；平面圖於交點標註**檢討圖號**與實測 `continuousFireRatedLength`、`projectionDepth` |
 | CW-V 未符合 | 立面／剖面 View 之層間帶 Filled Region 紅色；平面圖標註**檢討圖號**、實測 `continuousFireRatedHeight` 與「詳見立面 {圖號}」 |
 | CW-O 未符合 | 嵌板紅色 Override |
 
@@ -544,7 +561,8 @@ CW-V 的立面**由工具自己建立**，名稱帶著上面說的檢討圖號�
 | `CurtainWallJunctionOptions` | Application/Checks | 500／900／30／公差常數 |
 | `CurtainWallJunctionResolver` | Application/Candidates | 由候選集合組出交接處清單（無 Revit 相依） |
 | `ICurtainWallGeometryReader` | Application/Abstractions | 幾何讀取介面 |
-| `RevitCurtainWallGeometryReader` | Revit/Geometry | 實作：嵌板走訪、交點、突出量、層間高度、間隙 |
+| `FacadeWallObservation` | Application/Candidates | 立面內的實體外牆（CW-H 但書的來源，決議 13）與其兩個容差常數 |
+| `RevitCurtainWallGeometryReader` | Revit/Geometry | 實作：嵌板走訪、交點、突出量、層間高度、立面內實體外牆 |
 | `RuleCategory.CompartmentContinuity` | Domain/Rules | 新增列舉值 |
 | `RuleFieldCatalog` | Domain/Rules | 新增 `junction.*` 欄位 |
 | `FireReviewRunner` | Application/Reviews | 串接第四類檢查與檢討表彙總 |
@@ -558,8 +576,9 @@ CW-V 的立面**由工具自己建立**，名稱帶著上面說的檢討圖號�
 
 - 只支援平面帷幕牆；曲面、傾斜面回 `ManualReview`。Curtain System 置於面上、沒有定位線，本版一律以
   「無法解析定位面」回 `ManualReview`，不會從檢討表消失。
-- 連續段被帷幕牆自身的端點或頂底截斷、且不足 900 mm 時不供給，判 `InsufficientData`：立面在那裡接到
-  另一片未讀取的牆，工具不知道它是否延續，而不是知道它不足。整棟通高的帷幕牆不受此限。
+- **CW-V** 的層間帶被帷幕牆自身的頂底截斷、且不足 900 mm 時不供給，判 `InsufficientData`：立面在那裡
+  接到另一片未讀取的牆，工具不知道它是否延續，而不是知道它不足。整棟通高的帷幕牆不受此限。
+  **CW-H 沒有這個問題**：實體外牆是獨立元素，延伸到帷幕牆範圍之外的那一段照樣讀得到、照樣計入。
 - 嵌板時效以型別參數為唯一來源，不解析複合構造層，也不判斷玻璃種類。此來源只服務 CW-V 與 CW-O；
   CW-H 不讀嵌板時效（§3.1、§4.2）。
 - **CW-H 的但書只認立面內的實體外牆，因此認可的防火玻璃嵌板無法作答。** 若專案確實以認證防火玻璃
@@ -570,7 +589,12 @@ CW-V 的立面**由工具自己建立**，名稱帶著上面說的檢討圖號�
 - **CW-H 的實體外牆高程須涵蓋區劃牆在該交點的整個高程帶。** 只封住其中一段（例如區劃牆通層高、
   實體外牆只做 90 cm 帶）不成立，因為火焰沿立面繞行的高度就是區劃牆在該處的高度。
 - 實體外牆**不讀該牆上的門窗**：連續累積只看該牆型別的時效。帶內另開的門窗要由審查者自行確認，
-  工具不會偵測。這一點與舊決議 7 相同。
+  工具不會偵測。這一點與舊決議 7 相同。因此 CW-H **不供給** `junction.hasUnprotectedOpening`——那是
+  一件工具沒有查的事，供 `false` 會讓證據說謊（CW-V 仍然供給，它讀的是嵌板）。
+- **CW-H 未符合時塗紅的是交接帶涵蓋的嵌板，不含實體外牆。** §7.1 的標示計畫只吃 `junction.panels`，
+  而依 §4.2 建模要求正確建模的交接處那一段本來就沒有嵌板；此時未符合的結果沒有可塗紅的元素，標示
+  會被略過並記一筆「結果沒有記錄交接處的帷幕嵌板」。交接處的文字標註（含量測值）仍會建立，圖號與
+  檢討表也仍然對得上，所以不影響追溯——但要把不足的那道外牆本身塗紅，得再擴充 §7.1，屬未排入的工作。
 - 未涵蓋第 110 條防火間隔對外牆與開口的要求（獨立功能）。
 - 未涵蓋第 80 條、第 84 條（非防火構造建築物）。
 - 第 83 條區劃已納入（見 §2.5），面積規則 `tw-bcr-83-area` 已加入規則集（§5.3）。但工具不會替使用者切出第 83 條的區劃：`isCompartmentBoundary` 是純幾何判定（牆是否躺在 Area 邊界上），十一層以上沒有切出 100／200／500 ㎡ 區劃的模型會少算交接點，同時在區劃面積這一項判 `Fail`，不會誤報為符合。
@@ -578,7 +602,7 @@ CW-V 的立面**由工具自己建立**，名稱帶著上面說的檢討圖號�
 - 第 83 條的Ｈ–２組但書以 `building.use == "H-2"` 逐字比對，但**寫法差異已不再影響判定**：`Ｈ－２`（全角）、`Ｈ–２組`、`H-2 組`、`Ｈ類第二組`、`H2` 等寫法都會在 `ReviewInputAssembler` 折成 `H-2`，折不成組別的文字一律原封不動照舊逐字比對（見 [`building.use` 寫法正規化](building-use-groups.md)）。**仍未解決的是**：用途類組是整棟一個值，混合用途的建築物只有一部分是Ｈ–２組時無法逐區劃區分，須由審查者自行判斷或分包檢討。
 - 第 83 條「除依第七十九條之二規定之垂直區劃外」以 `zone.use` 的五個字樣（`挑空`、`昇降階梯間`、`樓梯間`、`昇降機道`、`管道間`）豁免，`tw-bcr-79-area` 已統一為同一份清單（見 [`zone.use` 用字表](zone-use-vocabulary.md)）。條文的「其他類似部分」無法列舉，清單外的用字一律不豁免。
 - `tw-bcr-83-area` 的法源條文字串是「這個區劃是第 83 條的」唯一判斷依據（`FireReviewRunner.HostLegalReferences` 以子字串比對）。因此規則集標題、`tw-bcr-79-area` 的法源條文，以及任何區劃結果可能借用的文字都不得出現「第83條」三字——被擱置的區劃（`ManualReview`）與「該類別沒有規則」的結果都會拿規則集標題當法源條文。此約束有單元測試守著。
-- 豎框不判定，且工具不跨越 grid line 累積連續段（見 §4.1、§4.5）。交接帶內的實板必須在模型中就是連續嵌板，這是**建模前置條件**而非工具限制；未整理的模型會停在 `ManualReview`，不會誤判為符合。
+- 豎框不判定，且工具不跨越 grid line 累積連續段（見 §4.1、§4.5）。**層間帶**內的實板必須在模型中就是連續嵌板，這是**建模前置條件**而非工具限制；未整理的模型會停在 `ManualReview`，不會誤判為符合。CW-H 自決議 13 起不讀嵌板，因此不受這一條約束，它的建模前置條件是 §4.2「建模要求」。
 - Link 模型中的帷幕牆依既有 `LinkGeometryPolicy` 處理，預設不檢討。
 - 不檢討樓板邊緣與帷幕牆背面之層間縫隙塞火：該縫的填塞屬施工項目，模型幾何無法證明，本工具不納入判定，須由設計與監造以其他方式確認。
 - 帷幕牆檢討立面的視距方向由層間帶的起訖方向決定（`起點→終點` × `Z`），不讀模型判斷哪一側是室外：位置一律只由結果證據還原（§7.1），立面因此可能從室內側看向該面，層間帶的位置與尺寸不受影響。
@@ -590,27 +614,27 @@ CW-V 的立面**由工具自己建立**，名稱帶著上面說的檢討圖號�
 | # | 情境 | 期望 |
 | --- | --- | --- |
 | 1 | 區劃牆突出帷幕牆 600 mm | CW-H `Pass` |
-| 2 | 區劃牆突出 499 mm、交接帶無時效 | CW-H `Fail` |
-| 3 | 無突出、交接帶 900 mm 且嵌板 60 min | CW-H `NotApplicable`／`Exempt`（得免突出） |
-| 4 | 無突出、交接帶 899 mm 且嵌板 60 min | CW-H `Fail`（邊界值） |
-| 5 | 交接帶 1200 mm 但其中一片 30 min | CW-H `Fail`（該片不計入長度，連續段湊不到 900 mm） |
-| 6 | 交接帶 900 mm 但含未受防護窗 | CW-H `Fail`（累積在開口處中斷） |
-| 7 | 無突出、交點左側 900 mm 具時效、右側 0 mm | CW-H `NotApplicable`（採總和，不要求兩側各半） |
-| 8 | 交接帶 900 mm 但中間有一條多餘 grid line，兩側嵌板皆 60 min | CW-H `ManualReview`，訊息含該 grid line 的 ElementId |
-| 8b | 承上，刪除該 grid line 使嵌板連續後重跑 | CW-H `NotApplicable`（但書成立） |
-| 8c | 交接帶內 grid line 一側為 60 min 實板、另一側為無時效玻璃 | CW-H 依實際連續長度判定（該 grid line 是真實斷點，不列 `ManualReview`） |
-| 9 | 第 83 條區劃牆與帷幕牆交接、無突出、交接帶 900 mm 60 min | CW-H `NotApplicable`，證據 `hostLegalReference == "第83條"` |
+| 2 | 區劃牆突出 499 mm、交接處立面為玻璃 | CW-H `Fail` |
+| 3 | 無突出、交接處立面為 900 mm、60 min 之實體外牆 | CW-H `NotApplicable`／`Exempt`（得免突出） |
+| 4 | 無突出、同上但實體外牆只有 899 mm | CW-H `Fail`（邊界值） |
+| 5 | 交接處實體外牆 60 min 900 mm，隔壁一段只有 30 min | CW-H `NotApplicable`（該段不計入，但 900 mm 已達）；反之交點所在那段 30 min 則 `Fail` |
+| 6 | 交接處實體外牆 900 mm 且達時效，但牆上另開門窗 | 本版**不檢討**該門窗（§9），依 900 mm 判 `NotApplicable` |
+| 7 | 無突出、交點左側 900 mm 為實體外牆、右側 0 mm | CW-H `NotApplicable`（採總和，不要求兩側各半） |
+| 8 | 交接帶內同時有實體外牆與帷幕嵌板重疊 | CW-H `ManualReview`，訊息含兩者的 ElementId（建模錯誤：嵌板未刪除） |
+| 8b | 承上，刪除該處嵌板後重跑 | CW-H `NotApplicable`（但書成立） |
+| 8c | 交接處實體外牆與帷幕牆不共面（離 300 mm）或不平行 | CW-H `Fail`（不算立面內的外牆，§9） |
+| 9 | 第 83 條區劃牆與帷幕牆交接、無突出、交接處實體外牆 900 mm 60 min | CW-H `NotApplicable`，證據 `hostLegalReference == "第83條"` |
 | 10 | 層間實板 900 mm、60 min，該樓層樓地板要求 60 min | CW-V `NotApplicable`（得免突出） |
 | 11 | 層間實板 900 mm、60 min，但該樓層樓地板要求 120 min（自頂層起算第 5 層以上） | CW-V `Fail`（該段不計入高度） |
 | 12 | 層間實板 900 mm 但只有 30 min | CW-V `Fail` |
 | 13 | 樓板外突 500 mm、層間全玻璃且嵌板無時效值 | CW-V `Pass`（突出條件已成立，不要求嵌板時效） |
 | 14 | 樓板不突出、層間帶其中一片嵌板型別缺時效值 | CW-V `InsufficientData`（不得以其他片推定） |
-| 15 | 嵌板類別未綁定 `防火檢討_設計防火時效` | 依 900 mm 但書判定之項目全為 `InsufficientData` |
+| 15 | 嵌板類別未綁定 `防火檢討_設計防火時效` | CW-V 與 CW-O 為 `InsufficientData`；CW-H 不受影響（它讀實體外牆的型別參數，同一個參數未填／未綁時同樣為 `InsufficientData`） |
 | 16 | `fireResistiveConstruction == false` | 全項 `NotApplicable` |
 | 17 | 三層連跨挑空帷幕牆 | CW-V `NotApplicable`，證據載明轉第 79-2 條 |
 | 18 | 曲面帷幕牆 | `ManualReview` |
 | 19 | 重跑同一 Package | 標示元素被覆蓋而非重複產生 |
-| 20 | 修改嵌板型別時效後重跑 | 舊 Run 轉 Stale，新結果反映新值 |
+| 20 | 修改嵌板或交接處實體外牆的型別時效後重跑 | 舊 Run 轉 Stale，新結果反映新值 |
 | 21 | 12F 區劃 90 ㎡、裝修等級 `無` | 區劃面積由 `tw-bcr-83-area` 判 `Pass`（上限 100 ㎡），該區劃的邊界牆記為第 83 條 |
 | 22 | 12F 區劃 1,200 ㎡、裝修等級 `無` | `Fail`（第 79 條的 1,500 ㎡ 不會來救它） |
 | 23 | 12F 區劃 480 ㎡、裝修等級 `耐燃一級含底材` | `Pass`（第三款 500 ㎡） |
@@ -623,7 +647,7 @@ CW-V 的立面**由工具自己建立**，名稱帶著上面說的檢討圖號�
 | --- | --- | --- | --- |
 | 1 | 900 mm 是總和或兩側／上下各半 | **採總和 ≥ 900 mm**，不要求各半 | §3.1、§3.2 |
 | 2 | 樓板不突出時的證明方式 | 嵌板**型別**必須有 `防火檢討_設計防火時效`，且須 **≥ 該樓層樓地板之要求時效**（非固定 60 min）；任一片缺值為 `InsufficientData` | §3.2「樓板不突出時的參數要求」、§6 |
-| 3 | 豎框無時效定義時如何處理 | **不判定**，不綁參數、不讀值、不計入取小。工具**不跨越 grid line 累積**；交接帶的連續性由建模保證——刪除多餘 grid line 使嵌板連續。偵測到疑似多餘 grid line 時判 `ManualReview` 並指出位置 | §4.1、§4.5、§9 |
+| 3 | 豎框無時效定義時如何處理 | **不判定**，不綁參數、不讀值、不計入取小。工具**不跨越 grid line 累積**；層間帶的連續性由建模保證——刪除多餘 grid line 使嵌板連續。偵測到疑似多餘 grid line 時判 `ManualReview` 並指出位置。決議 13 之後這一項只約束 CW-V（CW-H 不讀嵌板，豎框與 grid line 都不再影響它） | §4.1、§4.5、§9 |
 | 4 | 第 83 條區劃是否納入 | **納入**，與第 79 條共用 CW-H 判定，證據以 `hostLegalReference` 區分來源 | §2.5、§4.2、§7.2 |
 | 5 | 第 83 條面積規則與第 79 條如何並存 | **優先序 20 壓在第 79 條之上**，不併成一條、也不並列同一優先序（否則結論不一致會判 Conflict）。可以這樣壓，是因為第 83 條每一階的上限都嚴於第 79 條 | §5.3 |
 | 6 | 裝修等級如何表達 | 單一 Text 欄位 `zone.interiorFinish`（`無`／`耐燃一級`／`耐燃一級含底材`），不拆成兩個是非欄位——一個參數、一段門檻，且未填時是資料不足而非默認放寬 | §5.2、§5.3、§6 |
@@ -652,9 +676,9 @@ CW-V 的立面**由工具自己建立**，名稱帶著上面說的檢討圖號�
 | 8 | `防火檢討_室內裝修等級` 進批次參數面板的「區劃」分頁，「適用上限」欄改為兩條規則共用的 `ZoneAreaLimit` | **已完成**（Revit 端待實機驗證） |
 | 9 | 取消 Area 人工輸入；由區劃內牆／天花板類型的耐燃等級彙總第 83 條輸入，最弱者控制、缺值不猜測 | **已完成**（取代步驟 8 的輸入方式，Revit 端待實機驗證） |
 | 10 | 未符合交接的**檢討圖號** `CW-H-01`／`CW-V-01`：檢討表列、平面標註、自動產生的帷幕牆立面名稱三者共用 | **已完成**（Revit 端待實機驗證） |
-| 11 | 決議 7：上下帷幕牆之間的實體牆防火帶（`CurtainWallJunctionResolver.SolidWallBand`、`CompartmentWallObservation.ProvidedFireRating`） | **已完成**；第一次實機執行不成立，病因為讀取範圍的邊界（已修，見下），Revit 端待重驗 |
-| 12 | 交點落在豎框上時取該格的嵌板（`CurtainWallJunctionResolver.PanelLookup`） | **已完成並實機驗證**（`CW-H-01` 由「未符合／0 m」轉為「資料不足」，`panelCount` 0 → 1）。但隨決議 13 一併作廢，見第 13 列 |
-| 13 | CW-H 改由立面內的實體外牆供給但書長度（決議 13）：新增 `FacadeWallObservation` 讀取、移除 `SolidWallBand` 與 `PanelLookup` 及 `WallJunction` 的嵌板量測路徑 | **設計已完成**（§3.1、§3.4、§4.2、§9、§11）；實作未開始 |
+| 11 | 決議 7：上下帷幕牆之間的實體牆防火帶（`CurtainWallJunctionResolver.SolidWallBand`、`CompartmentWallObservation.ProvidedFireRating`） | **已移除**（決議 13 取代，見第 13 列）。程式碼與其測試都已隨步驟 13 刪除 |
+| 12 | 交點落在豎框上時取該格的嵌板（`CurtainWallJunctionResolver.PanelLookup`） | **已移除**（曾實機驗證成立：`CW-H-01` 由「未符合／0 m」轉為「資料不足」，`panelCount` 0 → 1；但隨決議 13 一併作廢——CW-H 不再查嵌板，豎框就不再擋路） |
+| 13 | CW-H 改由立面內的實體外牆供給但書長度（決議 13）：新增 `FacadeWallObservation`／`CurtainWallObservation.IsInFacadePlane`／`FacadeRun`，移除 `SolidWallBand`、`PanelLookup` 與 `WallJunction` 的嵌板量測路徑 | **已完成**（建置 0 警告、1620 條測試全通過）；**Revit 端待實機驗證**，且現行模型須先依 §4.2 建模要求改立面才驗得到但書成立 |
 
 ### 步驟 9：室內裝修等級改由模型推導
 
@@ -1157,24 +1181,58 @@ withhold 不供給。證據應**出現** `junction.minFireRating` 且 `junction.
 所以這一步必須另外做——手動，或用 `revit-mcp` 的 `load_shared_parameters`（`categories: ["CurtainPanels"]`、
 `bindToInstance: false`）。
 
-#### 實作範圍（下一階段）
+#### 產出（已完成，0 警告、1620 測試全通過）
 
 1. **讀取層**：新增 `FacadeWallObservation`（`UniqueId`、`Start`、`End`、`BottomElevationMm`、
-   `TopElevationMm`、`TypeName`、`ProvidedFireRating`）與 `CurtainWallObservationSet.FacadeWalls`；
-   `RevitCurtainWallGeometryReader` 找出定位線落在帷幕牆定位面內、方向平行、高程與讀取範圍重疊的
-   非帷幕牆。新增兩個容差常數 `FacadePlaneToleranceMm`、`FacadeAngleToleranceDeg`。
-2. **解析層**：`WallJunction` 的但書供給改走實體外牆；**移除** `SolidWallBand`、`PanelLookup`，以及
-   `WallJunction` 裡的嵌板量測路徑（`rows`／`Measure`／`Walk`／`Along` 在 CW-H 的呼叫）。`Measure`
-   本身不得刪除——CW-V 的 `Spandrels` 仍在用。新增嵌板與實體外牆重疊的 `ManualReview` 分支。
-3. **證據**：`junction.minFireRating` 的訊息措辭要從嵌板改為外牆；新增 `junction.facadeWallUniqueIds`；
-   `junction.panels`／`panelCount` 在 CW-H 的意義需重新定義（目前是被量到的嵌板，改為交接帶涵蓋的嵌板，
-   供 CW-O 扣除與標示使用）。
-4. **測試**：既有 `CurtainWallJunctionRuleTests` 的 15 條是規則層的，不受影響；
-   `CurtainWallJunctionResolverTests` 裡屬於決議 7 與 `PanelLookup` 的測試要隨實作移除或改寫，
-   **移除前要逐條確認它守的是不是仍然有效的行為**。
+   `TopElevationMm`、`TypeName`、`ProvidedFireRating`，加 `CoversElevations`／`OverlapsElevations`／
+   `HasReadableRating`／`Qualifies`）與 `CurtainWallObservationSet.FacadeWalls`。共面與平行的判定寫成
+   `CurtainWallObservation.IsInFacadePlane`，容差常數 `FacadePlaneToleranceMm`（150）與
+   `FacadeAngleToleranceDeg`（5）掛在 `FacadeWallObservation` 上（§4.4）。
+   `RevitCurtainWallGeometryReader.ReadFacadeWalls` 以同一個 `IsInFacadePlane` 預篩模型裡的非帷幕直線牆
+   ——**一個述詞兩邊共用**，讀取層不會交出解析層不看的牆，也不會漏掉它會算的牆。
+   **「嵌板為牆」的嵌板要排掉**：它本身是一片沒有 `CurtainGrid` 的 `Wall`，而且必然躺在帷幕牆的定位面
+   內，不排掉就會同時以嵌板與實體外牆兩個身分出現，每個交接處都自己跟自己重疊而判人工覆核。
+   `CurtainPanelUniqueIds` 直接從模型裡**所有**帷幕格線（含 Curtain System 的 `CurtainGrids`）的嵌板清單
+   建集合，而不是從本次讀到的嵌板——被讀取範圍或尺寸讀取失敗篩掉的嵌板仍然是嵌板。
+2. **解析層**：`WallJunction` 的但書供給改走 `FacadeRun`（自交點沿立面往兩側累積連續且達標的實體外牆
+   覆蓋長度，接縫在 `TouchToleranceMm` 內視為連續）。`SolidWallBand`、`PanelLookup` 與 CW-H 的嵌板量測
+   路徑已移除；`Along`（CW-H 專用的嵌板列）一併移除，因為 CW-V 走的是 `Up`，留著就是死碼。
+   `Measure`／`Walk`／`Slab`／`Up`／`SplitMessage` 保留給 CW-V。新增 `Clash`：交接帶內嵌板與實體外牆
+   重疊即判 `ManualReview`（新的 `CurtainWallJunctionDoubtKind.FacadeWallOverlapsPanel`、錯誤碼
+   `BCR-CW-005`）。
+   **累積不截在帷幕牆的端點上**：實體外牆是獨立元素，延伸出去的那一段照樣是外牆面，所以舊的
+   「連續段被帷幕牆自身端點截斷則不供給」對 CW-H 不再適用（對 CW-V 仍適用）。
+3. **證據**：新增 `junction.facadeWallUniqueIds`（量到的那幾道牆），`junction.panels`／`panelCount` 在
+   CW-H 改為**交接帶涵蓋的嵌板**（供 CW-O 扣除與 §7.1 標示）。`junction.minFireRating` 的資料不足訊息
+   依 `junction.kind` 換主詞（CW-H 為「交接處實體外牆之設計防火時效」），`RuleFieldCatalog` 的欄位說明
+   同步改為「交接帶內構造之最小設計防火時效（水平交接讀實體外牆，層間與其他部分讀嵌板）」。
+   CW-H 不再供給 `junction.hasUnprotectedOpening`（§9）。
+   `CompartmentWallObservation.ProvidedFireRating` **移除**：決議 7 作廢後沒有讀者，留著會讓人以為區劃牆
+   自己的時效能答但書，那正是使用者否決的讀法；讀取層也不再讀它。
+4. **測試**：`CurtainWallJunctionResolverTests` 的 CW-H 段整段重寫為 25 條測試（共面／平行守門、
+   高程涵蓋、接縫連續、缺口停止、隔壁未達標停止、止於讀不出時效的牆則 withhold、總和不各半、交點落在
+   端部豎框、重疊判人工覆核、逐層建的帷幕牆跨元素仍量得到、帶內嵌板記錄並自 CW-O 扣除）。屬於決議 7 與
+   `PanelLookup` 的測試逐條確認後：守門意義已由新設計取代者移除，仍然有效者改寫。**原本掛在 CW-H 上但
+   守的是 `Measure`／`Walk` 的四條（grid line 分割、真實斷點、未受防護開口、被牆頂截斷）改寫成 CW-V 版**
+   ——那條路徑還活著，測試不能跟著 CW-H 一起消失。`FireReviewIntegrationTests` 的帷幕牆 fixture 改為
+   「交接帶留空 + 一道實體外牆」的正確建法，`bandMinutes` 同時餵嵌板與實體外牆，案例 3、20 的意義不變。
+
+#### 尚未執行：參數綁定
+
+`防火檢討_設計防火時效` 等三個參數仍未綁到 CurtainPanels（見上表）。這件事**只影響 CW-O**，不影響本步驟
+的 CW-H：未綁定時每一片嵌板的第 79-4 條判定都會是資料不足。綁定會改模型，須使用者同意後才執行。
 
 #### 使用者要驗出「得免突出」須怎麼建模
 
 依 §4.2「建模要求」：把 `282763` 頂部（或 `282775` 底部）該柱的嵌板拿掉留出 27550 – 28450 的帶，在
 X = 10000 的定位面內、沿 Y 方向放一道實體外牆跨該高程帶、沿牆長度自交點起兩側合計 ≥ 900 mm，並在其
 型別填 `防火檢討_設計防火時效` ≥ 60 min。或者直接把區劃牆 `297567` 突出帷幕牆外側面 ≥ 500 mm。
+
+**嵌板一定要刪。** 只放實體外牆而留著原本的玻璃嵌板，會落入新的 `FacadeWallOverlapsPanel` 分支判
+人工覆核——那不是誤判，是模型同時說了玻璃與實體牆兩件事。
+
+#### 本步驟未實機驗證
+
+程式面完整（建置 0 警告、1620 條測試全通過），但**尚未在 Revit 實機重跑**：現行模型的立面從 24500 到
+31500 全是玻璃，重跑只會把 `CW-H-01` 從「資料不足」換成「未符合／實際值 0 m」——那是決議 13 下的正確
+答案，但驗不到但書成立的路徑。要驗出 `NotApplicable`（得免突出），得先照上面那段改模型。

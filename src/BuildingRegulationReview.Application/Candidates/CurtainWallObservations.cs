@@ -274,7 +274,129 @@ public sealed class CurtainWallObservation
         millimeters >= BaseElevationMm - CurtainPanelObservation.TouchToleranceMm &&
         millimeters <= TopElevationMm + CurtainPanelObservation.TouchToleranceMm;
 
+    /// <summary>
+    /// Whether a straight wall's location line lies on this curtain wall's own plane — parallel to
+    /// within <see cref="FacadeWallObservation.FacadeAngleToleranceDeg"/> and no further off the
+    /// location line than <see cref="FacadeWallObservation.FacadePlaneToleranceMm"/> (docs §4.2).
+    /// That is what makes a solid wall part of <b>this</b> façade rather than a wall standing behind
+    /// it, and it is asked of the same line at both ends of the pipeline: the adapter prefilters the
+    /// model with it, the resolver decides which walls a junction may count with it.
+    /// </summary>
+    public bool IsInFacadePlane(Point2D start, Point2D end)
+    {
+        var dx = end.X - start.X;
+        var dy = end.Y - start.Y;
+        var length = Math.Sqrt((dx * dx) + (dy * dy));
+        if (length <= CurtainPanelObservation.TouchToleranceMm) return false;
+
+        // |sin| of the angle between the two directions: parallel either way round, since a wall
+        // drawn right to left is the same piece of façade as one drawn left to right.
+        var sine = Math.Abs(((dx / length) * Direction.Y) - ((dy / length) * Direction.X));
+        if (sine > Math.Sin(FacadeWallObservation.FacadeAngleToleranceDeg * Math.PI / 180.0)) return false;
+
+        return Math.Abs(OutwardDistanceOf(start)) <= FacadeWallObservation.FacadePlaneToleranceMm &&
+               Math.Abs(OutwardDistanceOf(end)) <= FacadeWallObservation.FacadePlaneToleranceMm;
+    }
+
     public override string ToString() => $"{UniqueId}（{TypeName ?? "帷幕牆"}，{LengthMm:0.#} mm）";
+}
+
+/// <summary>
+/// One solid (non-curtain) exterior wall standing in a curtain wall's own plane: its plan location
+/// line, the elevations it spans and its type's 設計防火時效. This is what supplies the 900 mm of
+/// 交接處之外牆面 the 但書 of 第79條第3項 asks for (docs §4.2「交接處之外牆面」, 決議 13).
+/// </summary>
+/// <remarks>
+/// <para>
+/// The 但書's subject is 「該外牆構造」, so only a real piece of exterior wall answers it — not a
+/// curtain panel, and not the 區劃牆 that reaches the façade. A 區劃牆 usually runs perpendicular to
+/// the elevation and is therefore never in its plane; one that does lie along the façade is recorded
+/// here as well as in <see cref="CompartmentWallObservation"/>, because the two roles do not exclude
+/// each other.
+/// </para>
+/// <para>
+/// Millimetres in host project coordinates, like everything else here. Whether this wall belongs to a
+/// given curtain wall's plane is <see cref="CurtainWallObservation.IsInFacadePlane"/>'s question, not
+/// this type's: the same wall can be in the plane of two curtain walls that meet in line.
+/// </para>
+/// </remarks>
+public sealed class FacadeWallObservation
+{
+    /// <summary>
+    /// How far a wall's location line may sit off the curtain wall's own location line and still be
+    /// the same façade. Half a common wall thickness: aligning a 300 mm RC wall by its outside face
+    /// to a 150 mm curtain wall already offsets the centre lines by 75 mm, and nothing about that
+    /// makes it a different piece of exterior wall. A wall further in than this is a wall standing
+    /// behind the façade, and it does not answer the 但書.
+    /// </summary>
+    public const double FacadePlaneToleranceMm = 150.0;
+
+    /// <summary>How far from parallel a wall may run and still be read as part of the same façade.</summary>
+    public const double FacadeAngleToleranceDeg = 5.0;
+
+    public FacadeWallObservation(
+        string uniqueId,
+        Point2D start,
+        Point2D end,
+        double bottomElevationMm,
+        double topElevationMm,
+        string? typeName = null,
+        ProvidedFireRating? providedFireRating = null)
+    {
+        if (string.IsNullOrWhiteSpace(uniqueId)) throw new ArgumentException("Facade wall UniqueId is required.", nameof(uniqueId));
+        if (start.DistanceTo(end) <= CurtainPanelObservation.TouchToleranceMm)
+            throw new ArgumentException("A facade wall's location line has to have a length.", nameof(end));
+        if (topElevationMm - bottomElevationMm <= CurtainPanelObservation.TouchToleranceMm)
+            throw new ArgumentOutOfRangeException(nameof(topElevationMm), "A facade wall has to span some height.");
+
+        UniqueId = uniqueId.Trim();
+        Start = start;
+        End = end;
+        BottomElevationMm = bottomElevationMm;
+        TopElevationMm = topElevationMm;
+        TypeName = string.IsNullOrWhiteSpace(typeName) ? null : typeName!.Trim();
+        ProvidedFireRating = providedFireRating;
+    }
+
+    public string UniqueId { get; }
+    public Point2D Start { get; }
+    public Point2D End { get; }
+    public double BottomElevationMm { get; }
+    public double TopElevationMm { get; }
+    public string? TypeName { get; }
+
+    /// <summary>此牆型別的 `防火檢討_設計防火時效`，就照讀到的樣子；null 代表讀取層沒有讀到參數本身。</summary>
+    public ProvidedFireRating? ProvidedFireRating { get; }
+
+    /// <summary>
+    /// Whether this wall spans the whole of a 區劃牆's elevations at the junction (docs §4.2 step 2).
+    /// What the 50 cm 突出 keeps out is flame running round the façade, and it runs round over the
+    /// whole height the compartment wall stands there — so a wall closing only part of that height
+    /// leaves a gap. Being taller is no objection: a storey-high rated wall is more than the 90 cm.
+    /// </summary>
+    public bool CoversElevations(double bottomMm, double topMm) =>
+        BottomElevationMm <= bottomMm + CurtainPanelObservation.TouchToleranceMm &&
+        TopElevationMm >= topMm - CurtainPanelObservation.TouchToleranceMm;
+
+    public bool OverlapsElevations(double bottomMm, double topMm) =>
+        topMm > BottomElevationMm + CurtainPanelObservation.TouchToleranceMm &&
+        bottomMm < TopElevationMm - CurtainPanelObservation.TouchToleranceMm;
+
+    /// <summary>True when the design rating was read as a number at all — 未填 and 未綁定 are not.</summary>
+    public bool HasReadableRating => ProvidedFireRating is { IsRated: true };
+
+    /// <summary>
+    /// Whether this wall may be counted towards a continuous run: its design rating has to reach what
+    /// the host requires (docs §5.4). A required rating of null is no licence to count it — there is
+    /// nothing to compare against.
+    /// </summary>
+    public bool Qualifies(double? requiredMinutes) =>
+        HasReadableRating &&
+        requiredMinutes is double required &&
+        ProvidedFireRating!.Minutes!.Value >= required;
+
+    public override string ToString() =>
+        $"{UniqueId}（{TypeName ?? "實體外牆"}，{BottomElevationMm:0.#}–{TopElevationMm:0.#} mm）";
 }
 
 /// <summary>
@@ -291,8 +413,7 @@ public sealed class CompartmentWallObservation
         double topElevationMm,
         string legalReference = CurtainWallJunctionReferences.Article79,
         double? requiredFireRatingMinutes = null,
-        string? typeName = null,
-        ProvidedFireRating? providedFireRating = null)
+        string? typeName = null)
     {
         if (string.IsNullOrWhiteSpace(uniqueId)) throw new ArgumentException("Compartment wall UniqueId is required.", nameof(uniqueId));
         if (string.IsNullOrWhiteSpace(legalReference)) throw new ArgumentException("Name the clause the compartment comes from.", nameof(legalReference));
@@ -310,7 +431,6 @@ public sealed class CompartmentWallObservation
         LegalReference = legalReference.Trim();
         RequiredFireRatingMinutes = requiredFireRatingMinutes;
         TypeName = string.IsNullOrWhiteSpace(typeName) ? null : typeName!.Trim();
-        ProvidedFireRating = providedFireRating;
     }
 
     public string UniqueId { get; }
@@ -327,11 +447,10 @@ public sealed class CompartmentWallObservation
 
     public string? TypeName { get; }
 
-    /// <summary>
-    /// 該牆型別的 `防火檢討_設計防火時效`。只有在這道牆本身就是上下帷幕牆之間那道實體牆防火帶時才
-    /// 用得到（docs §4.2「實體牆防火帶」、決議 7）；一般的區劃牆走嵌板路徑，讀的是嵌板的時效。
-    /// </summary>
-    public ProvidedFireRating? ProvidedFireRating { get; }
+    // 這道牆自己的設計防火時效**刻意不記在這裡**。CW-H 的但書問的是「該外牆構造」的時效，答案只能
+    // 來自立面內的實體外牆（FacadeWallObservation）；若容許以區劃牆自身的時效作答，任何具時效的
+    // 區劃牆抵上玻璃帷幕牆都會自動合格，第79條第4項即形同虛設（docs §4.2、決議 13）。躺在立面上的
+    // 區劃牆會另外被登錄成一道實體外牆，該身分才帶著時效。
 
     public override string ToString() => $"{UniqueId}（{LegalReference}）";
 
@@ -420,9 +539,10 @@ public sealed class CurtainWallZoneObservation
 
 /// <summary>
 /// Everything 帷幕牆區劃交接 needs from the model, as plain data (spec 15): the storey's zones, the
-/// curtain walls with their panels, the 區劃牆 and 區劃樓地板 that reach them, and the project's level
-/// elevations — the last so a curtain wall running past a level with no floor at it can be
-/// recognised as a 連跨複數樓層 space (docs §3.4, §10 案例 17).
+/// curtain walls with their panels, the 區劃牆 and 區劃樓地板 that reach them, the solid exterior walls
+/// standing in those curtain walls' planes, and the project's level elevations — the last so a curtain
+/// wall running past a level with no floor at it can be recognised as a 連跨複數樓層 space (docs §3.4,
+/// §10 案例 17).
 /// </summary>
 /// <remarks>
 /// Millimetres throughout. The Revit adapter converts internal feet once, at its own boundary, and
@@ -439,6 +559,7 @@ public sealed class CurtainWallObservationSet
         IEnumerable<CurtainWallObservation>? curtainWalls = null,
         IEnumerable<CompartmentWallObservation>? compartmentWalls = null,
         IEnumerable<CompartmentFloorObservation>? compartmentFloors = null,
+        IEnumerable<FacadeWallObservation>? facadeWalls = null,
         IEnumerable<double>? levelElevationsMm = null,
         IEnumerable<string>? warnings = null)
     {
@@ -451,15 +572,19 @@ public sealed class CurtainWallObservationSet
         var wallList = (curtainWalls ?? Array.Empty<CurtainWallObservation>()).ToList();
         var hostWallList = (compartmentWalls ?? Array.Empty<CompartmentWallObservation>()).ToList();
         var floorList = (compartmentFloors ?? Array.Empty<CompartmentFloorObservation>()).ToList();
+        var facadeList = (facadeWalls ?? Array.Empty<FacadeWallObservation>()).ToList();
 
         if (zoneList.Any(x => x is null)) throw new ArgumentException("Zones cannot contain null.", nameof(zones));
         if (wallList.Any(x => x is null)) throw new ArgumentException("Curtain walls cannot contain null.", nameof(curtainWalls));
         if (hostWallList.Any(x => x is null)) throw new ArgumentException("Compartment walls cannot contain null.", nameof(compartmentWalls));
         if (floorList.Any(x => x is null)) throw new ArgumentException("Compartment floors cannot contain null.", nameof(compartmentFloors));
+        if (facadeList.Any(x => x is null)) throw new ArgumentException("Facade walls cannot contain null.", nameof(facadeWalls));
         if (zoneList.GroupBy(x => x.ZoneId).Any(g => g.Count() > 1))
             throw new ArgumentException("The same zone is listed twice.", nameof(zones));
         if (wallList.GroupBy(x => x.UniqueId, StringComparer.Ordinal).Any(g => g.Count() > 1))
             throw new ArgumentException("The same curtain wall is listed twice.", nameof(curtainWalls));
+        if (facadeList.GroupBy(x => x.UniqueId, StringComparer.Ordinal).Any(g => g.Count() > 1))
+            throw new ArgumentException("The same facade wall is listed twice.", nameof(facadeWalls));
 
         PackageId = packageId;
         LevelUniqueId = levelUniqueId.Trim();
@@ -472,6 +597,8 @@ public sealed class CurtainWallObservationSet
             hostWallList.OrderBy(x => x.UniqueId, StringComparer.Ordinal).ToList());
         CompartmentFloors = new ReadOnlyCollection<CompartmentFloorObservation>(
             floorList.OrderBy(x => x.UniqueId, StringComparer.Ordinal).ToList());
+        FacadeWalls = new ReadOnlyCollection<FacadeWallObservation>(
+            facadeList.OrderBy(x => x.UniqueId, StringComparer.Ordinal).ToList());
         LevelElevationsMm = new ReadOnlyCollection<double>((levelElevationsMm ?? Array.Empty<double>())
             .Where(x => !double.IsNaN(x) && !double.IsInfinity(x)).Distinct().OrderBy(x => x).ToList());
         Warnings = new ReadOnlyCollection<string>((warnings ?? Array.Empty<string>())
@@ -489,6 +616,13 @@ public sealed class CurtainWallObservationSet
     public IReadOnlyList<CurtainWallObservation> CurtainWalls { get; }
     public IReadOnlyList<CompartmentWallObservation> CompartmentWalls { get; }
     public IReadOnlyList<CompartmentFloorObservation> CompartmentFloors { get; }
+
+    /// <summary>
+    /// The solid exterior walls standing in the curtain walls' planes: what supplies the 900 mm of
+    /// 交接處之外牆面 at a CW-H junction (docs §4.2, 決議 13). Which curtain wall each one belongs to is
+    /// <see cref="CurtainWallObservation.IsInFacadePlane"/>'s question, asked as a junction is measured.
+    /// </summary>
+    public IReadOnlyList<FacadeWallObservation> FacadeWalls { get; }
 
     /// <summary>Every level in the project, ascending: used to spot a storey a curtain wall runs past.</summary>
     public IReadOnlyList<double> LevelElevationsMm { get; }

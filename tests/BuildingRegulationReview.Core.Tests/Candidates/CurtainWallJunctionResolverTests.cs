@@ -52,146 +52,289 @@ public sealed class CurtainWallJunctionResolverTests
         Assert.Equal(0.0, junction.ProjectionDepthMm!.Value);
     }
 
-    // --- CW-H：上下帷幕牆之間的實體牆防火帶（docs §4.2、決議 7）--------------------------------
+    // --- CW-H：交接處之外牆面由立面內的實體外牆供給（docs §4.2、決議 13）------------------------
 
     [Fact]
-    public void A_rated_solid_wall_filling_the_gap_between_the_curtain_walls_is_the_cw_h_band()
+    public void A_rated_solid_wall_in_the_facade_supplies_the_but_clauses_length()
     {
-        var junction = Single(Resolve(Set(Wall(GapAt(1200, 2100)), hosts: new[] { Band(5000, 1200, 2100) })),
+        // 交接帶那一段立面不鋪嵌板，改以一道具時效的實體外牆表達（§4.2 建模要求）：但書的
+        // 「交接處之外牆面長度」就是這道牆沿立面的水平長度。
+        var junction = Single(
+            Resolve(Set(Wall(GlazingExcept(4100, 5900)), hosts: new[] { Host(5000) }, facades: new[] { Facade(4100, 5900) })),
             CurtainWallJunctionKind.WallToCurtainWall);
 
-        Assert.Equal(900, junction.ContinuousFireRatedLengthMm!.Value, 3);
+        Assert.Equal(1800, junction.ContinuousFireRatedLengthMm!.Value, 3);
         Assert.Equal(60, junction.MinFireRating!.Minutes!.Value);
     }
 
     [Fact]
-    public void A_wall_that_only_partly_fills_the_gap_is_no_band_at_all()
+    public void The_facade_walls_the_run_was_measured_on_are_named_in_the_junction()
     {
-        // 間隔 900 mm，填進去的牆只有 700 mm：上面還開著 200 mm，這不是「以實體牆填入的間隔」。
-        // 供給 700 會讓「牆 900、旁邊還開著 900」也過關，所以這一步是守門而不是量測。
-        var junction = Single(Resolve(Set(Wall(GapAt(1200, 2100)), hosts: new[] { Band(5000, 1200, 1900) })),
+        // 「這個 900 mm 是哪一段外牆」必須答得出來，而且答案不能是區劃牆自己：把 host 的 UniqueId
+        // 塞進嵌板清單會讓 ReviewMarkup 把區劃牆塗紅（那是它明文不做的事）。
+        var junction = Single(
+            Resolve(Set(Wall(GlazingExcept(4100, 5900)), hosts: new[] { Host(5000) }, facades: new[] { Facade(4100, 5900) })),
+            CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Equal(new[] { "W-facade" }, junction.FacadeWallUniqueIds);
+        Assert.DoesNotContain("W1", junction.PanelUniqueIds);
+        Assert.Contains("W-facade", junction.SubjectUniqueIds);
+    }
+
+    [Fact]
+    public void A_facade_wall_that_covers_only_part_of_the_junctions_height_supplies_nothing()
+    {
+        // 區劃牆通層 0–3600，實體外牆只做到 1900：火焰沿立面繞行的高度就是區劃牆在該處的高度，
+        // 只封住其中一段等於留了缺口。供給 1800 會讓「牆做一半、旁邊照樣開著」過關。
+        var junction = Single(
+            Resolve(Set(Wall(GlazingExcept(4100, 5900)), hosts: new[] { Host(5000) },
+                facades: new[] { Facade(4100, 5900, top: 1900) })),
             CurtainWallJunctionKind.WallToCurtainWall);
 
         Assert.Equal(0.0, junction.ContinuousFireRatedLengthMm!.Value);
+        Assert.Empty(junction.FacadeWallUniqueIds);
     }
 
     [Fact]
-    public void A_wall_floating_inside_a_tall_gap_is_no_band_either()
+    public void A_facade_wall_taller_than_the_junction_counts_in_full()
     {
-        // 上下都有嵌板收邊，但牆兩邊都不貼：間隔 5000 mm 裡浮著一道 1000 mm 的牆。
-        var panels = new[]
-        {
-            Panel("P-low", 0, WallLengthMm, 0, bottom: 0, top: 500),
-            Panel("P-high", 0, WallLengthMm, 0, bottom: 5500, top: 6000)
-        };
-        var set = new CurtainWallObservationSet(
-            Package, "LVL", "1F", 0, new[] { Zone() },
-            new[] { Wall(panels, top: 6000) },
-            new[] { Band(5000, 2000, 3000, ProvidedFireRating.Rated(120, "120")) },
-            null, new[] { 0.0, 6000.0 });
-
-        var junction = Single(Resolve(set), CurtainWallJunctionKind.WallToCurtainWall);
-
-        Assert.Equal(0.0, junction.ContinuousFireRatedLengthMm!.Value);
-    }
-
-    [Fact]
-    public void A_gap_the_wall_fills_exactly_is_a_band_however_tall_the_gap_is()
-    {
-        // 帷幕牆通三層，中間那一層整柱沒有嵌板，而區劃牆的高程範圍恰好就是那一層。決議 7 認這一種：
-        // 牆兩緣都貼著上下嵌板，模型能講的就是「這道牆填住了帷幕牆留下的那一段外牆面」，帶高多少
-        // 不改變這個推論的性質——整層具時效的實體外牆比 90 cm 帶更充分，不是更不充分。
-        //
-        // 擋住誤放行的是「貼齊」而不是帶高上限：只填一半、浮在中間、與嵌板重疊的牆都拿不到帶長
-        // （見上面三條）。這一條與那三條合起來才是完整的守門。
-        var panels = new[]
-        {
-            Panel("P-low", 0, WallLengthMm, 0, bottom: 0, top: StoreyMm),
-            Panel("P-high", 0, WallLengthMm, 0, bottom: StoreyMm * 2, top: StoreyMm * 3)
-        };
+        // 反面：牆比交接帶高沒有關係——一道通層具時效的實體外牆比 90 cm 帶更充分，不是更不充分。
         var host = new CompartmentWallObservation(
-            "W-storey", new Point2D(5000, 3000), new Point2D(5000, -50),
-            StoreyMm, StoreyMm * 2, CurtainWallJunctionReferences.Article79, 60, "RC 牆 15cm",
+            "W1", new Point2D(5000, 3000), new Point2D(5000, -50), 1200, 2100,
+            CurtainWallJunctionReferences.Article79, 60, "RC 牆 15cm");
+
+        var junction = Single(
+            Resolve(Set(Wall(GlazingExcept(4100, 5900)), hosts: new[] { host },
+                facades: new[] { Facade(4100, 5900, bottom: 0, top: StoreyMm) })),
+            CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Equal(1800, junction.ContinuousFireRatedLengthMm!.Value, 3);
+    }
+
+    [Fact]
+    public void A_facade_wall_without_a_readable_rating_withholds_the_length()
+    {
+        // 型別沒填（或類別沒綁）防火檢討_設計防火時效：不得推定，也不得填 0——交由引擎判資料不足。
+        var junction = Single(
+            Resolve(Set(Wall(GlazingExcept(4100, 5900)), hosts: new[] { Host(5000) },
+                facades: new[] { Facade(4100, 5900, minutes: null) })),
+            CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Null(junction.ContinuousFireRatedLengthMm);
+        Assert.Equal(ProvidedFireRatingKind.Missing, junction.MinFireRating!.Kind);
+        Assert.Equal(0.0, junction.ProjectionDepthMm!.Value);
+    }
+
+    [Fact]
+    public void A_facade_wall_below_the_required_rating_supplies_no_length()
+    {
+        var junction = Single(
+            Resolve(Set(Wall(GlazingExcept(4100, 5900)), hosts: new[] { Host(5000) },
+                facades: new[] { Facade(4100, 5900, minutes: 30) })),
+            CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Equal(0.0, junction.ContinuousFireRatedLengthMm!.Value);
+        Assert.Equal(30, junction.MinFireRating!.Minutes!.Value);
+    }
+
+    [Fact]
+    public void A_compartment_wall_that_merely_reaches_a_glazed_facade_supplies_nothing()
+    {
+        // 這是決議 13 的守門測試：區劃牆抵到帷幕牆、自己還具 120 min 時效，但立面在那裡是玻璃。
+        // 若容許以區劃牆自身的時效作答，任何具時效的區劃牆抵上玻璃帷幕牆都會自動合格，
+        // 第79條第4項即形同虛設。這裡不是資料不足——外牆面是玻璃，那是事實。
+        var junction = Single(Resolve(Set(Wall(Glazing()), hosts: new[] { Host(5000) })),
+            CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Equal(0.0, junction.ContinuousFireRatedLengthMm!.Value);
+        Assert.Null(junction.MinFireRating);
+        Assert.Empty(junction.FacadeWallUniqueIds);
+    }
+
+    [Fact]
+    public void A_rated_curtain_panel_no_longer_answers_the_horizontal_but_clause()
+    {
+        // 交點上是一片 60 min 的實板，達得到區劃牆要求的 60 min——舊決議 7 會供給 1800 mm。
+        // 決議 13 起嵌板完全不參與 CW-H：但書的主詞是「該外牆構造」，嵌板（含認證防火玻璃）
+        // 答不了（docs §9 記了這個代價）。
+        var junction = Single(
+            Resolve(Set(Wall(new[] { Panel("P-solid", 4100, 5900, 60) }), hosts: new[] { Host(5000) })),
+            CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Equal(0.0, junction.ContinuousFireRatedLengthMm!.Value);
+        Assert.Contains("P-solid", junction.PanelUniqueIds);
+    }
+
+    [Fact]
+    public void A_wall_standing_behind_the_facade_is_not_part_of_it()
+    {
+        // 貼在帷幕牆背面而非共面的實體牆不算：橫向偏差 300 mm 超過 FacadePlaneToleranceMm。
+        var behind = new FacadeWallObservation(
+            "W-inside", new Point2D(4100, -300), new Point2D(5900, -300), 0, StoreyMm, "RC 牆 15cm",
             ProvidedFireRating.Rated(120, "120"));
-        var set = new CurtainWallObservationSet(
-            Package, "LVL", "1F", 0, new[] { Zone() },
-            new[] { Wall(panels, top: StoreyMm * 3) },
-            new[] { host }, null, new[] { 0.0, StoreyMm, StoreyMm * 2, StoreyMm * 3 });
 
-        var junction = Single(Resolve(set), CurtainWallJunctionKind.WallToCurtainWall);
+        var junction = Single(
+            Resolve(Set(Wall(GlazingExcept(4100, 5900)), hosts: new[] { Host(5000) }, facades: new[] { behind })),
+            CurtainWallJunctionKind.WallToCurtainWall);
 
-        Assert.Equal(StoreyMm, junction.ContinuousFireRatedLengthMm!.Value, 3);
+        Assert.Equal(0.0, junction.ContinuousFireRatedLengthMm!.Value);
     }
 
     [Fact]
-    public void A_band_wall_carries_no_curtain_panel_in_the_evidence()
+    public void A_wall_that_is_not_parallel_to_the_facade_is_not_part_of_it()
     {
-        // 帶是牆供給的，這個交點上一片嵌板也沒有。把牆的 UniqueId 塞進 junction.panels 會讓
-        // junction.panelCount 說謊，也會讓 ReviewMarkup 把區劃牆本身塗紅（那是它明文不做的事）。
-        var junction = Single(Resolve(Set(Wall(GapAt(1200, 2100)), hosts: new[] { Band(5000, 1200, 2100) })),
+        // 兩端都落在 150 mm 的面內公差裡，但斜了 5.7°，超過 FacadeAngleToleranceDeg：那是一道
+        // 斜切進立面的牆，不是這一片立面本身。
+        var askew = new FacadeWallObservation(
+            "W-askew", new Point2D(4000, 100), new Point2D(6000, -100), 0, StoreyMm, "RC 牆 15cm",
+            ProvidedFireRating.Rated(120, "120"));
+
+        var junction = Single(
+            Resolve(Set(Wall(GlazingExcept(4100, 5900)), hosts: new[] { Host(5000) }, facades: new[] { askew })),
             CurtainWallJunctionKind.WallToCurtainWall);
 
-        Assert.Empty(junction.PanelUniqueIds);
-        Assert.Equal("W-band", junction.HostUniqueId);
+        Assert.Equal(0.0, junction.ContinuousFireRatedLengthMm!.Value);
     }
 
     [Fact]
-    public void A_solid_gap_wall_without_a_readable_rating_withholds_the_cw_h_band()
+    public void Two_facade_walls_butted_together_are_one_continuous_run()
     {
-        var host = Band(5000, 1200, 2100, ProvidedFireRating.Missing("參數值為空白"));
-
-        var junction = Single(Resolve(Set(Wall(GapAt(1200, 2100)), hosts: new[] { host })),
+        // 兩道牆對接處的接縫在 TouchToleranceMm 內：那是一片外牆，不是兩段。
+        var junction = Single(
+            Resolve(Set(Wall(GlazingExcept(4550, 5450)), hosts: new[] { Host(5000) },
+                facades: new[] { Facade(4550, 5000, uniqueId: "W-left"), Facade(5000, 5450, uniqueId: "W-right") })),
             CurtainWallJunctionKind.WallToCurtainWall);
 
+        Assert.Equal(900, junction.ContinuousFireRatedLengthMm!.Value, 3);
+        Assert.Equal(new[] { "W-left", "W-right" }, junction.FacadeWallUniqueIds);
+    }
+
+    [Fact]
+    public void A_gap_between_two_facade_walls_stops_the_run()
+    {
+        // 兩道牆之間空了 100 mm：累積停在缺口上，只量到交點所在那一道（否則會是 3000 mm）。
+        var junction = Single(
+            Resolve(Set(Wall(GlazingExcept(3000, 6000)), hosts: new[] { Host(5400) },
+                facades: new[] { Facade(3000, 4950, uniqueId: "W-left"), Facade(5050, 6000, uniqueId: "W-right") })),
+            CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Equal(950, junction.ContinuousFireRatedLengthMm!.Value, 3);
+        Assert.Equal(new[] { "W-right" }, junction.FacadeWallUniqueIds);
+    }
+
+    [Fact]
+    public void A_neighbouring_facade_wall_below_the_required_rating_stops_the_run()
+    {
+        // 案例 5 的實體外牆版：隔壁那道只有 30 min，達不到區劃牆要求的 60 min，累積停在交界上。
+        var junction = Single(
+            Resolve(Set(Wall(GlazingExcept(4550, 7000)), hosts: new[] { Host(5000) },
+                facades: new[]
+                {
+                    Facade(4550, 5450, uniqueId: "W-rated"),
+                    Facade(5450, 7000, minutes: 30, uniqueId: "W-30")
+                })),
+            CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Equal(900, junction.ContinuousFireRatedLengthMm!.Value, 3);
+        Assert.Equal(new[] { "W-rated" }, junction.FacadeWallUniqueIds);
+    }
+
+    [Fact]
+    public void A_short_run_stopped_by_a_facade_wall_with_no_readable_rating_is_not_supplied()
+    {
+        // 量到 700 mm 就撞上一道讀不出時效的牆：那道牆若有時效就可能達 900 mm，判未符合是說了
+        // 工具不知道的事。與嵌板路徑同一個輸入契約——量到的是「至少這麼長」。
+        var junction = Single(
+            Resolve(Set(Wall(GlazingExcept(4300, 7000)), hosts: new[] { Host(5000) },
+                facades: new[]
+                {
+                    Facade(4300, 5000, uniqueId: "W-rated"),
+                    Facade(5000, 7000, minutes: null, uniqueId: "W-unset")
+                })),
+            CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Null(junction.ContinuousFireRatedLengthMm);
+        Assert.Equal(ProvidedFireRatingKind.Missing, junction.MinFireRating!.Kind);
+        Assert.Contains("W-unset", junction.FacadeWallUniqueIds);
+    }
+
+    [Fact]
+    public void A_run_is_the_sum_of_both_sides_rather_than_half_of_it_each()
+    {
+        // 案例 7：交點落在實體外牆的右緣，左側 900 mm、右側 0 mm — 採總和，不要求各半。
+        var junction = Single(
+            Resolve(Set(Wall(GlazingExcept(4100, 5900)), hosts: new[] { Host(5000) },
+                facades: new[] { Facade(4100, 5000) })),
+            CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Equal(900, junction.ContinuousFireRatedLengthMm!.Value, 3);
+        Assert.False(junction.IsDoubtful);
+    }
+
+    [Fact]
+    public void A_junction_on_the_end_mullion_is_measured_on_the_facade_wall_that_runs_past_it()
+    {
+        // 區劃牆對齊帷幕牆端部的收邊豎框是常態做法，而但書問的是外牆面，不是帷幕牆的範圍：
+        // 實體外牆延伸到帷幕牆之外的那一段照樣是外牆面，累積不截在帷幕牆的端點上。
+        // 決議 13 起「交點被豎框佔著」不再需要特別處理——CW-H 根本不查嵌板。
+        var junction = Single(
+            Resolve(Set(Wall(new[] { Panel("P-glass", 600, WallLengthMm, 0) }), hosts: new[] { Host(0) },
+                facades: new[] { Facade(-500, 500) })),
+            CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Equal(1000, junction.ContinuousFireRatedLengthMm!.Value, 3);
+    }
+
+    [Fact]
+    public void A_facade_wall_overlapping_a_curtain_panel_is_manual_review()
+    {
+        // 把實體牆疊在玻璃嵌板前面而沒有把嵌板拿掉，是這個設計最容易踩的建模錯。模型對同一片
+        // 外牆講了兩件互相矛盾的事，工具不替使用者選一個。
+        var junction = Single(
+            Resolve(Set(Wall(Glazing()), hosts: new[] { Host(5000) }, facades: new[] { Facade(4100, 5900) })),
+            CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.True(junction.IsDoubtful);
+        Assert.Equal(CurtainWallJunctionDoubtKind.FacadeWallOverlapsPanel, junction.Doubt!.Kind);
+        Assert.Equal(ReviewStatus.ManualReview, junction.Doubt.Status);
+        Assert.Contains("W-facade", junction.Doubt.SubjectUniqueIds);
+        Assert.Contains("P-glass", junction.Doubt.SubjectUniqueIds);
         Assert.Null(junction.ContinuousFireRatedLengthMm);
     }
 
     [Fact]
-    public void A_solid_gap_wall_below_the_required_rating_carries_no_band()
+    public void A_facade_wall_answers_even_when_the_curtain_wall_is_built_one_storey_at_a_time()
     {
-        var host = Band(5000, 1200, 2100, ProvidedFireRating.Rated(30, "30"));
-
-        var junction = Single(Resolve(Set(Wall(GapAt(1200, 2100)), hosts: new[] { host })),
-            CurtainWallJunctionKind.WallToCurtainWall);
-
-        Assert.Equal(0.0, junction.ContinuousFireRatedLengthMm!.Value);
-    }
-
-    [Fact]
-    public void A_rated_wall_at_a_junction_the_curtain_wall_never_panelled_is_not_a_band()
-    {
-        // 這是守門測試：交點上沒有嵌板不等於「上下帷幕牆之間的間隔」。一道具時效的區劃牆若能單憑
-        // 自己有時效就免突出，第79條第3項的但書就形同虛設——沒有上下兩段帷幕牆夾著，照舊算 0。
+        // 決議 7 在實務模型上等於不成立的主因：帷幕牆逐層建，上下是兩個元素，防火帶跨在樓板上。
+        // 實體外牆是獨立元素、不必屬於任一片帷幕牆，所以兩片都量得到同一道牆（docs §12 步驟 12）。
         var host = new CompartmentWallObservation(
-            "W-storey", new Point2D(5000, 3000), new Point2D(5000, -50),
-            0, StoreyMm, CurtainWallJunctionReferences.Article79, 60, "RC 牆 15cm",
-            ProvidedFireRating.Rated(120, "120"));
+            "W1", new Point2D(5000, 3000), new Point2D(5000, -50), 1200, 2400,
+            CurtainWallJunctionReferences.Article79, 60, "RC 牆 15cm");
+        var lower = new CurtainWallObservation(
+            "CW-low", new Point2D(0, 0), new Point2D(WallLengthMm, 0), new Point2D(0, -1), OffsetMm, 0, 1800,
+            GlazingExcept(4100, 5900, top: 1800), null, null, "帷幕牆 下段");
+        var upper = new CurtainWallObservation(
+            "CW-high", new Point2D(0, 0), new Point2D(WallLengthMm, 0), new Point2D(0, -1), OffsetMm, 1800, StoreyMm,
+            GlazingExcept(4100, 5900, bottom: 1800), null, null, "帷幕牆 上段");
 
-        var junction = Single(Resolve(Set(Wall(Array.Empty<CurtainPanelObservation>()), hosts: new[] { host })),
-            CurtainWallJunctionKind.WallToCurtainWall);
+        var set = new CurtainWallObservationSet(
+            Package, "LVL", "1F", 0, new[] { Zone() }, new[] { lower, upper }, new[] { host }, null,
+            new[] { Facade(4100, 5900) }, new[] { 0.0, StoreyMm });
 
-        Assert.Equal(0.0, junction.ContinuousFireRatedLengthMm!.Value);
+        var junctions = Resolve(set).Where(j => j.Kind == CurtainWallJunctionKind.WallToCurtainWall).ToList();
+
+        Assert.Equal(2, junctions.Count);
+        Assert.All(junctions, j => Assert.Equal(1800, j.ContinuousFireRatedLengthMm!.Value, 3));
     }
 
     [Fact]
-    public void A_gap_open_at_the_top_is_not_a_band_either()
+    public void A_host_between_two_stacked_curtain_walls_produces_no_cw_h_junction_at_all()
     {
-        // 只有下面那一段帷幕牆：間隔沒有被上面的帷幕牆收邊，不是決議 7 講的那個間隔。
-        var panels = new[] { Panel("P-low", 0, WallLengthMm, 0, bottom: 0, top: 1200) };
-
-        var junction = Single(Resolve(Set(Wall(panels), hosts: new[] { Band(5000, 1200, 2100) })),
-            CurtainWallJunctionKind.WallToCurtainWall);
-
-        Assert.Equal(0.0, junction.ContinuousFireRatedLengthMm!.Value);
-    }
-
-    [Fact]
-    public void Two_separate_curtain_walls_stacked_around_the_band_produce_no_cw_h_junction_at_all()
-    {
-        // 決議 7 只在「同一片帷幕牆、中間那一柱沒有嵌板」時啟動。上下若是兩個獨立的帷幕牆元素，
-        // 那道實體牆的高程範圍與任一片都不重疊，WallJunction 在求交點之前就 return null——CW-H
-        // 交接處根本不存在，不是判 未符合 而是整列消失。這是本工具目前的限制，記在文件 §9。
-        var band = Band(5000, 1200, 2100);
+        // 上一條的限制面（記在 §9）：交接處只在區劃牆的高程與某片帷幕牆重疊時才存在。區劃牆的
+        // 高程帶剛好整段落在上下兩片帷幕牆之間的縫裡時，CW-H 整列消失，不是判未符合。
+        var host = new CompartmentWallObservation(
+            "W1", new Point2D(5000, 3000), new Point2D(5000, -50), 1200, 2100,
+            CurtainWallJunctionReferences.Article79, 60, "RC 牆 15cm");
         var lower = new CurtainWallObservation(
             "CW-low", new Point2D(0, 0), new Point2D(WallLengthMm, 0), new Point2D(0, -1), OffsetMm, 0, 1200,
             new[] { Panel("P-low", 0, WallLengthMm, 0, bottom: 0, top: 1200) }, null, null, "帷幕牆 下段");
@@ -200,138 +343,52 @@ public sealed class CurtainWallJunctionResolverTests
             new[] { Panel("P-high", 0, WallLengthMm, 0, bottom: 2100, top: StoreyMm) }, null, null, "帷幕牆 上段");
 
         var set = new CurtainWallObservationSet(
-            Package, "LVL", "1F", 0, new[] { Zone() }, new[] { lower, upper }, new[] { band }, null,
-            new[] { 0.0, StoreyMm });
+            Package, "LVL", "1F", 0, new[] { Zone() }, new[] { lower, upper }, new[] { host }, null,
+            new[] { Facade(4100, 5900, bottom: 1200, top: 2100) }, new[] { 0.0, StoreyMm });
 
         Assert.DoesNotContain(Resolve(set), j => j.Kind == CurtainWallJunctionKind.WallToCurtainWall);
     }
 
     [Fact]
-    public void A_junction_on_the_end_mullion_measures_the_panel_beside_it_rather_than_no_panel_at_all()
+    public void The_panels_the_band_covers_are_recorded_and_left_out_of_the_other_exterior_wall()
     {
-        // 嵌板的沿牆範圍從豎框內緣起算，所以抵在帷幕牆端點的區劃牆，交點（0 mm）不被任何嵌板覆蓋。
-        // 那是豎框佔著這個位置，不是「這一柱沒有嵌板」：查詢位置要移到旁邊那片嵌板上，量它的連續段，
-        // 而不是讓決議 7 的守門在一片全玻璃的立面上啟動、回頭供給 0。區劃牆對齊豎框是常態做法。
-        var wall = Wall(
-            new[] { Panel("P-mullion", 30, 2970, 60) },
-            new[] { Grid("G1", CurtainGridLineDirection.Vertical, 3000) });
-
-        var junction = Single(Resolve(Set(wall, hosts: new[] { Host(0) })),
-            CurtainWallJunctionKind.WallToCurtainWall);
-
-        Assert.Equal(2940.0, junction.ContinuousFireRatedLengthMm!.Value, 3);
-        Assert.Contains("P-mullion", junction.PanelUniqueIds);
-    }
-
-    [Fact]
-    public void A_column_the_curtain_wall_really_left_unpanelled_does_not_borrow_the_next_column_s_panel()
-    {
-        // 上一條的反面，也是它的守門：交點落在「整格都沒有嵌板」的那一柱時，不得吸附到鄰格的實板。
-        // grid line 界定的那一格內確實沒有嵌板，這才是決議 7 所稱的間隔——照舊供給 0，證據裡沒有嵌板。
-        var wall = Wall(
-            new[] { Panel("P-left", 30, 2970, 60), Panel("P-right", 6030, 11970, 60) },
-            new[]
-            {
-                Grid("G1", CurtainGridLineDirection.Vertical, 3000),
-                Grid("G2", CurtainGridLineDirection.Vertical, 6000)
-            });
-
-        var junction = Single(Resolve(Set(wall, hosts: new[] { Host(4500) })),
-            CurtainWallJunctionKind.WallToCurtainWall);
-
-        Assert.Equal(0.0, junction.ContinuousFireRatedLengthMm!.Value);
-        Assert.Empty(junction.PanelUniqueIds);
-    }
-
-    [Fact]
-    public void A_continuous_run_is_the_whole_panel_around_the_point_not_half_of_it_each_side()
-    {
-        // 案例 7：交點落在實板右緣，左側 900 mm、右側 0 mm — 採總和，仍然成立。
+        // CW-H 的 junction.panels 自決議 13 起是「交接帶涵蓋的嵌板」而非「被量到的嵌板」：帶長由
+        // 實體外牆供給，但這些嵌板仍要拿來扣 CW-O 並在未符合時塗紅（docs §7.1）。
         var wall = Wall(new[]
         {
-            Panel("P-solid", 4100, 5000, 60),
-            Panel("P-glass", 5000, 9000, 0)
+            Panel("P-in-band", 4100, 4550, 0),
+            Panel("P-outside", 6400, WallLengthMm, 30)
         });
 
-        var junction = Single(Resolve(Set(wall, hosts: new[] { Host(5000) })), CurtainWallJunctionKind.WallToCurtainWall);
+        var junctions = Resolve(Set(wall, hosts: new[] { Host(5000) }, facades: new[] { Facade(4550, 5900) }));
 
-        Assert.Equal(900, junction.ContinuousFireRatedLengthMm!.Value, 3);
-        Assert.False(junction.IsDoubtful);
-    }
+        var junction = Single(junctions, CurtainWallJunctionKind.WallToCurtainWall);
+        Assert.Equal(new[] { "P-in-band" }, junction.PanelUniqueIds);
 
-    [Fact]
-    public void A_panel_below_the_hosts_required_rating_does_not_count_towards_the_run()
-    {
-        // 案例 5：交接帶夠長，但交點所在的實板只有 30 min，達不到區劃牆要求的 60 min。
-        var wall = Wall(new[] { Panel("P-30", 4000, 6000, 30) });
-
-        var junction = Single(Resolve(Set(wall, hosts: new[] { Host(5000) })), CurtainWallJunctionKind.WallToCurtainWall);
-
-        Assert.Equal(0.0, junction.ContinuousFireRatedLengthMm!.Value);
-        Assert.Equal(30, junction.MinFireRating!.Minutes!.Value);
-    }
-
-    [Fact]
-    public void An_unprotected_opening_stops_the_run_where_it_sits()
-    {
-        // 案例 6：交點就在未受防護的可開啟嵌板上。
-        var wall = Wall(new[]
-        {
-            Panel("P-left", 3000, 4550, 60),
-            Panel("P-window", 4550, 5450, 60, isOpening: true, protection: ProvidedFireProtection.No("0")),
-            Panel("P-right", 5450, 7000, 60)
-        });
-
-        var junction = Single(Resolve(Set(wall, hosts: new[] { Host(5000) })), CurtainWallJunctionKind.WallToCurtainWall);
-
-        Assert.Equal(0.0, junction.ContinuousFireRatedLengthMm!.Value);
-        Assert.True(junction.HasUnprotectedOpening);
-    }
-
-    [Fact]
-    public void A_protected_opening_in_the_band_is_not_a_break()
-    {
-        var wall = Wall(new[]
-        {
-            Panel("P-door", 4000, 6000, 60, isOpening: true, protection: ProvidedFireProtection.Yes("1"))
-        });
-
-        var junction = Single(Resolve(Set(wall, hosts: new[] { Host(5000) })), CurtainWallJunctionKind.WallToCurtainWall);
-
-        Assert.Equal(2000, junction.ContinuousFireRatedLengthMm!.Value, 3);
-        Assert.False(junction.HasUnprotectedOpening);
-    }
-
-    [Fact]
-    public void A_panel_the_measurement_looked_at_without_a_rating_withholds_the_run()
-    {
-        // 案例 14／15：不得以其他片推定，也不得填 0 — 不供給，讓引擎判資料不足。
-        var wall = Wall(new[]
-        {
-            Panel("P-rated", 4550, 5000, 60),
-            Panel("P-unset", 5000, 7000, null)
-        });
-
-        var junction = Single(Resolve(Set(wall, hosts: new[] { Host(5000) })), CurtainWallJunctionKind.WallToCurtainWall);
-
-        Assert.Null(junction.ContinuousFireRatedLengthMm);
-        Assert.Equal(ProvidedFireRatingKind.Missing, junction.MinFireRating!.Kind);
-        Assert.Equal(0.0, junction.ProjectionDepthMm!.Value);
+        var other = Single(junctions, CurtainWallJunctionKind.CurtainPanelOther);
+        Assert.Equal(new[] { "P-outside" }, other.PanelUniqueIds);
     }
 
     /// <summary>
-    /// 案例 15：嵌板類別根本沒綁 防火檢討_設計防火時效。The adapter reads that as an absent parameter,
-    /// which is the same 「不知道」 as a blank one — both 90 cm 但書 withhold their measurement rather
-    /// than reading it as 0, so the engine lands on 資料不足 and not 未符合.
+    /// 案例 15：`防火檢討_設計防火時效` 根本沒綁在該類別上。The adapter reads that as an absent
+    /// parameter, which is the same 「不知道」 as a blank one — both 90 cm 但書 withhold their
+    /// measurement rather than reading it as 0, so the engine lands on 資料不足 and not 未符合. CW-H
+    /// reads it off the solid exterior wall and CW-V off the panels, but it is the same parameter and
+    /// the same answer.
     /// </summary>
     [Fact]
-    public void An_unbound_panel_category_withholds_both_the_length_and_the_height()
+    public void An_unbound_fire_rating_parameter_withholds_both_the_length_and_the_height()
     {
         var unbound = ReviewInputAssembler.Rating(ParameterReading.Absent);
         Assert.Equal(ProvidedFireRatingKind.Missing, unbound.Kind);
 
         var horizontal = Single(
-            Resolve(Set(Wall(new[] { Unrated("P-band", 3000, 7000, 0, StoreyMm, unbound) }), hosts: new[] { Host(5000) })),
+            Resolve(Set(Wall(GlazingExcept(4100, 5900)), hosts: new[] { Host(5000) },
+                facades: new[]
+                {
+                    new FacadeWallObservation("W-facade", new Point2D(4100, 0), new Point2D(5900, 0),
+                        0, StoreyMm, "RC 牆 15cm", unbound)
+                })),
             CurtainWallJunctionKind.WallToCurtainWall);
 
         Assert.Null(horizontal.ContinuousFireRatedLengthMm);
@@ -351,74 +408,13 @@ public sealed class CurtainWallJunctionResolverTests
     }
 
     [Fact]
-    public void An_unrated_neighbour_is_a_real_break_and_the_run_still_reports()
-    {
-        // 案例 8c：grid line 一側 60 min 實板、另一側明確無時效的玻璃 — 真實斷點，不是多餘的 grid line。
-        var wall = Wall(
-            new[]
-            {
-                Panel("P-solid", 4550, 5000, 60),
-                Panel("P-glass", 5000, 9000, 0)
-            },
-            new[] { Grid("G-1", CurtainGridLineDirection.Vertical, 5000) });
-
-        var junction = Single(Resolve(Set(wall, hosts: new[] { Host(5000) })), CurtainWallJunctionKind.WallToCurtainWall);
-
-        Assert.False(junction.IsDoubtful);
-        Assert.Equal(450, junction.ContinuousFireRatedLengthMm!.Value, 3);
-    }
-
-    [Fact]
-    public void A_band_split_by_a_grid_line_with_both_sides_rated_is_manual_review()
-    {
-        // 案例 8：兩側皆 60 min，合計已達 900 mm — 疑似多餘的 grid line，訊息要帶出它的 ElementId。
-        var wall = Wall(
-            new[]
-            {
-                Panel("P-a", 4550, 5000, 60),
-                Panel("P-b", 5000, 5450, 60)
-            },
-            new[] { Grid("G-1", CurtainGridLineDirection.Vertical, 5000) });
-
-        var junction = Single(Resolve(Set(wall, hosts: new[] { Host(5000) })), CurtainWallJunctionKind.WallToCurtainWall);
-
-        Assert.True(junction.IsDoubtful);
-        Assert.Equal(CurtainWallJunctionDoubtKind.SplitByGridLine, junction.Doubt!.Kind);
-        Assert.Equal(ReviewStatus.ManualReview, junction.Doubt.Status);
-        Assert.Contains("G-1", junction.Doubt.Message);
-        Assert.Contains("G-1", junction.Doubt.SubjectUniqueIds);
-    }
-
-    [Fact]
-    public void Deleting_the_redundant_grid_line_makes_the_same_band_measure()
-    {
-        // 案例 8b：同一處，嵌板連續之後就是單純的 900 mm。
-        var wall = Wall(new[] { Panel("P-one", 4550, 5450, 60) });
-
-        var junction = Single(Resolve(Set(wall, hosts: new[] { Host(5000) })), CurtainWallJunctionKind.WallToCurtainWall);
-
-        Assert.False(junction.IsDoubtful);
-        Assert.Equal(900, junction.ContinuousFireRatedLengthMm!.Value, 3);
-    }
-
-    [Fact]
-    public void A_run_cut_short_by_the_curtain_walls_own_end_is_not_supplied()
-    {
-        // 立面在這裡接到另一片牆，工具沒讀到它 — 那是不知道，不是不足。
-        var wall = Wall(new[] { Panel("P-end", 0, 600, 60) });
-
-        var junction = Single(Resolve(Set(wall, hosts: new[] { Host(300) })), CurtainWallJunctionKind.WallToCurtainWall);
-
-        Assert.Null(junction.ContinuousFireRatedLengthMm);
-    }
-
-    [Fact]
     public void The_clause_the_compartment_comes_from_is_carried_through()
     {
         // 案例 9：第83條所生的區劃牆，證據要分得出來（docs §2.5）。
         var junction = Single(
-            Resolve(Set(Wall(new[] { Panel("P", 4100, 5900, 60) }),
-                hosts: new[] { Host(5000, reference: CurtainWallJunctionReferences.Article83) })),
+            Resolve(Set(Wall(GlazingExcept(4100, 5900)),
+                hosts: new[] { Host(5000, reference: CurtainWallJunctionReferences.Article83) },
+                facades: new[] { Facade(4100, 5900) })),
             CurtainWallJunctionKind.WallToCurtainWall);
 
         Assert.Equal(CurtainWallJunctionReferences.Article83, junction.HostLegalReference);
@@ -426,10 +422,11 @@ public sealed class CurtainWallJunctionResolverTests
     }
 
     [Fact]
-    public void A_host_with_no_required_rating_withholds_the_run_rather_than_counting_panels()
+    public void A_host_with_no_required_rating_withholds_the_run_rather_than_measuring_the_facade()
     {
         var junction = Single(
-            Resolve(Set(Wall(new[] { Panel("P", 4100, 5900, 60) }), hosts: new[] { Host(5000, required: null) })),
+            Resolve(Set(Wall(GlazingExcept(4100, 5900)), hosts: new[] { Host(5000, required: null) },
+                facades: new[] { Facade(4100, 5900) })),
             CurtainWallJunctionKind.WallToCurtainWall);
 
         Assert.Null(junction.ContinuousFireRatedLengthMm);
@@ -506,6 +503,110 @@ public sealed class CurtainWallJunctionResolverTests
         var junction = Single(Resolve(SpandrelSet(panels)), CurtainWallJunctionKind.FloorToCurtainWall);
 
         Assert.Equal(300, junction.ContinuousFireRatedHeightMm!.Value, 3);
+    }
+
+    [Fact]
+    public void A_band_split_by_a_grid_line_with_both_sides_rated_is_manual_review()
+    {
+        // 案例 8：樓板上下各 450 mm 的實板都是 60 min，合計已達 900 mm，中間卻有一條水平 grid line。
+        // 工具不跨越 grid line 累積（§4.1），所以這裡不判符合，而是指出那條線要使用者確認是否為
+        // 真實構造斷點。案例 8b（刪掉它、嵌板連續後量得 900 mm）就是本節第一條測試。
+        var set = SpandrelSet(
+            new[]
+            {
+                Panel("S-low", 0, WallLengthMm, 60, bottom: StoreyMm - 450, top: StoreyMm),
+                Panel("S-high", 0, WallLengthMm, 60, bottom: StoreyMm, top: StoreyMm + 450),
+                Panel("G-low", 0, WallLengthMm, 0, bottom: 0, top: StoreyMm - 450),
+                Panel("G-high", 0, WallLengthMm, 0, bottom: StoreyMm + 450, top: StoreyMm * 2)
+            },
+            gridLines: new[] { Grid("G-1", CurtainGridLineDirection.Horizontal, StoreyMm) });
+
+        var junction = Single(Resolve(set), CurtainWallJunctionKind.FloorToCurtainWall);
+
+        Assert.True(junction.IsDoubtful);
+        Assert.Equal(CurtainWallJunctionDoubtKind.SplitByGridLine, junction.Doubt!.Kind);
+        Assert.Equal(ReviewStatus.ManualReview, junction.Doubt.Status);
+        Assert.Contains("G-1", junction.Doubt.Message);
+        Assert.Contains("層間帶", junction.Doubt.Message);
+        Assert.Contains("G-1", junction.Doubt.SubjectUniqueIds);
+    }
+
+    [Fact]
+    public void An_unrated_neighbour_is_a_real_break_and_the_band_still_reports()
+    {
+        // 案例 8c：grid line 一側是 60 min 實板、另一側是明確無時效的玻璃 — 真實斷點，不是多餘的
+        // grid line，依實測的 450 mm 判定。
+        var set = SpandrelSet(
+            new[]
+            {
+                Panel("S-low", 0, WallLengthMm, 60, bottom: StoreyMm - 450, top: StoreyMm),
+                Panel("G-low", 0, WallLengthMm, 0, bottom: 0, top: StoreyMm - 450),
+                Panel("G-high", 0, WallLengthMm, 0, bottom: StoreyMm, top: StoreyMm * 2)
+            },
+            gridLines: new[] { Grid("G-1", CurtainGridLineDirection.Horizontal, StoreyMm) });
+
+        var junction = Single(Resolve(set), CurtainWallJunctionKind.FloorToCurtainWall);
+
+        Assert.False(junction.IsDoubtful);
+        Assert.Equal(450, junction.ContinuousFireRatedHeightMm!.Value, 3);
+    }
+
+    [Fact]
+    public void An_unprotected_opening_stops_the_band_where_it_sits()
+    {
+        // 案例 6：取樣點就落在未受防護的可開啟嵌板上 — 累積在開口處中斷。
+        var set = SpandrelSet(new[]
+        {
+            Panel("W-window", 0, WallLengthMm, 60, bottom: StoreyMm - 450, top: StoreyMm + 450,
+                isOpening: true, protection: ProvidedFireProtection.No("0")),
+            Panel("G-low", 0, WallLengthMm, 0, bottom: 0, top: StoreyMm - 450),
+            Panel("G-high", 0, WallLengthMm, 0, bottom: StoreyMm + 450, top: StoreyMm * 2)
+        });
+
+        var junction = Single(Resolve(set), CurtainWallJunctionKind.FloorToCurtainWall);
+
+        Assert.Equal(0.0, junction.ContinuousFireRatedHeightMm!.Value);
+        Assert.True(junction.HasUnprotectedOpening);
+    }
+
+    [Fact]
+    public void A_protected_opening_in_the_band_is_not_a_break()
+    {
+        var set = SpandrelSet(new[]
+        {
+            Panel("W-door", 0, WallLengthMm, 60, bottom: StoreyMm - 450, top: StoreyMm + 450,
+                isOpening: true, protection: ProvidedFireProtection.Yes("1")),
+            Panel("G-low", 0, WallLengthMm, 0, bottom: 0, top: StoreyMm - 450),
+            Panel("G-high", 0, WallLengthMm, 0, bottom: StoreyMm + 450, top: StoreyMm * 2)
+        });
+
+        var junction = Single(Resolve(set), CurtainWallJunctionKind.FloorToCurtainWall);
+
+        Assert.Equal(900, junction.ContinuousFireRatedHeightMm!.Value, 3);
+        Assert.False(junction.HasUnprotectedOpening);
+    }
+
+    [Fact]
+    public void A_band_cut_short_by_the_curtain_walls_own_top_is_not_supplied()
+    {
+        // 立面在這裡接到另一片牆，工具沒讀到它 — 那是不知道，不是不足。CW-H 自決議 13 起不受這一條
+        // 影響：實體外牆是獨立元素，延伸到帷幕牆之外的那一段照樣讀得到。
+        var floor = new CompartmentFloorObservation("F1",
+            new[] { Rectangle(-500, -50, WallLengthMm + 500, 8000) }, StoreyMm, 60);
+        var panels = new[]
+        {
+            Panel("G-low", 0, WallLengthMm, 0, bottom: 0, top: StoreyMm - 300),
+            Panel("S-top", 0, WallLengthMm, 60, bottom: StoreyMm - 300, top: StoreyMm + 450)
+        };
+        var set = new CurtainWallObservationSet(Package, "LVL", "2F", StoreyMm,
+            new[] { Zone() },
+            new[] { Wall(panels, top: StoreyMm + 450) },
+            compartmentFloors: new[] { floor },
+            levelElevationsMm: new[] { 0.0, StoreyMm });
+
+        var junction = Single(Resolve(set), CurtainWallJunctionKind.FloorToCurtainWall);
+
+        Assert.Null(junction.ContinuousFireRatedHeightMm);
     }
 
     [Fact]
@@ -731,25 +832,29 @@ public sealed class CurtainWallJunctionResolverTests
         new[] { Panel("P-glass", 0, WallLengthMm, 0, top: top) };
 
     /// <summary>
-    /// 下面帷幕牆與上面帷幕牆，中間留出 <paramref name="bottomMm"/>–<paramref name="topMm"/> 的間隔：
-    /// 決議 7 的實體牆防火帶就建在這一段裡。兩段都是不具時效的玻璃，帶長只能來自填入的牆。
+    /// 立面上 <paramref name="startMm"/>–<paramref name="endMm"/> 這一段不鋪嵌板，其餘為不具時效的
+    /// 玻璃：§4.2「建模要求」講的就是這個樣子——交接帶那一柱留空，改以實體外牆表達。
     /// </summary>
-    private static IReadOnlyList<CurtainPanelObservation> GapAt(double bottomMm, double topMm) =>
+    private static IReadOnlyList<CurtainPanelObservation> GlazingExcept(
+        double startMm, double endMm, double bottom = 0, double top = StoreyMm) =>
         new[]
         {
-            Panel("P-low", 0, WallLengthMm, 0, bottom: 0, top: bottomMm),
-            Panel("P-high", 0, WallLengthMm, 0, bottom: topMm, top: StoreyMm)
+            Panel("P-glass-left", 0, startMm, 0, bottom: bottom, top: top),
+            Panel("P-glass-right", endMm, WallLengthMm, 0, bottom: bottom, top: top)
         };
 
-    /// <summary>The real opaque wall built into that gap, reaching the curtain wall from inside.</summary>
-    private static CompartmentWallObservation Band(
-        double atMm,
-        double bottomMm,
-        double topMm,
-        ProvidedFireRating? rating = null) =>
-        new("W-band", new Point2D(atMm, 3000), new Point2D(atMm, -50), bottomMm, topMm,
-            CurtainWallJunctionReferences.Article79, 60, "RC 牆 15cm",
-            rating ?? ProvidedFireRating.Rated(60, "60"));
+    /// <summary>
+    /// 一道躺在帷幕牆定位面內（y = 0，沿 x 走）的實體外牆：決議 13 起 CW-H 的但書長度由它供給。
+    /// </summary>
+    private static FacadeWallObservation Facade(
+        double startMm,
+        double endMm,
+        double? minutes = 60,
+        double bottom = 0,
+        double top = StoreyMm,
+        string uniqueId = "W-facade") =>
+        new(uniqueId, new Point2D(startMm, 0), new Point2D(endMm, 0), bottom, top, "RC 牆 15cm",
+            minutes is double m ? ProvidedFireRating.Rated(m, m.ToString("0")) : ProvidedFireRating.Missing("參數值為空白"));
 
     private static CurtainWallObservation Wall(
         IEnumerable<CurtainPanelObservation> panels,
@@ -770,8 +875,9 @@ public sealed class CurtainWallJunctionResolverTests
     private static CurtainWallObservationSet Set(
         CurtainWallObservation wall,
         IEnumerable<CompartmentWallObservation>? hosts = null,
-        IEnumerable<CompartmentFloorObservation>? floors = null) =>
-        new(Package, "LVL", "1F", 0, new[] { Zone() }, new[] { wall }, hosts, floors,
+        IEnumerable<CompartmentFloorObservation>? floors = null,
+        IEnumerable<FacadeWallObservation>? facades = null) =>
+        new(Package, "LVL", "1F", 0, new[] { Zone() }, new[] { wall }, hosts, floors, facades,
             new[] { 0.0, StoreyMm });
 
     /// <summary>
@@ -793,14 +899,15 @@ public sealed class CurtainWallJunctionResolverTests
     private static CurtainWallObservationSet SpandrelSet(
         IReadOnlyList<CurtainPanelObservation> panels,
         double? required = 60,
-        double slabEdgeMm = 50)
+        double slabEdgeMm = 50,
+        IEnumerable<CurtainGridLineObservation>? gridLines = null)
     {
         var floor = new CompartmentFloorObservation("F1",
             new[] { Rectangle(-500, -slabEdgeMm, WallLengthMm + 500, 8000) }, StoreyMm, required);
 
         return new CurtainWallObservationSet(Package, "LVL", "2F", StoreyMm,
             new[] { Zone() },
-            new[] { Wall(panels, top: StoreyMm * 2) },
+            new[] { Wall(panels, gridLines, top: StoreyMm * 2) },
             compartmentFloors: new[] { floor },
             levelElevationsMm: new[] { 0.0, StoreyMm, StoreyMm * 2 });
     }

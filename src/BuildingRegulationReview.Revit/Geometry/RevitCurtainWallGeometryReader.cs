@@ -15,9 +15,10 @@ namespace BuildingRegulationReview.Revit.Geometry;
 
 /// <summary>
 /// P3 步驟 4: reads the curtain walls of one package's storey — their location line, outward face,
-/// panels and grid lines — plus the 區劃牆 and 區劃樓地板 the caller named, and hands it all over as
-/// plain data (docs/regulations/curtain-wall-fire-compartment.md §4.1–§4.3). Read-only: no
-/// transaction, no change to the model.
+/// panels and grid lines — plus the 區劃牆 and 區劃樓地板 the caller named and the solid exterior walls
+/// standing in those curtain walls' planes, and hands it all over as plain data
+/// (docs/regulations/curtain-wall-fire-compartment.md §4.1–§4.3). Read-only: no transaction, no change
+/// to the model.
 /// </summary>
 /// <remarks>
 /// It converts and nothing else. Every judgement — where a compartment wall crosses, how far a run
@@ -115,6 +116,7 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
             curtainWalls,
             compartmentWalls,
             compartmentFloors,
+            ReadFacadeWalls(curtainWalls, request, storey, warnings),
             levels,
             warnings));
     }
@@ -267,9 +269,9 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
             if (element is null) continue;
 
             // 貼在讀取範圍邊界上的嵌板要留下來，因為它就是收邊的那一片。外擴量是 MinFireRatedRunMm
-            // （900 mm），與防火帶的高度同一個數：一道貼齊樓層底面的 900 mm 帶，其下方收邊嵌板的頂端
-            // 必然正好落在 storey.Bottom 上。沒有公差的話這是一個浮點數等值比較，帶看不看得見取決於
-            // 進位——決議 7 的實體牆防火帶因此在最常見的建法上讀不到下段帷幕牆（docs §9）。
+            // （900 mm），與 90 cm 帶的高度同一個數：一道貼齊樓層底面的 900 mm 帶，其下方收邊嵌板的
+            // 頂端必然正好落在 storey.Bottom 上。沒有公差的話這是一個浮點數等值比較，層間帶看不看得見
+            // 取決於進位。
             var box = element.get_BoundingBox(null);
             if (box is not null &&
                 (box.Max.Z <= storey.Bottom - SnapFeet || box.Min.Z >= storey.Top + SnapFeet)) continue;
@@ -396,6 +398,111 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
         return lines;
     }
 
+    // --- 立面內的實體外牆（docs §4.2「交接處之外牆面」、決議 13）---------------------------------
+
+    /// <summary>
+    /// The solid exterior walls standing in the curtain walls' own planes: what supplies the 900 mm of
+    /// 交接處之外牆面 the 但書 of 第79條第3項 asks for. A non-curtain straight wall whose location line
+    /// lies in some curtain wall's plane and whose elevations reach into the read range, with its
+    /// type's 設計防火時效 as it reads.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A wall that is both a 區劃牆 and a solid exterior wall is recorded in both lists: the two roles
+    /// do not exclude each other, and a 區劃牆 lying along the façade really is a piece of it. The
+    /// ordinary 區劃牆 runs perpendicular to the elevation and therefore never gets in here — which is
+    /// the point of 決議 13, because answering the 但書 with the compartment wall's own rating would let
+    /// any rated wall butted against glazing exempt itself and hollow out 第79條第4項.
+    /// </para>
+    /// <para>
+    /// <see cref="CurtainWallObservation.IsInFacadePlane"/> is the prefilter here and the association
+    /// in the resolver — one predicate, so the adapter cannot hand over a wall the resolver then
+    /// refuses to look at, or drop one it would have counted.
+    /// </para>
+    /// </remarks>
+    private List<FacadeWallObservation> ReadFacadeWalls(
+        IReadOnlyList<CurtainWallObservation> curtainWalls,
+        CurtainWallReadRequest request,
+        (double Bottom, double Top) storey,
+        List<string> warnings)
+    {
+        var facades = new List<FacadeWallObservation>();
+        var planes = curtainWalls.Where(c => c.IsPlanar).ToList();
+        if (planes.Count == 0) return facades;
+
+        // 「嵌板為牆」的嵌板本身就是一片 Wall，沒有 CurtainGrid，而且必然躺在帷幕牆的定位面內——
+        // 不排掉它，它會同時以嵌板和實體外牆兩個身分出現，每個交接處都自己跟自己重疊而判人工覆核。
+        var panelWalls = CurtainPanelUniqueIds();
+
+        foreach (var wall in Collect<Wall>(BuiltInCategory.OST_Walls).Where(w => w.CurtainGrid is null))
+        {
+            if (panelWalls.Contains(wall.UniqueId)) continue;
+            if (!(wall.Location is LocationCurve location) || !(location.Curve is Line line)) continue;
+
+            var box = wall.get_BoundingBox(null);
+            if (box is null) continue;
+            if (box.Max.Z <= storey.Bottom || box.Min.Z >= storey.Top) continue;
+
+            var start = ToMillimeters(line.GetEndPoint(0));
+            var end = ToMillimeters(line.GetEndPoint(1));
+            if (!planes.Any(c => c.IsInFacadePlane(start, end))) continue;
+
+            var type = wall.WallType as ElementType;
+            var rating = ReviewInputAssembler.Rating(
+                RevitReviewParameterReader.ReadingOf(type?.LookupParameter(FireRatingParameters.Provided)),
+                request.BareNumberUnit);
+
+            try
+            {
+                facades.Add(new FacadeWallObservation(
+                    wall.UniqueId,
+                    start,
+                    end,
+                    PlanUnits.FeetToMillimeters(box.Min.Z),
+                    PlanUnits.FeetToMillimeters(box.Max.Z),
+                    type?.Name,
+                    rating));
+            }
+            catch (ArgumentException exception)
+            {
+                warnings.Add($"立面內的實體外牆（Id {wall.Id}）的幾何無法解析（{exception.Message}），已略過，該處交接帶將不計入其長度。");
+            }
+        }
+
+        return facades;
+    }
+
+    /// <summary>
+    /// Every element that is a panel of some curtain grid, whatever storey it is on: the set a wall
+    /// has to stay out of to count as a solid exterior wall of its own. Read from the grids rather
+    /// than from what this run observed, because a panel skipped for any reason — outside the read
+    /// range, unreadable size — is still a panel and must not come back as a façade wall.
+    /// </summary>
+    private HashSet<string> CurtainPanelUniqueIds()
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var grid in Collect<Wall>(BuiltInCategory.OST_Walls)
+                     .Select(w => w.CurtainGrid)
+                     .Where(g => g is not null)
+                     .Concat(CollectOfClass<CurtainSystem>().SelectMany(Grids)))
+        {
+            foreach (var id in grid!.GetPanelIds())
+            {
+                var element = _document.GetElement(id);
+                if (element is not null) ids.Add(element.UniqueId);
+            }
+        }
+
+        return ids;
+    }
+
+    private static IEnumerable<CurtainGrid> Grids(CurtainSystem system)
+    {
+        foreach (CurtainGrid grid in system.CurtainGrids)
+            if (grid is not null) yield return grid;
+    }
+
     // --- compartment boundaries ----------------------------------------------------------------
 
     private CompartmentWallObservation? ReadCompartmentWall(Wall wall, CurtainWallReadRequest request, List<string> warnings)
@@ -413,12 +520,8 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
             return null;
         }
 
-        // 型別的設計防火時效：只有這道牆本身就是上下帷幕牆之間那道實體牆防火帶時才用得到（決議 7）。
-        var type = wall.WallType as ElementType;
-        var providedRating = ReviewInputAssembler.Rating(
-            RevitReviewParameterReader.ReadingOf(type?.LookupParameter(FireRatingParameters.Provided)),
-            request.BareNumberUnit);
-
+        // 這道牆自己的設計防火時效不讀：CW-H 的但書只認立面內的實體外牆（決議 13）。躺在立面上的
+        // 區劃牆會由 ReadFacadeWalls 另外登錄一次，時效隨那個身分讀。
         return new CompartmentWallObservation(
             wall.UniqueId,
             ToMillimeters(line.GetEndPoint(0)),
@@ -427,8 +530,7 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
             PlanUnits.FeetToMillimeters(box.Max.Z),
             request.LegalReferenceOf(wall.UniqueId),
             request.RequiredRatingOf(wall.UniqueId),
-            type?.Name,
-            providedRating);
+            (wall.WallType as ElementType)?.Name);
     }
 
     private CompartmentFloorObservation ReadCompartmentFloor(Element floor, CurtainWallReadRequest request, List<string> warnings)

@@ -1267,12 +1267,15 @@ public sealed class FireReviewIntegrationTests
 
             var zone = new CurtainWallZoneObservation(ZoneA, "A 區",
                 new[] { Loop(-2000, 1, WallMm + 2000, 20000) });
+            // 交接帶（交點 5000 左右各 900 mm）那一段立面不鋪嵌板，改以一道實體外牆表達——決議 13
+            // 起 CW-H 的但書長度只由它供給（帷幕牆規格 §4.2「建模要求」）。4000–4500 留一片實板，
+            // 它落在帶內：帶內嵌板要從 第79條之4 扣掉，也要在未符合時被標示（§7.1）。
             var wall = new CurtainWallObservation("CW-right", new Point2D(0, 0), new Point2D(WallMm, 0),
                 new Point2D(0, -1), OffsetMm, 0, StoreyMm,
                 new[]
                 {
                     Panel("P-glass-left", 0, 4000, 30),
-                    Panel("P2-panel", 4000, 6000, _bandMinutes),
+                    Panel("P2-panel", 4000, 4500, _bandMinutes),
                     Panel("P-glass-right", 6000, WallMm, 30)
                 },
                 typeName: "帷幕牆");
@@ -1281,8 +1284,13 @@ public sealed class FireReviewIntegrationTests
                 new Point2D(5000, 3000), new Point2D(5000, -OffsetMm), 0, StoreyMm,
                 request.LegalReferenceOf("W1-bottom"), request.RequiredRatingOf("W1-bottom"));
 
+            var facade = new FacadeWallObservation("W-facade", new Point2D(4500, 0), new Point2D(6000, 0),
+                0, StoreyMm, "RC 牆 15cm",
+                ProvidedFireRating.Rated(_bandMinutes, _bandMinutes.ToString("0")));
+
             return Result.Success(new CurtainWallObservationSet(request.PackageId, "level-1F", "1F", 0,
-                new[] { zone }, new[] { wall }, new[] { host }, levelElevationsMm: new[] { 0.0, StoreyMm }));
+                new[] { zone }, new[] { wall }, new[] { host }, facadeWalls: new[] { facade },
+                levelElevationsMm: new[] { 0.0, StoreyMm }));
         }
 
         private static CurtainPanelObservation Panel(string uniqueId, double startMm, double endMm, double minutes) =>

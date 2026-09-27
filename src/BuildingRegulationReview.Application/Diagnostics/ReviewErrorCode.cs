@@ -103,6 +103,7 @@ public static class ReviewErrorCode
     public const string CurtainWallJunctionUnresolved = "BCR-CW-002";
     public const string CurtainWallJunctionSplitByGridLine = "BCR-CW-003";
     public const string CurtainWallVerticalSpace = "BCR-CW-004";
+    public const string CurtainWallFacadeOverlapsPanel = "BCR-CW-005";
 
     // 人工覆寫（spec 11.8）
     public const string OverrideRejected = "BCR-OVR-001";
