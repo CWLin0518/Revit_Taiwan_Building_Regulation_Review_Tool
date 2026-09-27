@@ -129,6 +129,15 @@ public sealed class RuleFieldCatalog
             new RuleFieldDefinition("zone.linksRefugeFloor", boolean,
                 "第3項第一款：本挑空是否為避難層通達其直上層或直下層者", all),
 
+            // 第79條之1「無法區劃分隔部分」（docs/regulations/article-79-1-area-exemption.md §5.2）。
+            // 與上面兩個欄位完全同一類：Area 實體上、只有設計者能宣告的事實，沒有任何規則讀它
+            // （第79條之1 是分類而不是要求，判定寫在 Article79_1Exemption.For 這個純計算裡，決議 1），
+            // 但仍要進白名單，因為組裝層會把整份 zone.* 輸入 ApplyTo 到每個受檢主體。也因為
+            // NeededBy 是規則驅動的，它不會變成前置檢查的阻擋項——沒有觀眾席、生產線、教室、
+            // 體育館、零售市場、停車空間的專案不必綁（決議 9）。
+            new RuleFieldDefinition("zone.cannotBeSubdivided", boolean,
+                "第79條之1：本區劃是否為無法區劃分隔部分", all),
+
             new RuleFieldDefinition("element.category", text, "構件類別（Walls／Columns／StructuralFraming／Floors）", element),
             new RuleFieldDefinition("element.typeName", text, "構件 Type 名稱", element),
             new RuleFieldDefinition("element.isCompartmentBoundary", boolean, "是否構成區劃邊界", element),

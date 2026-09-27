@@ -102,6 +102,13 @@ public static class ReviewInputSources
     /// <summary>挑空是否避難層通達其直上層或直下層（第79條之2第3項第一款）。同上，只有挑空需要填。</summary>
     public const string LinksRefugeFloor = "防火檢討_避難層通達";
 
+    /// <summary>
+    /// 本區劃是否為建築物構造或設備上無法區劃分隔之部分（第79條之1）。同上，沒有任何規則讀它——
+    /// 判定寫在 <see cref="Checks.Article79_1Exemption"/>（第79條之1規格 §6、決議 1、9）。只有
+    /// 觀眾席、生產線、教室、體育館、零售市場、停車空間需要填。
+    /// </summary>
+    public const string CannotBeSubdivided = "防火檢討_無法區劃分隔";
+
     public static readonly IReadOnlyList<ReviewParameterHost> MemberHosts = new ReadOnlyCollection<ReviewParameterHost>(new[]
     {
         ReviewParameterHost.Walls, ReviewParameterHost.Columns, ReviewParameterHost.StructuralFraming,
@@ -150,7 +157,13 @@ public static class ReviewInputSources
         // leaves them out of the pre-review check on purpose: a project with no 挑空 must still be
         // able to start a review without binding them (決議 27).
         new ReviewInputSource("zone.spannedFloors", SpannedFloors, ReviewParameterLevel.Instance, "挑空連跨樓層數", ReviewParameterHost.Areas),
-        new ReviewInputSource("zone.linksRefugeFloor", LinksRefugeFloor, ReviewParameterLevel.Instance, "挑空是否避難層通達其直上層或直下層", ReviewParameterHost.Areas)
+        new ReviewInputSource("zone.linksRefugeFloor", LinksRefugeFloor, ReviewParameterLevel.Instance, "挑空是否避難層通達其直上層或直下層", ReviewParameterHost.Areas),
+
+        // 第79條之1 之無法區劃分隔部分 (第79條之1規格 §6). Same shape and same reason as the two
+        // above: an Area instance fact only the designer can state, read by no rule, and therefore
+        // left out of NeededBy so a project with none of the six 區劃用途 can still start a review
+        // without binding it (決議 9).
+        new ReviewInputSource("zone.cannotBeSubdivided", CannotBeSubdivided, ReviewParameterLevel.Instance, "是否為無法區劃分隔之部分", ReviewParameterHost.Areas)
     });
 
     public static ReviewInputSource? For(string field) =>

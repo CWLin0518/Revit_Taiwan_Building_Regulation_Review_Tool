@@ -1,0 +1,6 @@
+# 共用參數主檔是 Big5／cp950 ＋ CRLF：Revit 的 DefinitionFile parser 以 OS ANSI codepage 讀取，
+# 換行也要是 CRLF。-text 讓 git 逐位元組存放、逐位元組取出，不論 clone 的人 core.autocrlf 設成
+# 什麼、在哪個平台簽出，拿到的都是 Revit 要的那個檔。
+# 見 docs/regulations/article-79-1-area-exemption.md §6 與
+# tests/BuildingRegulationReview.Core.Tests/Parameters/SharedParameterFileTests.cs。
+assets/SharedParameters/*.txt -text

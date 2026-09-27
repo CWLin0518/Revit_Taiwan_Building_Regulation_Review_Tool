@@ -438,7 +438,7 @@
 | --- | --- | --- |
 | 0 | 設計（本文件） | **已完成** |
 | 1 | `ZoneUses` 六個用字與類組對照、`Article79_1Exemption` 純計算與其測試 | **已完成** |
-| 2 | 參數層：`防火檢討_無法區劃分隔`、`zone.cannotBeSubdivided` 白名單、`ReviewCheckTypes.AreaExemption`、`ReviewParameterSnapshot` 讀取 | 未開始 |
+| 2 | 參數層：`防火檢討_無法區劃分隔`、`zone.cannotBeSubdivided` 白名單、`ReviewCheckTypes.AreaExemption`、`ReviewParameterSnapshot` 讀取 | **已完成** |
 | 3 | 檢查層與接線：`Article79_1ExemptionCheck`、`FireReviewRunner`、`ReviewTable` 新列 | 未開始 |
 | 4 | 參數面板：下拉六個新用字、「無法區劃分隔」欄、「適用上限」文字 | 未開始 |
 
@@ -454,3 +454,41 @@
   全套 1528 通過。`Article_79_1_does_not_reach_the_eleventh_storey` 目前只驗規則引擎那一半
   （第 12 層由 `tw-bcr-83-area` 作答）；「不產生主體」那一半要等步驟 3 的 Check。
 - 尚未接線：`Article79_1Exemption` 目前沒有任何呼叫端，判定不會出現在檢討表上。
+
+### 步驟 2 的實際產出
+
+四件事全部落地，**仍然沒有任何呼叫端**——檢討表上還是看不到第 79 條之 1，這一輪只是讓那個事實
+填得進去、讀得出來。
+
+- `assets/SharedParameters/fire-review-shared-params.txt`：新增
+  `防火檢討_無法區劃分隔`（YESNO、GROUP 1、GUID `…0012`），描述文字如 §6。檔案維持
+  Big5／cp950 ＋ CRLF、無 BOM。
+- `RuleFieldCatalog`：`zone.cannotBeSubdivided`（Boolean、全類別開放）。
+- `ReviewCheckTypes.AreaExemption = "AreaExemption"`；`RuleCategory` 一個成員都沒加。
+- `ReviewInputSources.CannotBeSubdivided` 與 `All` 的一列（Instance、Areas）。
+
+**`ReviewParameterSnapshot` 一行都不必改。** `ReviewInputAssembler.Assemble` 是走
+`ReviewInputSources.All` 的泛型迴圈，只要欄位在白名單、來源在 `All`，區劃輸入就自動帶進來，
+一區劃多 Area 填不一致時也自動走 `ReviewInput.Unreadable` 那條既有路徑（與
+`防火檢討_避難層通達` 同一條）。Revit 端的 `RevitReviewParameterReader` 同理，它讀的是
+`ReviewInputSources.ParameterNames`。§8 的表把這一列寫成「擴充」是設計時的預估，實際上不需要。
+
+測試 14 條，全套 **1542 通過**（基線 1528）：
+
+- **新檔** `tests/BuildingRegulationReview.Core.Tests/Parameters/Article79_1ParameterTests.cs`（9 條）：
+  白名單欄位是 Boolean 且全類別開放、`FieldsUsedBy`／`NeededBy` 都沒有它（決議 9 的守門）、
+  參數來源是 Areas 的 Instance 參數、讀進區劃輸入、未勾選讀成 `否`、未綁定什麼都不供給、
+  同一區劃多 Area 不一致 → `Unreadable`、一致 → 一個事實、
+  `The_review_gains_a_check_type_but_no_rule_category`（決議 8）。
+- **新檔** `tests/BuildingRegulationReview.Core.Tests/Parameters/SharedParameterFileTests.cs`（5 條）：
+  共用參數檔逐位元組驗——沒有 BOM、不是合法 UTF-8（所以還是 ANSI）、全檔 CRLF、新參數的
+  GUID／型別／群組／描述、16 條 PARAM 且 GUID 與名稱都不重複。測試專案的 `.csproj` 因此把
+  這個檔複製到輸出的 `Assets/`。**這個檔沒有 cp950 解碼器可用**（net10.0 不內建、
+  `System.Text.Encoding.CodePages` 不在快取裡），所以中文片語以 Big5 位元組的十六進位常數寫死，
+  用 Latin-1 當位元組↔字元的恆等映射來比對。
+
+- **新檔** `.gitattributes`：`assets/SharedParameters/*.txt -text`。寫這條的原因是驗到的：
+  這個 repo 的 `core.autocrlf=true`，所以共用參數檔在 HEAD 裡其實一直是 LF，工作區的 CRLF 是
+  簽出時還原出來的——換一台 `core.autocrlf=false` 的機器或在非 Windows 上簽出就會拿到 LF。
+  `-text` 讓 git 逐位元組存放，§6 的「不得改變換行」從此由 repo 宣告，而不是靠設定值的巧合。
+  這一輪因此把該檔重新正規化過一次（diff 上是 27 刪 28 增，內容只多了一行）。

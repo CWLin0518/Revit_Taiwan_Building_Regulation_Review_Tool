@@ -25,6 +25,14 @@ public static class ReviewCheckTypes
 
     /// <summary>垂直區劃之遮煙性能與管道間維修門時效（第79條之2）.</summary>
     public const string VerticalCompartment = "VerticalCompartment";
+
+    /// <summary>
+    /// 區劃面積上限的免除（第79條之1之無法區劃分隔部分）。不是 <see cref="RuleCategory"/>：本檢討
+    /// 不走規則引擎，零規則的類別會讓 <c>Evaluate</c> 回一句誤導的「規則集沒有這個類別的規則」
+    /// （docs/regulations/article-79-1-area-exemption.md §5.1、決議 8）。名稱取 AreaExemption 而非
+    /// Article79_1，是為了讓第79條之2第3項的挑空免除將來能搬進同一個檢討類型（決議 8a）。
+    /// </summary>
+    public const string AreaExemption = "AreaExemption";
 }
 
 /// <summary>How Revit's Area and the measured boundary compared (spec 11.4 step 2).</summary>
