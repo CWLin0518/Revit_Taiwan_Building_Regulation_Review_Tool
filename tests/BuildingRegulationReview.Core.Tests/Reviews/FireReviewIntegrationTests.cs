@@ -1250,11 +1250,13 @@ public sealed class FireReviewIntegrationTests
 
         private readonly double _bandMinutes;
         private readonly Error? _failure;
+        private readonly bool _split;
 
-        public CurtainWalls(double bandMinutes = 60, Error? failure = null)
+        public CurtainWalls(double bandMinutes = 60, Error? failure = null, bool split = false)
         {
             _bandMinutes = bandMinutes;
             _failure = failure;
+            _split = split;
         }
 
         /// <summary>What the run asked for: the hosts, their required ratings and their clauses.</summary>
@@ -1267,6 +1269,9 @@ public sealed class FireReviewIntegrationTests
 
             var zone = new CurtainWallZoneObservation(ZoneA, "A 區",
                 new[] { Loop(-2000, 1, WallMm + 2000, 20000) });
+
+            if (_split) return Result.Success(Split(request, zone));
+
             // 交接帶（交點 5000 左右各 900 mm）那一段立面不鋪嵌板，改以一道實體外牆表達——決議 13
             // 起 CW-H 的但書長度只由它供給（帷幕牆規格 §4.2「建模要求」）。4000–4500 留一片實板，
             // 它落在帶內：帶內嵌板要從 第79條之4 扣掉，也要在未符合時被標示（§7.1）。
@@ -1291,6 +1296,32 @@ public sealed class FireReviewIntegrationTests
             return Result.Success(new CurtainWallObservationSet(request.PackageId, "level-1F", "1F", 0,
                 new[] { zone }, new[] { wall }, new[] { host }, facadeWalls: new[] { facade },
                 levelElevationsMm: new[] { 0.0, StoreyMm }));
+        }
+
+        /// <summary>
+        /// §4.2「建模要求」的立面（決議 14）：防火帶以一道 900 mm 的實體外牆取代該段帷幕牆，帷幕牆
+        /// 因此是兩片，交點 5000 落在兩片之間。兩片都求得到這個交點，檢討表只能有一列。
+        /// </summary>
+        private CurtainWallObservationSet Split(CurtainWallReadRequest request, CurtainWallZoneObservation zone)
+        {
+            var left = new CurtainWallObservation("CW-split-left", new Point2D(4550, 0), new Point2D(0, 0),
+                new Point2D(0, -1), OffsetMm, 0, StoreyMm, new[] { Panel("P-glass-left", 0, 4550, 30) }, typeName: "帷幕牆");
+
+            var right = new CurtainWallObservation("CW-split-right", new Point2D(5450, 0), new Point2D(WallMm, 0),
+                new Point2D(0, -1), OffsetMm, 0, StoreyMm, new[] { Panel("P-glass-right", 0, WallMm - 5450, 30) },
+                typeName: "帷幕牆");
+
+            var host = new CompartmentWallObservation("W1-bottom",
+                new Point2D(5000, 3000), new Point2D(5000, -OffsetMm), 0, StoreyMm,
+                request.LegalReferenceOf("W1-bottom"), request.RequiredRatingOf("W1-bottom"));
+
+            var facade = new FacadeWallObservation("W-facade", new Point2D(4550, 0), new Point2D(5450, 0),
+                0, StoreyMm, "RC 牆 15cm",
+                ProvidedFireRating.Rated(_bandMinutes, _bandMinutes.ToString("0")));
+
+            return new CurtainWallObservationSet(request.PackageId, "level-1F", "1F", 0,
+                new[] { zone }, new[] { left, right }, new[] { host }, facadeWalls: new[] { facade },
+                levelElevationsMm: new[] { 0.0, StoreyMm });
         }
 
         private static CurtainPanelObservation Panel(string uniqueId, double startMm, double endMm, double minutes) =>
@@ -1341,6 +1372,23 @@ public sealed class FireReviewIntegrationTests
         Assert.Empty(outcome.Table.OtherEntries);
         Assert.Equal(new[] { "帷幕牆區劃交接（水平）：第79條" },
             section.GroupsBy(ReviewTableGrouping.JunctionLegalReference).Select(g => g.Label));
+    }
+
+    [Fact]
+    public void Case26_a_fire_band_built_as_a_solid_wall_between_two_curtain_walls_is_one_exempt_row()
+    {
+        // 決議 14：交點落在兩片帷幕牆之間的實體外牆上。兩片都求得到它，檢討表只能有一列，而且它是
+        // 「得免突出」而不是人工覆核——實機在決議 14 之前兩片各出一列 ManualReview。
+        var outcome = Run(Request(curtainWalls: new CurtainWalls(split: true)));
+        var section = outcome.Table!.Section(ReviewCheckTypes.CompartmentContinuity);
+
+        var wall = Assert.Single(section.Entries, e => e.JunctionKind == CurtainWallJunctionKind.WallToCurtainWall);
+        Assert.Equal(ReviewStatus.NotApplicable, wall.EffectiveStatus);
+
+        var evidence = outcome.Run!.Results.Single(r => r.ResultId == wall.ResultId).Evidence;
+        Assert.Equal(ReviewValue.Quantity(0.9, ReviewUnit.Meter), evidence.Find("junction.continuousFireRatedLength"));
+        Assert.Equal(ReviewValue.OfText("W-facade"), evidence.Find("junction.facadeWallUniqueIds"));
+        Assert.Equal(ReviewValue.OfText("CW-H:CW-split-left:W1-bottom"), evidence.Find("junction.id"));
     }
 
     [Fact]

@@ -342,9 +342,11 @@ public sealed class ReviewMarkupTests
         double? runMeters = null,
         double? projectionMeters = null,
         string? host = null,
-        ReviewStatus status = ReviewStatus.Fail)
+        ReviewStatus status = ReviewStatus.Fail,
+        IEnumerable<string>? facadeWalls = null)
     {
         var panelList = (panels ?? Array.Empty<string>()).ToList();
+        var facadeWallList = (facadeWalls ?? Array.Empty<string>()).ToList();
         var evidence = new List<ReviewEvidenceItem>
         {
             new("junction.kind", ReviewValue.OfText(CurtainWallJunctionKinds.RuleText(kind))),
@@ -352,6 +354,8 @@ public sealed class ReviewMarkupTests
             new("junction.curtainWallUniqueId", ReviewValue.OfText(CurtainWall))
         };
         if (panelList.Count > 0) evidence.Add(new("junction.panels", ReviewValue.OfText(string.Join(",", panelList))));
+        if (facadeWallList.Count > 0)
+            evidence.Add(new("junction.facadeWallUniqueIds", ReviewValue.OfText(string.Join(",", facadeWallList))));
         if (placement is not null) evidence.Add(new("junction.placement", ReviewValue.OfText(placement.ToEvidenceText())));
         if (runMeters is double measured)
             evidence.Add(new(kind == CurtainWallJunctionKind.FloorToCurtainWall
@@ -360,7 +364,10 @@ public sealed class ReviewMarkupTests
         if (projectionMeters is double projection)
             evidence.Add(new("junction.projectionDepth", ReviewValue.Quantity(projection, ReviewUnit.Meter)));
 
-        var subjects = new[] { CurtainWall }.Concat(host is null ? Array.Empty<string>() : new[] { host }).Concat(panelList);
+        var subjects = new[] { CurtainWall }
+            .Concat(host is null ? Array.Empty<string>() : new[] { host })
+            .Concat(panelList)
+            .Concat(facadeWallList);
         return new ReviewResult(Guid.NewGuid(), runId, PackageId, ReviewCheckTypes.CompartmentContinuity,
             subjects, ZoneA.ToString("D"), status, ReviewValue.OfText("0"), ReviewValue.OfText("0.9"),
             "cw", "1", "條文", "交接處未維持區劃連續性", new ReviewEvidence(evidence));
@@ -397,6 +404,36 @@ public sealed class ReviewMarkupTests
         Assert.True(note.Placement.IsPoint);
         Assert.Empty(plan.Bands);
         Assert.Empty(plan.Skipped);
+    }
+
+    [Fact]
+    public void Case27_a_failing_CW_H_junction_paints_the_solid_walls_that_supplied_the_length_too()
+    {
+        // 決議 14：實體外牆走 junction.facadeWallUniqueIds，不借 junction.panels——塞進嵌板清單雖然
+        // 也會被塗紅，卻會讓證據說「那道牆是一片嵌板」，CW-O 的扣除也會跟著錯（§7.1）。
+        // 防火帶取代該段帷幕牆時交接帶裡本來就沒有嵌板，嵌板清單是空的。
+        var plan = Plan(HandRun(ReviewRunValidityTests.RunId,
+            Junction(ReviewRunValidityTests.RunId, CurtainWallJunctionKind.WallToCurtainWall, "CW-H:cw-1:wall-1",
+                panels: null, placement: Crossing, runMeters: 0.899, projectionMeters: 0.0, host: "wall-1",
+                facadeWalls: new[] { "rc-wall-1" })), new Model());
+
+        Assert.Equal(new[] { "rc-wall-1" }, plan.Overrides.Select(o => o.ElementUniqueId));
+        Assert.Equal("CW-H-01　交接帶連續具時效長度 899 mm／突出 0 mm", Assert.Single(plan.Notes).Text);
+        Assert.Empty(plan.Skipped);
+    }
+
+    [Fact]
+    public void A_CW_H_junction_on_a_wholly_glazed_facade_has_nothing_to_paint_and_says_so()
+    {
+        // 交點上完全沒有實體外牆時兩個清單都是空的：標註仍然建立，圖號與檢討表仍然對得上，
+        // 只是沒有可塗紅的元素（§9）。
+        var plan = Plan(HandRun(ReviewRunValidityTests.RunId,
+            Junction(ReviewRunValidityTests.RunId, CurtainWallJunctionKind.WallToCurtainWall, "CW-H:cw-1:wall-1",
+                panels: null, placement: Crossing, runMeters: 0.0, projectionMeters: 0.0, host: "wall-1")), new Model());
+
+        Assert.Empty(plan.Overrides);
+        Assert.Single(plan.Notes);
+        Assert.Contains(plan.Skipped, s => s.Reason.Contains("帷幕嵌板或實體外牆"));
     }
 
     [Fact]

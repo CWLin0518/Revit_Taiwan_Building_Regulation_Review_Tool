@@ -138,11 +138,24 @@ public static class CurtainWallJunctionResolver
         List<PanelBand> covered,
         IReadOnlyList<FacadeSegment> facades)
     {
-        if (host.TopElevationMm <= wall.BaseElevationMm + SnapMm || host.BottomElevationMm >= wall.TopElevationMm - SnapMm)
-            return null;
+        // 躺在立面內的區劃牆不產出 CW-H（決議 14）。它不是「與帷幕牆的交接處」，它**就是**那一段
+        // 外牆；它的交接處在自己的兩端，由垂直於立面的區劃牆各自產生。少了這一條，凡是與帷幕牆共面
+        // 相接的實體外牆都會因兩線平行求不到交點，掉進「最近端點」的退路，回報一句「端點距帷幕牆
+        // 0 mm，超過搜尋公差」的自相矛盾訊息。它仍以實體外牆身分供給別人的但書長度。
+        if (wall.IsInFacadePlane(host.Start, host.End)) return null;
 
-        var crossing = FindCrossing(wall, host, options.JunctionSearchToleranceMm);
+        // 交接帶的高程是區劃牆與帷幕牆高程的**交集**（決議 14，docs §4.2 步驟 2）。交集之外那一段
+        // 外牆面（本文件所據模型是樓板邊緣的 450 mm）是第 79 條之 3 的層間帶，由 CW-V 回答；拿區劃牆
+        // 全高當門檻只會要求實體外牆往下長進樓板，那是工具逼建模配合工具。
+        var bandBottom = Math.Max(host.BottomElevationMm, wall.BaseElevationMm);
+        var bandTop = Math.Min(host.TopElevationMm, wall.TopElevationMm);
+        if (bandTop - bandBottom <= CurtainPanelObservation.TouchToleranceMm) return null;
+
+        var crossing = FindCrossing(wall, host, options.JunctionSearchToleranceMm, facades);
         if (crossing is null) return null;
+
+        // 交點落在定位線之外時，連續段兩端的帷幕牆都求得到同一個交點，但一個交接處只能有一列。
+        if (crossing.Value.IsOffSegment && !Owns(set, wall, facades, crossing.Value.Along)) return null;
 
         var id = JunctionId(CurtainWallJunctionKind.WallToCurtainWall, wall.UniqueId, host.UniqueId);
         var at = crossing.Value.Along;
@@ -166,7 +179,7 @@ public static class CurtainWallJunctionResolver
         // 交接帶：交點左右各 MinFireRatedRunMm，高程為區劃牆在該處的高程帶。它有兩個用途——CW-O
         // 要扣掉帶內的嵌板，標示層要把帶內的嵌板塗紅。帶長本身**不由這些嵌板供給**（決議 13）。
         var reach = options.MinFireRatedRunMm;
-        var band = PanelBand.Horizontal(at, reach, host.BottomElevationMm, host.TopElevationMm);
+        var band = PanelBand.Horizontal(at, reach, bandBottom, bandTop);
         covered.Add(band);
         var panels = wall.Panels.Where(band.Covers).Select(p => p.UniqueId).ToList();
 
@@ -177,7 +190,7 @@ public static class CurtainWallJunctionResolver
         // 更是整段都在裡面——所以窗不會改變判定，只會讓一道很長的外牆回報的長度停在窗邊。
         var nearby = facades
             .Where(f => f.OverlapsAlong(at - reach, at + reach))
-            .Where(f => f.Wall.OverlapsElevations(host.BottomElevationMm, host.TopElevationMm))
+            .Where(f => f.Wall.OverlapsElevations(bandBottom, bandTop))
             .ToList();
 
         var clash = Clash(wall, nearby);
@@ -198,7 +211,7 @@ public static class CurtainWallJunctionResolver
                 facadeWallUniqueIds: new[] { facade.Wall.UniqueId });
         }
 
-        var measurement = FacadeRun(nearby, at, host, options);
+        var measurement = FacadeRun(nearby, at, bandBottom, bandTop, host.RequiredFireRatingMinutes, options);
 
         return CurtainWallJunction.WallJunction(
             id, zone.ZoneId, wall.UniqueId, host.UniqueId,
@@ -211,7 +224,7 @@ public static class CurtainWallJunctionResolver
             // 會讓證據講出一件工具沒有查的事。
             null,
             panels,
-            CurtainWallJunctionPlacement.At(wall.PointAt(at), host.BottomElevationMm, host.TopElevationMm),
+            CurtainWallJunctionPlacement.At(wall.PointAt(at), bandBottom, bandTop),
             measurement.WallUniqueIds);
     }
 
@@ -282,20 +295,23 @@ public static class CurtainWallJunctionResolver
 
     /// <summary>
     /// The continuous rated length of 外牆面 at the junction: walk the façade both ways from the
-    /// crossing over solid walls that span the compartment wall's whole height and reach its required
-    /// rating, and take the total (docs §4.2, 決議 13). Seams closer than
+    /// crossing over solid walls that span the whole 交接帶 — the compartment wall's elevations met with
+    /// the curtain wall's own (決議 14) — and reach its required rating, and take the total
+    /// (docs §4.2, 決議 13). Seams closer than
     /// <see cref="CurtainPanelObservation.TouchToleranceMm"/> are continuous — two walls butted
     /// together are one piece of façade.
     /// </summary>
     private static FacadeMeasurement FacadeRun(
         IReadOnlyList<FacadeSegment> nearby,
         double at,
-        CompartmentWallObservation host,
+        double bandBottomMm,
+        double bandTopMm,
+        double? requiredMinutes,
         CurtainWallJunctionOptions options)
     {
         // 只有高程上涵蓋整個交接帶的牆才計入：只封住其中一段等於留了缺口（docs §4.2 步驟 2）。
         var band = nearby
-            .Where(f => f.Wall.CoversElevations(host.BottomElevationMm, host.TopElevationMm))
+            .Where(f => f.Wall.CoversElevations(bandBottomMm, bandTopMm))
             .ToList();
 
         var here = band.FirstOrDefault(f => f.CoversAlong(at));
@@ -303,17 +319,17 @@ public static class CurtainWallJunctionResolver
 
         // 沒有人說區劃牆要求多少時效，就沒有門檻可比，也就沒有可供給的長度（輸入契約，docs §12）。
         // 供 0 會讓一段沒有量過的外牆面讀起來像「未符合」。
-        if (host.RequiredFireRatingMinutes is null)
+        if (requiredMinutes is null)
             return new FacadeMeasurement(null, here.Wall.ProvidedFireRating, new[] { here.Wall.UniqueId });
 
         // 交點上那道牆讀不出時效：不得推定，也不得填 0——交由引擎判資料不足。
         if (!here.Wall.HasReadableRating)
             return new FacadeMeasurement(null, here.Wall.ProvidedFireRating, new[] { here.Wall.UniqueId });
 
-        if (!here.Wall.Qualifies(host.RequiredFireRatingMinutes))
+        if (!here.Wall.Qualifies(requiredMinutes))
             return new FacadeMeasurement(0.0, here.Wall.ProvidedFireRating, new[] { here.Wall.UniqueId });
 
-        var qualifying = band.Where(f => f.Wall.Qualifies(host.RequiredFireRatingMinutes)).ToList();
+        var qualifying = band.Where(f => f.Wall.Qualifies(requiredMinutes)).ToList();
         var chain = Chain(qualifying, at);
         var low = chain.Min(f => f.LowMm);
         var high = chain.Max(f => f.HighMm);
@@ -339,7 +355,15 @@ public static class CurtainWallJunctionResolver
     /// The maximal run of touching segments that contains <paramref name="at"/>. The caller has
     /// already found a segment covering it, so the answer is never empty.
     /// </summary>
-    private static IReadOnlyList<FacadeSegment> Chain(IReadOnlyList<FacadeSegment> segments, double at)
+    private static IReadOnlyList<FacadeSegment> Chain(IReadOnlyList<FacadeSegment> segments, double at) =>
+        ChainAt(segments, at)!;
+
+    /// <summary>
+    /// The maximal run of touching segments that contains <paramref name="at"/>, or null when nothing
+    /// covers it. This is the same 串接 the 但書 length is measured on, and 決議 14 asks it a second
+    /// question: whether a crossing beyond the curtain wall's own ends still stands on 外牆面.
+    /// </summary>
+    private static IReadOnlyList<FacadeSegment>? ChainAt(IReadOnlyList<FacadeSegment> segments, double at)
     {
         var touch = CurtainPanelObservation.TouchToleranceMm;
         var groups = new List<List<FacadeSegment>>();
@@ -353,7 +377,65 @@ public static class CurtainWallJunctionResolver
                 last.Add(segment);
         }
 
-        return groups.First(g => at >= g.Min(s => s.LowMm) - touch && at <= g.Max(s => s.HighMm) + touch);
+        return groups.FirstOrDefault(g => at >= g.Min(s => s.LowMm) - touch && at <= g.Max(s => s.HighMm) + touch);
+    }
+
+    /// <summary>
+    /// Whether a run of solid exterior walls butts against one end of this curtain wall (docs §4.2,
+    /// 決議 14). A seam wider than <see cref="CurtainPanelObservation.TouchToleranceMm"/> is not a
+    /// junction: the tool does not bridge a gap in the façade for the user, for the same reason it
+    /// never crosses a grid line.
+    /// </summary>
+    private static bool Adjoins(IReadOnlyList<FacadeSegment> chain, CurtainWallObservation wall)
+    {
+        var touch = CurtainPanelObservation.TouchToleranceMm;
+        return Math.Abs(chain.Max(s => s.HighMm)) <= touch ||
+               Math.Abs(chain.Min(s => s.LowMm) - wall.LengthMm) <= touch;
+    }
+
+    /// <summary>
+    /// 同一個交接處只能有一列（docs §4.2「歸屬」）. A run of solid wall that has a curtain wall at each
+    /// end is found by both of them, so the owner is settled by a rule that cannot depend on which way
+    /// either wall was drawn or on the order they were read: of the curtain walls coplanar with the run
+    /// and touching it, the one whose touching endpoint is lexicographically smallest by
+    /// <c>(X, Y)</c> — 沿軸較低側 would not do, since in a real model both walls are drawn away from
+    /// the crossing and both parameters are negative.
+    /// </summary>
+    private static bool Owns(
+        CurtainWallObservationSet set,
+        CurtainWallObservation wall,
+        IReadOnlyList<FacadeSegment> facades,
+        double at)
+    {
+        var chain = ChainAt(facades, at);
+        if (chain is null) return false;
+
+        var touch = CurtainPanelObservation.TouchToleranceMm;
+        var ends = new[] { wall.PointAt(chain.Min(s => s.LowMm)), wall.PointAt(chain.Max(s => s.HighMm)) };
+
+        var owner = set.CurtainWalls
+            .Where(w => w.IsPlanar && w.IsInFacadePlane(ends[0], ends[1]))
+            .Select(w => (Wall: w, Touch: TouchingEnd(w, ends, touch)))
+            .Where(x => x.Touch is not null)
+            .OrderBy(x => x.Touch!.Value.X)
+            .ThenBy(x => x.Touch!.Value.Y)
+            .ThenBy(x => x.Wall.UniqueId, StringComparer.Ordinal)
+            .Select(x => x.Wall.UniqueId)
+            .FirstOrDefault();
+
+        return string.Equals(owner, wall.UniqueId, StringComparison.Ordinal);
+    }
+
+    /// <summary>Which end of a curtain wall butts against a run of solid wall, if either does.</summary>
+    private static Point2D? TouchingEnd(CurtainWallObservation wall, IReadOnlyList<Point2D> runEnds, double toleranceMm)
+    {
+        var candidates = new[] { wall.Start, wall.End }
+            .Where(p => runEnds.Any(e => p.DistanceTo(e) <= toleranceMm))
+            .OrderBy(p => p.X)
+            .ThenBy(p => p.Y)
+            .ToList();
+
+        return candidates.Count == 0 ? (Point2D?)null : candidates[0];
     }
 
     /// <summary>Whether a segment butts against either end of the run measured so far.</summary>
@@ -736,24 +818,45 @@ public static class CurtainWallJunctionResolver
 
     private readonly struct Crossing
     {
-        public Crossing(double along, bool isResolved, double gapMm)
+        public Crossing(double along, bool isResolved, double gapMm, bool isOffSegment = false)
         {
             Along = along;
             IsResolved = isResolved;
             GapMm = gapMm;
+            IsOffSegment = isOffSegment;
         }
 
+        /// <summary>How far along the curtain wall's location line the crossing is; off its own extent when <see cref="IsOffSegment"/>.</summary>
         public double Along { get; }
+
         public bool IsResolved { get; }
         public double GapMm { get; }
+
+        /// <summary>
+        /// The crossing sits on the extension of the location line, on a run of solid exterior wall
+        /// that replaced that stretch of curtain wall (決議 14). It is a junction like any other; what
+        /// it needs extra is an owner, since the run has a curtain wall at each end.
+        /// </summary>
+        public bool IsOffSegment { get; }
     }
 
     /// <summary>
     /// Where a compartment wall meets the curtain wall, after extending it by the search tolerance at
     /// both ends (docs §4.2 step 2). A wall that stops near the curtain wall without reaching it is
     /// returned unresolved: it was plainly meant to meet, and the tool will not guess by how much.
+    /// <para>
+    /// A crossing beyond the curtain wall's own ends is not dropped (決議 14): correct modelling puts a
+    /// solid rated wall in place of that stretch of glazing, which cuts the curtain wall in two and
+    /// leaves the crossing between them. It stands as a junction when the run of solid exterior wall
+    /// covering it butts against <b>this</b> curtain wall; otherwise there is no junction here at all,
+    /// and 人工覆核 is left to the one case it means — an end that nearly reached the façade.
+    /// </para>
     /// </summary>
-    private static Crossing? FindCrossing(CurtainWallObservation wall, CompartmentWallObservation host, double toleranceMm)
+    private static Crossing? FindCrossing(
+        CurtainWallObservation wall,
+        CompartmentWallObservation host,
+        double toleranceMm,
+        IReadOnlyList<FacadeSegment> facades)
     {
         var dx = host.End.X - host.Start.X;
         var dy = host.End.Y - host.Start.Y;
@@ -776,8 +879,19 @@ public static class CurtainWallJunctionResolver
             var t = ((qx * sy) - (qy * sx)) / denominator;
             var u = ((qx * ry) - (qy * rx)) / denominator;
 
-            if (t >= 0 && t <= 1 && u >= -SnapMm / wall.LengthMm && u <= 1 + (SnapMm / wall.LengthMm))
-                return new Crossing(Math.Min(Math.Max(u * wall.LengthMm, 0.0), wall.LengthMm), true, 0.0);
+            if (t >= 0 && t <= 1)
+            {
+                if (u >= -SnapMm / wall.LengthMm && u <= 1 + (SnapMm / wall.LengthMm))
+                    return new Crossing(Math.Min(Math.Max(u * wall.LengthMm, 0.0), wall.LengthMm), true, 0.0);
+
+                // 落在延長線上：只有當實體外牆的連續段既蓋住這個位置、又接上這片帷幕牆，那裡才真的
+                // 是「交接處之外牆面」（決議 14）。
+                var beyond = u * wall.LengthMm;
+                var chain = ChainAt(facades, beyond);
+                return chain is not null && Adjoins(chain, wall)
+                    ? new Crossing(beyond, true, 0.0, isOffSegment: true)
+                    : (Crossing?)null;
+            }
         }
 
         // No crossing: was it close enough that the model plainly meant one?
@@ -913,6 +1027,11 @@ public static class CurtainWallJunctionResolver
     /// CW-H junction the compartment wall is the boundary between two zones, so both sides are probed
     /// and the lower Zone ID wins — the junction is one place and gets one result, and which zone it
     /// is filed under has to be the same on every run.
+    /// <para>
+    /// The probe is not clamped to the wall's own extent: a crossing on the extension of the location
+    /// line (決議 14) is a real place, and clamping would move both lateral probes to the same side of
+    /// it and file the junction under whichever 區劃 happened to be there.
+    /// </para>
     /// </summary>
     private static CurtainWallZoneObservation? ZoneOf(
         CurtainWallObservationSet set,
@@ -924,7 +1043,7 @@ public static class CurtainWallJunctionResolver
         var offsets = lateral ? new[] { -ZoneProbeMm, ZoneProbeMm } : new[] { 0.0 };
 
         return offsets
-            .Select(o => wall.PointAt(Math.Min(Math.Max(at + o, 0.0), wall.LengthMm)))
+            .Select(o => wall.PointAt(at + o))
             .Select(p => new Point2D(p.X - (wall.ExteriorNormal.X * depth), p.Y - (wall.ExteriorNormal.Y * depth)))
             .Select(set.ZoneAt)
             .Where(z => z is not null)

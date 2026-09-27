@@ -444,13 +444,14 @@ public sealed class ReviewMarkupPlan
     }
 
     /// <summary>
-    /// 帷幕牆規格 §7.1: CW-H paints the panels at the junction red and annotates the intersection,
-    /// CW-V draws the 層間帶 red in the elevation and annotates the height, CW-O paints its panels red.
+    /// 帷幕牆規格 §7.1: CW-H paints the solid exterior walls that supplied the 但書 length and the panels
+    /// the 交接帶 covers red and annotates the intersection, CW-V draws the 層間帶 red in the elevation
+    /// and annotates the height, CW-O paints its panels red.
     /// <para>
     /// A 帷幕牆 result is about the curtain wall, its host and its panels, so it cannot be painted the
     /// way a member result is — painting <see cref="ReviewTableEntry.LocateUniqueIds"/> would turn the
-    /// whole curtain wall and the 區劃牆 red as well. The panels the junction actually covers are what
-    /// the evidence recorded, and that is what is painted.
+    /// whole curtain wall and the 區劃牆 red as well. What the junction actually covers is what the
+    /// evidence recorded, and that is what is painted.
     /// </para>
     /// </summary>
     private static void PlanJunction(
@@ -471,10 +472,21 @@ public sealed class ReviewMarkupPlan
         // elevation the band is drawn in, and painting them in the plan would say nothing (§7.1).
         if (kind != CurtainWallJunctionKind.FloorToCurtainWall)
         {
+            // CW-H 塗紅的來源有兩個清單：交接帶涵蓋的帷幕嵌板，以及計入但書長度的實體外牆（決議 14）。
+            // 純玻璃立面的交接處兩者都是空的，那時沒有可塗紅的元素，只留下交點的文字標註（§9）。
             var panels = CurtainWallReviewMarks.Panels(evidence);
-            if (panels.Count == 0)
-                skipped.Add(new SkippedReviewMark(entry.ResultId, subject, "結果沒有記錄交接處的帷幕嵌板，無法標示紅色覆寫"));
+            IReadOnlyList<string> facadeWalls = kind == CurtainWallJunctionKind.WallToCurtainWall
+                ? CurtainWallReviewMarks.FacadeWalls(evidence)
+                : Array.Empty<string>();
+
+            if (panels.Count == 0 && facadeWalls.Count == 0)
+                skipped.Add(new SkippedReviewMark(entry.ResultId, subject,
+                    kind == CurtainWallJunctionKind.WallToCurtainWall
+                        ? "結果沒有記錄交接處的帷幕嵌板或實體外牆，無法標示紅色覆寫"
+                        : "結果沒有記錄交接處的帷幕嵌板，無法標示紅色覆寫"));
+
             foreach (var panel in panels) failing.Add((panel, entry));
+            foreach (var facadeWall in facadeWalls) failing.Add((facadeWall, entry));
         }
 
         if (kind == CurtainWallJunctionKind.CurtainPanelOther) return;

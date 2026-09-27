@@ -135,6 +135,7 @@ internal static class CurtainWallReviewMarks
 
     public const string JunctionIdField = "junction.id";
     public const string PanelsField = "junction.panels";
+    public const string FacadeWallsField = "junction.facadeWallUniqueIds";
     public const string PlacementField = "junction.placement";
     public const string LengthField = "junction.continuousFireRatedLength";
     public const string HeightField = "junction.continuousFireRatedHeight";
@@ -143,9 +144,19 @@ internal static class CurtainWallReviewMarks
     public static string? JunctionId(ReviewEvidence evidence) => Text(evidence, JunctionIdField);
 
     /// <summary>The panels §7.1 paints red — the junction's own, not every element the result is about.</summary>
-    public static IReadOnlyList<string> Panels(ReviewEvidence evidence)
+    public static IReadOnlyList<string> Panels(ReviewEvidence evidence) => List(evidence, PanelsField);
+
+    /// <summary>
+    /// The solid exterior walls the 但書 length was measured on (決議 14). §7.1 paints these red too,
+    /// and they travel in a field of their own: filing a wall under <see cref="PanelsField"/> would
+    /// paint it, but it would also make the evidence say that wall is a curtain panel and throw off
+    /// what CW-O deducts.
+    /// </summary>
+    public static IReadOnlyList<string> FacadeWalls(ReviewEvidence evidence) => List(evidence, FacadeWallsField);
+
+    private static IReadOnlyList<string> List(ReviewEvidence evidence, string field)
     {
-        var text = Text(evidence, PanelsField);
+        var text = Text(evidence, field);
         if (text is null) return Array.Empty<string>();
 
         return new ReadOnlyCollection<string>(text.Split(',')

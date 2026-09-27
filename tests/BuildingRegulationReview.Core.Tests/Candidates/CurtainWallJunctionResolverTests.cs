@@ -705,6 +705,106 @@ public sealed class CurtainWallJunctionResolverTests
         Assert.All(inputs.Junctions, j => Assert.Equal(ZoneId, j.ZoneId));
     }
 
+    // --- 交點落在實體外牆連續段上（docs §4.2「交點落在實體外牆上」、§10 案例 26–33、決議 14）--------
+
+    [Fact]
+    public void Case26_a_crossing_on_the_solid_wall_between_two_curtain_walls_is_still_a_junction()
+    {
+        // §4.2「建模要求」：防火帶以實體牆元素取代該段帷幕牆，帷幕牆因此被切成兩片，交點落在兩片
+        // 之間——也就是各自定位線的延長線上。決議 13 的實作只認段內，這一列會整個消失。
+        var junction = Assert.Single(WallJunctions(SplitFacade(4100, 5000, new[] { Host(4550) })));
+
+        Assert.Equal(900, junction.ContinuousFireRatedLengthMm!.Value, 3);
+        Assert.Equal(new[] { "W-facade" }, junction.FacadeWallUniqueIds);
+        Assert.Equal(0.0, junction.ProjectionDepthMm!.Value);
+        Assert.Null(junction.Doubt);
+    }
+
+    [Fact]
+    public void Case27_a_solid_wall_one_millimetre_short_of_900_measures_one_millimetre_short()
+    {
+        var junction = Assert.Single(WallJunctions(SplitFacade(4100, 4999, new[] { Host(4550) })));
+
+        Assert.Equal(899, junction.ContinuousFireRatedLengthMm!.Value, 3);
+        Assert.Equal(new[] { "W-facade" }, junction.FacadeWallUniqueIds);
+    }
+
+    [Fact]
+    public void Case28_the_run_has_a_curtain_wall_at_each_end_and_only_the_lower_corner_one_owns_it()
+    {
+        // 兩片帷幕牆都求得到同一個交點。擁有者必須與畫牆方向、與讀取順序都無關，否則同一個交接處
+        // 會出兩列、兩個檢討圖號：判準是相接端點的 (X, Y) 字典序，不是 UniqueId、也不是沿軸較低側。
+        var named = Assert.Single(WallJunctions(SplitFacade(4100, 5000, new[] { Host(4550) },
+            leftUniqueId: "CW-z-left", rightUniqueId: "CW-a-right")));
+        var swapped = Assert.Single(WallJunctions(SplitFacade(4100, 5000, new[] { Host(4550) },
+            leftUniqueId: "CW-a-left", rightUniqueId: "CW-z-right")));
+
+        Assert.Equal("CW-z-left", named.CurtainWallUniqueId);
+        Assert.Equal("CW-a-left", swapped.CurtainWallUniqueId);
+        Assert.Equal(900, named.ContinuousFireRatedLengthMm!.Value, 3);
+    }
+
+    [Fact]
+    public void Case29_a_run_that_does_not_reach_the_curtain_wall_is_no_junction_rather_than_人工覆核()
+    {
+        // 5 mm 的縫：那裡沒有交接處，工具不替使用者橋接立面上的縫隙（§9）。判 ManualReview 會要求
+        // 使用者覆核一件不存在的事。
+        var junctions = Resolve(SplitFacade(4100, 5000, new[] { Host(4550) }, seamMm: 5));
+
+        Assert.DoesNotContain(junctions, j => j.Kind == CurtainWallJunctionKind.WallToCurtainWall);
+    }
+
+    [Fact]
+    public void Case30_a_compartment_wall_lying_in_the_facade_supplies_length_but_produces_no_junction_of_its_own()
+    {
+        // 立面內的實體外牆自己也躺在區劃邊界上（實機模型的 RC 牆就是這樣）。它與帷幕牆平行，求不到
+        // 交點；決議 14 之前會掉進「最近端點」退路，回報「端點距帷幕牆 0 mm，超過搜尋公差 300 mm」。
+        var inFacade = new CompartmentWallObservation("W-in-facade",
+            new Point2D(4100, 0), new Point2D(5000, 0), 0, StoreyMm, CurtainWallJunctionReferences.Article79, 60);
+
+        var junction = Assert.Single(WallJunctions(Set(Wall(GlazingExcept(4100, 5000)),
+            hosts: new[] { Host(4550), inFacade }, facades: new[] { Facade(4100, 5000) })));
+
+        Assert.Equal("W1", junction.HostUniqueId);
+        Assert.Equal(900, junction.ContinuousFireRatedLengthMm!.Value, 3);
+    }
+
+    [Fact]
+    public void Case31_the_junction_band_is_the_compartment_wall_met_with_the_curtain_walls_own_elevations()
+    {
+        // 區劃牆通層 0–3600，帷幕牆與實體外牆自樓板面上方 450 起算：交接帶是交集 450–3600。以區劃牆
+        // 全高當門檻會要求實體外牆往下長進樓板，那 450 是樓板邊緣，屬第 79 條之 3 由 CW-V 回答。
+        var junction = Assert.Single(WallJunctions(SplitFacade(4100, 5000, new[] { Host(4550) },
+            facadeBottomMm: 450, curtainBaseMm: 450)));
+
+        Assert.Equal(900, junction.ContinuousFireRatedLengthMm!.Value, 3);
+        Assert.Equal(450, junction.Placement!.BottomElevationMm, 3);
+        Assert.Equal(StoreyMm, junction.Placement!.TopElevationMm, 3);
+    }
+
+    [Fact]
+    public void Case32_a_solid_wall_that_covers_only_part_of_the_band_supplies_nothing()
+    {
+        var junction = Assert.Single(WallJunctions(SplitFacade(4100, 5000, new[] { Host(4550) },
+            facadeBottomMm: 450, facadeTopMm: 3000, curtainBaseMm: 450)));
+
+        Assert.Equal(0.0, junction.ContinuousFireRatedLengthMm!.Value);
+        Assert.Empty(junction.FacadeWallUniqueIds);
+    }
+
+    [Fact]
+    public void Case33_a_compartment_wall_that_only_meets_the_slab_edge_has_no_band_and_no_junction()
+    {
+        // 區劃牆 0–450 只碰到樓板邊緣那一段外牆面，帷幕牆自 450 起算：交集高度為 0，這裡沒有帷幕
+        // 外牆面可判，該列不產出。
+        var host = new CompartmentWallObservation("W1", new Point2D(4550, 3000), new Point2D(4550, -50),
+            0, 450, CurtainWallJunctionReferences.Article79, 60);
+
+        var junctions = Resolve(SplitFacade(4100, 5000, new[] { host }, facadeBottomMm: 450, curtainBaseMm: 450));
+
+        Assert.DoesNotContain(junctions, j => j.Kind == CurtainWallJunctionKind.WallToCurtainWall);
+    }
+
     // --- 標示位置（docs §7.1：標示層從結果重建，位置必須由幾何層交出）-------------------------------
 
     [Fact]
@@ -801,6 +901,9 @@ public sealed class CurtainWallJunctionResolverTests
     private static CurtainWallJunction Single(IEnumerable<CurtainWallJunction> junctions, CurtainWallJunctionKind kind) =>
         Assert.Single(junctions, j => j.Kind == kind);
 
+    private static IReadOnlyList<CurtainWallJunction> WallJunctions(CurtainWallObservationSet set) =>
+        Resolve(set).Where(j => j.Kind == CurtainWallJunctionKind.WallToCurtainWall).ToList();
+
     private static CurtainWallZoneObservation Zone() =>
         new(ZoneId, "A 區劃", new[] { Rectangle(-2000, 1, WallLengthMm + 2000, 20000) });
 
@@ -879,6 +982,43 @@ public sealed class CurtainWallJunctionResolverTests
         IEnumerable<FacadeWallObservation>? facades = null) =>
         new(Package, "LVL", "1F", 0, new[] { Zone() }, new[] { wall }, hosts, floors, facades,
             new[] { 0.0, StoreyMm });
+
+    /// <summary>
+    /// §4.2「建模要求」的立面：帷幕牆 ─ 實體外牆 ─ 帷幕牆。左片自 <paramref name="gapStartMm"/> 往
+    /// x = 0 畫、右片自 <paramref name="gapEndMm"/> 往 x = <see cref="WallLengthMm"/> 畫——兩片的軸向
+    /// 相反，與實機模型相同，交點在兩片的定位線上都是負的參數，所以歸屬不能用「沿軸較低側」。
+    /// 兩片的外側法線一致（§4.2 建模要求最後一條），否則反向的那一片會整片探不到區劃。
+    /// </summary>
+    private static CurtainWallObservationSet SplitFacade(
+        double gapStartMm,
+        double gapEndMm,
+        IEnumerable<CompartmentWallObservation> hosts,
+        double? minutes = 60,
+        double facadeBottomMm = 0,
+        double facadeTopMm = StoreyMm,
+        double curtainBaseMm = 0,
+        double curtainTopMm = StoreyMm,
+        double seamMm = 0,
+        string leftUniqueId = "CW-left",
+        string rightUniqueId = "CW-right")
+    {
+        var left = new CurtainWallObservation(leftUniqueId, new Point2D(gapStartMm, 0), new Point2D(0, 0),
+            new Point2D(0, -1), OffsetMm, curtainBaseMm, curtainTopMm,
+            new[] { Panel("P-left", 0, gapStartMm, 0, bottom: curtainBaseMm, top: curtainTopMm) },
+            typeName: "帷幕牆 1");
+
+        var right = new CurtainWallObservation(rightUniqueId, new Point2D(gapEndMm, 0), new Point2D(WallLengthMm, 0),
+            new Point2D(0, -1), OffsetMm, curtainBaseMm, curtainTopMm,
+            new[] { Panel("P-right", 0, WallLengthMm - gapEndMm, 0, bottom: curtainBaseMm, top: curtainTopMm) },
+            typeName: "帷幕牆 2");
+
+        return new CurtainWallObservationSet(Package, "LVL", "1F", 0,
+            new[] { Zone() },
+            new[] { left, right },
+            hosts,
+            facadeWalls: new[] { Facade(gapStartMm + seamMm, gapEndMm - seamMm, minutes, facadeBottomMm, facadeTopMm) },
+            levelElevationsMm: new[] { 0.0, StoreyMm });
+    }
 
     /// <summary>
     /// A storey whose slab sits at 3600: a spandrel band straddling it, glazing below, and the storey
