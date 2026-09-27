@@ -151,18 +151,22 @@ public static class CurtainWallJunctionResolver
                 hostUniqueId: host.UniqueId);
         }
 
+        // 嵌板是從豎框內緣起算的，交點落在豎框上（含帷幕牆端部的收邊豎框）時整個嵌板柱是空的。
+        // 那不是「這一柱沒有嵌板」，所以查詢位置要先移到那一格真正的嵌板上（§4.2）。
+        var lookup = PanelLookup(wall, at);
+
         // Every panel row the compartment wall reaches is measured; the worst of them answers, the
         // same way a spandrel band takes its most unfavourable sample.
         var rows = wall.Panels
-            .Where(p => p.CoversAlong(at) && p.OverlapsElevations(host.BottomElevationMm, host.TopElevationMm))
+            .Where(p => p.CoversAlong(lookup) && p.OverlapsElevations(host.BottomElevationMm, host.TopElevationMm))
             .OrderBy(p => p.BottomMm)
             .ToList();
 
         var measurements = rows.Count == 0
-            ? new List<RunMeasurement> { SolidWallBand(wall, at, host) }
+            ? new List<RunMeasurement> { SolidWallBand(wall, lookup, host) }
             : rows.Select(row => Measure(
                     Along(wall, row),
-                    at,
+                    lookup,
                     host.RequiredFireRatingMinutes,
                     options.MinFireRatedRunMm,
                     wall.GridLines.Where(g => g.Direction == CurtainGridLineDirection.Vertical).ToList(),
@@ -195,6 +199,52 @@ public static class CurtainWallJunctionResolver
             measurement.HasUnprotectedOpening,
             measurement.PanelUniqueIds,
             CurtainWallJunctionPlacement.At(wall.PointAt(at), host.BottomElevationMm, host.TopElevationMm));
+    }
+
+    /// <summary>
+    /// Where to look for the panels of a junction that falls on a mullion (docs §4.2「交點落在豎框上」).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A panel's extent along the wall starts at the inner face of its mullion, so a junction landing
+    /// on a mullion — and the end mullion of the curtain wall is one — is covered by no panel at all.
+    /// 豎框不判定 (docs §4.1) and that is right, but an empty column there means「這個位置被豎框佔著」,
+    /// not「這一柱沒有嵌板」. Left alone it reads as the second: the panel row comes out empty, 決議 7's
+    /// gate runs on a junction that is fully glazed, and <see cref="Measure"/> would answer
+    /// <see cref="RunMeasurement.Nothing"/> even if the row had been found. A compartment wall aligned
+    /// to a mullion is ordinary practice, so this is the common case, not the odd one.
+    /// </para>
+    /// <para>
+    /// The vertical grid lines say which is which. They bound the cell the junction falls in; a panel
+    /// overlapping that cell is the one the mullion stands beside, and the lookup moves onto its near
+    /// edge. A cell with no panel in it is the gap 決議 7 speaks of, and the lookup stays put so the
+    /// band is still measured. The junction's own position is never moved: the placement, the zone and
+    /// the covered band all keep the true crossing point.
+    /// </para>
+    /// </remarks>
+    private static double PanelLookup(CurtainWallObservation wall, double at)
+    {
+        var touch = CurtainPanelObservation.TouchToleranceMm;
+        if (wall.Panels.Any(p => p.CoversAlong(at))) return at;
+
+        // The cell is bounded by the grid lines either side of the junction, or by the curtain wall's
+        // own ends. A junction sitting exactly on a grid line belongs to both neighbouring cells, so
+        // both are searched and the nearer panel answers.
+        var lines = wall.GridLines
+            .Where(g => g.Direction == CurtainGridLineDirection.Vertical)
+            .Select(g => g.PositionMm)
+            .ToList();
+        var low = Math.Min(at, lines.Where(p => p < at - touch).DefaultIfEmpty(0.0).Max());
+        var high = Math.Max(at, lines.Where(p => p > at + touch).DefaultIfEmpty(wall.LengthMm).Min());
+
+        var nearest = wall.Panels
+            .Where(p => p.OverlapsAlong(low, high))
+            .OrderBy(p => Math.Min(Math.Abs(p.StartMm - at), Math.Abs(p.EndMm - at)))
+            .ThenBy(p => p.StartMm)
+            .FirstOrDefault();
+
+        if (nearest is null) return at;
+        return at <= nearest.StartMm ? nearest.StartMm : nearest.EndMm;
     }
 
     /// <summary>
