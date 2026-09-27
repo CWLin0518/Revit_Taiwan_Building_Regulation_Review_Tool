@@ -1,12 +1,13 @@
 # 防火區劃與帷幕牆交接：第 79 條、第 79-3 條、第 79-4 條
 
-> 狀態：**實作中**。§12 的步驟 1–15 已完成（步驟 11、12 隨決議 13 移除），**步驟 16a、16b、16c 已完成
-> （16c 的 Revit 端待實機驗證）、16d–16e 未開始**。
+> 狀態：**實作中**。§12 的步驟 1–15 已完成（步驟 11、12 隨決議 13 移除），**步驟 16a、16b、16c、16d
+> 已完成（16c、16d 的 Revit 端待實機驗證）、16e 未開始**。
 > 步驟 16（決議 16）把帷幕嵌板分成兩路作答：實心嵌板以 `防火檢討_設計防火時效` 作答且時效比照牆體由
 > 模型尺寸推定，玻璃嵌板與帷幕牆門窗以 `防火檢討_設計防火保護` 作答；種類由新參數 `防火檢討_嵌板種類`
 > 宣告，未宣告為資料不足。16a 是判定層（規則、幾何分流、六態），16b 是參數層（尺寸推定支援帷幕嵌板、
 > 型別列依種類決定要填哪一格、共享參數檔加 `…0013`），16c 是 Revit 讀取層（讀種類與嵌板厚、每片嵌板都
-> 讀防火保護、由材料提案種類、綁定用的共享參數檔加 `…0013`）。**部署前必須先完成 §12 的綁定程序**：
+> 讀防火保護、由材料提案種類、綁定用的共享參數檔加 `…0013`），16d 是參數面板（「嵌板種類」欄、提案以
+> 黃底與「（提案）」標示、選實心才亮結構材料）。**部署前必須先完成 §12 的綁定程序**：
 > `防火檢討_嵌板種類` 已是必要參數，Curtain Panels 沒綁到它時整個檢討會被 `BCR-PARAM-001` 擋下。
 > CW-H、CW-V 不受決議 16 影響。步驟 13 已於 2026-09-27 實機驗證 `Fail` 路徑。**步驟 14（決議 14）與步驟 15（決議 15）已於 2026-09-28 部署並實機驗證，使用者確認 CW-H 檢討結果無誤**——CW-H 的但書路徑因此首次在 Revit 端驗到。步驟 14：防火帶一律以實體牆元素取代該段帷幕牆，交點因此落在帷幕牆定位線的延長線上，CW-H 照樣判定；交接帶的高程已改為區劃牆與帷幕牆的交集，未符合的實體外牆會被塗紅，躺在立面內的區劃牆不再產出 CW-H。步驟 15：外側法線不再採信 `wall.Orientation` 的正負，改由所屬區劃落在哪一側推定（§4.6 的三站多數決）——2026-09-27 於 Revit 量到帷幕牆的 `wall.Orientation` 純由定位線方向決定、`Wall.Flipped` 改不了它，反向畫的那一片會整片從檢討中消失，而步驟 14 預期的交接處擁有者正好是這一片。步驟 9 依設計決策取消 Area 上人工填寫室內裝修等級，改由區劃實際關聯的牆與天花板類型推導 `zone.interiorFinish`；**Revit 端尚未實機驗證**。
 
@@ -944,7 +945,7 @@ CW-V 的立面**由工具自己建立**，名稱帶著上面說的檢討圖號�
 | 16a | 決議 16 的**判定層**：`CurtainPanelKind`／`CurtainPanelKinds`、`CurtainPanelObservation.Kind`、`junction.panelKind` 與 `junction.minFireProtection` 兩個白名單欄位、`CurtainWallJunctionResolver` 把 CW-O 拆三路、`CurtainWallJunctionCheck` 寫入兩個新 fact、規則集加 `tw-bcr-79-4-curtain-wall-other-glazed`（規則集版本升至 `2026.7-provisional`） | **已完成**（建置 0 警告、1650 條測試全通過；§10 案例 40–48 已釘住）。Revit 端尚未接線 |
 | 16b | 決議 16 的**參數層**：`FireRatingDeriver` 支援 `CandidateCategory.CurtainPanel`（沿用牆壁門檻）、`FireReviewTypeRow` 的 `PanelKind` 欄位與 `CarriesRating`／`CarriesProtection` 改看種類、共享參數檔加 `防火檢討_嵌板種類`（`…0013`） | **已完成**（建置 0 警告、1672 條測試全通過）。Revit 端尚未接線 |
 | 16c | 決議 16 的**Revit 讀取層**：`RevitCurtainWallGeometryReader.ReadPanels` 分類並一律讀防火保護、`RevitFireReviewTypeScanner` 讀嵌板厚度與種類（含材料提案）、`fire-review-openings-type.txt` 加 `…0013` | **已完成**（建置 0 警告、1707 條測試全通過）。**Revit 端待實機驗證**；`RevitFireReviewParameterWriter` 早就寫得到（依名稱查參數、`FireReviewEditKind.Text`），不必改 |
-| 16d | 決議 16 的**參數面板**：帷幕嵌板列的種類下拉、選實心才亮結構材料與推定時效、選玻璃只亮防火保護 | 未開始 |
+| 16d | 決議 16 的**參數面板**：帷幕嵌板列的種類下拉、選實心才亮結構材料與推定時效、選玻璃只亮防火保護、提案看得出是提案 | **已完成**（建置 0 警告、1707 條測試全通過）。**Revit 端待實機驗證**；面板是 net48 WPF，核心測試專案不參照它，**這一段沒有任何自動化測試蓋得到**，XAML 的繫結路徑也不由編譯器檢查 |
 | 16e | 決議 16 的部署與實機驗證：依下方「16c 的綁定程序」綁參數、填值、重跑，核對 CW-O 由 `InsufficientData` 轉為有判定 | 未開始 |
 
 #### 16c 的綁定程序（16e 要執行的那一段）
@@ -1799,8 +1800,49 @@ CW-V 的連續段判定一個字都沒變；改的只是玻璃嵌板從此拿得
   沒動），另新增 `A_proposed_kind_is_not_a_declaration`、`A_declared_kind_leaves_no_proposal_to_offer`、
   `An_opening_is_never_proposed_as_a_kind` 三條。
 
-#### 下一步（步驟 16d 起）
+#### 步驟 16d 的產出（已完成，0 警告、1707 條測試全通過）
 
-16d 參數面板（XAML 與轉換器；ViewModel 這一側 16b、16c 已全部備妥）、16e 部署與實機驗證，內容見 §12
-進度表與上方「16c 的綁定程序」。**部署之前一定要先跑那兩次綁定**：`防火檢討_嵌板種類` 已是必要參數，
-Curtain Panels 沒綁到它時整個檢討會被 `BCR-PARAM-001` 擋下。
+參數面板的「構件類型」分頁多一欄「嵌板種類」，帷幕嵌板從此在面板上宣告得了種類，右邊該填哪一格也跟著
+亮暗。**判定與資料都在 16b、16c 做完了，16d 全部是呈現層**——沒有新的述詞，`Edits()` 一個字沒動。
+
+| 檔案 | 改了什麼 |
+| --- | --- |
+| `FireReview/FireReviewParameterPanelWindow.xaml` | 「斷面尺寸」之後、「結構材料」之前插入 `DataGridTemplateColumn`「嵌板種類」（寬 126）：`CellTemplate` 顯示 `PanelKind` 並在 `PanelKindIsProposed` 時附「（提案）」，`CellEditingTemplate` 是可輸入的 `ComboBox`（`ItemsSource="{Binding PanelKindChoices}"`、`Text="{Binding PanelKind}"`），`CellStyle` 在 `IsCurtainPanel` 為 `False` 時停用並灰底、在 `PanelKindIsProposed` 時改黃底並把 `ToolTip` 換成 `PanelKindProposalNote`。「結構材料」欄的 `IsEnabled` 由 `SupportsDerivation` 改為 `CarriesMaterial`（兩個 `Style` 都改）。分頁上方的說明補一句嵌板種類與提案怎麼看 |
+| `FireReview/FireReviewTypeRowViewModel.cs` | 新增 `AwaitsPanelKind => Source.AwaitsPanelKind`，給狀態列數「待宣告」用。轉發而不重算，是為了讓面板數的與 `FireReviewTypeTable.AwaitingPanelKind` 是同一個定義（那一個有測試蓋） |
+| `FireReview/FireReviewParameterPanelWindow.xaml.cs` | `UpdateStatus` 在「可推定」之後加「待宣告嵌板種類 N 列」；`SetMaterial_OnClick` 的篩選由 `SupportsDerivation` 改為 `CarriesMaterial`（提示文字一併改）；`Write_OnClick` 的確認視窗在有未修改的提案時多一行點名它有幾列 |
+
+**為什麼種類欄綁 `Text` 而不是 `SelectedItem`**：`FireReviewTypeRowViewModel` 刻意把讀不懂的宣告照原樣
+留著（使用者才看得出模型裡填了什麼）。清單裡只有 `""`／`實心`／`玻璃`，綁 `SelectedItem` 時一個讀不懂的
+值（例如「膠合」）會找不到對應項而被清成空白，`Edits()` 隨即把那個空白寫回模型，把使用者原本填的內容
+弄掉。這與「區劃用途」欄避開的是同一個坑。
+
+**為什麼「結構材料」欄改看 `CarriesMaterial`**：欄位問的是「這一列填不填結構材料」，不是「填了推不推得出
+時效」。梁兩者不同——第 71～73 條第三款把梁的要求寫成構造別而沒有尺寸門檻，所以推不出時效，但梁仍然要
+填材料，`MissingParameters` 一直在要它，而舊的 `SupportsDerivation` 把梁那一格鎖住了。帷幕嵌板則是宣告
+實心之後才亮，正是決議 16 要的行為。同一個理由，「選取列設為…」的篩選也改成同一個述詞，否則選了梁按
+下去會得到一句看不懂的「請先選取牆、柱或樓板」。
+
+**提案在面板上一定看得出來**：黃底、值後面加「（提案）」、滑過去的說明寫「由嵌板材料提案為『…』，尚未
+寫入模型」。狀態列的「待宣告」也照樣把它算進去（`AwaitsPanelKind` 看的是模型裡的值，不是下拉裡的值），
+而且按「寫入模型」時確認視窗會點名「其中 N 個帷幕嵌板類型的『嵌板種類』是工具由材料提案、您未修改的
+值」——使用者為了別的欄位按下寫入時，不該順手替自己宣告了嵌板種類卻不知道。
+
+**沒有做的**：「待宣告」只做成狀態列的一個計數，沒有做成可點選、可跳列的清單（`AwaitingMaterial`、
+`AwaitingCover` 一樣從來沒有 UI 讀過）。狀態列在建構時算一次，之後被各個按鈕的訊息覆蓋，不會隨編輯即時
+更新——這是面板既有的行為，16d 沒有改它。
+
+#### 16d 的測試情況（誠實記錄）
+
+**沒有新增任何測試，也沒有任何既有測試蓋得到這一段。** `src/BuildingRegulationReview` 是 net48 WPF，
+`BuildingRegulationReview.Core.Tests`（net10.0）不參照它；1707 條全通過只代表 16d 沒有弄壞判定層與參數層。
+XAML 的繫結路徑不由編譯器檢查（markup compile 過了不表示 `{Binding PanelKindIsProposed}` 拼對了），
+所以下列五個繫結**只經人工核對，未實機驗證**：`IsCurtainPanel`、`PanelKind`、`PanelKindChoices`、
+`PanelKindIsProposed`、`PanelKindProposalNote`、`CarriesMaterial`。16e 開面板時要逐一看過。
+
+#### 下一步（步驟 16e）
+
+16e 部署與實機驗證，內容見 §12 進度表與上方「16c 的綁定程序」。**部署之前一定要先跑那兩次綁定**：
+`防火檢討_嵌板種類` 已是必要參數，Curtain Panels 沒綁到它時整個檢討會被 `BCR-PARAM-001` 擋下。
+開面板之後要核對的是：帷幕嵌板列的「嵌板種類」欄有沒有正常顯示與編輯、玻璃型別有沒有出現黃底的
+「（提案）」、選「實心」之後結構材料與推定時效有沒有亮起來、選「玻璃」之後只剩防火門窗與遮煙性能、
+寫入後 CW-O 有沒有從 `InsufficientData` 轉為有判定。

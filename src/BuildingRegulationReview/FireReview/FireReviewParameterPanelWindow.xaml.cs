@@ -155,11 +155,13 @@ namespace BuildingRegulationReview.FireReview
         private void SetMaterial_OnClick(object sender, RoutedEventArgs e)
         {
             CommitEdit();
+            // 篩選條件與「結構材料」欄亮不亮是同一個問題，所以用同一個判斷：主要構造全部算，帷幕嵌板
+            // 要先宣告實心。用 SupportsDerivation 會把梁漏掉——梁推不出時效，但仍然要填材料。
             var selected = Grid.SelectedItems.OfType<FireReviewTypeRowViewModel>()
-                .Where(r => r.SupportsDerivation).ToList();
+                .Where(r => r.CarriesMaterial).ToList();
             if (selected.Count == 0)
             {
-                MessageBox.Show(this, "請先在「構件類型」分頁選取要設定的牆、柱或樓板類型。", Title);
+                MessageBox.Show(this, "請先在「構件類型」分頁選取要設定的牆、柱、梁、樓板，或已宣告為實心的帷幕嵌板。", Title);
                 return;
             }
 
@@ -269,6 +271,12 @@ namespace BuildingRegulationReview.FireReview
                 var types = _rows.Count(r => r.IsDirty);
                 var instances = _rows.Where(r => r.IsDirty).Sum(r => r.Source.ProjectInstanceCount);
                 lines.Add($"・構件類型：{typeEdits.Count} 個值，影響 {types} 個類型、專案中共 {instances} 個實體");
+
+                // 提案是工具猜的，留著不動也會被寫入（決議 16、D3），所以在確認視窗裡點名它有幾列——
+                // 使用者為了別的欄位按下寫入時，不該順手替自己宣告了嵌板種類卻不知道。
+                var proposed = _rows.Count(r => r.PanelKindIsProposed);
+                if (proposed > 0)
+                    lines.Add($"　其中 {proposed} 個帷幕嵌板類型的「嵌板種類」是工具由材料提案、您未修改的值");
             }
 
             if (zoneEdits.Count > 0) lines.Add($"・區劃：{zoneEdits.Count} 個值，影響 {_zones.Count(z => z.IsDirty)} 個區劃");
@@ -303,6 +311,11 @@ namespace BuildingRegulationReview.FireReview
         private void UpdateStatus()
         {
             var parts = new List<string> { $"可推定 {_rows.Count(r => r.CanApplyDerived)} 列" };
+
+            // 嵌板種類排在材料之前，因為它決定那一列到底要不要填材料。提案過但還沒寫入的列照樣算在
+            // 這裡：提案不是宣告，不按下「寫入模型」CW-O 仍然答資料不足（決議 16）。
+            var kinds = _rows.Count(r => r.AwaitsPanelKind);
+            if (kinds > 0) parts.Add($"待宣告嵌板種類 {kinds} 列");
 
             var awaiting = _rows.Count(r => r.Derivation.Kind == FireRatingDerivationKind.MaterialMissing);
             if (awaiting > 0) parts.Add($"待填結構材料 {awaiting} 列");

@@ -5,6 +5,7 @@
         WindowStartupLocation="CenterScreen" Background="#F5F6F7">
     <Window.Resources>
         <SolidColorBrush x:Key="Muted" Color="#62666A" />
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
         <Style TargetType="Button">
             <Setter Property="Padding" Value="12,6" />
             <Setter Property="Margin" Value="0,0,8,0" />
@@ -54,7 +55,7 @@
                         <StackPanel>
                             <TextBlock Text="這些是「類型參數」" FontWeight="SemiBold" Foreground="#8A5200" />
                             <TextBlock Margin="0,4,0,0" TextWrapping="Wrap" LineHeight="18" Foreground="#6B4A12"
-                                       Text="防火時效、結構材料、防火被覆厚度與門窗的防火門窗、遮煙性能勾選都掛在類型上，改一列會套用到整個專案中該類型的所有實體，不只目前視圖看得到的那些。「數量」欄的第二個數字就是專案中的實體數。門的「設計防火時效」是給管道間維修門用的（第79條之2第1項要一小時以上）。" />
+                                       Text="防火時效、結構材料、防火被覆厚度與門窗的防火門窗、遮煙性能勾選都掛在類型上，改一列會套用到整個專案中該類型的所有實體，不只目前視圖看得到的那些。「數量」欄的第二個數字就是專案中的實體數。門的「設計防火時效」是給管道間維修門用的（第79條之2第1項要一小時以上）。帷幕嵌板要先在「嵌板種類」選實心或玻璃，右邊才知道該填時效還是勾防火門窗；黃底並標「（提案）」的是工具由嵌板材料猜的初值，還沒寫進模型，留著不動也要按「寫入模型」才算宣告。" />
                         </StackPanel>
                     </Border>
 
@@ -84,18 +85,66 @@
                             </DataGridTextColumn>
                             <DataGridTextColumn Header="斷面尺寸" Binding="{Binding DimensionText}" IsReadOnly="True" Width="122" />
 
+                            <!-- 決議 16。這一欄決定右邊要填哪一格：實心嵌板是構造，答「設計防火時效」
+                                 （並由結構材料＋嵌板厚推定）；玻璃嵌板是防火設備，答「防火門窗」。留白
+                                 是未宣告，兩邊都亮著，檢討答資料不足而不替設計者猜。只有帷幕嵌板有這一欄。
+                                 綁 Text 而非 SelectedItem：模型裡填了讀不懂的字時（例如「膠合」），清單裡
+                                 找不到那個字，綁 SelectedItem 會把它清成空白再寫回模型，把使用者原本填的
+                                 內容弄掉——與「區劃用途」同一個理由。 -->
+                            <DataGridTemplateColumn Header="嵌板種類" Width="126" SortMemberPath="PanelKind">
+                                <DataGridTemplateColumn.CellStyle>
+                                    <Style TargetType="DataGridCell">
+                                        <Setter Property="ToolTip" Value="只有帷幕嵌板要填。實心＝以自己的防火時效作答（第79條第4項、第79條之3第2項的交接帶量的就是嵌板的時效）；玻璃＝以防火門窗作答，同一片玻璃窗。留白＝未宣告，檢討會答資料不足，不會猜成其中一種。" />
+                                        <Setter Property="ToolTipService.ShowDuration" Value="60000" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsCurtainPanel}" Value="False">
+                                                <Setter Property="IsEnabled" Value="False" />
+                                                <Setter Property="Background" Value="#F0F1F2" />
+                                                <Setter Property="ToolTip" Value="{x:Null}" />
+                                            </DataTrigger>
+                                            <!-- 提案不是模型裡的值，所以看得出來是提案：底色加上「（提案）」，
+                                                 免得使用者以為型別已經填好而跳過這一列（決議 16、D3）。 -->
+                                            <DataTrigger Binding="{Binding PanelKindIsProposed}" Value="True">
+                                                <Setter Property="Background" Value="#FFF8E1" />
+                                                <Setter Property="ToolTip" Value="{Binding PanelKindProposalNote}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </DataGridTemplateColumn.CellStyle>
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" Margin="6,0" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding PanelKind}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="（提案）" Foreground="#8A5200"
+                                                       Visibility="{Binding PanelKindIsProposed, Converter={StaticResource BoolToVis}}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                                <DataGridTemplateColumn.CellEditingTemplate>
+                                    <DataTemplate>
+                                        <ComboBox IsEditable="True" IsTextSearchEnabled="False"
+                                                  ItemsSource="{Binding PanelKindChoices}"
+                                                  Text="{Binding PanelKind, UpdateSourceTrigger=PropertyChanged}" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellEditingTemplate>
+                            </DataGridTemplateColumn>
+
+                            <!-- 亮不亮看 CarriesMaterial，不看 SupportsDerivation：問的是「這一列填不填
+                                 結構材料」，不是「填了推不推出時效」。梁兩者不同（第71～73條三款沒有給梁
+                                 尺寸門檻，所以推不出時效，但梁仍然要填材料，MissingParameters 也一直在要
+                                 它）；帷幕嵌板則是宣告實心之後才亮（決議 16）。 -->
                             <DataGridComboBoxColumn Header="結構材料" Width="96"
                                                     SelectedItemBinding="{Binding Material, UpdateSourceTrigger=PropertyChanged}">
                                 <DataGridComboBoxColumn.ElementStyle>
                                     <Style TargetType="ComboBox">
                                         <Setter Property="ItemsSource" Value="{Binding MaterialChoices}" />
-                                        <Setter Property="IsEnabled" Value="{Binding SupportsDerivation}" />
+                                        <Setter Property="IsEnabled" Value="{Binding CarriesMaterial}" />
                                     </Style>
                                 </DataGridComboBoxColumn.ElementStyle>
                                 <DataGridComboBoxColumn.EditingElementStyle>
                                     <Style TargetType="ComboBox">
                                         <Setter Property="ItemsSource" Value="{Binding MaterialChoices}" />
-                                        <Setter Property="IsEnabled" Value="{Binding SupportsDerivation}" />
+                                        <Setter Property="IsEnabled" Value="{Binding CarriesMaterial}" />
                                     </Style>
                                 </DataGridComboBoxColumn.EditingElementStyle>
                             </DataGridComboBoxColumn>

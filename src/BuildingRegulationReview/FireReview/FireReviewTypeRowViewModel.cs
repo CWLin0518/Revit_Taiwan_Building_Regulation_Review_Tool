@@ -57,6 +57,12 @@ namespace BuildingRegulationReview.FireReview
         private CurtainPanelKind? TypedPanelKind => CurtainPanelKinds.Parse(_panelKind);
 
         /// <summary>
+        /// 模型裡還沒宣告種類的帷幕嵌板——**包含工具提案了但還沒寫入的列**，因為提案不是宣告（決議 16）。
+        /// 面板的狀態列數的是這個：沒宣告之前，設計防火時效 與 防火門窗 兩邊都問不成，CW-O 答資料不足。
+        /// </summary>
+        public bool AwaitsPanelKind => Source.AwaitsPanelKind;
+
+        /// <summary>
         /// 一片實心嵌板 fills in 設計防火時效 like the 主要構造 do (帷幕牆規格 §6、決議 16), and 門 do too,
         /// because a 管道間之維修門 owes one hour under 第79條之2第1項 (垂直區劃文件 §6). 玻璃嵌板 and 窗
         /// do not. An undeclared panel carries both, so neither gap is hidden before the kind is chosen.
