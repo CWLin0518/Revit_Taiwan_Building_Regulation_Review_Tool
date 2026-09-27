@@ -15,8 +15,10 @@ namespace BuildingRegulationReview.Revit.Parameters;
 /// dimension 建築技術規則第71～73條 measures. Read-only: no transaction.
 /// </summary>
 /// <remarks>
-/// The view only decides which Types are listed. The parameters are Type parameters, so the counts
-/// report both what the view showed and what the project holds — an edit reaches all of the latter.
+/// The view orders the list and fills the 視圖 count; it does not decide which Types are listed. The
+/// parameters are Type parameters, so one edit reaches every instance in the project, and the review
+/// reads the storey band of the whole document rather than what a view happens to show — a Type the
+/// view hides still gets reviewed, so it still gets a row (its 數量 reads 0 / 專案數).
 /// 梁（結構構架）are listed like the rest, because 第70條 states a required rating for them and the
 /// review reads their 設計防火時效. What they have no answer for is deriving that design value from
 /// the Type's size — 第71～73條 give 樑 no dimensional threshold — so their 結構材料 column is
@@ -43,19 +45,23 @@ public sealed class RevitFireReviewTypeScanner
         _document = document ?? throw new ArgumentNullException(nameof(document));
 
     /// <summary>
-    /// Everything the batch panel edits: the Types <paramref name="view"/> shows, plus the 區劃 and
-    /// the project facts.
+    /// Everything the batch panel edits: the Types the project uses, plus the 區劃 and the project facts.
     /// </summary>
     /// <remarks>
-    /// Only the Types are scoped to the view. The 區劃 and the project facts are read from the whole
-    /// document on purpose: they are instance parameters on a handful of elements the user has to
-    /// fill in whatever view they happen to be in, and an Area is not visible in a floor plan at all,
-    /// so scoping them to the view would have shown an empty list nearly every time.
+    /// Nothing here is scoped to the view — it only orders the Types and counts how many of each it
+    /// shows. The 區劃 and the project facts are instance parameters on a handful of elements the user
+    /// has to fill in whatever view they happen to be in, and an Area is not visible in a floor plan
+    /// at all; the Types are read project-wide because the review is too, so anything it reviews can
+    /// be declared here.
     /// </remarks>
     public FireReviewParameterSet ScanAll(View? view) =>
         new(Scan(view), Zones(), ProjectRow(), Floors());
 
-    /// <summary>The Types visible in <paramref name="view"/>, or in the whole project when it is null.</summary>
+    /// <summary>
+    /// Every Type the panel edits: the ones <paramref name="view"/> shows first, then the ones the
+    /// project uses but this view does not show. <paramref name="view"/> only orders the list and
+    /// fills the 視圖 count; it does not decide membership.
+    /// </summary>
     public FireReviewTypeTable Scan(View? view)
     {
         var warnings = new List<string>();
@@ -74,20 +80,38 @@ public sealed class RevitFireReviewTypeScanner
         var rows = new List<FireReviewTypeRow>();
         foreach (var pair in inView)
         {
-            var type = _document.GetElement(pair.Key) as ElementType;
-            if (type is null) continue;
-            if (type.Category is null || !Categories.TryGetValue(type.Category.BuiltInCategory, out var candidate)) continue;
+            var row = Row(pair.Key, pair.Value,
+                projectCounts.TryGetValue(pair.Key, out var all) ? all : pair.Value.Count);
+            if (row is not null) rows.Add(row);
+        }
 
-            rows.Add(Row(type, candidate, pair.Value,
-                projectCounts.TryGetValue(pair.Key, out var all) ? all : pair.Value.Count));
+        // 型別參數的一次編輯到得了整個專案，所以視圖沒顯示的型別也必須列得出來。檢討讀的是樓層帶內的
+        // 全文件構件（RevitCandidateObservationReader 的 Collect(storey, …)），不是視圖看得見的那些：
+        // 平面圖由視圖範圍決定顯示什麼，整段落在剪切面下方的帷幕嵌板因此一列都不會產生——而
+        // 防火檢討_嵌板種類 是必要參數，列不出來就等於宣告不了，那些嵌板在 CW-O 只能答資料不足。
+        // 這些列的「數量」欄顯示 0 / 專案數，與視圖裡有實體的列一眼分得開。
+        foreach (var pair in projectCounts)
+        {
+            if (inView.ContainsKey(pair.Key)) continue;
+
+            var row = Row(pair.Key, Array.Empty<Element>(), pair.Value);
+            if (row is not null) rows.Add(row);
         }
 
         if (rows.Count == 0)
-            warnings.Add(view is null
-                ? "專案中找不到牆、柱、樑、樓板、門、窗或帷幕嵌板。"
-                : $"視圖「{view.Name}」中找不到牆、柱、樑、樓板、門、窗或帷幕嵌板；請切換到含這些構件的視圖。");
+            warnings.Add("專案中找不到牆、柱、樑、樓板、門、窗或帷幕嵌板。");
 
         return new FireReviewTypeTable(rows, warnings);
+    }
+
+    /// <summary>One row, or null when the Type is gone or is not a category the panel edits.</summary>
+    private FireReviewTypeRow? Row(ElementId typeId, IReadOnlyList<Element> instances, int inProject)
+    {
+        if (_document.GetElement(typeId) is not ElementType type) return null;
+        if (type.Category is null || !Categories.TryGetValue(type.Category.BuiltInCategory, out var candidate))
+            return null;
+
+        return Row(type, candidate, instances, inProject);
     }
 
     private IEnumerable<Element> Collect(BuiltInCategory category, View? view)

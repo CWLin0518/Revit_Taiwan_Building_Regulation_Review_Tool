@@ -948,6 +948,7 @@ CW-V 的立面**由工具自己建立**，名稱帶著上面說的檢討圖號�
 | 16c | 決議 16 的**Revit 讀取層**：`RevitCurtainWallGeometryReader.ReadPanels` 分類並一律讀防火保護、`RevitFireReviewTypeScanner` 讀嵌板厚度與種類（含材料提案）、`fire-review-openings-type.txt` 加 `…0013` | **已完成**（建置 0 警告、1707 條測試全通過）。**Revit 端已於 2026-09-28 實機驗證**：型別 12611（`玻璃 1.0cm`、材料 `玻璃`）由材料提案出「玻璃」並顯示在面板上，寫入後模型讀回 `防火檢討_嵌板種類 = 玻璃`，CW-O 因此走 `tw-bcr-79-4-curtain-wall-other-glazed` 作答；`RevitFireReviewParameterWriter` 早就寫得到（依名稱查參數、`FireReviewEditKind.Text`），不必改。`FamilySymbol`（訂製嵌板族）那一條讀取路徑這個模型驗不到，仍未驗證 |
 | 16d | 決議 16 的**參數面板**：帷幕嵌板列的種類下拉、選實心才亮結構材料與推定時效、選玻璃只亮防火保護、提案看得出是提案 | **已完成**（建置 0 警告、1707 條測試全通過）。**Revit 端已於 2026-09-28 實機驗證**：使用者開「防火檢討參數設定」→「構件類型」分頁核對後回報「面板沒問題」——**這是一句整體確認，沒有逐欄基線**，六個繫結、黃底提案、種類連動亮暗各自是否逐一無誤並未分項記錄。面板是 net48 WPF，核心測試專案不參照它，**這一段仍然沒有任何自動化測試蓋得到**，XAML 的繫結路徑也不由編譯器檢查 |
 | 16e | 決議 16 的部署與實機驗證：依下方「16c 的綁定程序」綁參數、填值、重跑，核對 CW-O 由 `InsufficientData` 轉為有判定 | **已完成**（2026-09-28）。部署、綁定、面板核對、填值寫入、重跑全部做完，CW-O 玻璃那一路的檢討表列已逐字核對；證據與剩餘界線見下方「16e 的驗證證據」 |
+| 16f | 參數面板要列得出檢討讀得到的每一個帷幕嵌板型別（使用者回報缺型別，2026-09-28） | **已完成**（2026-09-28，建置 0 警告、1707 條測試全通過，**但 `BuildingRegulationReview.Revit` 沒有任何測試覆蓋**）。見下方「16f：面板列不出視圖外的型別」。**Revit 端待實機驗證** |
 
 #### 16e 的驗證證據（誠實記錄，含推定的那一段）
 
@@ -1032,6 +1033,39 @@ CW-H 的 `continuousFireRatedLength = 0` 精確對應 `FacadeMeasurement.Glazed`
 284310，都在帷幕牆 282773 上）經 `get_solid_triangulation` 證實 `solidCount: 0`、`faceCount: 0`，是被
 合併掉的空嵌板槽（鄰居 284296 寬 2970 mm、10 個面的 L 形，吞掉了兩格），略過是正確處理，該處由合併後的
 鄰居覆蓋，所以 `待確認` 是 0。這段警告自步驟 4（`5abf1ed`）就存在，改它是一個獨立決定。
+
+#### 16f：面板列不出視圖外的型別
+
+使用者在 16e 之後回報「批次參數設定沒有包含模型有使用存在的所有 curtain panel type」。成因是兩邊的
+收集範圍不一致：
+
+| | 範圍 | 位置 |
+| --- | --- | --- |
+| 參數面板的型別清單 | 作用中視圖 | `FireReviewParameterPanelCommand.cs:34`（`ActiveGraphicalView`）→ `RevitFireReviewTypeScanner.Scan(view)` 的 `FilteredElementCollector(_document, view.Id)` |
+| 檢討的構件收集 | 樓層帶 × **全文件** | `RevitCandidateObservationReader.Collect(storey, category)`（只有區劃 Area 以視圖為範圍） |
+
+平面圖由視圖範圍（上下緣與剪切面）決定顯示什麼，整段落在剪切面下方的帷幕嵌板不會出現——例如 282763
+以 FL8（24500）為底、頂端 28000，在 `防火區劃_FL9_防火檢討` 這張 FL9 平面裡它的嵌板全在剪切面之下，而
+檢討端的樓層帶 bounding box 抓得到。所以**檢討讀得到、面板列不出來的型別必然存在**，而
+`防火檢討_嵌板種類` 是必要參數，列不出來就等於宣告不了，那些嵌板在 CW-O 只能答資料不足。面板原本會顯示
+每一列的專案實體數，但視圖裡一個實體都沒有的型別**整列不存在**，也沒有任何警告提到它。
+
+**不是成因的兩件事**：訂製嵌板族（`FamilySymbol`）照樣列得出來——`Structure()` 以 `as HostObjAttributes`
+取複合構造，對 `FamilySymbol` 安全回 null，只是推不出厚度；嵌板為牆者的類別是 `OST_Walls`，本來就列在牆
+那一組（§3.3 已記）。
+
+**改法**：`Scan` 在視圖那一輪之後，補上「`projectCounts` 有、`inView` 沒有」的型別，實體清單傳空陣列。
+全專案掃描本來就在跑（`Count(Collect(category, null), projectCounts)` 原本只用來算專案實體數），所以不必
+多掃一次；`Row()` 的 `instances` 也只用在 `instanceCount` 一處，其餘欄位全從型別讀。這些列的「數量」欄
+顯示 `0 / 專案數`，面板既有的 tooltip 會說明「此視圖有 0 個實體，整個專案有 N 個」，不必改 XAML 或
+ViewModel。`FireReviewTypeTable` 本來就按「構造類別優先 → 類別 → 名稱」排序，所以補進來的列會落在各自
+的類別群組裡而不是堆在表尾。
+
+視圖因此**只決定排序與「視圖數」那一欄，不再決定列不列**。`rows.Count == 0` 的警告一併簡化：清單既已是
+全專案範圍，「請切換到含這些構件的視圖」這句話不再成立。
+
+**這一段沒有任何自動化測試。** `tests/BuildingRegulationReview.Core.Tests` 只參照 `Domain` 與
+`Application` 兩個專案，`BuildingRegulationReview.Revit` 零覆蓋；1707 條全通過只代表沒弄壞判定層與參數層。
 
 #### 16c 的綁定程序（16e 要執行的那一段）
 
