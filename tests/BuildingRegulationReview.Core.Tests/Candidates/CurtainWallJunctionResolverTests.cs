@@ -805,6 +805,127 @@ public sealed class CurtainWallJunctionResolverTests
         Assert.DoesNotContain(junctions, j => j.Kind == CurtainWallJunctionKind.WallToCurtainWall);
     }
 
+    // --- 外側法線定向（docs §4.6、§10 案例 34–39、決議 15）----------------------------------------
+
+    [Fact]
+    public void Case34_a_facade_whose_normal_points_inwards_is_reviewed_exactly_as_one_that_points_out()
+    {
+        // Revit 的 wall.Orientation 是定位線繞 Z 轉 −90°，與 Wall.Flipped 無關，所以同一道立面上
+        // 反向畫的那一片回報的法線朝室內。定向之前，它整片探不到區劃、CW-H 與 CW-O 一起靜默消失。
+        var asRead = Assert.Single(WallJunctions(SplitFacade(4100, 5000, new[] { Host(4550) }, normalY: 1)));
+        var baseline = Assert.Single(WallJunctions(SplitFacade(4100, 5000, new[] { Host(4550) })));
+
+        Assert.Equal(baseline.JunctionId, asRead.JunctionId);
+        Assert.Equal(baseline.CurtainWallUniqueId, asRead.CurtainWallUniqueId);
+        Assert.Equal(baseline.ZoneId, asRead.ZoneId);
+        Assert.Equal(baseline.ContinuousFireRatedLengthMm!.Value, asRead.ContinuousFireRatedLengthMm!.Value, 3);
+        Assert.Equal(baseline.ProjectionDepthMm!.Value, asRead.ProjectionDepthMm!.Value, 3);
+        Assert.Equal(baseline.FacadeWallUniqueIds, asRead.FacadeWallUniqueIds);
+        Assert.Equal(baseline.Placement!.StartMm.X, asRead.Placement!.StartMm.X, 3);
+        Assert.Equal(baseline.Placement!.StartMm.Y, asRead.Placement!.StartMm.Y, 3);
+        Assert.Null(asRead.Doubt);
+    }
+
+    [Fact]
+    public void Case35_a_projection_is_measured_outwards_even_when_the_normal_was_read_inwards()
+    {
+        // 只修 ZoneOf（找不到區劃就往反向再探）會讓這一列現身，但突出量仍量在反側：600 mm 的突出
+        // 算成 −600，被 Math.Max(0, …) 夾成 0，本文的 projectionDepth >= 500 判成「不突出」。
+        var junction = Assert.Single(WallJunctions(SplitFacade(4100, 5000,
+            new[] { Host(4550, beyondLineMm: OffsetMm + 600) }, normalY: 1)));
+
+        Assert.Equal(600, junction.ProjectionDepthMm!.Value, 3);
+    }
+
+    [Fact]
+    public void Case36_a_curtain_wall_with_a_compartment_on_both_sides_keeps_the_normal_it_was_read_with()
+    {
+        // 室內帷幕牆：兩側都探得到區劃，取反是擲硬幣。多數決必須是「嚴格多於」——改成「大於等於」
+        // 會把這片讀對的牆翻過去，600 mm 的突出當場變成 0。
+        var southZone = new CurtainWallZoneObservation(
+            Guid.Parse("bbbbbbbb-0000-0000-0000-00000000000f"), "B 區劃",
+            new[] { Rectangle(-2000, -20000, WallLengthMm + 2000, -1) });
+
+        var set = new CurtainWallObservationSet(Package, "LVL", "1F", 0,
+            new[] { Zone(), southZone },
+            new[] { Wall(Glazing()) },
+            new[] { Host(5000, beyondLineMm: OffsetMm + 600) },
+            levelElevationsMm: new[] { 0.0, StoreyMm });
+
+        var junction = Single(Resolve(set), CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Equal(600, junction.ProjectionDepthMm!.Value, 3);
+    }
+
+    [Fact]
+    public void Case37_a_curtain_wall_with_no_compartment_on_either_side_is_still_left_out_of_the_review()
+    {
+        // 兩側都探不到代表這片牆不屬於任何區劃。定向不替它補一個，這是既有行為（§9）。
+        var set = new CurtainWallObservationSet(Package, "LVL", "1F", 0,
+            new[] { new CurtainWallZoneObservation(ZoneId, "A 區劃", new[] { Rectangle(20000, 1, 30000, 20000) }) },
+            new[] { Wall(Glazing()) },
+            new[] { Host(5000) },
+            levelElevationsMm: new[] { 0.0, StoreyMm });
+
+        Assert.Empty(Resolve(set));
+    }
+
+    [Fact]
+    public void Case38_the_side_that_finds_a_compartment_at_more_stations_wins()
+    {
+        // 立面跨兩個區劃、中段沒建區劃：中點那一站兩側皆無。單取中點會判不出方向，「任一站」則會
+        // 被立面兩端各自貼到的不同區劃拉走——三站多數決 2 > 0，取反。
+        var west = new CurtainWallZoneObservation(ZoneId, "A 區劃", new[] { Rectangle(-2000, 1, 4500, 20000) });
+        var east = new CurtainWallZoneObservation(
+            Guid.Parse("bbbbbbbb-0000-0000-0000-00000000000f"), "B 區劃",
+            new[] { Rectangle(7500, 1, WallLengthMm + 2000, 20000) });
+
+        var set = new CurtainWallObservationSet(Package, "LVL", "1F", 0,
+            new[] { west, east },
+            new[] { new CurtainWallObservation("CW1", new Point2D(0, 0), new Point2D(WallLengthMm, 0),
+                new Point2D(0, 1), OffsetMm, 0, StoreyMm, Glazing(), typeName: "帷幕牆 1") },
+            new[] { Host(3000, beyondLineMm: OffsetMm + 600) },
+            levelElevationsMm: new[] { 0.0, StoreyMm });
+
+        var junction = Single(Resolve(set), CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Equal(ZoneId, junction.ZoneId);
+        Assert.Equal(600, junction.ProjectionDepthMm!.Value, 3);
+    }
+
+    [Fact]
+    public void Case39_reversing_the_normal_moves_nothing_else()
+    {
+        // 守門測試：定向只改法線正負。動到 Start／End／Direction／ExteriorOffsetMm 就會改變
+        // ParameterOf／PointAt、擁有權比對與每一個 junction.id——同一個交接處換了圖號。
+        var wall = new CurtainWallObservation("CW1", new Point2D(100, 200), new Point2D(100, 3200),
+            new Point2D(-1, 0), OffsetMm, 450, StoreyMm,
+            new[] { Panel("P", 0, 3000, 60) },
+            new[] { Grid("G", CurtainGridLineDirection.Vertical, 1500) },
+            null, "帷幕牆 1");
+
+        var flipped = wall.WithReversedExteriorNormal();
+
+        Assert.Equal(wall.Start.X, flipped.Start.X, 9);
+        Assert.Equal(wall.Start.Y, flipped.Start.Y, 9);
+        Assert.Equal(wall.End.X, flipped.End.X, 9);
+        Assert.Equal(wall.End.Y, flipped.End.Y, 9);
+        Assert.Equal(wall.Direction.X, flipped.Direction.X, 9);
+        Assert.Equal(wall.Direction.Y, flipped.Direction.Y, 9);
+        Assert.Equal(wall.ExteriorOffsetMm, flipped.ExteriorOffsetMm, 9);
+        Assert.Equal(wall.LengthMm, flipped.LengthMm, 9);
+        Assert.Equal(wall.BaseElevationMm, flipped.BaseElevationMm, 9);
+        Assert.Equal(wall.TopElevationMm, flipped.TopElevationMm, 9);
+        Assert.Equal(wall.UniqueId, flipped.UniqueId);
+        Assert.Equal(wall.TypeName, flipped.TypeName);
+        Assert.Equal(wall.NonPlanarReason, flipped.NonPlanarReason);
+        Assert.Equal(wall.Panels.Select(p => p.UniqueId), flipped.Panels.Select(p => p.UniqueId));
+        Assert.Equal(wall.GridLines.Select(g => g.UniqueId), flipped.GridLines.Select(g => g.UniqueId));
+
+        Assert.Equal(-wall.ExteriorNormal.X, flipped.ExteriorNormal.X, 9);
+        Assert.Equal(-wall.ExteriorNormal.Y, flipped.ExteriorNormal.Y, 9);
+    }
+
     // --- 標示位置（docs §7.1：標示層從結果重建，位置必須由幾何層交出）-------------------------------
 
     [Fact]
@@ -987,7 +1108,8 @@ public sealed class CurtainWallJunctionResolverTests
     /// §4.2「建模要求」的立面：帷幕牆 ─ 實體外牆 ─ 帷幕牆。左片自 <paramref name="gapStartMm"/> 往
     /// x = 0 畫、右片自 <paramref name="gapEndMm"/> 往 x = <see cref="WallLengthMm"/> 畫——兩片的軸向
     /// 相反，與實機模型相同，交點在兩片的定位線上都是負的參數，所以歸屬不能用「沿軸較低側」。
-    /// 兩片的外側法線一致（§4.2 建模要求最後一條），否則反向的那一片會整片探不到區劃。
+    /// 外側法線由 <paramref name="normalY"/> 給定：`-1` 是朝室外（讀對了），`+1` 是朝室內——
+    /// Revit 的 `wall.Orientation` 兩種都給得出來，由解析層自己定向（§4.6、決議 15）。
     /// </summary>
     private static CurtainWallObservationSet SplitFacade(
         double gapStartMm,
@@ -1000,15 +1122,16 @@ public sealed class CurtainWallJunctionResolverTests
         double curtainTopMm = StoreyMm,
         double seamMm = 0,
         string leftUniqueId = "CW-left",
-        string rightUniqueId = "CW-right")
+        string rightUniqueId = "CW-right",
+        double normalY = -1)
     {
         var left = new CurtainWallObservation(leftUniqueId, new Point2D(gapStartMm, 0), new Point2D(0, 0),
-            new Point2D(0, -1), OffsetMm, curtainBaseMm, curtainTopMm,
+            new Point2D(0, normalY), OffsetMm, curtainBaseMm, curtainTopMm,
             new[] { Panel("P-left", 0, gapStartMm, 0, bottom: curtainBaseMm, top: curtainTopMm) },
             typeName: "帷幕牆 1");
 
         var right = new CurtainWallObservation(rightUniqueId, new Point2D(gapEndMm, 0), new Point2D(WallLengthMm, 0),
-            new Point2D(0, -1), OffsetMm, curtainBaseMm, curtainTopMm,
+            new Point2D(0, normalY), OffsetMm, curtainBaseMm, curtainTopMm,
             new[] { Panel("P-right", 0, WallLengthMm - gapEndMm, 0, bottom: curtainBaseMm, top: curtainTopMm) },
             typeName: "帷幕牆 2");
 

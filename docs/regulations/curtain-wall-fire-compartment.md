@@ -1,6 +1,6 @@
 # 防火區劃與帷幕牆交接：第 79 條、第 79-3 條、第 79-4 條
 
-> 狀態：**實作中**。§12 的步驟 1–14 已完成（步驟 11、12 隨決議 13 移除）。步驟 13 已於 2026-09-27 實機驗證 `Fail` 路徑。**步驟 14（決議 14）已實作完成，但 Revit 端的實機驗證卡在步驟 15**：防火帶一律以實體牆元素取代該段帷幕牆，交點因此落在帷幕牆定位線的延長線上，CW-H 照樣判定；交接帶的高程已改為區劃牆與帷幕牆的交集，未符合的實體外牆會被塗紅，躺在立面內的區劃牆不再產出 CW-H。但書成立（`NotApplicable`）的路徑在測試層已釘住（§10 案例 26–33），**Revit 端仍未驗到**。**步驟 15（決議 15）已設計、待實作**：外側法線不再採信 `wall.Orientation` 的正負，改由所屬區劃落在哪一側推定（§4.6）——2026-09-27 於 Revit 量到帷幕牆的 `wall.Orientation` 純由定位線方向決定、`Wall.Flipped` 改不了它，反向畫的那一片會整片從檢討中消失，而步驟 14 預期的交接處擁有者正好是這一片。步驟 9 依設計決策取消 Area 上人工填寫室內裝修等級，改由區劃實際關聯的牆與天花板類型推導 `zone.interiorFinish`；**Revit 端尚未實機驗證**。
+> 狀態：**實作中**。§12 的步驟 1–14 已完成（步驟 11、12 隨決議 13 移除）。步驟 13 已於 2026-09-27 實機驗證 `Fail` 路徑。**步驟 14（決議 14）與步驟 15（決議 15）都已實作完成，兩者的 Revit 實機驗證一起進行、尚未執行**。步驟 14：防火帶一律以實體牆元素取代該段帷幕牆，交點因此落在帷幕牆定位線的延長線上，CW-H 照樣判定；交接帶的高程已改為區劃牆與帷幕牆的交集，未符合的實體外牆會被塗紅，躺在立面內的區劃牆不再產出 CW-H。但書成立（`NotApplicable`）的路徑在測試層已釘住（§10 案例 26–33），**Revit 端仍未驗到**。步驟 15：外側法線不再採信 `wall.Orientation` 的正負，改由所屬區劃落在哪一側推定（§4.6 的三站多數決）——2026-09-27 於 Revit 量到帷幕牆的 `wall.Orientation` 純由定位線方向決定、`Wall.Flipped` 改不了它，反向畫的那一片會整片從檢討中消失，而步驟 14 預期的交接處擁有者正好是這一片。步驟 9 依設計決策取消 Area 上人工填寫室內裝修等級，改由區劃實際關聯的牆與天花板類型推導 `zone.interiorFinish`；**Revit 端尚未實機驗證**。
 
 ## 1. 功能摘要
 
@@ -670,7 +670,7 @@ CW-V 的立面**由工具自己建立**，名稱帶著上面說的檢討圖號�
 | `CurtainWallJunctionCheck` | Application/Checks | 呼叫規則引擎、產生六態 `ReviewResult` |
 | `CurtainWallJunctionInputs` | Application/Checks | 交接處事實的純資料模型 |
 | `CurtainWallJunctionOptions` | Application/Checks | 500／900／30／公差常數 |
-| `CurtainWallJunctionResolver` | Application/Candidates | 由候選集合組出交接處清單（無 Revit 相依） |
+| `CurtainWallJunctionResolver` | Application/Candidates | 由候選集合組出交接處清單（無 Revit 相依）；每片帷幕牆先經 `Oriented` 依所屬區劃定向外側法線（決議 15） |
 | `ICurtainWallGeometryReader` | Application/Abstractions | 幾何讀取介面 |
 | `FacadeWallObservation` | Application/Candidates | 立面內的實體外牆（CW-H 但書的來源，決議 13）與其兩個容差常數 |
 | `RevitCurtainWallGeometryReader` | Revit/Geometry | 實作：嵌板走訪、交點、突出量、層間高度、立面內實體外牆 |
@@ -844,7 +844,7 @@ CW-V 的立面**由工具自己建立**，名稱帶著上面說的檢討圖號�
 | 12 | 交點落在豎框上時取該格的嵌板（`CurtainWallJunctionResolver.PanelLookup`） | **已移除**（曾實機驗證成立：`CW-H-01` 由「未符合／0 m」轉為「資料不足」，`panelCount` 0 → 1；但隨決議 13 一併作廢——CW-H 不再查嵌板，豎框就不再擋路） |
 | 13 | CW-H 改由立面內的實體外牆供給但書長度（決議 13）：新增 `FacadeWallObservation`／`CurtainWallObservation.IsInFacadePlane`／`FacadeRun`，移除 `SolidWallBand`、`PanelLookup` 與 `WallJunction` 的嵌板量測路徑 | **已完成並實機驗證**（建置 0 警告、1620 條測試全通過；2026-09-27 於 Revit 重跑，`CW-H-01` 由「資料不足」轉為 `Fail`／0 m，七項證據逐項相符）。但書成立的路徑（`NotApplicable`）仍未驗到——現行模型須先依 §4.2 建模要求改立面 |
 | 14 | 交點落在實體外牆連續段上也判 CW-H（決議 14）：交點求解擴充到延長線、交接帶高程改為交集、未符合時塗紅實體外牆、躺在立面內的區劃牆不產出 CW-H | **已完成**（建置 0 警告、1631 條測試全通過；§10 案例 26–33 已釘住，含整合層的「一列且 `NotApplicable`」）。**Revit 端的實機驗證卡在步驟 15**——現行模型的交接處擁有者 `298700` 法線朝內，整片牆在檢討中不存在 |
-| 15 | 外側法線改由所屬區劃推定（決議 15）：`CurtainWallJunctionResolver` 新增定向步驟，`§4.6` 的三站多數決 | **待實作**（設計已定，§4.6、§10 案例 34–39） |
+| 15 | 外側法線改由所屬區劃推定（決議 15）：`CurtainWallJunctionResolver` 新增定向步驟，`§4.6` 的三站多數決 | **已完成**（建置 0 警告、1637 條測試全通過；§10 案例 34–39 已釘住，含守門測試）。**Revit 端待實機驗證**——與步驟 14 一次驗 |
 
 ### 步驟 9：室內裝修等級改由模型推導
 
@@ -1504,7 +1504,13 @@ CW-H 都判 `ManualReview`：
 
 ### 步驟 15：外側法線改由所屬區劃推定（決議 15）
 
-狀態：**待實作**。設計見 §4.6，測試案例見 §10 案例 34–39。
+狀態：**已完成，Revit 端待實機驗證**。設計見 §4.6，測試案例見 §10 案例 34–39。
+
+實作落在兩個檔案：`CurtainWallObservation.WithReversedExteriorNormal()`（只改法線正負的複製路徑）與
+`CurtainWallJunctionResolver.Oriented()`（§4.6 的三站多數決），後者在 `ForCurtainWall` 開頭套用，
+之後整個方法用定向後的那一片。`CurtainWallObservationSet` **不重建**：沒有任何地方讀「另一片」帷幕牆
+的法線，`Owns`／`TouchingEnd`／`Adjoins` 比的都是世界座標。建置 0 警告、1637 條測試全通過
+（原 1631 條加案例 34–39 六條）。判定式與規則檔未動，規則集版本維持 `2026.4-provisional`。
 
 #### 為什麼要做
 

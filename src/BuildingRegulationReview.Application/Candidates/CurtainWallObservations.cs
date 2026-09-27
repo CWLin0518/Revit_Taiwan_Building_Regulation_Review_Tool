@@ -298,6 +298,27 @@ public sealed class CurtainWallObservation
                Math.Abs(OutwardDistanceOf(end)) <= FacadeWallObservation.FacadePlaneToleranceMm;
     }
 
+    /// <summary>
+    /// The same wall with <see cref="ExteriorNormal"/> pointing the other way — the one thing the
+    /// 外側法線定向 of docs §4.6 (決議 15) is allowed to change. <see cref="Start"/>, <see cref="End"/>,
+    /// <see cref="Direction"/>, <see cref="ExteriorOffsetMm"/> and <see cref="LengthMm"/> are carried
+    /// over untouched, so every junction keeps its place and its id; the panels and grid lines are
+    /// carried over as they are, since they are measured on the wall's own plane, which has not moved.
+    /// </summary>
+    public CurtainWallObservation WithReversedExteriorNormal() =>
+        new(
+            UniqueId,
+            Start,
+            End,
+            new Point2D(-ExteriorNormal.X, -ExteriorNormal.Y),
+            ExteriorOffsetMm,
+            BaseElevationMm,
+            TopElevationMm,
+            Panels,
+            GridLines,
+            NonPlanarReason,
+            TypeName);
+
     public override string ToString() => $"{UniqueId}（{TypeName ?? "帷幕牆"}，{LengthMm:0.#} mm）";
 }
 

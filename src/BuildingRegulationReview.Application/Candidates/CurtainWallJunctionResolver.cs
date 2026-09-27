@@ -73,6 +73,10 @@ public static class CurtainWallJunctionResolver
         CurtainWallObservation wall,
         CurtainWallJunctionOptions options)
     {
+        // Revit's Wall.Orientation is the location line turned −90° about Z and says nothing about
+        // which side the building is on, so the side the 區劃 lies on decides it (docs §4.6, 決議 15).
+        wall = Oriented(set, wall);
+
         var wallZone = ZoneOf(set, wall, wall.LengthMm / 2.0);
 
         // A curved, sloped or warped wall is not measured at all: the two clauses that need a plane
@@ -1033,6 +1037,40 @@ public static class CurtainWallJunctionResolver
     /// it and file the junction under whichever 區劃 happened to be there.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// The wall with its 外側法線 pointing away from the 區劃 it belongs to (docs §4.6, 決議 15).
+    /// <para>
+    /// Three stations along the location line — a quarter, half and three quarters of the way — are
+    /// probed to <see cref="ZoneProbeMm"/> past the outside face on each side, and the normal is
+    /// reversed only when the <c>+n</c> side finds a 區劃 at <b>strictly more</b> stations than the
+    /// <c>−n</c> side. A tie keeps the normal as read: both sides answering means the wall stands
+    /// inside the building or the probe reached a neighbouring 區劃, and neither side answering means
+    /// the wall belongs to no 區劃 at all (docs §9) — reversing on either would be a coin toss.
+    /// </para>
+    /// <para>
+    /// Three stations rather than the midpoint alone, because a single one is led astray by a doorway,
+    /// a gap where no 區劃 was modelled, or an elevation that spans two of them; a majority rather
+    /// than "any station", because the two ends of an elevation can touch different 區劃.
+    /// </para>
+    /// </summary>
+    private static CurtainWallObservation Oriented(CurtainWallObservationSet set, CurtainWallObservation wall)
+    {
+        var depth = wall.ExteriorOffsetMm + ZoneProbeMm;
+        var inward = 0;
+        var outward = 0;
+
+        foreach (var fraction in new[] { 0.25, 0.5, 0.75 })
+        {
+            var p = wall.PointAt(wall.LengthMm * fraction);
+            if (set.ZoneAt(new Point2D(p.X - (wall.ExteriorNormal.X * depth), p.Y - (wall.ExteriorNormal.Y * depth))) is not null)
+                inward++;
+            if (set.ZoneAt(new Point2D(p.X + (wall.ExteriorNormal.X * depth), p.Y + (wall.ExteriorNormal.Y * depth))) is not null)
+                outward++;
+        }
+
+        return outward > inward ? wall.WithReversedExteriorNormal() : wall;
+    }
+
     private static CurtainWallZoneObservation? ZoneOf(
         CurtainWallObservationSet set,
         CurtainWallObservation wall,
