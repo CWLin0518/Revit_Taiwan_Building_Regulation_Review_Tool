@@ -29,8 +29,14 @@ public sealed class SharedParameterFileTests
     /// <summary>防火檢討_無法區劃分隔 in Big5/cp950 (第79條之1規格 §6).</summary>
     private const string CannotBeSubdividedBig5 = "a8bea4f5c0cbb0515fb54caa6bb0cfb9baa4c0b96a";
 
-    /// <summary>The GUID §6 assigns it. The largest before this round was …0011.</summary>
+    /// <summary>The GUID §6 assigns it. The largest before that round was …0011.</summary>
     private const string CannotBeSubdividedGuid = "bcf10001-0000-4a00-9b00-000000000012";
+
+    /// <summary>防火檢討_嵌板種類 in Big5/cp950 (帷幕牆規格 §6、決議 16).</summary>
+    private const string PanelKindBig5 = "a8bea4f5c0cbb0515fb44faa4fbad8c3fe";
+
+    /// <summary>The GUID 決議 16 assigns it — the next free number after …0012.</summary>
+    private const string PanelKindGuid = "bcf10001-0000-4a00-9b00-000000000013";
 
     // --- 編碼與換行 ---------------------------------------------------------------------------
 
@@ -104,8 +110,47 @@ public sealed class SharedParameterFileTests
             Assert.Contains(Big5Of(fragment), description, StringComparison.Ordinal);
     }
 
+    // --- 帷幕嵌板種類（決議 16）------------------------------------------------------------------
+
     /// <summary>
-    /// One definition per GUID and per name, and nothing lost: 第79條之1 adds one line to the fifteen
+    /// A TEXT Type parameter in the 防火區劃檢討 group. TEXT rather than YESNO because 未宣告 has to stay
+    /// apart from both kinds: a Yes/No box always reads as one of them, which is exactly the collapse
+    /// 決議 16 exists to prevent.
+    /// </summary>
+    [Fact]
+    public void The_panel_kind_parameter_is_declared_as_resolution_16_fixes_it()
+    {
+        var fields = Param(PanelKindGuid);
+
+        Assert.Equal("PARAM", fields[0]);
+        Assert.Equal(PanelKindGuid, fields[1]);
+        Assert.Equal(Bytes.GetString(Hex(PanelKindBig5)), fields[2]);
+        Assert.Equal("TEXT", fields[3]);
+        Assert.Equal(string.Empty, fields[4]);      // DATACATEGORY
+        Assert.Equal("1", fields[5]);               // GROUP 1 = 防火區劃檢討
+        Assert.Equal("1", fields[6]);               // VISIBLE
+        Assert.Equal("1", fields[8]);               // USERMODIFIABLE
+        Assert.Equal("0", fields[9]);               // HIDEWHENNOVALUE
+    }
+
+    /// <summary>
+    /// The description has to name both values and say which question each one answers — the person
+    /// binding the parameter is the one who then fills it in, and a wrong kind sends the panel down
+    /// the other rule (決議 16). 非必要參數 survives here for the same reason as 第79條之1's: a project
+    /// with no 帷幕牆 should not bind it at all.
+    /// </summary>
+    [Fact]
+    public void The_panel_kind_description_names_both_kinds_and_the_parameter_each_one_answers_with()
+    {
+        var description = Param(PanelKindGuid)[7];
+
+        foreach (var fragment in new[]
+                 { "帷幕嵌板種類", "實心", "玻璃", "防火檢討_設計防火時效", "防火檢討_設計防火保護", "非必要參數" })
+            Assert.Contains(Big5Of(fragment), description, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// One definition per GUID and per name, and nothing lost: 決議 16 adds one line to the sixteen
     /// that were already there. A duplicate GUID makes Revit reject the whole file.
     /// </summary>
     [Fact]
@@ -114,7 +159,7 @@ public sealed class SharedParameterFileTests
         var params_ = Lines().Where(l => l.StartsWith("PARAM\t", StringComparison.Ordinal))
             .Select(l => l.Split('\t')).ToList();
 
-        Assert.Equal(16, params_.Count);
+        Assert.Equal(17, params_.Count);
         Assert.Equal(params_.Count, params_.Select(f => f[1]).Distinct(StringComparer.Ordinal).Count());
         Assert.Equal(params_.Count, params_.Select(f => f[2]).Distinct(StringComparer.Ordinal).Count());
     }
@@ -150,6 +195,11 @@ public sealed class SharedParameterFileTests
         "零售市場" => "b973b0e2a5abb3f5",
         "停車空間" => "b0b1a8aeaac5b6a1",
         "非必要參數" => "ab44a5b2ad6eb0d1bcc6",
+        "帷幕嵌板種類" => "b163b9f5b44faa4fbad8c3fe",
+        "實心" => "b9eaa4df",
+        "玻璃" => "acc1bcfe",
+        "防火檢討_設計防火時效" => "a8bea4f5c0cbb0515fb35dad70a8bea4f5aec9aec4",
+        "防火檢討_設計防火保護" => "a8bea4f5c0cbb0515fb35dad70a8bea4f5ab4fc540",
         _ => throw new ArgumentOutOfRangeException(nameof(text), text, "沒有這個片語的 Big5 位元組")
     }));
 

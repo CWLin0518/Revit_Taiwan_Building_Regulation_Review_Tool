@@ -139,6 +139,76 @@ public sealed class FireRatingDerivationTests
         Assert.Equal(FireRatingDerivationKind.NotDerivable, Derive(CandidateCategory.Window, "RC", 10).Kind);
     }
 
+    // --- 帷幕嵌板（決議 16、帷幕牆規格 §3.3）------------------------------------------------------
+
+    /// <summary>
+    /// 第72條一(一) and 第73條一(一) say 「牆壁」, not 「承重牆壁」, so a 10cm RC 實心嵌板 is two hours on
+    /// exactly the clause a 10cm RC wall is. The thresholds are shared, not merely similar — if they
+    /// ever diverge, that is a change to the reading of the clause, not a refactor.
+    /// </summary>
+    [Theory]
+    [InlineData("RC")]
+    [InlineData("SRC")]
+    public void A_solid_curtain_panel_is_rated_on_the_wall_thresholds(string material)
+    {
+        Assert.Equal(120, Derive(CandidateCategory.CurtainPanel, material, 10).Minutes);
+        Assert.Equal(60, Derive(CandidateCategory.CurtainPanel, material, 7).Minutes);
+
+        var thin = Derive(CandidateCategory.CurtainPanel, material, 6);
+        Assert.Equal(FireRatingDerivationKind.NotRated, thin.Kind);
+        Assert.Null(thin.Minutes);
+
+        Assert.Contains("第72條第1款第1目", Derive(CandidateCategory.CurtainPanel, material, 10).LegalReference);
+        Assert.Contains("第73條第1款第1目", Derive(CandidateCategory.CurtainPanel, material, 7).LegalReference);
+    }
+
+    /// <summary>The panel and the wall must not drift apart: same material, same thickness, same answer.</summary>
+    [Theory]
+    [InlineData("RC", 12, null)]
+    [InlineData("SRC", 7, null)]
+    [InlineData("RC", 6, null)]
+    [InlineData("SC", 30, 4.0)]
+    [InlineData("SC", 30, 3.0)]
+    [InlineData("SC", 30, 2.0)]
+    public void A_solid_curtain_panel_answers_exactly_as_a_wall_of_the_same_build_does(
+        string material, double dimensionCm, double? coverCm)
+    {
+        var wall = Derive(CandidateCategory.Wall, material, dimensionCm, coverCm);
+        var panel = Derive(CandidateCategory.CurtainPanel, material, dimensionCm, coverCm);
+
+        Assert.Equal(wall.Kind, panel.Kind);
+        Assert.Equal(wall.Minutes, panel.Minutes);
+        Assert.Equal(wall.LegalReference, panel.LegalReference);
+    }
+
+    /// <summary>
+    /// A 玻璃 panel goes through the same call — the reader does not have to branch on the kind before
+    /// deriving — and comes back with nothing either way: glass is not RC／SRC／SC, and 1cm of it is
+    /// nowhere near 第73條's 7cm even if someone types a material in.
+    /// </summary>
+    [Fact]
+    public void A_glazed_curtain_panel_derives_nothing_whether_or_not_a_material_is_typed()
+    {
+        Assert.Equal(FireRatingDerivationKind.MaterialMissing,
+            Derive(CandidateCategory.CurtainPanel, null, 1).Kind);
+        Assert.Equal(FireRatingDerivationKind.MaterialMissing,
+            Derive(CandidateCategory.CurtainPanel, "玻璃", 1).Kind);
+
+        var typed = Derive(CandidateCategory.CurtainPanel, "RC", 1);
+        Assert.Equal(FireRatingDerivationKind.NotRated, typed.Kind);
+        Assert.Null(typed.Minutes);
+    }
+
+    /// <summary>嵌板厚 is what the clause measures here, and the panel's column heading says so.</summary>
+    [Fact]
+    public void The_curtain_panel_dimension_is_labelled_as_a_panel_thickness()
+    {
+        Assert.Contains(CandidateCategory.CurtainPanel, FireRatingDeriver.DerivableCategories);
+        Assert.True(FireRatingDeriver.IsDerivable(CandidateCategory.CurtainPanel));
+        Assert.Equal("嵌板厚", FireRatingDeriver.DimensionLabel(CandidateCategory.CurtainPanel));
+        Assert.Contains("嵌板厚", Derive(CandidateCategory.CurtainPanel, "RC", null).Explanation);
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]

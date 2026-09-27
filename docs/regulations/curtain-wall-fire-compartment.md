@@ -1,9 +1,10 @@
 # 防火區劃與帷幕牆交接：第 79 條、第 79-3 條、第 79-4 條
 
-> 狀態：**實作中**。§12 的步驟 1–15 已完成（步驟 11、12 隨決議 13 移除），**步驟 16a 已完成、16b–16e 未開始**。
+> 狀態：**實作中**。§12 的步驟 1–15 已完成（步驟 11、12 隨決議 13 移除），**步驟 16a、16b 已完成、16c–16e 未開始**。
 > 步驟 16（決議 16）把帷幕嵌板分成兩路作答：實心嵌板以 `防火檢討_設計防火時效` 作答且時效比照牆體由
 > 模型尺寸推定，玻璃嵌板與帷幕牆門窗以 `防火檢討_設計防火保護` 作答；種類由新參數 `防火檢討_嵌板種類`
-> 宣告，未宣告為資料不足。16a 是判定層（規則、幾何分流、六態），Revit 端尚未接線——**在 16c 做完前不要
+> 宣告，未宣告為資料不足。16a 是判定層（規則、幾何分流、六態），16b 是參數層（尺寸推定支援帷幕嵌板、
+> 型別列依種類決定要填哪一格、共享參數檔加 `…0013`）；兩者 Revit 端都尚未接線——**在 16c 做完前不要
 > 部署**，現行模型會因為新的必要參數未綁定而被前置檢查擋下。CW-H、CW-V 不受決議 16 影響。步驟 13 已於 2026-09-27 實機驗證 `Fail` 路徑。**步驟 14（決議 14）與步驟 15（決議 15）已於 2026-09-28 部署並實機驗證，使用者確認 CW-H 檢討結果無誤**——CW-H 的但書路徑因此首次在 Revit 端驗到。步驟 14：防火帶一律以實體牆元素取代該段帷幕牆，交點因此落在帷幕牆定位線的延長線上，CW-H 照樣判定；交接帶的高程已改為區劃牆與帷幕牆的交集，未符合的實體外牆會被塗紅，躺在立面內的區劃牆不再產出 CW-H。步驟 15：外側法線不再採信 `wall.Orientation` 的正負，改由所屬區劃落在哪一側推定（§4.6 的三站多數決）——2026-09-27 於 Revit 量到帷幕牆的 `wall.Orientation` 純由定位線方向決定、`Wall.Flipped` 改不了它，反向畫的那一片會整片從檢討中消失，而步驟 14 預期的交接處擁有者正好是這一片。步驟 9 依設計決策取消 Area 上人工填寫室內裝修等級，改由區劃實際關聯的牆與天花板類型推導 `zone.interiorFinish`；**Revit 端尚未實機驗證**。
 
 ## 1. 功能摘要
@@ -938,7 +939,7 @@ CW-V 的立面**由工具自己建立**，名稱帶著上面說的檢討圖號�
 | 14 | 交點落在實體外牆連續段上也判 CW-H（決議 14）：交點求解擴充到延長線、交接帶高程改為交集、未符合時塗紅實體外牆、躺在立面內的區劃牆不產出 CW-H | **已完成並實機驗證**（建置 0 警告、1637 條測試全通過；§10 案例 26–33 已釘住，含整合層的「一列且 `NotApplicable`」）。2026-09-28 與步驟 15 一併部署後重跑，使用者確認 CW-H 檢討結果無誤 |
 | 15 | 外側法線改由所屬區劃推定（決議 15）：`CurtainWallJunctionResolver` 新增定向步驟，`§4.6` 的三站多數決 | **已完成並實機驗證**（建置 0 警告、1637 條測試全通過；§10 案例 34–39 已釘住，含守門測試）。2026-09-28 與步驟 14 一併部署後重跑，使用者確認 CW-H 檢討結果無誤 |
 | 16a | 決議 16 的**判定層**：`CurtainPanelKind`／`CurtainPanelKinds`、`CurtainPanelObservation.Kind`、`junction.panelKind` 與 `junction.minFireProtection` 兩個白名單欄位、`CurtainWallJunctionResolver` 把 CW-O 拆三路、`CurtainWallJunctionCheck` 寫入兩個新 fact、規則集加 `tw-bcr-79-4-curtain-wall-other-glazed`（規則集版本升至 `2026.7-provisional`） | **已完成**（建置 0 警告、1650 條測試全通過；§10 案例 40–48 已釘住）。Revit 端尚未接線 |
-| 16b | 決議 16 的**參數層**：`FireRatingDeriver` 支援 `CandidateCategory.CurtainPanel`（沿用牆壁門檻）、`FireReviewTypeRow` 的 `PanelKind` 欄位與 `CarriesRating`／`CarriesProtection` 改看種類、共享參數檔加 `防火檢討_嵌板種類`（`…0013`） | 未開始 |
+| 16b | 決議 16 的**參數層**：`FireRatingDeriver` 支援 `CandidateCategory.CurtainPanel`（沿用牆壁門檻）、`FireReviewTypeRow` 的 `PanelKind` 欄位與 `CarriesRating`／`CarriesProtection` 改看種類、共享參數檔加 `防火檢討_嵌板種類`（`…0013`） | **已完成**（建置 0 警告、1672 條測試全通過）。Revit 端尚未接線 |
 | 16c | 決議 16 的**Revit 讀取層**：`RevitCurtainWallGeometryReader.ReadPanels` 分類並一律讀防火保護、`RevitFireReviewTypeScanner` 讀嵌板厚度與種類（含材料類別提案）、`RevitFireReviewParameterWriter` 寫種類、`FireReviewSetupFeature` 加三個綁定 | 未開始 |
 | 16d | 決議 16 的**參數面板**：帷幕嵌板列的種類下拉、選實心才亮結構材料與推定時效、選玻璃只亮防火保護 | 未開始 |
 | 16e | 決議 16 的部署與實機驗證：綁定三個參數、填值、重跑，核對 CW-O 由 `InsufficientData` 轉為有判定 | 未開始 |
@@ -1691,8 +1692,44 @@ CW-H 都判 `ManualReview`：
 - `FireReviewIntegrationTests`：規則集版本字串、`NeededBy` 的預期清單加 `防火檢討_嵌板種類`，
   fixture 的玻璃嵌板改為宣告玻璃並勾防火保護（第四列因此改由 `-glazed` 那條規則作答）。
 
-#### 下一步（步驟 16b 起）
+#### 步驟 16b 的產出（已完成，0 警告、1672 條測試全通過）
 
-16b 參數層、16c Revit 讀取層、16d 參數面板、16e 部署與實機驗證，內容見 §12 進度表。**16c 的三個綁定
+參數層：尺寸推定認得帷幕嵌板，型別列依種類決定該填哪一格，共享參數檔補上 `…0013`。**Revit 端仍然
+完全沒有接線**——讀取層還不會讀 `防火檢討_嵌板種類`，所以目前每一片嵌板在型別列上都是未宣告。
+
+| 檔案 | 改了什麼 |
+| --- | --- |
+| `Application/Checks/FireRatingDerivation.cs` | `DerivableCategories` 加 `CurtainPanel`；`DimensionLabel` 回「嵌板厚」；新增私有 `IsWallLike`，`Concrete` 與 `Steel` 兩處的條文選擇改用它，帷幕嵌板因此與牆**共用同一組門檻與條文字串**（第 72 條一(一)／(二)、第 73 條一(一)／(二)） |
+| `Application/Parameters/FireReviewTypeTable.cs` | `FireReviewTypeRow` 加 `panelKind` 建構參數（尾端、有預設值）、`PanelKind`／`ParsedPanelKind`／`AwaitsPanelKind`／`SupportsDerivation`／`PanelKindEdit(kind)`；`CarriesRating`／`CarriesProtection` 改看種類；`WouldChangeRating` 與 `RatingEdit()` 改以 `SupportsDerivation` 把關；`FireReviewTypeParameters` 加 `PanelKind = 32`；`FireReviewTypeTable` 加 `AwaitingPanelKind`，`AwaitingMaterial`／`AwaitingCover` 改為只收 `SupportsDerivation` 的列 |
+| `FireReview/FireReviewTypeRowViewModel.cs` | `PanelKind` 可編輯屬性與 `PanelKindChoices`（空白＋實心＋玻璃）、`IsCurtainPanel`、`CarriesMaterial`；`CarriesRating`／`CarriesProtection`／`SupportsDerivation`／`NeedsCover`／`CanApplyDerived`／`RatingDiffers` 改看**目前選的**種類而非模型存的；`MissingParameters` 把 `防火檢討_嵌板種類` 排在最前面、材料與被覆改以 `CarriesMaterial` 把關；`Edits()` 先寫種類，並在宣告實心時才寫 `結構材料`／`防火被覆厚度` |
+| `assets/SharedParameters/fire-review-shared-params.txt` | 新增 `PARAM bcf10001-0000-4a00-9b00-000000000013 防火檢討_嵌板種類 TEXT`（GROUP 1、可見、使用者可改），插在 `防火檢討_遮煙性能` 之後。**檔案仍是 Big5/cp950＋CRLF**，以位元組層級接上去，其餘位元組未動 |
+
+**為什麼型別列的三個 `Carries*` 要分開**：實心嵌板只欠時效、玻璃嵌板只欠防火保護，**未宣告的兩個都欠**。
+未宣告時故意兩個都標成缺口，是因為挑任何一邊當預設，都會在面板上把另一邊的缺口藏起來——那正是決議 16
+要避免的「把未符合說成資料不足」。`遮煙性能` 不受種類影響：昇降機道出入口可能是任何一種嵌板（垂直區劃文件 §4）。
+
+**為什麼玻璃嵌板照樣送進 `FireRatingDeriver`**：讀取層不必先分種類再決定要不要推定。玻璃不是 RC／SRC／SC，
+結構材料空白時回 `MaterialMissing`；就算有人硬填了材料，1 cm 的玻璃也到不了第 73 條的 7 cm，回 `NotRated`。
+兩條路都不會替玻璃編出時效。真正的把關在 `SupportsDerivation`：宣告玻璃或尚未宣告時，`WouldChangeRating`
+與 `RatingEdit()` 一律不出手，「套用推定值」因此不會把數字寫進檢討根本不會讀的參數。
+
+#### 16b 改動過的既有測試（誠實記錄）
+
+- `FireReviewTypeTableTests.A_curtain_panel_derives_no_rating_of_its_own`：**已刪除並改寫**。原本釘住
+  「帷幕嵌板永遠不推定」，決議 16 就是要推翻這一句；改寫成
+  `A_solid_curtain_panel_derives_its_rating_from_its_thickness`、
+  `A_glazed_curtain_panel_is_never_given_a_derived_rating`、
+  `An_undeclared_curtain_panel_derives_nothing_until_it_declares_a_kind` 三條，把原本那一句拆成
+  「宣告實心才推定」。
+- `FireReviewTypeTableTests.A_curtain_panel_answers_both_the_rating_and_the_protection`：更名為
+  `An_undeclared_curtain_panel_answers_both_…`，斷言不變——未宣告時兩個都要答仍然成立，只是現在
+  這是「未宣告」的行為，不是「帷幕嵌板」的行為。
+- `SharedParameterFileTests.Every_parameter_keeps_its_own_guid_and_name`：`PARAM` 行數 16 → 17。
+
+#### 下一步（步驟 16c 起）
+
+16c Revit 讀取層、16d 參數面板、16e 部署與實機驗證，內容見 §12 進度表。**16c 的三個綁定
 （`防火檢討_嵌板種類`、`結構材料`、`防火被覆厚度` 綁到 Curtain Panels）在做完之前，現行模型會在前置
-檢查被 `BCR-PARAM-001` 擋下**——這是刻意的，但也表示 16a 單獨部署沒有意義，要等 16c 一起。
+檢查被 `BCR-PARAM-001` 擋下**——這是刻意的，但也表示 16a、16b 單獨部署沒有意義，要等 16c 一起。
+`assets/SharedParameters/fire-review-openings-type.txt`（`load_shared_parameters` 實際綁定用的那一份）
+**尚未加入 `防火檢討_嵌板種類`**，那是 16c 設定流程的一部分。

@@ -20,13 +20,14 @@ public sealed class FireReviewTypeTableTests
         bool? smokeProtection = null,
         int inView = 3,
         int inProject = 9,
-        FireReviewTypeParameters present = FireReviewTypeParameters.Rating | FireReviewTypeParameters.Material) =>
+        FireReviewTypeParameters present = FireReviewTypeParameters.Rating | FireReviewTypeParameters.Material,
+        string? panelKind = null) =>
         new(uid, category, "RC20", familyName: null, instanceCount: inView, projectInstanceCount: inProject,
             dimensionMeters: dimensionCm is double d ? d / 100 : (double?)null,
             material: material,
             coverMeters: coverCm is double c ? c / 100 : (double?)null,
             providedRating: rating, providedProtection: protection, providedSmokeProtection: smokeProtection,
-            present: present);
+            present: present, panelKind: panelKind);
 
     [Fact]
     public void A_row_derives_the_rating_its_material_and_thickness_give()
@@ -185,15 +186,18 @@ public sealed class FireReviewTypeTableTests
     // --- 帷幕嵌板（帷幕牆規格 §6、§12 步驟 5）-----------------------------------------------------
 
     /// <summary>
-    /// A 帷幕嵌板 is the one opening that answers 設計防火時效 as well: 第79條第4項 and 第79條之3第2項
-    /// measure the 交接帶 by the panels' own rating, so the batch panel has to let it be typed in.
+    /// An undeclared 帷幕嵌板 shows both gaps. Guessing either way would collapse 「實心嵌板漏填時效」
+    /// (資料不足, fixable) into 「玻璃嵌板不是防火設備」(未符合, a design problem), which is the whole
+    /// reason 防火檢討_嵌板種類 exists (決議 16).
     /// </summary>
     [Fact]
-    public void A_curtain_panel_answers_both_the_rating_and_the_protection()
+    public void An_undeclared_curtain_panel_answers_both_the_rating_and_the_protection()
     {
         var panel = Row("T-panel", CandidateCategory.CurtainPanel);
 
         Assert.True(panel.IsOpening);
+        Assert.True(panel.AwaitsPanelKind);
+        Assert.Null(panel.ParsedPanelKind);
         Assert.True(panel.CarriesRating);
         Assert.True(panel.CarriesProtection);
     }
@@ -259,14 +263,144 @@ public sealed class FireReviewTypeTableTests
         }
     }
 
+    // --- 嵌板種類（決議 16、帷幕牆規格 §3.3）------------------------------------------------------
+
     /// <summary>
-    /// 第71～73條 give a panel no dimensional threshold, so nothing is derived for it — the rating is
-    /// the designer's, typed in, exactly like a 梁.
+    /// 實心 answers by 時效 only, 玻璃 by 防火保護 only. One declaration, two different questions —
+    /// that is the split 決議 16 makes.
     /// </summary>
     [Fact]
-    public void A_curtain_panel_derives_no_rating_of_its_own()
+    public void The_declared_kind_decides_which_question_a_curtain_panel_answers()
     {
-        Assert.False(FireRatingDeriver.IsDerivable(CandidateCategory.CurtainPanel));
-        Assert.False(Row("T-panel", CandidateCategory.CurtainPanel, dimensionCm: 8).WouldChangeRating);
+        var solid = Row("T-solid", CandidateCategory.CurtainPanel, panelKind: CurtainPanelKinds.SolidText);
+        Assert.Equal(CurtainPanelKind.Solid, solid.ParsedPanelKind);
+        Assert.True(solid.CarriesRating);
+        Assert.False(solid.CarriesProtection);
+        Assert.False(solid.AwaitsPanelKind);
+
+        var glazed = Row("T-glazed", CandidateCategory.CurtainPanel, panelKind: CurtainPanelKinds.GlazedText);
+        Assert.Equal(CurtainPanelKind.Glazed, glazed.ParsedPanelKind);
+        Assert.False(glazed.CarriesRating);
+        Assert.True(glazed.CarriesProtection);
+        Assert.False(glazed.AwaitsPanelKind);
+    }
+
+    /// <summary>遮煙性能 is asked of a 帷幕嵌板 whatever its kind: a 昇降機道 出入口 may be one (垂直區劃文件 §4).</summary>
+    [Fact]
+    public void The_declared_kind_does_not_change_who_answers_the_smoke_seal()
+    {
+        foreach (var kind in new string?[] { null, CurtainPanelKinds.SolidText, CurtainPanelKinds.GlazedText })
+            Assert.True(Row("T-" + kind, CandidateCategory.CurtainPanel, panelKind: kind).CarriesSmokeProtection);
+    }
+
+    /// <summary>A kind nobody recognises is 未宣告, not a third kind — the same reading <see cref="CurtainPanelKinds.Parse"/> makes.</summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("鋁板")]
+    public void An_unreadable_kind_leaves_the_panel_undeclared(string kind)
+    {
+        var panel = Row("T-panel", CandidateCategory.CurtainPanel, panelKind: kind);
+
+        Assert.Null(panel.ParsedPanelKind);
+        Assert.True(panel.AwaitsPanelKind);
+    }
+
+    /// <summary>Only a 帷幕嵌板 is ever waiting on a kind; a wall has no such question to answer.</summary>
+    [Fact]
+    public void Nothing_but_a_curtain_panel_waits_on_a_kind()
+    {
+        var table = new FireReviewTypeTable(new[]
+        {
+            Row("T-wall", CandidateCategory.Wall),
+            Row("T-door", CandidateCategory.Door, dimensionCm: null, material: null),
+            Row("T-undeclared", CandidateCategory.CurtainPanel, dimensionCm: null, material: null),
+            Row("T-solid", CandidateCategory.CurtainPanel, panelKind: CurtainPanelKinds.SolidText)
+        });
+
+        Assert.Equal(new[] { "T-undeclared" }, table.AwaitingPanelKind.Select(r => r.TypeUniqueId));
+    }
+
+    /// <summary>
+    /// 第72條一(一)／第73條一(一) say 「牆壁」, not 「承重牆壁」, so a 實心嵌板 is derived on the wall's own
+    /// thresholds — the whole point of declaring 實心 (決議 16、D5).
+    /// </summary>
+    [Fact]
+    public void A_solid_curtain_panel_derives_its_rating_from_its_thickness()
+    {
+        var panel = Row("T-solid", CandidateCategory.CurtainPanel, dimensionCm: 10, material: "RC",
+            panelKind: CurtainPanelKinds.SolidText);
+
+        Assert.True(panel.SupportsDerivation);
+        Assert.Equal(120, panel.Derivation.Minutes);
+        Assert.True(panel.WouldChangeRating);
+        Assert.Equal("120 min", panel.RatingEdit()!.Text);
+        Assert.Equal(FireRatingParameters.Provided, panel.RatingEdit()!.ParameterName);
+    }
+
+    /// <summary>
+    /// A 玻璃 panel does not answer by 時效, so 「套用推定值」 must not write one into it even if the
+    /// numbers happened to add up — and it is not waiting on a 結構材料 it will never be asked for.
+    /// </summary>
+    [Fact]
+    public void A_glazed_curtain_panel_is_never_given_a_derived_rating()
+    {
+        var thick = Row("T-glazed", CandidateCategory.CurtainPanel, dimensionCm: 12, material: "RC",
+            panelKind: CurtainPanelKinds.GlazedText);
+
+        Assert.False(thick.SupportsDerivation);
+        Assert.False(thick.WouldChangeRating);
+        Assert.Null(thick.RatingEdit());
+
+        var glass = Row("T-glass", CandidateCategory.CurtainPanel, dimensionCm: 1, material: null,
+            panelKind: CurtainPanelKinds.GlazedText);
+        var table = new FireReviewTypeTable(new[] { glass });
+
+        Assert.Empty(table.AwaitingMaterial);
+        Assert.Empty(table.Derivable);
+    }
+
+    /// <summary>
+    /// An undeclared panel derives nothing either: it has not said yet whether it is 構造 or 防火設備,
+    /// and the kind is the question to answer first.
+    /// </summary>
+    [Fact]
+    public void An_undeclared_curtain_panel_derives_nothing_until_it_declares_a_kind()
+    {
+        var panel = Row("T-panel", CandidateCategory.CurtainPanel, dimensionCm: 10, material: "RC");
+
+        Assert.False(panel.SupportsDerivation);
+        Assert.False(panel.WouldChangeRating);
+        Assert.Null(panel.RatingEdit());
+    }
+
+    /// <summary>The kind is written back as 實心／玻璃; 帷幕牆門窗 is read from the category and never written.</summary>
+    [Fact]
+    public void The_kind_edit_writes_the_declared_text_to_the_panel_parameter()
+    {
+        var panel = Row("T-panel", CandidateCategory.CurtainPanel);
+
+        var solid = panel.PanelKindEdit(CurtainPanelKind.Solid)!;
+        Assert.Equal(CurtainPanelKindParameters.Provided, solid.ParameterName);
+        Assert.Equal(FireReviewEditKind.Text, solid.Kind);
+        Assert.Equal(CurtainPanelKinds.SolidText, solid.Text);
+
+        Assert.Equal(CurtainPanelKinds.GlazedText, panel.PanelKindEdit(CurtainPanelKind.Glazed)!.Text);
+        Assert.Null(panel.PanelKindEdit(CurtainPanelKind.Opening));
+        Assert.Null(Row("T-wall", CandidateCategory.Wall).PanelKindEdit(CurtainPanelKind.Solid));
+    }
+
+    /// <summary>A 主要構造 is untouched by 決議 16: it never waits on a kind and derives exactly as before.</summary>
+    [Fact]
+    public void The_members_are_unaffected_by_the_panel_kind()
+    {
+        foreach (var category in new[] { CandidateCategory.Wall, CandidateCategory.Column, CandidateCategory.Floor })
+        {
+            var row = Row("T-" + category, category);
+            Assert.False(row.AwaitsPanelKind);
+            Assert.True(row.SupportsDerivation);
+        }
+
+        Assert.False(Row("T-beam", CandidateCategory.StructuralFraming).SupportsDerivation);
     }
 }

@@ -156,6 +156,13 @@ public sealed class FireRatingDerivation
 /// <item>柱 — 第71條二 短邊40cm以上→3hr；第72條二 短邊25cm以上→2hr；第73條二(一) 無尺寸下限→1hr.</item>
 /// </list>
 /// <para>
+/// 帷幕嵌板走與牆壁完全相同的門檻與條文（決議 16、帷幕牆規格 §3.3）：第72、73條第一款寫的是
+/// 「牆壁」，未限於承重牆壁，一片十公分的 RC 實心嵌板與一道十公分的 RC 牆在條文上是同一件事。
+/// 玻璃嵌板照樣送進來，但玻璃不是 RC／SRC／SC，結構材料空白時回 <see cref="FireRatingDerivationKind.MaterialMissing"/>；
+/// 就算硬填了材料，玻璃的厚度也達不到 7cm，回 <see cref="FireRatingDerivationKind.NotRated"/>——
+/// 兩者都不會替玻璃嵌板編出時效，所以讀取層不必先分種類再決定要不要推定。
+/// </para>
+/// <para>
 /// SC is rated by 防火被覆單面厚度 (鐵絲網水泥粉刷), never by its own section: 第72條一(二) 4cm→2hr、
 /// 第73條一(二) 3cm→1hr for 牆壁; 第72條四(二) 5cm→2hr、第73條四(二) 4cm→1hr for 樓地板;
 /// 第71條二(三) 9cm＋短邊40cm→3hr、第72條二(二) 5cm＋短邊25cm→2hr、第73條二(二) 4cm→1hr for 柱.
@@ -172,7 +179,7 @@ public static class FireRatingDeriver
     /// <summary>The categories a rating can be derived for.</summary>
     public static IReadOnlyList<CandidateCategory> DerivableCategories { get; } = new[]
     {
-        CandidateCategory.Wall, CandidateCategory.Column, CandidateCategory.Floor
+        CandidateCategory.Wall, CandidateCategory.Column, CandidateCategory.Floor, CandidateCategory.CurtainPanel
     };
 
     public static bool IsDerivable(CandidateCategory category) => DerivableCategories.Contains(category);
@@ -183,15 +190,23 @@ public static class FireRatingDeriver
         CandidateCategory.Wall => "牆厚",
         CandidateCategory.Floor => "板厚",
         CandidateCategory.Column => "柱短邊",
+        CandidateCategory.CurtainPanel => "嵌板厚",
         _ => "尺寸"
     };
 
     /// <summary>
+    /// 第72、73條第一款的「牆壁」款所量的構造：牆與帷幕嵌板同一組門檻與條文（決議 16）。柱、樓地板
+    /// 各有自己的款次，不走這一條。
+    /// </summary>
+    private static bool IsWallLike(CandidateCategory category) =>
+        category == CandidateCategory.Wall || category == CandidateCategory.CurtainPanel;
+
+    /// <summary>
     /// The rating the clauses give, or why they give none.
     /// </summary>
-    /// <param name="category">Wall、Column or Floor; anything else is <see cref="FireRatingDerivationKind.NotDerivable"/>.</param>
+    /// <param name="category">Wall、Column、Floor or CurtainPanel; anything else is <see cref="FireRatingDerivationKind.NotDerivable"/>.</param>
     /// <param name="material">結構材料; null when the parameter is blank or unrecognised.</param>
-    /// <param name="dimensionMeters">牆厚／板厚／柱短邊, in metres.</param>
+    /// <param name="dimensionMeters">牆厚／板厚／柱短邊／嵌板厚, in metres.</param>
     /// <param name="coverMeters">防火被覆單面厚度 in metres; only SC uses it.</param>
     public static FireRatingDerivation Derive(
         CandidateCategory category,
@@ -240,7 +255,7 @@ public static class FireRatingDeriver
             return FireRatingDerivation.None(FireRatingDerivationKind.DimensionMissing,
                 $"無法取得{DimensionLabel(category)}，無法比對第72／73條的厚度門檻。");
 
-        var (two, one) = category == CandidateCategory.Wall
+        var (two, one) = IsWallLike(category)
             ? ("建築技術規則建築設計施工編第72條第1款第1目", "建築技術規則建築設計施工編第73條第1款第1目")
             : ("建築技術規則建築設計施工編第72條第4款第1目", "建築技術規則建築設計施工編第73條第4款第1目");
 
@@ -278,7 +293,7 @@ public static class FireRatingDeriver
                 $"SC 被覆 {Cm(cover)}，未達第73條二(二) 的 4cm 門檻 → 無防火時效。");
         }
 
-        var (twoCm, oneCm, twoRef, oneRef) = category == CandidateCategory.Wall
+        var (twoCm, oneCm, twoRef, oneRef) = IsWallLike(category)
             ? (0.04, 0.03, "建築技術規則建築設計施工編第72條第1款第2目", "建築技術規則建築設計施工編第73條第1款第2目")
             : (0.05, 0.04, "建築技術規則建築設計施工編第72條第4款第2目", "建築技術規則建築設計施工編第73條第4款第2目");
 

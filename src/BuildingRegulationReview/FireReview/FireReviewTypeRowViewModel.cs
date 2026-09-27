@@ -26,10 +26,14 @@ namespace BuildingRegulationReview.FireReview
         private string _rating;
         private bool _protection;
         private bool _smokeProtection;
+        private string _panelKind;
 
         public FireReviewTypeRowViewModel(FireReviewTypeRow source)
         {
             Source = source ?? throw new ArgumentNullException(nameof(source));
+            _panelKind = source.ParsedPanelKind.HasValue
+                ? CurtainPanelKinds.ParameterText(source.ParsedPanelKind.Value)
+                : source.PanelKind ?? "";
             _material = source.ParsedMaterial.HasValue ? StructuralMaterialText.Code(source.ParsedMaterial.Value) : source.Material ?? "";
             _coverCm = Centimetres(source.CoverMeters);
             _rating = source.ProvidedRating ?? "";
@@ -43,15 +47,32 @@ namespace BuildingRegulationReview.FireReview
         public string DisplayName => Source.DisplayName;
         public bool IsOpening => Source.IsOpening;
 
-        /// <summary>
-        /// 帷幕嵌板 fill in 設計防火時效 like the 主要構造 do (帷幕牆規格 §6), and 門 do too, because a
-        /// 管道間之維修門 owes one hour under 第79條之2第1項 (垂直區劃文件 §6). 窗 do not.
-        /// </summary>
-        public bool CarriesRating => Source.CarriesRating;
+        public bool IsCurtainPanel => Source.Category == CandidateCategory.CurtainPanel;
 
-        public bool CarriesProtection => Source.CarriesProtection;
+        /// <summary>實心／玻璃 as currently chosen in this row, not as the model holds it.</summary>
+        private CurtainPanelKind? TypedPanelKind => CurtainPanelKinds.Parse(_panelKind);
+
+        /// <summary>
+        /// 一片實心嵌板 fills in 設計防火時效 like the 主要構造 do (帷幕牆規格 §6、決議 16), and 門 do too,
+        /// because a 管道間之維修門 owes one hour under 第79條之2第1項 (垂直區劃文件 §6). 玻璃嵌板 and 窗
+        /// do not. An undeclared panel carries both, so neither gap is hidden before the kind is chosen.
+        /// </summary>
+        public bool CarriesRating => IsCurtainPanel
+            ? TypedPanelKind != CurtainPanelKind.Glazed
+            : Source.CarriesRating;
+
+        /// <summary>防火門窗 is asked of every opening except a panel declared 實心, which is 構造.</summary>
+        public bool CarriesProtection => IsCurtainPanel
+            ? TypedPanelKind != CurtainPanelKind.Solid
+            : Source.CarriesProtection;
 
         public bool CarriesSmokeProtection => Source.CarriesSmokeProtection;
+
+        /// <summary>
+        /// Whether 結構材料（and, for SC, 防火被覆厚度）is asked of this row: every 主要構造, plus a
+        /// 帷幕嵌板 declared 實心, whose 時效 is derived on the 牆壁 thresholds.
+        /// </summary>
+        public bool CarriesMaterial => !IsOpening || TypedPanelKind == CurtainPanelKind.Solid;
 
         /// <summary>「視圖 3 / 專案 12」 — the second number is the real reach of an edit.</summary>
         public string Counts => Source.InstanceCount == Source.ProjectInstanceCount
@@ -62,15 +83,44 @@ namespace BuildingRegulationReview.FireReview
             $"此視圖有 {Source.InstanceCount} 個實體，整個專案有 {Source.ProjectInstanceCount} 個。" +
             "這些是類型參數，變更會套用到專案中所有實體。";
 
-        /// <summary>牆厚／板厚／柱短邊 as the Type reports it, in centimetres.</summary>
+        /// <summary>牆厚／板厚／柱短邊／嵌板厚 as the Type reports it, in centimetres.</summary>
         public string DimensionText => Source.DimensionMeters.HasValue
             ? $"{FireRatingDeriver.DimensionLabel(Source.Category)} {Centimetres(Source.DimensionMeters)} cm"
-            : FireRatingDeriver.IsDerivable(Source.Category) ? "（尺寸讀不到）" : "—";
+            : SupportsDerivation ? "（尺寸讀不到）" : "—";
 
-        public bool SupportsDerivation => FireRatingDeriver.IsDerivable(Source.Category);
+        /// <summary>
+        /// Whether 結構材料＋尺寸 → 時效 is offered here. A 帷幕嵌板 has to declare 實心 first: until it
+        /// does, the tool does not know whether it is looking at a piece of 構造 or at 防火設備.
+        /// </summary>
+        public bool SupportsDerivation =>
+            FireRatingDeriver.IsDerivable(Source.Category) && CarriesRating && !(IsCurtainPanel && TypedPanelKind is null);
 
         public IReadOnlyList<string> MaterialChoices { get; } =
             new[] { "" }.Concat(StructuralMaterialText.All.Select(StructuralMaterialText.Code)).ToList();
+
+        /// <summary>The two kinds a user may declare, blank first — 帷幕牆門窗 is never one of them.</summary>
+        public IReadOnlyList<string> PanelKindChoices { get; } =
+            new[] { "" }.Concat(CurtainPanelKinds.Declarable.Select(CurtainPanelKinds.ParameterText)).ToList();
+
+        /// <summary>
+        /// 防火檢討_嵌板種類 on the Type. Blank means 未宣告, which the review reads as 資料不足 rather
+        /// than guessing — see <see cref="CarriesRating"/>.
+        /// </summary>
+        public string PanelKind
+        {
+            get => _panelKind;
+            set
+            {
+                if (!Set(ref _panelKind, value ?? "")) return;
+                Raise(nameof(CarriesRating));
+                Raise(nameof(CarriesProtection));
+                Raise(nameof(CarriesMaterial));
+                Raise(nameof(SupportsDerivation));
+                Raise(nameof(DimensionText));
+                Raise(nameof(NeedsCover));
+                RaiseDerived();
+            }
+        }
 
 
         public string Material
@@ -85,7 +135,8 @@ namespace BuildingRegulationReview.FireReview
         }
 
         /// <summary>SC is rated by its cover, so the cover box only matters then.</summary>
-        public bool NeedsCover => StructuralMaterialText.Parse(_material) == StructuralMaterial.Steel;
+        public bool NeedsCover =>
+            CarriesMaterial && StructuralMaterialText.Parse(_material) == StructuralMaterial.Steel;
 
         public string CoverCm
         {
@@ -162,13 +213,14 @@ namespace BuildingRegulationReview.FireReview
             }
         }
 
-        public bool CanApplyDerived => Derivation.HasRating;
+        public bool CanApplyDerived => SupportsDerivation && Derivation.HasRating;
 
         /// <summary>The typed rating is not what the clauses derive, so the row is worth a second look.</summary>
         public bool RatingDiffers
         {
             get
             {
+                if (!SupportsDerivation) return false;
                 var derived = Derivation;
                 if (!derived.HasRating) return false;
                 var typed = FireRatingText.Parse(_rating, FireRatingUnit.Minute);
@@ -182,13 +234,17 @@ namespace BuildingRegulationReview.FireReview
             get
             {
                 var missing = new List<string>();
+                // 嵌板種類 comes first: without it the row cannot even say which of the two questions
+                // below it owes an answer to (決議 16).
+                if (IsCurtainPanel && (Source.Present & FireReviewTypeParameters.PanelKind) == 0)
+                    missing.Add(CurtainPanelKindParameters.Provided);
                 if (CarriesProtection && (Source.Present & FireReviewTypeParameters.Protection) == 0)
                     missing.Add(FireProtectionParameters.Provided);
                 if (CarriesSmokeProtection && (Source.Present & FireReviewTypeParameters.SmokeSeal) == 0)
                     missing.Add(SmokeProtectionParameters.Provided);
                 if (CarriesRating && (Source.Present & FireReviewTypeParameters.Rating) == 0)
                     missing.Add(FireRatingParameters.Provided);
-                if (!IsOpening)
+                if (CarriesMaterial)
                 {
                     if ((Source.Present & FireReviewTypeParameters.Material) == 0) missing.Add(StructuralMaterialParameters.Material);
                     if (NeedsCover && (Source.Present & FireReviewTypeParameters.Cover) == 0) missing.Add(StructuralMaterialParameters.Cover);
@@ -210,6 +266,12 @@ namespace BuildingRegulationReview.FireReview
         /// <summary>Only the values that differ from what the model held — nothing is rewritten for its own sake.</summary>
         public IEnumerable<FireReviewParameterEdit> Edits()
         {
+            // 嵌板種類 is written first because it decides which of the two answers below is asked
+            // for at all. The tool may have proposed 玻璃 from the panel's material, but nothing is
+            // written until the user leaves that choice standing (決議 16、D1).
+            if (IsCurtainPanel && !Same(_panelKind, Source.PanelKind))
+                yield return FireReviewParameterEdit.OfText(Source.TypeUniqueId, CurtainPanelKindParameters.Provided, _panelKind);
+
             // 設計防火保護 is a Type parameter: 防火門窗 is a property of the 型號, so one tick
             // answers for every instance of it in the project.
             // A Type that never carried the parameter reads as null; leaving such a row alone
@@ -223,12 +285,14 @@ namespace BuildingRegulationReview.FireReview
             if (CarriesSmokeProtection && (Source.ProvidedSmokeProtection ?? false) != _smokeProtection)
                 yield return FireReviewParameterEdit.OfYesNo(Source.TypeUniqueId, SmokeProtectionParameters.Provided, _smokeProtection);
 
-            // 帷幕嵌板 answer both: 防火門窗 for an openable panel, and 設計防火時效 because the 交接帶
-            // of 第79條第4項／第79條之3第2項 is measured by the panels' own rating (帷幕牆規格 §6).
+            // 一片實心嵌板 answers by 設計防火時效, because the 交接帶 of 第79條第4項／第79條之3第2項 is
+            // measured by the panels' own rating (帷幕牆規格 §6); a 玻璃 one answers 防火門窗 above instead.
             if (CarriesRating && !Same(_rating, Source.ProvidedRating))
                 yield return FireReviewParameterEdit.OfText(Source.TypeUniqueId, FireRatingParameters.Provided, _rating);
 
-            if (IsOpening) yield break;
+            // 結構材料 and 防火被覆厚度 exist to derive that rating, so they follow the same question:
+            // every 主要構造, and a 帷幕嵌板 once it is declared 實心.
+            if (!CarriesMaterial) yield break;
 
             if (!Same(_material, Source.Material))
                 yield return FireReviewParameterEdit.OfText(Source.TypeUniqueId, StructuralMaterialParameters.Material, _material);

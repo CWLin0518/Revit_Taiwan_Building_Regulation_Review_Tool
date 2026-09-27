@@ -36,7 +36,8 @@ public sealed class FireReviewTypeRow
         string? providedRating = null,
         bool? providedProtection = null,
         bool? providedSmokeProtection = null,
-        FireReviewTypeParameters present = FireReviewTypeParameters.None)
+        FireReviewTypeParameters present = FireReviewTypeParameters.None,
+        string? panelKind = null)
     {
         if (string.IsNullOrWhiteSpace(typeUniqueId)) throw new ArgumentException("Type UniqueId is required.", nameof(typeUniqueId));
         if (instanceCount < 0) throw new ArgumentOutOfRangeException(nameof(instanceCount));
@@ -59,6 +60,7 @@ public sealed class FireReviewTypeRow
         ProvidedProtection = providedProtection;
         ProvidedSmokeProtection = providedSmokeProtection;
         Present = present;
+        PanelKind = string.IsNullOrWhiteSpace(panelKind) ? null : panelKind!.Trim();
     }
 
     public string TypeUniqueId { get; }
@@ -102,18 +104,50 @@ public sealed class FireReviewTypeRow
     /// <summary>Which of the review parameters this Type actually carries.</summary>
     public FireReviewTypeParameters Present { get; }
 
+    /// <summary>
+    /// 防火檢討_嵌板種類 exactly as the parameter holds it (帷幕嵌板 only). Null is 未宣告, which is not
+    /// the same as either kind: the row then shows both gaps rather than guessing (決議 16).
+    /// </summary>
+    public string? PanelKind { get; }
+
+    /// <summary>實心／玻璃, or null when the declaration is blank or is neither.</summary>
+    public CurtainPanelKind? ParsedPanelKind => CurtainPanelKinds.Parse(PanelKind);
+
     public bool IsOpening => CandidateCategories.IsOpening(Category);
 
-    /// <summary>
-    /// Whether this Type answers 設計防火時效. Every 主要構造 does; among the openings, 帷幕嵌板 because
-    /// 第79條第4項 and 第79條之3第2項 measure the 交接帶 by the panels' own rating (帷幕牆規格 §6), and 門
-    /// because 第79條之2第1項 requires a 管道間之維修門 to reach one hour (垂直區劃文件 §6). 窗 answer
-    /// 防火門窗 and 遮煙性能 only — no clause states a rating for them.
-    /// </summary>
-    public bool CarriesRating => !IsOpening || Category != CandidateCategory.Window;
+    /// <summary>A 帷幕嵌板 whose 防火檢討_嵌板種類 has not been declared — it answers neither question yet.</summary>
+    public bool AwaitsPanelKind => Category == CandidateCategory.CurtainPanel && ParsedPanelKind is null;
 
-    /// <summary>防火門窗 is asked of the openings, 可開啟嵌板 included.</summary>
-    public bool CarriesProtection => IsOpening;
+    /// <summary>
+    /// Whether 結構材料＋尺寸 → 時效 is worth offering on this row: the clauses have to give the
+    /// category a threshold, the row has to answer by 時效 at all, and an undeclared 帷幕嵌板 has to
+    /// say which kind it is first.
+    /// </summary>
+    public bool SupportsDerivation => FireRatingDeriver.IsDerivable(Category) && CarriesRating && !AwaitsPanelKind;
+
+    /// <summary>
+    /// Whether this Type answers 設計防火時效. Every 主要構造 does; among the openings, 門 does because
+    /// 第79條之2第1項 requires a 管道間之維修門 to reach one hour (垂直區劃文件 §6), and a 帷幕嵌板 does
+    /// when it is declared 實心, because 第79條第4項 and 第79條之3第2項 measure the 交接帶 by the panels'
+    /// own rating (帷幕牆規格 §6、決議 16). A 玻璃 panel answers 防火保護 instead, exactly like a 窗;
+    /// 窗 answer 防火門窗 and 遮煙性能 only — no clause states a rating for them.
+    /// </summary>
+    /// <remarks>
+    /// An undeclared 帷幕嵌板 carries both, so the panel shows both as gaps. Guessing either way would
+    /// collapse 「實心嵌板漏填時效」(資料不足) into 「玻璃嵌板不是防火設備」(未符合), which is the whole
+    /// reason 防火檢討_嵌板種類 exists.
+    /// </remarks>
+    public bool CarriesRating => Category == CandidateCategory.CurtainPanel
+        ? ParsedPanelKind != CurtainPanelKind.Glazed
+        : !IsOpening || Category != CandidateCategory.Window;
+
+    /// <summary>
+    /// 防火門窗 is asked of the openings, 可開啟嵌板 included — but not of a 帷幕嵌板 declared 實心,
+    /// which is a piece of 構造 answering by its own 時效, not a 防火設備 (決議 16).
+    /// </summary>
+    public bool CarriesProtection => Category == CandidateCategory.CurtainPanel
+        ? ParsedPanelKind != CurtainPanelKind.Solid
+        : IsOpening;
 
     /// <summary>
     /// 遮煙性能 is asked of every opening: a 昇降機道 出入口 may be a 門, a 窗 or a 帷幕嵌板, and a
@@ -127,7 +161,11 @@ public sealed class FireReviewTypeRow
 
     public string DisplayName => FamilyName is null ? TypeName : $"{FamilyName}：{TypeName}";
 
-    /// <summary>What the clauses derive for this row; openings and 梁 derive nothing.</summary>
+    /// <summary>
+    /// What the clauses derive for this row. 門、窗 and 梁 derive nothing; a 帷幕嵌板 derives on the
+    /// 牆壁 thresholds (決議 16). A 玻璃 panel goes through the same call and comes back with nothing,
+    /// because glass is not RC／SRC／SC and does not reach 第73條's 7cm either.
+    /// </summary>
     public FireRatingDerivation Derivation =>
         FireRatingDeriver.Derive(Category, ParsedMaterial, DimensionMeters, CoverMeters);
 
@@ -136,6 +174,10 @@ public sealed class FireReviewTypeRow
     {
         get
         {
+            // A 玻璃 panel does not answer by 時效 at all, and an undeclared one has not said yet, so a
+            // rating derived for either is never applied — the batch 「套用推定值」 must not put a number
+            // into a parameter the review will not read.
+            if (!SupportsDerivation) return false;
             var derived = Derivation;
             if (!derived.HasRating) return false;
             var current = ReviewInputAssembler.Rating(
@@ -146,8 +188,18 @@ public sealed class FireReviewTypeRow
 
     /// <summary>The edit that writes the derived rating, or null when there is nothing to write.</summary>
     public FireReviewParameterEdit? RatingEdit() =>
-        Derivation.ParameterText is string text
+        SupportsDerivation && Derivation.ParameterText is string text
             ? FireReviewParameterEdit.OfText(TypeUniqueId, FireRatingParameters.Provided, text)
+            : null;
+
+    /// <summary>
+    /// The edit that declares this 帷幕嵌板's kind, for the proposal the reader makes from the panel's
+    /// material (決議 16). Null for anything that is not a 帷幕嵌板, and for <see cref="CurtainPanelKind.Opening"/>,
+    /// which the reader recognises by category and never writes back.
+    /// </summary>
+    public FireReviewParameterEdit? PanelKindEdit(CurtainPanelKind kind) =>
+        Category == CandidateCategory.CurtainPanel && CurtainPanelKinds.ParameterText(kind) is string text
+            ? FireReviewParameterEdit.OfText(TypeUniqueId, CurtainPanelKindParameters.Provided, text)
             : null;
 
     public override string ToString() => $"{CategoryLabel}／{DisplayName}";
@@ -164,7 +216,10 @@ public enum FireReviewTypeParameters
     Protection = 8,
 
     /// <summary>防火檢討_遮煙性能 (第79條之2第1項).</summary>
-    SmokeSeal = 16
+    SmokeSeal = 16,
+
+    /// <summary>防火檢討_嵌板種類 (決議 16); only 帷幕嵌板 are expected to carry it.</summary>
+    PanelKind = 32
 }
 
 /// <summary>What kind of value one edit carries, so the adapter never has to guess from the text.</summary>
@@ -262,9 +317,18 @@ public sealed class FireReviewTypeTable
 
     /// <summary>Rows that need 防火被覆厚度 before SC can be rated at all.</summary>
     public IReadOnlyList<FireReviewTypeRow> AwaitingCover =>
-        Rows.Where(r => r.Derivation.Kind == FireRatingDerivationKind.CoverMissing).ToList();
+        Rows.Where(r => r.SupportsDerivation && r.Derivation.Kind == FireRatingDerivationKind.CoverMissing).ToList();
 
-    /// <summary>Rows whose 結構材料 is blank or unrecognised.</summary>
+    /// <summary>
+    /// Rows whose 結構材料 is blank or unrecognised. A 玻璃 panel is not one of them — it never answers
+    /// by 時效, so it is not waiting on a material it will never be asked for (決議 16).
+    /// </summary>
     public IReadOnlyList<FireReviewTypeRow> AwaitingMaterial =>
-        Rows.Where(r => r.Derivation.Kind == FireRatingDerivationKind.MaterialMissing).ToList();
+        Rows.Where(r => r.SupportsDerivation && r.Derivation.Kind == FireRatingDerivationKind.MaterialMissing).ToList();
+
+    /// <summary>
+    /// 帷幕嵌板 that have not declared 實心 or 玻璃 yet (決議 16). Until they do, CW-O cannot decide
+    /// which question to ask of them, so the review answers 資料不足 — the panel lists these first.
+    /// </summary>
+    public IReadOnlyList<FireReviewTypeRow> AwaitingPanelKind => Rows.Where(r => r.AwaitsPanelKind).ToList();
 }
