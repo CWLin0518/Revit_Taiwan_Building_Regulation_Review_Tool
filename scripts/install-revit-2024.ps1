@@ -83,12 +83,49 @@ foreach ($assembly in $assemblies) {
         Copy-Item -LiteralPath $pdb -Destination $installDirectory -Force
     }
 }
-Copy-Item (Join-Path $outputDirectory 'Data') $installDirectory -Recurse -Force
+# Copy the CONTENTS of Data, not the folder. `Copy-Item <dir> <dest> -Recurse -Force` only forces the
+# destination path itself: once $installDirectory\Data exists, the files inside it are never
+# overwritten again. That silently pinned the deployed fire-review-rules.json at whatever version was
+# there when the folder was first created, so every rule change since then reached the tests and the
+# build output but not Revit. The assemblies above were unaffected because they are copied file by
+# file. Copying each file explicitly, and reporting what landed, keeps that from going unnoticed
+# again.
+$dataSource = Join-Path $outputDirectory 'Data'
+if (-not (Test-Path -LiteralPath $dataSource)) {
+    throw "Missing build output: $dataSource"
+}
+$dataTarget = Join-Path $installDirectory 'Data'
+New-Item -ItemType Directory -Path $dataTarget -Force | Out-Null
+$dataFiles = Get-ChildItem -LiteralPath $dataSource -File -Recurse
+if ($dataFiles.Count -eq 0) {
+    throw "No data files found under $dataSource"
+}
+foreach ($file in $dataFiles) {
+    $relative = $file.FullName.Substring($dataSource.Length).TrimStart('\', '/')
+    $destination = Join-Path $dataTarget $relative
+    $destinationParent = Split-Path -Parent $destination
+    if (-not (Test-Path -LiteralPath $destinationParent)) {
+        New-Item -ItemType Directory -Path $destinationParent -Force | Out-Null
+    }
+    Copy-Item -LiteralPath $file.FullName -Destination $destination -Force
+}
 
 $assemblyPath = Join-Path $installDirectory 'BuildingRegulationReview.dll'
 $manifestTemplate = Get-Content (Join-Path $projectRoot 'BuildingRegulationReview.addin') -Raw
 $manifestTemplate.Replace('__ASSEMBLY_PATH__', $assemblyPath) |
     Set-Content -LiteralPath $manifestPath -Encoding UTF8
 
+# What actually landed. A deployment that silently kept an old file is the failure this script had,
+# so it now says enough for the next person to see it at a glance.
+Write-Host ''
+Write-Host 'Deployed files:'
+Get-ChildItem -LiteralPath $installDirectory -File -Recurse |
+    Sort-Object FullName |
+    ForEach-Object {
+        Write-Host ('  {0,-48} {1,8:N0} bytes  {2:yyyy-MM-dd HH:mm:ss}' -f
+            $_.FullName.Substring($installDirectory.Length).TrimStart('\'), $_.Length, $_.LastWriteTime)
+    }
+
+Write-Host ''
 Write-Host "Installed Revit 2024 add-in: $manifestPath"
 Write-Host 'Restart Revit 2024 to load the add-in.'
