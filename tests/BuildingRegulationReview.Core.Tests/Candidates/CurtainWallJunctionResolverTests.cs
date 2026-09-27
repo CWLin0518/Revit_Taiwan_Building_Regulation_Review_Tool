@@ -207,6 +207,43 @@ public sealed class CurtainWallJunctionResolverTests
     }
 
     [Fact]
+    public void A_junction_on_the_end_mullion_measures_the_panel_beside_it_rather_than_no_panel_at_all()
+    {
+        // 嵌板的沿牆範圍從豎框內緣起算，所以抵在帷幕牆端點的區劃牆，交點（0 mm）不被任何嵌板覆蓋。
+        // 那是豎框佔著這個位置，不是「這一柱沒有嵌板」：查詢位置要移到旁邊那片嵌板上，量它的連續段，
+        // 而不是讓決議 7 的守門在一片全玻璃的立面上啟動、回頭供給 0。區劃牆對齊豎框是常態做法。
+        var wall = Wall(
+            new[] { Panel("P-mullion", 30, 2970, 60) },
+            new[] { Grid("G1", CurtainGridLineDirection.Vertical, 3000) });
+
+        var junction = Single(Resolve(Set(wall, hosts: new[] { Host(0) })),
+            CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Equal(2940.0, junction.ContinuousFireRatedLengthMm!.Value, 3);
+        Assert.Contains("P-mullion", junction.PanelUniqueIds);
+    }
+
+    [Fact]
+    public void A_column_the_curtain_wall_really_left_unpanelled_does_not_borrow_the_next_column_s_panel()
+    {
+        // 上一條的反面，也是它的守門：交點落在「整格都沒有嵌板」的那一柱時，不得吸附到鄰格的實板。
+        // grid line 界定的那一格內確實沒有嵌板，這才是決議 7 所稱的間隔——照舊供給 0，證據裡沒有嵌板。
+        var wall = Wall(
+            new[] { Panel("P-left", 30, 2970, 60), Panel("P-right", 6030, 11970, 60) },
+            new[]
+            {
+                Grid("G1", CurtainGridLineDirection.Vertical, 3000),
+                Grid("G2", CurtainGridLineDirection.Vertical, 6000)
+            });
+
+        var junction = Single(Resolve(Set(wall, hosts: new[] { Host(4500) })),
+            CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Equal(0.0, junction.ContinuousFireRatedLengthMm!.Value);
+        Assert.Empty(junction.PanelUniqueIds);
+    }
+
+    [Fact]
     public void A_continuous_run_is_the_whole_panel_around_the_point_not_half_of_it_each_side()
     {
         // 案例 7：交點落在實板右緣，左側 900 mm、右側 0 mm — 採總和，仍然成立。
