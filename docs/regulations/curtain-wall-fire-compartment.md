@@ -153,6 +153,10 @@ Pass ⟺ panelMinFireRating >= 30 min
 | `CurtainSystem` | 帷幕牆 |
 | Wall Type `Function == Exterior` 且非帷幕 | 一般外牆，走既有 `FireResistanceCheck`，不進本功能 |
 
+反過來也成立、而且要明講：**帷幕牆不進 `FireResistanceCheck` 的第 79 條第 1 項區劃牆壁時效判定**。
+它在 Revit 裡是一片 `Wall`，會被收成 `MemberObservation` 並依幾何判成區劃邊界，所以那條規則必須
+自己把它排除，見 §5.5。
+
 嵌板集合取自 `CurtainGrid.GetPanelIds()`；嵌板可能是 `Panel`（FamilyInstance）或「嵌板為牆」的 `Wall`，兩者都要能讀型別參數。
 
 **豎框（`Mullion`）不列入判定。** 法規未對豎框定義獨立的防火時效，本工具不讀取、不比較、也不因豎框而判 `InsufficientData`。豎框本身的防火填塞與嵌板背檔屬施工項目，同層間縫隙一併排除於本工具之外（見第 9 節）。
@@ -351,6 +355,50 @@ junction.projectionDepth >= 500 mm || (junction.continuousFireRatedLength >= 900
 最後一列正是 spec 11.3「不可將資料不足誤判為未符合」在這個檢查上的落點，而且不需要 `CurtainWallJunctionCheck` 寫任何特例——引擎的既有語意就給出正確答案。
 
 另一個連帶結論：條文的「且該外牆構造具有同等以上防火時效」不寫成獨立條件，而是內建在 `continuousFireRatedLength` / `continuousFireRatedHeight` 的定義裡（§5.2）。這兩個量測只累計 `providedFireRating >= hostRequiredFireRating` 的嵌板，所以「90 cm 的具時效連續面」是一個量、一個門檻，剛好符合 DSL 的單一比較形式。
+
+### 5.5 帷幕牆自第 79 條第 1 項之區劃牆壁時效排除（`tw-bcr-79-wall-rating` 版本 2）
+
+Revit 裡帷幕牆**就是一片 `Wall`**（`WallKind.Curtain`），所以它跟一般牆一樣被收成
+`MemberObservation`；而 `CandidateResolver.RelateLinear` 判定區劃邊界**純看幾何**——中心線沿邊界
+走到門檻長度就給 `ZoneRelationKind.Boundary`，不讀 `IsCurtainWall`。版本 2 之前，這就足以讓
+`tw-bcr-79-wall-rating` 要求一片帷幕牆具備一小時以上防火時效。
+
+實機證實（模型「建築防火檢討1」，2026-09-27）：
+
+```
+source.typeName          = 帷幕牆-150x250cm
+source.width             = 0.025 m          ← 2.5 cm
+candidate.relation       = Boundary
+candidate.boundaryLength = 7.05 m
+candidate.insideLength   = 0 m
+規則                      = tw-bcr-79-wall-rating（要求 >= 60 min）
+狀態                      = 資料不足
+```
+
+**這是條文的誤用。** 第 79 條第 1 項的「牆壁」是把區劃彼此分隔開的牆；帷幕牆是外牆，分隔的是
+室內與室外（`insideLength = 0` 正是這件事的量測證據）。它在區劃邊界上該滿足的是：
+
+| 條文 | 要求 | 既有規則 |
+| --- | --- | --- |
+| 第 79 條第 3 項 | 區劃牆壁突出 50 cm，或交接處外牆面 90 cm 以上且同等防火時效 | `tw-bcr-79-curtain-wall-junction` |
+| 第 79 條之 3 第 2 項 | 樓地板交接處同上（層間帶） | `tw-bcr-79-3-curtain-wall-spandrel` |
+| 第 79 條之 4 | 其他部分外牆半小時以上 | `tw-bcr-79-4-curtain-wall-other` |
+
+三條都已存在且走 `junction.*`，所以這個排除**移走的是本來不屬於這片牆的要求，沒有少檢討任何
+事**。修法：新增白名單欄位 `element.isCurtainWall`，`appliesWhen` 加 `&& element.isCurtainWall != true`，
+規則 `version` 由 `1` 跳到 `2`（同一個模型的答案改變了，儲存的結果帶著版本，不跳版兩者分不開）。
+
+**第 70 條不需要同樣的排除**：`tw-bcr-70-bearing-wall-rating` 已經要求
+`element.isStructural == true`，而帷幕牆不是承重牆。排除只放一條規則，不放兩條。
+
+修好之後帷幕牆**不會從檢討表消失**，而是顯示「不適用」：`RuleEngine.NoRuleApplies` 會把
+`appliesWhen` 的欄位當證據輸出，所以讀報告的人直接看到 `element.isCurtainWall = true`，知道是
+為什麼不適用。也因此這個欄位**不必**加進 `evidenceFields`。
+
+`element.isCurtainWall` 由 `CandidateFacts.ForMember` **無條件**設定（「不是帷幕牆」是答案而不是
+缺漏）。這一點有守門測試，而且是這組測試裡最重要的一條：一旦組裝層漏掉這個事實，規則連自己的
+`appliesWhen` 都判不出來，**專案裡每一片邊界牆都會變成資料不足**，而且是靜默的——每片牆照樣
+有一列。測試見 `tests/BuildingRegulationReview.Core.Tests/Rules/CurtainWallBoundaryRatingTests.cs`。
 
 ## 6. 參數需求
 

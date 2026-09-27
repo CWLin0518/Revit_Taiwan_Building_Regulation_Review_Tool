@@ -37,6 +37,11 @@ public static class CandidateFacts
         var observation = member.Observation;
         facts.Set("element.category", CandidateCategories.RuleText(observation.Category));
         facts.Set("element.isCompartmentBoundary", relation.IsBoundary);
+
+        // Unconditional, unlike the two nullable facts below: 「不是帷幕牆」 is an answer and not a
+        // gap, so a rule may compare it without waiting on anything. Only a Wall can be one, and a
+        // MemberObservation of any other category reports false.
+        facts.Set("element.isCurtainWall", observation.IsCurtainWall);
         if (observation.TypeName is not null) facts.Set("element.typeName", observation.TypeName);
         if (observation.IsStructural.HasValue) facts.Set("element.isStructural", observation.IsStructural.Value);
         return facts;

@@ -344,6 +344,10 @@ public sealed class FireReviewIntegrationTests
         facts.Set("element.category", "Walls");
         facts.Set("element.isStructural", false);
         facts.Set("element.isCompartmentBoundary", true);
+        // 第79條's 區劃牆壁 requirement asks this since version 2 — an ordinary RC wall, not a 帷幕牆
+        // (see CurtainWallBoundaryRatingTests). CandidateFacts sets it for every member, so the real
+        // pipeline always answers it; a hand-built fact set has to say so too or the rule is undecided.
+        facts.Set("element.isCurtainWall", false);
         facts.Set("element.providedFireRating", 60, ReviewUnit.Minute);
         facts.Set("building.fireResistiveConstruction", true);
 

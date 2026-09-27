@@ -141,6 +141,15 @@ public sealed class RuleFieldCatalog
             new RuleFieldDefinition("element.category", text, "構件類別（Walls／Columns／StructuralFraming／Floors）", element),
             new RuleFieldDefinition("element.typeName", text, "構件 Type 名稱", element),
             new RuleFieldDefinition("element.isCompartmentBoundary", boolean, "是否構成區劃邊界", element),
+
+            // 帷幕牆在 Revit 裡就是一片 Wall（WallKind.Curtain），所以它會跟一般牆一樣被收成
+            // MemberObservation，並且只要中心線沿區劃邊界走就會被判成 Boundary。但第79條第1項的
+            // 「區劃牆壁」是把區劃彼此分隔開的牆，帷幕牆分隔的是室內與室外——它在區劃邊界上該滿足
+            // 的是第79條第3項的交接處構造（突出 50cm 或交接處 90cm 以上且同等時效）與第79條之4 的
+            // 半小時外牆時效，兩者都由 junction.* 的規則檢討。這個欄位存在就是為了讓
+            // tw-bcr-79-wall-rating 把它排除，否則一片 2.5cm 厚的帷幕牆會被要求一小時防火時效
+            // （docs/regulations/curtain-wall-fire-compartment.md）。
+            new RuleFieldDefinition("element.isCurtainWall", boolean, "是否為帷幕牆（Revit WallKind.Curtain）", element),
             new RuleFieldDefinition("element.isStructural", boolean, "是否為結構構件", element),
             new RuleFieldDefinition("element.providedFireRating", RuleValueType.Quantity(ReviewUnit.Minute), "設計／認證防火時效", element),
 
