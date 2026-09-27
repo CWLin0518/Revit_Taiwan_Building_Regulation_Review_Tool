@@ -253,7 +253,8 @@
                             <DataGridTemplateColumn Header="區劃用途" Width="140" SortMemberPath="Use">
                                 <DataGridTemplateColumn.CellStyle>
                                     <Style TargetType="DataGridCell">
-                                        <Setter Property="ToolTip" Value="清單分兩段。第79條之2 的垂直區劃（挑空、昇降階梯間、樓梯間、昇降機道、管道間）：填這五個字樣時，第79條與第83條的面積上限都免適用。第79條之1 的六個用途（觀眾席、生產線、教室、體育館、零售市場、停車空間）：面積上限照樣適用，但會多一列待人工確認的免除判定，並開放右側「無法區劃分隔」欄。其餘用途可自行輸入，不影響判定。" />
+                                        <Setter Property="ToolTip" Value="{Binding UseHint}" />
+                                        <Setter Property="ToolTipService.ShowDuration" Value="60000" />
                                     </Style>
                                 </DataGridTemplateColumn.CellStyle>
                                 <DataGridTemplateColumn.CellTemplate>

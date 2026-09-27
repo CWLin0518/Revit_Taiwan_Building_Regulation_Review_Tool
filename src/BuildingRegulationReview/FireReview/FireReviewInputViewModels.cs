@@ -102,8 +102,12 @@ namespace BuildingRegulationReview.FireReview
         /// <summary>False for a heading, which the ComboBox therefore refuses to select.</summary>
         public bool IsSelectable => !IsHeading;
 
-        /// <summary>The entry that clears 區劃用途.</summary>
-        public static ZoneUseChoice Blank { get; } = new ZoneUseChoice("", "（未填）", false);
+        /// <summary>
+        /// The entry that clears 區劃用途. Its label says what an empty box means rather than merely
+        /// that it is empty: a 區劃 outside the two sections below needs no 用途 at all, and the field
+        /// reads as 一般區劃 either way, so leaving it blank is an answer and not an omission.
+        /// </summary>
+        public static ZoneUseChoice Blank { get; } = new ZoneUseChoice("", "（未填＝一般區劃，不必填）", false);
 
         public static ZoneUseChoice Of(string use) => new ZoneUseChoice(use, use, false);
 
@@ -195,14 +199,48 @@ namespace BuildingRegulationReview.FireReview
         /// </summary>
         public bool IsArticle79_1Use => ZoneUses.IsArticle79_1Use(_use);
 
-        /// <summary>The heading above the 第79條之2 uses, which are exempt from the limit outright.</summary>
-        internal const string VerticalCompartmentHeading = "── 第79條之2 垂直區劃（免面積上限） ──";
+        /// <summary>
+        /// The heading above the 第79條之2 uses, which are exempt from the limit outright. It names the
+        /// second consequence too: 昇降機道 and 管道間 do not merely escape the area limit, they put
+        /// that 區劃's 防火設備 under 第79條之2第1項's 遮煙性能 and 維修門時效 requirements
+        /// (<see cref="Checks.VerticalCompartmentInputs.UseOf"/>). Someone choosing a word here is
+        /// switching checks on, not only off, and the list is the only place that says so.
+        /// </summary>
+        internal const string VerticalCompartmentHeading = "── 第79條之2 垂直區劃（免面積上限，另有附加檢討） ──";
 
         /// <summary>
         /// The heading above 第79條之1's six uses. It says the limit still applies, because that is the
         /// difference between the two sections and the whole reason they are drawn apart (決議 11).
         /// </summary>
         internal const string Article79_1Heading = "── 第79條之1（上限仍適用，須人工確認） ──";
+
+        /// <summary>
+        /// What the 區劃用途 box is for, said once and shared by the cell's ToolTip and the batch
+        /// window so the two can never drift apart. Three things, in the order someone filling the
+        /// panel needs them: that most 區劃 need nothing here, what the two sections actually do, and
+        /// that a near miss is silent. The last one is the reason this text exists at all — the field
+        /// is compared 逐字 (<see cref="ZoneUses.IsVerticalCompartment"/>), so 「電梯井」 or 「梯間」
+        /// reads as an ordinary 區劃: the area limit is applied and 第79條之2's extra checks never run,
+        /// with nothing on the report to say a word was misspelled
+        /// (docs/regulations/zone-use-vocabulary.md §2.1).
+        /// </summary>
+        internal const string UseHintText =
+            "一般區劃不必填，留空即可——空白就是「一般區劃，照面積上限檢討」。\n\n" +
+            "只有兩種情形需要填，且必須與清單逐字相符：\n" +
+            "• 第79條之2 的五種垂直區劃（挑空、昇降階梯間、樓梯間、昇降機道、管道間）：" +
+            "第79條與第83條的面積上限都免適用；填「昇降機道」或「管道間」還會另外開啟" +
+            "第79條之2第1項的附加檢討（防火設備的遮煙性能、維修門的一小時防火時效）。\n" +
+            "• 第79條之1 的六種用途（觀眾席、生產線、教室、體育館、零售市場、停車空間）：" +
+            "面積上限照樣適用，數字不變，只多一列待人工確認的免除判定，並開放「無法區劃分隔」欄。\n\n" +
+            "其餘用途可自行輸入，不影響判定，只會印在檢討表的證據欄位。\n" +
+            "注意：填「電梯井」「梯間」這類近似字不會比中，該區劃會被當成一般區劃檢討，" +
+            "附加檢討也不會跑，而且不會有任何警告。";
+
+        /// <summary>
+        /// <see cref="UseHintText"/> for the cell's ToolTip. An instance property because the
+        /// DataGridCell's DataContext is the row, and one binding keeps the text in a single place.
+        /// </summary>
+        public string UseHint => UseHintText;
 
         private static readonly IReadOnlyList<ZoneUseChoice> Choices = BuildUseChoices();
 

@@ -417,7 +417,16 @@ namespace BuildingRegulationReview.FireReview
 
             var panel = new StackPanel { Margin = new Thickness(20) };
             panel.Children.Add(new TextBlock { Text = $"把選取的 {rowCount} 個區劃設為：", FontWeight = FontWeights.SemiBold });
-            panel.Children.Add(new TextBlock { Text = "區劃用途（清單為第79條之2、第79條之1 的用字，也可自行輸入）", Margin = new Thickness(0, 12, 0, 0) });
+            // 與格子裡那一欄同一句提示（共用 UseHintText，不各寫一份）：這個欄位大部分區劃不必填，
+            // 需要填的只有清單上那兩段，而近似字不會比中也不會有警告。
+            panel.Children.Add(new TextBlock
+            {
+                Text = "區劃用途（一般區劃不必填，留空即可；也可自行輸入）",
+                Margin = new Thickness(0, 12, 0, 0),
+                ToolTip = FireReviewZoneRowViewModel.UseHintText
+            });
+            _use.ToolTip = FireReviewZoneRowViewModel.UseHintText;
+            ToolTipService.SetShowDuration(_use, 60000);
             panel.Children.Add(_use);
             panel.Children.Add(new TextBlock { Text = "自動滅火設備" });
             panel.Children.Add(_sprinklered);
