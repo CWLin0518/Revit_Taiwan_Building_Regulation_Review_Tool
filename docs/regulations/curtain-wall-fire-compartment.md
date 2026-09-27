@@ -2,6 +2,7 @@
 
 > 狀態：**實作中**。§12 的步驟 1–15 已完成（步驟 11、12 隨決議 13 移除），**步驟 16a、16b、16c、16d、16e
 > 已完成，並已於 2026-09-28 部署與實機驗證**（16c 的讀取、16d 的面板、16e 的綁定與寫入皆已驗到，
+> 但 16g 後來發現 16c 的**嵌板厚度**讀取自始無效，見 §12 的 16g 列；16f、16g 兩項修正 Revit 端待驗證，
 > **檢討表的 CW-O（玻璃）、CW-H、CW-V 三列都已逐字核對**；驗證證據與其界線見 §12 的 16e 列）。
 > 步驟 16（決議 16）把帷幕嵌板分成兩路作答：實心嵌板以 `防火檢討_設計防火時效` 作答且時效比照牆體由
 > 模型尺寸推定，玻璃嵌板與帷幕牆門窗以 `防火檢討_設計防火保護` 作答；種類由新參數 `防火檢討_嵌板種類`
@@ -949,6 +950,7 @@ CW-V 的立面**由工具自己建立**，名稱帶著上面說的檢討圖號�
 | 16d | 決議 16 的**參數面板**：帷幕嵌板列的種類下拉、選實心才亮結構材料與推定時效、選玻璃只亮防火保護、提案看得出是提案 | **已完成**（建置 0 警告、1707 條測試全通過）。**Revit 端已於 2026-09-28 實機驗證**：使用者開「防火檢討參數設定」→「構件類型」分頁核對後回報「面板沒問題」——**這是一句整體確認，沒有逐欄基線**，六個繫結、黃底提案、種類連動亮暗各自是否逐一無誤並未分項記錄。面板是 net48 WPF，核心測試專案不參照它，**這一段仍然沒有任何自動化測試蓋得到**，XAML 的繫結路徑也不由編譯器檢查 |
 | 16e | 決議 16 的部署與實機驗證：依下方「16c 的綁定程序」綁參數、填值、重跑，核對 CW-O 由 `InsufficientData` 轉為有判定 | **已完成**（2026-09-28）。部署、綁定、面板核對、填值寫入、重跑全部做完，CW-O 玻璃那一路的檢討表列已逐字核對；證據與剩餘界線見下方「16e 的驗證證據」 |
 | 16f | 參數面板要列得出檢討讀得到的每一個帷幕嵌板型別（使用者回報缺型別，2026-09-28） | **已完成**（2026-09-28，建置 0 警告、1707 條測試全通過，**但 `BuildingRegulationReview.Revit` 沒有任何測試覆蓋**）。見下方「16f：面板列不出視圖外的型別」。**Revit 端待實機驗證** |
+| 16g | 嵌板厚度改讀 `CURTAIN_WALL_SYSPANEL_THICKNESS`（使用者回報 `System Panel: Wall` 讀不到尺寸，2026-09-28） | **已完成**（2026-09-28，建置 0 警告、1707 條測試全通過，**但 `BuildingRegulationReview.Revit` 沒有任何測試覆蓋**）。見下方「16g：`PanelType` 不是 `HostObjAttributes`」。**Revit 端待實機驗證**；使用者回報的「數量也讀不到」那一半**尚未確認是不是 bug**，要先取得該格逐字內容 |
 
 #### 16e 的驗證證據（誠實記錄，含推定的那一段）
 
@@ -1051,7 +1053,8 @@ CW-H 的 `continuousFireRatedLength = 0` 精確對應 `FacadeMeasurement.Glazed`
 每一列的專案實體數，但視圖裡一個實體都沒有的型別**整列不存在**，也沒有任何警告提到它。
 
 **不是成因的兩件事**：訂製嵌板族（`FamilySymbol`）照樣列得出來——`Structure()` 以 `as HostObjAttributes`
-取複合構造，對 `FamilySymbol` 安全回 null，只是推不出厚度；嵌板為牆者的類別是 `OST_Walls`，本來就列在牆
+取複合構造，對 `FamilySymbol` 安全回 null，只是推不出厚度（**16g 發現這一句對系統嵌板型別也成立，
+所以每一個嵌板型別的厚度都讀不到**，見下一節）；嵌板為牆者的類別是 `OST_Walls`，本來就列在牆
 那一組（§3.3 已記）。
 
 **改法**：`Scan` 在視圖那一輪之後，補上「`projectCounts` 有、`inView` 沒有」的型別，實體清單傳空陣列。
@@ -1066,6 +1069,46 @@ ViewModel。`FireReviewTypeTable` 本來就按「構造類別優先 → 類別 �
 
 **這一段沒有任何自動化測試。** `tests/BuildingRegulationReview.Core.Tests` 只參照 `Domain` 與
 `Application` 兩個專案，`BuildingRegulationReview.Revit` 零覆蓋；1707 條全通過只代表沒弄壞判定層與參數層。
+
+#### 16g：`PanelType` 不是 `HostObjAttributes`，所以嵌板厚度一直讀不到
+
+使用者在 16f 部署後回報「帷幕嵌板的 type（`System Panel: Wall`）似乎沒讀到數量與尺寸」。尺寸這一半是
+確定的 bug，**而且成因是 16a～16c 一路帶下來的一個錯誤前提**。
+
+以反射實測本機 `C:\Program Files\Autodesk\Revit 2024\RevitAPI.dll` 的繼承鏈：
+
+| 型別 | 繼承鏈 |
+| --- | --- |
+| `WallType` | → `HostObjAttributes` → `ElementType` → `Element` |
+| `FloorType` | → `HostObjAttributes` → `ElementType` → `Element` |
+| **`PanelType`** | → **`FamilySymbol`** → `InsertableObject` → `ElementType` → `Element` |
+| `MullionType` | → `FamilySymbol` → `InsertableObject` → `ElementType` → `Element` |
+| `Panel`（實體） | → `FamilyInstance` → `Instance` → `Element` |
+
+16a、16b、16c 三份紀錄都寫「`PanelType` 繼承 `HostObjAttributes`，`GetCompoundStructure().GetWidth()`
+讀得到」——**`PanelType` 繼承的是 `FamilySymbol`**，系統嵌板根本沒有複合構造可讀，它的厚度是型別參數
+Thickness（`BuiltInParameter.CURTAIN_WALL_SYSPANEL_THICKNESS`）。於是 `Dimension` 對
+`CandidateCategory.CurtainPanel` 呼叫的 `Structure(type)` 裡 `(type as HostObjAttributes)` **永遠是 null**，
+每一個系統嵌板型別的尺寸都讀成 null。
+
+這個錯誤前提之所以撐到現在沒被抓到，是因為它**不影響任何自動化測試**（`BuildingRegulationReview.Revit`
+零測試覆蓋），而 16d、16e 的實機驗證是使用者一句「面板沒問題」——16e 那一輪的預期值裡其實寫了
+「12611 應顯示嵌板厚 0.1 cm、298048 是 1.0 cm，顯示『（尺寸讀不到）』才是問題」，但那一欄沒有被逐格核對。
+更巧的是尺寸讀不到時面板**看不出來**：`FireReviewTypeRowViewModel.DimensionText` 在
+`SupportsDerivation == false` 時顯示「—」，而帷幕嵌板未宣告種類時 `SupportsDerivation` 本來就是 false
+（§3.3、決議 16），所以未宣告的嵌板列不論厚度讀不讀得到都顯示「—」。**宣告為實心之後**才會轉成
+「（尺寸讀不到）」並讓推定時效整條路斷掉——本模型沒有宣告為實心的嵌板，所以一直沒撞到。
+
+**改法**：`Dimension` 對 `CurtainPanel` 改呼叫新增的 `PanelThickness(type)`：先讀
+`CURTAIN_WALL_SYSPANEL_THICKNESS`（內建參數的查詢與介面語言無關，中文版 Revit 照樣讀得到），
+讀不到才退回 `Structure(type)`（留給自帶複合構造的訂製嵌板族），兩者都讀不到才報 null。
+`PanelMaterial` 裡「取複合構造最厚一層」的那段基於同一個錯誤前提，對任何嵌板型別都是死碼，一併刪除——
+行為不變（本來就一路落到 `MATERIAL_ID_PARAM`，16e 驗到的 `玻璃` 提案走的就是這條），只是不再宣稱讀得到層。
+
+**界線（照實記）**：`Structure()` 仍是 `Wall`（`WallType.Width` 為 0 時的退路）與 `Floor` 的路徑，
+沒有動。**這一段同樣沒有任何自動化測試**，`.Revit` 專案零覆蓋；1707 條全通過只代表沒弄壞判定層與參數層。
+**數量那一半尚未確認是不是 bug**：`Scan` 補進來的列必然是 `0 / N`（`N ≥ 1`，來自全專案計數），
+顯示純 `0` 在程式碼上不可能發生，所以要先向使用者取得那一格的逐字內容才知道要不要查第二個成因。
 
 #### 16c 的綁定程序（16e 要執行的那一段）
 
@@ -1883,7 +1926,7 @@ Domain 與 Application，蓋不到轉接層。
 | `Application/Parameters/FireReviewTypeTable.cs` | `FireReviewTypeRow` 建構子尾端加 `CurtainPanelKind? proposedPanelKind`；新增 `ProposedPanelKind`（讀取層的提案，不是模型的值）與 `PanelKindProposal`（只在型別還沒宣告時才有值）。`Opening` 不接受為提案——它沒有 `ParameterText`，沒有任何 edit 載得動它 |
 | `FireReview/FireReviewTypeRowViewModel.cs` | 建構子在 `防火檢討_嵌板種類` 完全空白時用提案當下拉初值（已宣告或填了讀不懂的字都照原樣顯示）；新增 `PanelKindIsProposed`／`PanelKindProposalNote` 供 16d 在列上說明「這是提案、還沒寫入」 |
 | `Revit/Geometry/RevitCurtainWallGeometryReader.cs` | `ReadPanels` 改為**每片嵌板都讀** `防火檢討_設計防火保護`（原本只有門窗讀），種類交給 `CurtainPanelKinds.Classify`（`element is Wall` 即「嵌板為牆」），結果填進 `CurtainPanelObservation` 的 `kind`；新增私有 `Text(element, name)` 讀型別的文字參數 |
-| `Revit/Parameters/RevitFireReviewTypeScanner.cs` | `Dimension` 對 `CurtainPanel` 回 `Structure(type)`（`PanelType` 也是 `HostObjAttributes`，複合構造與牆、樓板同一條路）；`Row` 讀 `防火檢討_嵌板種類`、在**帷幕嵌板類別**帶這個參數時設 `FireReviewTypeParameters.PanelKind` 旗標、並以新增的 `PanelMaterial`（複合構造最厚的一層，其次 `MATERIAL_ID_PARAM`）算出提案 |
+| `Revit/Parameters/RevitFireReviewTypeScanner.cs` | `Dimension` 對 `CurtainPanel` 回 `Structure(type)`（當時誤以為 `PanelType` 也是 `HostObjAttributes`、複合構造與牆、樓板同一條路——**這個前提是錯的，已由 16g 改為讀 `CURTAIN_WALL_SYSPANEL_THICKNESS`**）；`Row` 讀 `防火檢討_嵌板種類`、在**帷幕嵌板類別**帶這個參數時設 `FireReviewTypeParameters.PanelKind` 旗標、並以新增的 `PanelMaterial`（原為「複合構造最厚的一層，其次 `MATERIAL_ID_PARAM`」，前一半同屬 16g 排除的錯誤前提、是死碼，已刪除，實際一直只讀 `MATERIAL_ID_PARAM`）算出提案 |
 | `assets/SharedParameters/fire-review-openings-type.txt` | 加入 `PARAM …0013 防火檢討_嵌板種類 TEXT`（定義行自主檔逐位元組複製），並在檔頭補上它只對帷幕嵌板有意義、以及帷幕嵌板另需構件檔那兩個參數的說明。**檔案仍是 Big5/cp950＋LF**（主檔是 CRLF，差異是刻意的），`git diff --numstat` 為 `7 0` |
 | `tests/…/BuildingRegulationReview.Core.Tests.csproj` | 把 `fire-review-openings-type.txt` 一併複製到輸出，讓新的位元組層級測試讀得到 |
 

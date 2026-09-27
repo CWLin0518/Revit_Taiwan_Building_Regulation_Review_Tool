@@ -201,29 +201,14 @@ public sealed class RevitFireReviewTypeScanner
     }
 
     /// <summary>
-    /// The material a panel Type is made of: the thickest layer of a layered 嵌板 (a system panel is
-    /// one layer, so this is simply its material), or the 材料 parameter of a panel family. Null when
-    /// the Type names none, which proposes nothing rather than guessing.
+    /// The material a panel Type names, which is the 材料 parameter — a system panel Type carries no
+    /// compound structure to read layers from (see <see cref="PanelThickness"/>), and a custom panel
+    /// family publishes the same parameter. Null when the Type names none (`&lt;By Category&gt;`
+    /// included), which proposes nothing rather than guessing.
     /// </summary>
     private Material? PanelMaterial(ElementType type)
     {
-        CompoundStructure? structure = null;
-        try
-        {
-            structure = (type as HostObjAttributes)?.GetCompoundStructure();
-        }
-        catch (Autodesk.Revit.Exceptions.ApplicationException)
-        {
-            structure = null;
-        }
-
-        var layered = structure?.GetLayers()
-            .Where(l => l.MaterialId is not null && l.MaterialId != ElementId.InvalidElementId)
-            .OrderByDescending(l => l.Width)
-            .Select(l => l.MaterialId)
-            .FirstOrDefault();
-
-        var id = layered ?? type.get_Parameter(BuiltInParameter.MATERIAL_ID_PARAM)?.AsElementId();
+        var id = type.get_Parameter(BuiltInParameter.MATERIAL_ID_PARAM)?.AsElementId();
         return id is null || id == ElementId.InvalidElementId ? null : _document.GetElement(id) as Material;
     }
 
@@ -244,9 +229,7 @@ public sealed class RevitFireReviewTypeScanner
         CandidateCategory.Wall => WallThickness(type),
         CandidateCategory.Floor => FloorThickness(type),
         CandidateCategory.Column => ColumnShortSide(type),
-        // 一片實心嵌板的時效比照牆體由厚度推定（決議 16），而 PanelType 也是 HostObjAttributes，所以
-        // 厚度與牆、樓板讀的是同一個複合構造。嵌板是族群實體（例如訂製嵌板族）時讀不到，報 null。
-        CandidateCategory.CurtainPanel => Structure(type),
+        CandidateCategory.CurtainPanel => PanelThickness(type),
         _ => null
     };
 
@@ -254,6 +237,24 @@ public sealed class RevitFireReviewTypeScanner
         type is WallType wall && wall.Width > 0 ? Meters(wall.Width) : Structure(type);
 
     private static double? FloorThickness(ElementType type) => Structure(type);
+
+    /// <summary>
+    /// 嵌板厚 — 一片實心嵌板的時效比照牆體由厚度推定（決議 16），所以這一欄要讀得出來。
+    /// </summary>
+    /// <remarks>
+    /// 系統嵌板型別（<c>PanelType</c>）繼承的是 <c>FamilySymbol</c>，**不是** <c>HostObjAttributes</c>
+    /// （反射實測 Revit 2024：<c>PanelType → FamilySymbol → InsertableObject → ElementType</c>）——
+    /// 它沒有複合構造可讀，厚度是型別參數 Thickness（<c>CURTAIN_WALL_SYSPANEL_THICKNESS</c>）。
+    /// 步驟 16a～16c 誤以為它是 <c>HostObjAttributes</c>，於是每一個系統嵌板型別的尺寸都讀成 null，
+    /// 面板顯示「（尺寸讀不到）」、實心那一路推不出時效（步驟 16g）。內建參數的查詢與介面語言無關，
+    /// 中文版 Revit 也照樣讀得到。嵌板為牆者類別是 OST_Walls、走 <see cref="WallThickness"/>，不到這裡；
+    /// 訂製嵌板族沒有這個參數，其型別若自帶複合構造仍由 <see cref="Structure"/> 補上，兩者都讀不到才報 null。
+    /// </remarks>
+    private static double? PanelThickness(ElementType type)
+    {
+        var feet = PositiveLength(type, BuiltInParameter.CURTAIN_WALL_SYSPANEL_THICKNESS);
+        return feet is null ? Structure(type) : Meters(feet.Value);
+    }
 
     /// <summary>The total thickness of a layered construction, which is how 第72／73條 measure a 牆壁／樓地板.</summary>
     private static double? Structure(ElementType type)
