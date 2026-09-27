@@ -2,8 +2,8 @@
 
 功能 ID：`article-79-1-area-exemption`
 
-狀態：**設計已定案、程式未開始。** 本文件是規格；實作分步驟 1～4（§12）。本輪沒有改動任何
-程式碼與規則檔，既有判定一個字都沒變。
+狀態：**步驟 1（判定層）已完成，步驟 2～4 未開始。** 本文件是規格；實作分步驟 1～4（§12）。
+規則檔至今一個字都沒動，既有判定沒有任何變化。
 
 ## 1. 功能摘要
 
@@ -395,6 +395,24 @@
 `The_area_result_is_untouched_by_the_exemption` 與 `The_area_rules_carry_no_article_79_1_exemption`
 是這個功能最重要的兩條守門測試：它們守的是「本功能不改變任何既有判定」。
 
+### 步驟 1 寫完後的對照
+
+已寫（51 條，兩個檔）：上表除了 `A_use_outside_the_list_gets_no_subject`、
+`The_area_result_is_untouched_by_the_exemption`、`No_marking_is_planned_for_an_exemption`、
+`The_table_names_the_zone_not_a_category` 以外全部；其中
+`A_use_outside_the_list_gets_no_subject` 的判定那一半寫成 `A_use_outside_the_list_claims_nothing`
+（清單外的用字回 `不適用`），「不產生主體」那一半與其餘三條都要等步驟 3 的 Check 才有東西可驗。
+`Article_79_1_does_not_reach_the_eleventh_storey` 目前只驗規則引擎那一半。
+
+步驟 1 另外加的（上表沒有、但守著實作時才浮現的決定）：`An_unrecognised_group_is_not_a_gap`
+（決議 13）、`A_missing_group_is_insufficient_data`、`Every_missing_fact_is_named_in_reading_order`
+（（丙）→（甲）→（乙）的訊息順序）、`The_two_vocabularies_share_no_word`（六個用字與五個垂直
+區劃用字不重疊）、`Only_three_words_are_read_together_with_a_group`、`Nothing_here_speaks_of_article_83`、
+`Both_lists_are_still_only_the_vertical_compartments`、
+`An_article_79_1_use_is_still_reviewed_against_the_limit`（六個用字各一次，3000 ㎡ 照樣未符合）、
+`The_area_message_says_nothing_of_the_exemption`（決議 12 的基線：`觀眾席` 與 `辦公` 的面積訊息
+逐字相同）。
+
 ## 11. 決議紀錄
 
 | # | 決議 | 理由 |
@@ -412,15 +430,27 @@
 | 10 | `zone.use` 不在六個用字之列時不產生主體 | 絕大多數區劃都不在，每個掛一筆空結果會淹掉檢討表（§3.2） |
 | 11 | 面板的「適用上限」仍顯示數字 | 上限真的還在適用，顯示「免適用」會誤導（§7.3） |
 | 12 | 不改面積結果的訊息 | 既有斷言會全部漂移，且同一件事兩列各講一次（§7.1） |
+| 13 | `building.use` 填了但**不是**第 3-3 條的類組（例如 `住宿類`）時，讀成「不是這幾組」→`不適用`，不是資料不足 | 步驟 1 實作時才出現的問題。`ZoneAreaLimit` 對第 83 條Ｈ－２組但書就是這樣讀的（`ZoneAreaLimits.cs`：只有 `IsNullOrWhiteSpace` 才算缺口，無法辨識的文字讓 `IsH2` 回 false），同一個字在兩處判法不同會更難解釋。訊息把讀到的原文引回來（`用途類組 住宿類 非 A-1、D-2`），所以不會是無聲的誤判 |
 
 ## 12. 實作進度
 
 | 步驟 | 內容 | 狀態 |
 | --- | --- | --- |
 | 0 | 設計（本文件） | **已完成** |
-| 1 | `ZoneUses` 六個用字與類組對照、`Article79_1Exemption` 純計算與其測試 | 未開始 |
+| 1 | `ZoneUses` 六個用字與類組對照、`Article79_1Exemption` 純計算與其測試 | **已完成** |
 | 2 | 參數層：`防火檢討_無法區劃分隔`、`zone.cannotBeSubdivided` 白名單、`ReviewCheckTypes.AreaExemption`、`ReviewParameterSnapshot` 讀取 | 未開始 |
 | 3 | 檢查層與接線：`Article79_1ExemptionCheck`、`FireReviewRunner`、`ReviewTable` 新列 | 未開始 |
 | 4 | 參數面板：下拉六個新用字、「無法區劃分隔」欄、「適用上限」文字 | 未開始 |
 
-步驟 1 可以完全獨立完成並驗證（純計算＋用字表，不碰規則檔、不碰參數），是下一輪的建議起點。
+### 步驟 1 的實際產出
+
+- `ZoneUses`：六個常數（`Auditorium`、`ProductionLine`、`Classroom`、`Gymnasium`、`RetailMarket`、
+  `CarPark`）、`Article79_1Uses`、`IsArticle79_1Use(text)`、`GroupsFor(use)`（三個不比對類組的用字
+  回空清單，清單外的文字也回空——所以呼叫端要先過 `IsArticle79_1Use`）。
+- `Article79_1Exemption.For(fireResistive, buildingUse, zoneUse, cannotBeSubdivided)`：
+  `Article79_1Clause`／`Article79_1Gap`／`Holds`／`IsUndecided`／`IsInapplicable`／`Description`，
+  以及 `PersonMustConfirm`（（丁）那兩句，公開常數，步驟 3、4 直接引用）。
+- 測試 51 條（`Checks/Article79_1ExemptionTests.cs`、`Rules/Article79_1AreaExemptionTests.cs`），
+  全套 1528 通過。`Article_79_1_does_not_reach_the_eleventh_storey` 目前只驗規則引擎那一半
+  （第 12 層由 `tw-bcr-83-area` 作答）；「不產生主體」那一半要等步驟 3 的 Check。
+- 尚未接線：`Article79_1Exemption` 目前沒有任何呼叫端，判定不會出現在檢討表上。

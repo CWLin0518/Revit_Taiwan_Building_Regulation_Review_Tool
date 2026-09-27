@@ -92,7 +92,8 @@
 （`DataGridTemplateColumn` + `IsEditable="True"` 的 `ComboBox`）：
 
 - 下拉清單只有 §2.1 這五個字樣加一個空白項——清單即「會改變判定的值」。§2.2 的六個字樣**尚未
-  加入下拉**（第 79 條之 1 的程式未開始），加入時兩段要在視覺上分開，理由見
+  加入下拉**（`ZoneUses.Article79_1Uses` 已就位，但第 79 條之 1 的面板是步驟 4），加入時兩段要在
+  視覺上分開，理由見
   [第 79 條之 1 面積免除](article-79-1-area-exemption.md) §7.3。
 - 仍然可以直接打字填任何用途，打進去的字照樣寫回參數。
 - 綁的是 `Text` 不是 `SelectedItem`。綁 `SelectedItem` 的話，使用者自行輸入的用途會被視為
@@ -147,5 +148,7 @@
   [第 79 條之 1 面積免除](article-79-1-area-exemption.md) §9 第 3 項。
 - `zone.use` 的全形／同義詞正規化刻意不做（見 §2.1 最後一點）。`building.use` 的寫法折疊是另一件
   事，已完成，見 [`building.use` 寫法正規化](building-use-groups.md)。
-- §2.2 的六個用字**尚未實作**：`ZoneUses` 裡還沒有 `Article79_1Uses`，面板下拉也還沒有它們。
-  進度見 [第 79 條之 1 面積免除](article-79-1-area-exemption.md) §12。
+- §2.2 的六個用字**只實作到判定層**：`ZoneUses.Article79_1Uses`、`ZoneUses.GroupsFor` 與
+  `Article79_1Exemption` 已完成（步驟 1），但還沒有任何呼叫端——檢討表上還看不到第 79 條之 1，
+  面板下拉也還沒有這六個字。進度見
+  [第 79 條之 1 面積免除](article-79-1-area-exemption.md) §12。
