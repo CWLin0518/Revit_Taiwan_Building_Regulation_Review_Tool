@@ -159,7 +159,7 @@ public static class CurtainWallJunctionResolver
             .ToList();
 
         var measurements = rows.Count == 0
-            ? new List<RunMeasurement> { RunMeasurement.Nothing }
+            ? new List<RunMeasurement> { SolidWallBand(wall, at, host) }
             : rows.Select(row => Measure(
                     Along(wall, row),
                     at,
@@ -195,6 +195,69 @@ public static class CurtainWallJunctionResolver
             measurement.HasUnprotectedOpening,
             measurement.PanelUniqueIds,
             CurtainWallJunctionPlacement.At(wall.PointAt(at), host.BottomElevationMm, host.TopElevationMm));
+    }
+
+    /// <summary>
+    /// The 90 cm band formed not by a rated panel but by a real opaque wall built into the gap the
+    /// curtain wall leaves between its upper and lower portions (docs §4.2「實體牆防火帶」, 決議 7).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Three things must hold before anything is measured, and together they are what stops the
+    /// clause being hollowed out. No panel of the curtain wall reaches the host's elevations; the
+    /// panel column at the junction point closes the gap from below and from above — 下面帷幕牆 and
+    /// 上面帷幕牆; and those two panels sit <b>against the wall's own edges</b>, which is the only way
+    /// the model can say the wall fills the gap rather than floating in it.
+    /// </para>
+    /// <para>
+    /// Drop that last requirement and a storey-high rated compartment wall exempts itself wherever
+    /// the façade happens to be unpanelled, and a 900 mm wall passes while 900 mm of the gap beside
+    /// it stays open. So a wall that only partly fills the gap is not a band at all: it answers
+    /// <see cref="RunMeasurement.Nothing"/> exactly as this junction did before the band existed.
+    /// What is measured is then the gap itself, which the wall has been shown to fill.
+    /// </para>
+    /// <para>
+    /// The tolerance is <see cref="CurtainPanelObservation.TouchToleranceMm"/>, the same one that
+    /// decided the panels did not reach the wall — one number, so the two questions cannot disagree
+    /// and drop a band into the gap between them.
+    /// </para>
+    /// </remarks>
+    private static RunMeasurement SolidWallBand(
+        CurtainWallObservation wall,
+        double at,
+        CompartmentWallObservation host)
+    {
+        var touch = CurtainPanelObservation.TouchToleranceMm;
+        var column = wall.Panels.Where(p => p.CoversAlong(at)).ToList();
+        var below = column
+            .Where(p => p.TopMm <= host.BottomElevationMm + touch)
+            .Select(p => (double?)p.TopMm)
+            .Max();
+        var above = column
+            .Where(p => p.BottomMm >= host.TopElevationMm - touch)
+            .Select(p => (double?)p.BottomMm)
+            .Min();
+
+        // 上下兩段帷幕牆之一不在這個交點上，或牆沒有把間隔填滿，就沒有決議 7 所稱的防火帶——
+        // 照舊不供給長度，與這條路徑存在之前完全相同。
+        if (below is null || above is null ||
+            Math.Abs(below.Value - host.BottomElevationMm) > touch ||
+            Math.Abs(above.Value - host.TopElevationMm) > touch)
+            return RunMeasurement.Nothing;
+
+        var band = above.Value - below.Value;
+        if (band <= touch) return RunMeasurement.Nothing;
+
+        // 填入的牆體讀不出時效，或連要求時效都不知道，就不得推定合格——交由引擎判資料不足。
+        // 時效不可讀時不轉述給 MinRating：那個欄位的訊息是以嵌板措辭的，會把使用者指去查錯的元素。
+        var rating = host.ProvidedFireRating;
+        if (host.RequiredFireRatingMinutes is null || rating is null || rating.Kind != ProvidedFireRatingKind.Rated)
+            return new RunMeasurement(null, null, false, Array.Empty<string>(),
+                Array.Empty<CurtainGridLineObservation>(), 0.0);
+
+        var qualifies = rating.Minutes >= host.RequiredFireRatingMinutes.Value;
+        return new RunMeasurement(qualifies ? band : 0.0, rating, false, Array.Empty<string>(),
+            Array.Empty<CurtainGridLineObservation>(), 0.0);
     }
 
     // --- CW-V：區劃樓地板與帷幕牆之層間交接（docs §4.3）-----------------------------------------

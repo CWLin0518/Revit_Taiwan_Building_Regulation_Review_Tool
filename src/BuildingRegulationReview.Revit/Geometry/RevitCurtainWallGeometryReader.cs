@@ -408,6 +408,12 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
             return null;
         }
 
+        // 型別的設計防火時效：只有這道牆本身就是上下帷幕牆之間那道實體牆防火帶時才用得到（決議 7）。
+        var type = wall.WallType as ElementType;
+        var providedRating = ReviewInputAssembler.Rating(
+            RevitReviewParameterReader.ReadingOf(type?.LookupParameter(FireRatingParameters.Provided)),
+            request.BareNumberUnit);
+
         return new CompartmentWallObservation(
             wall.UniqueId,
             ToMillimeters(line.GetEndPoint(0)),
@@ -416,7 +422,8 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
             PlanUnits.FeetToMillimeters(box.Max.Z),
             request.LegalReferenceOf(wall.UniqueId),
             request.RequiredRatingOf(wall.UniqueId),
-            (wall.WallType as ElementType)?.Name);
+            type?.Name,
+            providedRating);
     }
 
     private CompartmentFloorObservation ReadCompartmentFloor(Element floor, CurtainWallReadRequest request, List<string> warnings)

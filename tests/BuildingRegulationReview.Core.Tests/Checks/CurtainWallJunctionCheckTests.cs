@@ -170,6 +170,24 @@ public sealed class CurtainWallJunctionCheckTests
         Assert.Equal(ReviewStatus.NotApplicable, Single(new[] { Wall(0, 900) }).Status);
     }
 
+    [Theory]
+    // 決議 7：帶由上下帷幕牆之間的實體牆供給，這個交點上一片嵌板也沒有、也沒有嵌板時效可轉述。
+    // 三態要跟嵌板供給的帶完全一樣走同一條規則，Check 層不必為它開特例。
+    [InlineData(900.0, ReviewStatus.NotApplicable)]
+    [InlineData(0.0, ReviewStatus.Fail)]
+    [InlineData(null, ReviewStatus.InsufficientData)]
+    public void A_band_supplied_by_a_solid_wall_answers_on_the_same_three_states(double? bandMm, ReviewStatus expected)
+    {
+        var junction = CurtainWallJunction.WallJunction(
+            "j-band", ZoneA, "cw-1", "wall-band", 0, bandMm,
+            hostRequiredFireRatingMinutes: 60);
+
+        var finding = Single(new[] { junction });
+
+        Assert.Equal(expected, finding.Status);
+        Assert.Equal(0.0, Number(finding.Result.Evidence.Find("junction.panelCount")));
+    }
+
     [Fact]
     public void Case8_a_grid_line_across_the_band_is_manual_review_and_names_it()
     {

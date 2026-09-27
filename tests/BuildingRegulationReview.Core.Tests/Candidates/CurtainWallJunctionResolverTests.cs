@@ -52,6 +52,139 @@ public sealed class CurtainWallJunctionResolverTests
         Assert.Equal(0.0, junction.ProjectionDepthMm!.Value);
     }
 
+    // --- CW-H：上下帷幕牆之間的實體牆防火帶（docs §4.2、決議 7）--------------------------------
+
+    [Fact]
+    public void A_rated_solid_wall_filling_the_gap_between_the_curtain_walls_is_the_cw_h_band()
+    {
+        var junction = Single(Resolve(Set(Wall(GapAt(1200, 2100)), hosts: new[] { Band(5000, 1200, 2100) })),
+            CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Equal(900, junction.ContinuousFireRatedLengthMm!.Value, 3);
+        Assert.Equal(60, junction.MinFireRating!.Minutes!.Value);
+    }
+
+    [Fact]
+    public void A_wall_that_only_partly_fills_the_gap_is_no_band_at_all()
+    {
+        // 間隔 900 mm，填進去的牆只有 700 mm：上面還開著 200 mm，這不是「以實體牆填入的間隔」。
+        // 供給 700 會讓「牆 900、旁邊還開著 900」也過關，所以這一步是守門而不是量測。
+        var junction = Single(Resolve(Set(Wall(GapAt(1200, 2100)), hosts: new[] { Band(5000, 1200, 1900) })),
+            CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Equal(0.0, junction.ContinuousFireRatedLengthMm!.Value);
+    }
+
+    [Fact]
+    public void A_wall_floating_inside_a_tall_gap_is_no_band_either()
+    {
+        // 上下都有嵌板收邊，但牆兩邊都不貼：間隔 5000 mm 裡浮著一道 1000 mm 的牆。
+        var panels = new[]
+        {
+            Panel("P-low", 0, WallLengthMm, 0, bottom: 0, top: 500),
+            Panel("P-high", 0, WallLengthMm, 0, bottom: 5500, top: 6000)
+        };
+        var set = new CurtainWallObservationSet(
+            Package, "LVL", "1F", 0, new[] { Zone() },
+            new[] { Wall(panels, top: 6000) },
+            new[] { Band(5000, 2000, 3000, ProvidedFireRating.Rated(120, "120")) },
+            null, new[] { 0.0, 6000.0 });
+
+        var junction = Single(Resolve(set), CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Equal(0.0, junction.ContinuousFireRatedLengthMm!.Value);
+    }
+
+    [Fact]
+    public void A_gap_the_wall_fills_exactly_is_a_band_however_tall_the_gap_is()
+    {
+        // 帷幕牆通三層，中間那一層整柱沒有嵌板，而區劃牆的高程範圍恰好就是那一層。決議 7 認這一種：
+        // 牆兩緣都貼著上下嵌板，模型能講的就是「這道牆填住了帷幕牆留下的那一段外牆面」，帶高多少
+        // 不改變這個推論的性質——整層具時效的實體外牆比 90 cm 帶更充分，不是更不充分。
+        //
+        // 擋住誤放行的是「貼齊」而不是帶高上限：只填一半、浮在中間、與嵌板重疊的牆都拿不到帶長
+        // （見上面三條）。這一條與那三條合起來才是完整的守門。
+        var panels = new[]
+        {
+            Panel("P-low", 0, WallLengthMm, 0, bottom: 0, top: StoreyMm),
+            Panel("P-high", 0, WallLengthMm, 0, bottom: StoreyMm * 2, top: StoreyMm * 3)
+        };
+        var host = new CompartmentWallObservation(
+            "W-storey", new Point2D(5000, 3000), new Point2D(5000, -50),
+            StoreyMm, StoreyMm * 2, CurtainWallJunctionReferences.Article79, 60, "RC 牆 15cm",
+            ProvidedFireRating.Rated(120, "120"));
+        var set = new CurtainWallObservationSet(
+            Package, "LVL", "1F", 0, new[] { Zone() },
+            new[] { Wall(panels, top: StoreyMm * 3) },
+            new[] { host }, null, new[] { 0.0, StoreyMm, StoreyMm * 2, StoreyMm * 3 });
+
+        var junction = Single(Resolve(set), CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Equal(StoreyMm, junction.ContinuousFireRatedLengthMm!.Value, 3);
+    }
+
+    [Fact]
+    public void A_band_wall_carries_no_curtain_panel_in_the_evidence()
+    {
+        // 帶是牆供給的，這個交點上一片嵌板也沒有。把牆的 UniqueId 塞進 junction.panels 會讓
+        // junction.panelCount 說謊，也會讓 ReviewMarkup 把區劃牆本身塗紅（那是它明文不做的事）。
+        var junction = Single(Resolve(Set(Wall(GapAt(1200, 2100)), hosts: new[] { Band(5000, 1200, 2100) })),
+            CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Empty(junction.PanelUniqueIds);
+        Assert.Equal("W-band", junction.HostUniqueId);
+    }
+
+    [Fact]
+    public void A_solid_gap_wall_without_a_readable_rating_withholds_the_cw_h_band()
+    {
+        var host = Band(5000, 1200, 2100, ProvidedFireRating.Missing("參數值為空白"));
+
+        var junction = Single(Resolve(Set(Wall(GapAt(1200, 2100)), hosts: new[] { host })),
+            CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Null(junction.ContinuousFireRatedLengthMm);
+    }
+
+    [Fact]
+    public void A_solid_gap_wall_below_the_required_rating_carries_no_band()
+    {
+        var host = Band(5000, 1200, 2100, ProvidedFireRating.Rated(30, "30"));
+
+        var junction = Single(Resolve(Set(Wall(GapAt(1200, 2100)), hosts: new[] { host })),
+            CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Equal(0.0, junction.ContinuousFireRatedLengthMm!.Value);
+    }
+
+    [Fact]
+    public void A_rated_wall_at_a_junction_the_curtain_wall_never_panelled_is_not_a_band()
+    {
+        // 這是守門測試：交點上沒有嵌板不等於「上下帷幕牆之間的間隔」。一道具時效的區劃牆若能單憑
+        // 自己有時效就免突出，第79條第3項的但書就形同虛設——沒有上下兩段帷幕牆夾著，照舊算 0。
+        var host = new CompartmentWallObservation(
+            "W-storey", new Point2D(5000, 3000), new Point2D(5000, -50),
+            0, StoreyMm, CurtainWallJunctionReferences.Article79, 60, "RC 牆 15cm",
+            ProvidedFireRating.Rated(120, "120"));
+
+        var junction = Single(Resolve(Set(Wall(Array.Empty<CurtainPanelObservation>()), hosts: new[] { host })),
+            CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Equal(0.0, junction.ContinuousFireRatedLengthMm!.Value);
+    }
+
+    [Fact]
+    public void A_gap_open_at_the_top_is_not_a_band_either()
+    {
+        // 只有下面那一段帷幕牆：間隔沒有被上面的帷幕牆收邊，不是決議 7 講的那個間隔。
+        var panels = new[] { Panel("P-low", 0, WallLengthMm, 0, bottom: 0, top: 1200) };
+
+        var junction = Single(Resolve(Set(Wall(panels), hosts: new[] { Band(5000, 1200, 2100) })),
+            CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Equal(0.0, junction.ContinuousFireRatedLengthMm!.Value);
+    }
+
     [Fact]
     public void A_continuous_run_is_the_whole_panel_around_the_point_not_half_of_it_each_side()
     {
@@ -538,6 +671,27 @@ public sealed class CurtainWallJunctionResolverTests
 
     private static IReadOnlyList<CurtainPanelObservation> Glazing(double top = StoreyMm) =>
         new[] { Panel("P-glass", 0, WallLengthMm, 0, top: top) };
+
+    /// <summary>
+    /// 下面帷幕牆與上面帷幕牆，中間留出 <paramref name="bottomMm"/>–<paramref name="topMm"/> 的間隔：
+    /// 決議 7 的實體牆防火帶就建在這一段裡。兩段都是不具時效的玻璃，帶長只能來自填入的牆。
+    /// </summary>
+    private static IReadOnlyList<CurtainPanelObservation> GapAt(double bottomMm, double topMm) =>
+        new[]
+        {
+            Panel("P-low", 0, WallLengthMm, 0, bottom: 0, top: bottomMm),
+            Panel("P-high", 0, WallLengthMm, 0, bottom: topMm, top: StoreyMm)
+        };
+
+    /// <summary>The real opaque wall built into that gap, reaching the curtain wall from inside.</summary>
+    private static CompartmentWallObservation Band(
+        double atMm,
+        double bottomMm,
+        double topMm,
+        ProvidedFireRating? rating = null) =>
+        new("W-band", new Point2D(atMm, 3000), new Point2D(atMm, -50), bottomMm, topMm,
+            CurtainWallJunctionReferences.Article79, 60, "RC 牆 15cm",
+            rating ?? ProvidedFireRating.Rated(60, "60"));
 
     private static CurtainWallObservation Wall(
         IEnumerable<CurtainPanelObservation> panels,

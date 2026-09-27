@@ -291,7 +291,8 @@ public sealed class CompartmentWallObservation
         double topElevationMm,
         string legalReference = CurtainWallJunctionReferences.Article79,
         double? requiredFireRatingMinutes = null,
-        string? typeName = null)
+        string? typeName = null,
+        ProvidedFireRating? providedFireRating = null)
     {
         if (string.IsNullOrWhiteSpace(uniqueId)) throw new ArgumentException("Compartment wall UniqueId is required.", nameof(uniqueId));
         if (string.IsNullOrWhiteSpace(legalReference)) throw new ArgumentException("Name the clause the compartment comes from.", nameof(legalReference));
@@ -309,6 +310,7 @@ public sealed class CompartmentWallObservation
         LegalReference = legalReference.Trim();
         RequiredFireRatingMinutes = requiredFireRatingMinutes;
         TypeName = string.IsNullOrWhiteSpace(typeName) ? null : typeName!.Trim();
+        ProvidedFireRating = providedFireRating;
     }
 
     public string UniqueId { get; }
@@ -324,6 +326,12 @@ public sealed class CompartmentWallObservation
     public double? RequiredFireRatingMinutes { get; }
 
     public string? TypeName { get; }
+
+    /// <summary>
+    /// 該牆型別的 `防火檢討_設計防火時效`。只有在這道牆本身就是上下帷幕牆之間那道實體牆防火帶時才
+    /// 用得到（docs §4.2「實體牆防火帶」、決議 7）；一般的區劃牆走嵌板路徑，讀的是嵌板的時效。
+    /// </summary>
+    public ProvidedFireRating? ProvidedFireRating { get; }
 
     public override string ToString() => $"{UniqueId}（{LegalReference}）";
 
