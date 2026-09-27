@@ -186,6 +186,27 @@ public sealed class CurtainWallJunctionResolverTests
     }
 
     [Fact]
+    public void Two_separate_curtain_walls_stacked_around_the_band_produce_no_cw_h_junction_at_all()
+    {
+        // 決議 7 只在「同一片帷幕牆、中間那一柱沒有嵌板」時啟動。上下若是兩個獨立的帷幕牆元素，
+        // 那道實體牆的高程範圍與任一片都不重疊，WallJunction 在求交點之前就 return null——CW-H
+        // 交接處根本不存在，不是判 未符合 而是整列消失。這是本工具目前的限制，記在文件 §9。
+        var band = Band(5000, 1200, 2100);
+        var lower = new CurtainWallObservation(
+            "CW-low", new Point2D(0, 0), new Point2D(WallLengthMm, 0), new Point2D(0, -1), OffsetMm, 0, 1200,
+            new[] { Panel("P-low", 0, WallLengthMm, 0, bottom: 0, top: 1200) }, null, null, "帷幕牆 下段");
+        var upper = new CurtainWallObservation(
+            "CW-high", new Point2D(0, 0), new Point2D(WallLengthMm, 0), new Point2D(0, -1), OffsetMm, 2100, StoreyMm,
+            new[] { Panel("P-high", 0, WallLengthMm, 0, bottom: 2100, top: StoreyMm) }, null, null, "帷幕牆 上段");
+
+        var set = new CurtainWallObservationSet(
+            Package, "LVL", "1F", 0, new[] { Zone() }, new[] { lower, upper }, new[] { band }, null,
+            new[] { 0.0, StoreyMm });
+
+        Assert.DoesNotContain(Resolve(set), j => j.Kind == CurtainWallJunctionKind.WallToCurtainWall);
+    }
+
+    [Fact]
     public void A_continuous_run_is_the_whole_panel_around_the_point_not_half_of_it_each_side()
     {
         // 案例 7：交點落在實板右緣，左側 900 mm、右側 0 mm — 採總和，仍然成立。
