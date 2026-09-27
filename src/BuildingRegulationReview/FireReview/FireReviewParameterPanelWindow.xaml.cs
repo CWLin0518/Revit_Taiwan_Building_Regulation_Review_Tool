@@ -203,6 +203,7 @@ namespace BuildingRegulationReview.FireReview
                 if (chooser.FloorNumber != null) zone.FloorNumber = chooser.FloorNumber;
                 if (chooser.SpannedFloors != null) zone.SpannedFloors = chooser.SpannedFloors;
                 if (chooser.LinksRefugeFloor != null) zone.LinksRefugeFloor = chooser.LinksRefugeFloor;
+                if (chooser.CannotBeSubdivided != null) zone.CannotBeSubdivided = chooser.CannotBeSubdivided;
             }
 
             ZoneGrid.Items.Refresh();
@@ -321,6 +322,11 @@ namespace BuildingRegulationReview.FireReview
                                           (string.IsNullOrEmpty(z.SpannedFloors) || string.IsNullOrEmpty(z.LinksRefugeFloor)));
             if (atria > 0) parts.Add($"待填挑空免除事實 {atria} 個區劃");
 
+            // Same reasoning for 第79條之1: only the six uses it names need 無法區劃分隔, so a blank box
+            // anywhere else is not something to chase (第79條之1規格 §6、決議 9).
+            var subdivision = _zones.Count(z => z.IsArticle79_1Use && string.IsNullOrEmpty(z.CannotBeSubdivided));
+            if (subdivision > 0) parts.Add($"待填無法區劃分隔 {subdivision} 個區劃");
+
             StatusText.Text = string.Join("；", parts) + "。";
         }
     }
@@ -375,6 +381,7 @@ namespace BuildingRegulationReview.FireReview
         private readonly TextBox _floorNumber = new TextBox { Margin = new Thickness(0, 4, 0, 12), MinWidth = 220 };
         private readonly TextBox _spannedFloors = new TextBox { Margin = new Thickness(0, 4, 0, 12), MinWidth = 220 };
         private readonly ComboBox _linksRefugeFloor = new ComboBox { Margin = new Thickness(0, 4, 0, 12), MinWidth = 220 };
+        private readonly ComboBox _cannotBeSubdivided = new ComboBox { Margin = new Thickness(0, 4, 0, 12), MinWidth = 220 };
 
         public ZoneFillWindow(int rowCount)
         {
@@ -383,10 +390,14 @@ namespace BuildingRegulationReview.FireReview
             ResizeMode = ResizeMode.NoResize;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
-            // 用途的清單只列第79條之2的五個垂直區劃字樣——它們是會改變判定的值，也正是一次要設給
-            // 好幾個樓梯間、管道間的那種。其餘用途仍可自行輸入，因為這是可編輯的下拉。
+            // 用途的清單只列會改變判定的字樣——它們也正是一次要設給好幾個樓梯間、管道間，或好幾間
+            // 教室的那種。其餘用途仍可自行輸入，因為這是可編輯的下拉。兩段分開的理由與格子裡那一欄
+            // 相同（第79條之1規格 §7.3）：上面五個免掉面積上限，下面六個上限照樣適用。
             _use.Items.Add(Unchanged);
+            _use.Items.Add(Heading(FireReviewZoneRowViewModel.VerticalCompartmentHeading));
             foreach (var use in ZoneUses.VerticalCompartments) _use.Items.Add(use);
+            _use.Items.Add(Heading(FireReviewZoneRowViewModel.Article79_1Heading));
+            foreach (var use in ZoneUses.Article79_1Uses) _use.Items.Add(use);
             _use.SelectedIndex = 0;
 
             _sprinklered.Items.Add(Unchanged);
@@ -399,9 +410,14 @@ namespace BuildingRegulationReview.FireReview
             _linksRefugeFloor.Items.Add(FireReviewEditableRow.NoText);
             _linksRefugeFloor.SelectedIndex = 0;
 
+            _cannotBeSubdivided.Items.Add(Unchanged);
+            _cannotBeSubdivided.Items.Add(FireReviewEditableRow.YesText);
+            _cannotBeSubdivided.Items.Add(FireReviewEditableRow.NoText);
+            _cannotBeSubdivided.SelectedIndex = 0;
+
             var panel = new StackPanel { Margin = new Thickness(20) };
             panel.Children.Add(new TextBlock { Text = $"把選取的 {rowCount} 個區劃設為：", FontWeight = FontWeights.SemiBold });
-            panel.Children.Add(new TextBlock { Text = "區劃用途（清單為第79條之2的垂直區劃，也可自行輸入）", Margin = new Thickness(0, 12, 0, 0) });
+            panel.Children.Add(new TextBlock { Text = "區劃用途（清單為第79條之2、第79條之1 的用字，也可自行輸入）", Margin = new Thickness(0, 12, 0, 0) });
             panel.Children.Add(_use);
             panel.Children.Add(new TextBlock { Text = "自動滅火設備" });
             panel.Children.Add(_sprinklered);
@@ -417,9 +433,35 @@ namespace BuildingRegulationReview.FireReview
             panel.Children.Add(_spannedFloors);
             panel.Children.Add(new TextBlock { Text = "避難層通達其直上層或直下層" });
             panel.Children.Add(_linksRefugeFloor);
+            panel.Children.Add(new TextBlock
+            {
+                Text = "以下一項只有第79條之1 的六個用途需要填",
+                Margin = new Thickness(0, 6, 0, 0),
+                FontWeight = FontWeights.SemiBold
+            });
+            panel.Children.Add(new TextBlock
+            {
+                Text = "無法區劃分隔（第79條之1；面積上限仍適用，只會多一筆待人工確認的判定）",
+                Margin = new Thickness(0, 8, 0, 0),
+                TextWrapping = TextWrapping.Wrap,
+                MaxWidth = 320
+            });
+            panel.Children.Add(_cannotBeSubdivided);
             panel.Children.Add(PanelButtons.Build(this));
             Content = panel;
         }
+
+        /// <summary>
+        /// A dropdown row that names the article the words below it belong to. A disabled
+        /// <see cref="ComboBoxItem"/> is its own container, so it stays unselectable — the words are
+        /// grouped without the heading ever being mistaken for a 區劃用途.
+        /// </summary>
+        private static ComboBoxItem Heading(string text) => new ComboBoxItem
+        {
+            Content = text,
+            IsEnabled = false,
+            FontWeight = FontWeights.SemiBold
+        };
 
         /// <summary>
         /// 區劃用途, or null to leave each zone as it is. There is no 「清除」: a blank box is 不變更,
@@ -437,6 +479,10 @@ namespace BuildingRegulationReview.FireReview
         public string SpannedFloors => string.IsNullOrWhiteSpace(_spannedFloors.Text) ? null : _spannedFloors.Text.Trim();
 
         public string LinksRefugeFloor => _linksRefugeFloor.SelectedIndex <= 0 ? null : (string)_linksRefugeFloor.SelectedItem;
+
+        /// <summary>防火檢討_無法區劃分隔 as the grid spells it, or null to leave each zone as it is.</summary>
+        public string CannotBeSubdivided =>
+            _cannotBeSubdivided.SelectedIndex <= 0 ? null : (string)_cannotBeSubdivided.SelectedItem;
     }
 
     /// <summary>The 確定／取消 pair both little dialogs end with.</summary>

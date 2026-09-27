@@ -65,13 +65,20 @@ public enum ZoneAreaLimitGap
 /// </remarks>
 public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
 {
-    private ZoneAreaLimit(double? squareMeters, string? clause, ZoneAreaLimitGap gaps, bool finishUnrecognised, bool exempt)
+    private ZoneAreaLimit(
+        double? squareMeters,
+        string? clause,
+        ZoneAreaLimitGap gaps,
+        bool finishUnrecognised,
+        bool exempt,
+        bool needsArticle79_1Confirmation = false)
     {
         SquareMeters = squareMeters;
         Clause = clause;
         Gaps = gaps;
         FinishUnrecognised = finishUnrecognised;
         IsExempt = exempt;
+        NeedsArticle79_1Confirmation = needsArticle79_1Confirmation;
     }
 
     /// <summary>The limit in square metres, or null while <see cref="Gaps"/> names something unfilled.</summary>
@@ -94,7 +101,23 @@ public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
     /// </summary>
     public bool IsExempt { get; }
 
+    /// <summary>
+    /// True when 區劃用途 is one of the six uses 第79條之1 names and 第79條第1項 is the article
+    /// deciding. Deliberately <em>not</em> <see cref="IsExempt"/>: the limit still applies, in full,
+    /// with its number (第79條之1規格 決議 11). What 第79條之1 can do is let a person release the 區劃
+    /// by hand after confirming the two facts the tool cannot see, so the panel shows the number and
+    /// says a confirmation is pending rather than claiming 免適用.
+    /// </summary>
+    public bool NeedsArticle79_1Confirmation { get; }
+
     public bool IsKnown => Gaps == ZoneAreaLimitGap.None;
+
+    /// <summary>
+    /// What the 適用上限 cell adds for one of 第79條之1's six uses. 待人工確認, not 免適用 — the two
+    /// facts 第79條之1 turns on （自成一個區劃、防火設備之阻熱性） are not in the model, so nothing here
+    /// releases the 區劃; a person does, by overriding the 區劃面積 result.
+    /// </summary>
+    public const string Article79_1Pending = "（第79條之1 待人工確認）";
 
     /// <summary>
     /// What the limit cell shows: the article and its limit, the exemption, or the boxes still to fill.
@@ -104,11 +127,14 @@ public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
         get
         {
             if (IsExempt) return $"{Clause} 免適用（第79條之2 垂直區劃）";
-            if (Gaps != ZoneAreaLimitGap.None) return "未填" + string.Join("、", Labels(Gaps)) + "，無法判定上限";
+
+            var pending = NeedsArticle79_1Confirmation ? Article79_1Pending : "";
+            if (Gaps != ZoneAreaLimitGap.None)
+                return "未填" + string.Join("、", Labels(Gaps)) + "，無法判定上限" + pending;
 
             var limit = SquareMeters!.Value.ToString("0.##", CultureInfo.InvariantCulture);
             var note = FinishUnrecognised ? "（裝修等級非放寬條件）" : "";
-            return $"{Clause} 上限 {limit} m²{note}";
+            return $"{Clause} 上限 {limit} m²{note}{pending}";
         }
     }
 
@@ -129,9 +155,13 @@ public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
         // the boxes the limit would otherwise wait on.
         if (ZoneUses.IsVerticalCompartment(use)) return new ZoneAreaLimit(null, clause, ZoneAreaLimitGap.None, false, true);
 
-        return floorNumber >= 11
-            ? Article83(sprinklered, interiorFinish, buildingUse)
-            : Article79(sprinklered);
+        if (floorNumber >= 11) return Article83(sprinklered, interiorFinish, buildingUse);
+
+        // 第79條之1 only lets a 區劃 out of 前條第一項, which is 第79條第1項 — from the eleventh storey
+        // up 第83條 decides and the article cannot reach it (第79條之1規格 §2.3). So the note follows
+        // the same storey test the clause above does, and the limit itself is untouched.
+        var limit = Article79(sprinklered);
+        return ZoneUses.IsArticle79_1Use(use) ? limit.AwaitingArticle79_1Confirmation() : limit;
     }
 
     /// <summary>
@@ -154,6 +184,13 @@ public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
         if (zone is null) throw new ArgumentNullException(nameof(zone));
         return ForZone(zone.FloorNumber, zone.Sprinklered, buildingUse, zone.Use);
     }
+
+    /// <summary>
+    /// The same limit, marked as one a person may still release under 第79條之1. Nothing about the
+    /// number or the gaps changes — that is the point of 決議 11.
+    /// </summary>
+    private ZoneAreaLimit AwaitingArticle79_1Confirmation() =>
+        new(SquareMeters, Clause, Gaps, FinishUnrecognised, IsExempt, true);
 
     private static ZoneAreaLimit Article79(bool? sprinklered) =>
         sprinklered is null
@@ -205,7 +242,8 @@ public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
         string.Equals(Clause, other.Clause, StringComparison.Ordinal) &&
         Gaps == other.Gaps &&
         FinishUnrecognised == other.FinishUnrecognised &&
-        IsExempt == other.IsExempt;
+        IsExempt == other.IsExempt &&
+        NeedsArticle79_1Confirmation == other.NeedsArticle79_1Confirmation;
 
     public override bool Equals(object? obj) => obj is ZoneAreaLimit other && Equals(other);
 
@@ -217,7 +255,8 @@ public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
             hash = (hash * 397) ^ (Clause?.GetHashCode() ?? 0);
             hash = (hash * 397) ^ (int)Gaps;
             hash = (hash * 397) ^ (FinishUnrecognised ? 1 : 0);
-            return (hash * 397) ^ (IsExempt ? 1 : 0);
+            hash = (hash * 397) ^ (IsExempt ? 1 : 0);
+            return (hash * 397) ^ (NeedsArticle79_1Confirmation ? 1 : 0);
         }
     }
 

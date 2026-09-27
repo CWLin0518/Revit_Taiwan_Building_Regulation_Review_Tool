@@ -67,6 +67,52 @@ namespace BuildingRegulationReview.FireReview
     }
 
     /// <summary>
+    /// One entry in the 區劃用途 dropdown: either a use the panel offers, or the heading that
+    /// separates the two articles' lists.
+    /// </summary>
+    /// <remarks>
+    /// The list carries two kinds of word and they have different consequences, so a flat list would
+    /// mislead: the 第79條之2 垂直區劃 are exempt from the area limit outright, while 第79條之1's six
+    /// names leave the limit fully in force and only mark the 區劃 as one a person may release by hand
+    /// (第79條之1規格 §7.3、決議 11). A heading is an item like any other, made unselectable rather
+    /// than filtered out, so the sections read in the dropdown itself and not only in the tooltip.
+    /// <para>
+    /// <see cref="ToString"/> is what an editable ComboBox writes into its text box when an item is
+    /// picked, so a heading returns an empty string: if one were ever reached by keyboard it clears
+    /// the box rather than typing its own label in as a 區劃用途.
+    /// </para>
+    /// </remarks>
+    internal sealed class ZoneUseChoice
+    {
+        private ZoneUseChoice(string text, string label, bool isHeading)
+        {
+            Text = text;
+            Label = label;
+            IsHeading = isHeading;
+        }
+
+        /// <summary>The value this entry fills 區劃用途 with; empty for the blank entry and headings.</summary>
+        public string Text { get; }
+
+        /// <summary>What the dropdown row reads.</summary>
+        public string Label { get; }
+
+        public bool IsHeading { get; }
+
+        /// <summary>False for a heading, which the ComboBox therefore refuses to select.</summary>
+        public bool IsSelectable => !IsHeading;
+
+        /// <summary>The entry that clears 區劃用途.</summary>
+        public static ZoneUseChoice Blank { get; } = new ZoneUseChoice("", "（未填）", false);
+
+        public static ZoneUseChoice Of(string use) => new ZoneUseChoice(use, use, false);
+
+        public static ZoneUseChoice Heading(string label) => new ZoneUseChoice("", label, true);
+
+        public override string ToString() => Text;
+    }
+
+    /// <summary>
     /// One 防火區劃 as the panel edits it. These are instance parameters on one Area, so a row
     /// reaches that Area and nothing else — unlike the Type rows, which reach the whole project.
     /// </summary>
@@ -78,6 +124,7 @@ namespace BuildingRegulationReview.FireReview
         private string _buildingUse;
         private string _spannedFloors;
         private string _linksRefugeFloor;
+        private string _cannotBeSubdivided;
 
         public FireReviewZoneRowViewModel(FireReviewZoneRow source, int? derivedFloorNumber = null, string buildingUse = null)
         {
@@ -89,6 +136,7 @@ namespace BuildingRegulationReview.FireReview
             _buildingUse = buildingUse ?? "";
             _spannedFloors = TextOf(source.SpannedFloors);
             _linksRefugeFloor = TextOf(source.LinksRefugeFloor);
+            _cannotBeSubdivided = TextOf(source.CannotBeSubdivided);
         }
 
         public FireReviewZoneRow Source { get; }
@@ -116,8 +164,8 @@ namespace BuildingRegulationReview.FireReview
         public string AreaText => Source.AreaText;
 
         /// <summary>
-        /// 防火檢討_區劃用途. Still free text — the box only offers the 第79條之2 垂直區劃, because
-        /// those are the values that change an answer (see <see cref="ZoneUses"/>).
+        /// 防火檢討_區劃用途. Still free text — the box only offers the words that change an answer:
+        /// the 第79條之2 垂直區劃, and the six 第79條之1 names (see <see cref="ZoneUses"/>).
         /// </summary>
         public string Use
         {
@@ -127,6 +175,8 @@ namespace BuildingRegulationReview.FireReview
                 if (!Set(ref _use, value)) return;
                 Raise(nameof(LimitText));
                 Raise(nameof(IsAtrium));
+                Raise(nameof(IsArticle79_1Use));
+                Raise(nameof(CanEditCannotBeSubdivided));
             }
         }
 
@@ -137,9 +187,39 @@ namespace BuildingRegulationReview.FireReview
         /// </summary>
         public bool IsAtrium => string.Equals(_use, ZoneUses.Atrium, StringComparison.Ordinal);
 
-        /// <summary>What the 區劃用途 box offers; anything else can still be typed in.</summary>
-        public IReadOnlyList<string> UseChoices { get; } =
-            new[] { "" }.Concat(ZoneUses.VerticalCompartments).ToList();
+        /// <summary>
+        /// True while this row's 區劃用途 is one of the six uses 第79條之1 names, the only ones whose
+        /// 無法區劃分隔 box means anything. Follows the box rather than the model, exactly like
+        /// <see cref="IsAtrium"/>, so switching a row to 觀眾席 opens that column before anything is
+        /// written.
+        /// </summary>
+        public bool IsArticle79_1Use => ZoneUses.IsArticle79_1Use(_use);
+
+        /// <summary>The heading above the 第79條之2 uses, which are exempt from the limit outright.</summary>
+        internal const string VerticalCompartmentHeading = "── 第79條之2 垂直區劃（免面積上限） ──";
+
+        /// <summary>
+        /// The heading above 第79條之1's six uses. It says the limit still applies, because that is the
+        /// difference between the two sections and the whole reason they are drawn apart (決議 11).
+        /// </summary>
+        internal const string Article79_1Heading = "── 第79條之1（上限仍適用，須人工確認） ──";
+
+        private static readonly IReadOnlyList<ZoneUseChoice> Choices = BuildUseChoices();
+
+        /// <summary>
+        /// What the 區劃用途 box offers, in two labelled sections; anything else can still be typed in.
+        /// One shared list — every row offers the same words, and the entries hold no row state.
+        /// </summary>
+        public IReadOnlyList<ZoneUseChoice> UseChoices => Choices;
+
+        private static IReadOnlyList<ZoneUseChoice> BuildUseChoices()
+        {
+            var choices = new List<ZoneUseChoice> { ZoneUseChoice.Blank, ZoneUseChoice.Heading(VerticalCompartmentHeading) };
+            choices.AddRange(ZoneUses.VerticalCompartments.Select(ZoneUseChoice.Of));
+            choices.Add(ZoneUseChoice.Heading(Article79_1Heading));
+            choices.AddRange(ZoneUses.Article79_1Uses.Select(ZoneUseChoice.Of));
+            return choices;
+        }
 
         /// <summary>防火檢討_自動滅火設備 — doubles the area limit in both 第79條 and 第83條.</summary>
         public string Sprinklered
@@ -207,6 +287,34 @@ namespace BuildingRegulationReview.FireReview
             set => Set(ref _linksRefugeFloor, value);
         }
 
+        /// <summary>
+        /// 防火檢討_無法區劃分隔 — （丙）of 第79條之1: whether this 區劃 is a part that, by the
+        /// building's construction or its equipment, cannot be subdivided. Only a designer can state
+        /// it, which is why the tool asks rather than derives it (第79條之1規格 §6).
+        /// </summary>
+        /// <remarks>
+        /// Offered as the same 空白／是／否 list the other YESNO columns use, not as a tick box. A tick
+        /// box has two states and this field has three that the review tells apart: 未填 is 資料不足,
+        /// 否 is 不適用 (第79條之1規格 §3.5). With a tick box, clearing an accidental 是 back to 未填
+        /// would be impossible from the panel — unticking writes 否, which is a different answer.
+        /// </remarks>
+        public string CannotBeSubdivided
+        {
+            get => _cannotBeSubdivided;
+            set
+            {
+                if (Set(ref _cannotBeSubdivided, value)) Raise(nameof(CanEditCannotBeSubdivided));
+            }
+        }
+
+        /// <summary>
+        /// Whether the 無法區劃分隔 box takes an edit: only for the six uses 第79條之1 names, because
+        /// the field has no meaning for any other 區劃 and a fillable box would suggest it did
+        /// (第79條之1規格 §7.3). A row that already holds a value stays editable whatever its use, so a
+        /// value left behind by a since-changed 用途 can still be cleared here rather than only in Revit.
+        /// </summary>
+        public bool CanEditCannotBeSubdivided => IsArticle79_1Use || _cannotBeSubdivided.Length > 0;
+
         public string MissingParameters => Source.MissingParameters.Count == 0
             ? ""
             : "缺少參數：" + string.Join("、", Source.MissingParameters);
@@ -244,6 +352,14 @@ namespace BuildingRegulationReview.FireReview
             {
                 yield return FireReviewParameterEdit.OfText(
                     Source.ElementUniqueId, ReviewInputSources.LinksRefugeFloor, YesNoParameterText(YesNoOf(_linksRefugeFloor)));
+            }
+
+            // 第79條之1. Written for whatever the box holds, including on a row whose 用途 is no longer
+            // one of the six: that is how a value left behind by a changed 用途 gets cleared.
+            if (YesNoOf(_cannotBeSubdivided) != Source.CannotBeSubdivided)
+            {
+                yield return FireReviewParameterEdit.OfText(
+                    Source.ElementUniqueId, ReviewInputSources.CannotBeSubdivided, YesNoParameterText(YesNoOf(_cannotBeSubdivided)));
             }
         }
     }

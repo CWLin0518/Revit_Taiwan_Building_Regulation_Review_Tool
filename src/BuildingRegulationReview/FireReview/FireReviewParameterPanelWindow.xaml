@@ -246,12 +246,14 @@
                             <DataGridTextColumn Header="面積配置" Binding="{Binding AreaSchemeName}" IsReadOnly="True" Width="130" />
                             <DataGridTextColumn Header="面積" Binding="{Binding AreaText}" IsReadOnly="True" Width="96" />
 
-                            <!-- 可選的下拉，但仍可自行輸入：清單只列會改變判定的五個垂直區劃字樣，
-                                 其餘用途是自由文字，綁 Text 而非 SelectedItem 才不會被清單清成空值。 -->
+                            <!-- 可選的下拉，但仍可自行輸入：清單只列會改變判定的字樣，其餘用途是自由
+                                 文字，綁 Text 而非 SelectedItem 才不會被清單清成空值。清單分兩段，因為
+                                 兩段的後果不同——第79條之2 那五個字免掉面積上限，第79條之1 那六個字上限
+                                 照樣適用，只是多一筆待人工確認的結果（第79條之1規格 §7.3、決議 11）。 -->
                             <DataGridTemplateColumn Header="區劃用途" Width="140" SortMemberPath="Use">
                                 <DataGridTemplateColumn.CellStyle>
                                     <Style TargetType="DataGridCell">
-                                        <Setter Property="ToolTip" Value="清單上的是第79條之2的垂直區劃（挑空、昇降階梯間、樓梯間、昇降機道、管道間）；填這五個字樣時，第79條與第83條的面積上限都免適用。其餘用途可自行輸入，不影響判定。" />
+                                        <Setter Property="ToolTip" Value="清單分兩段。第79條之2 的垂直區劃（挑空、昇降階梯間、樓梯間、昇降機道、管道間）：填這五個字樣時，第79條與第83條的面積上限都免適用。第79條之1 的六個用途（觀眾席、生產線、教室、體育館、零售市場、停車空間）：面積上限照樣適用，但會多一列待人工確認的免除判定，並開放右側「無法區劃分隔」欄。其餘用途可自行輸入，不影響判定。" />
                                     </Style>
                                 </DataGridTemplateColumn.CellStyle>
                                 <DataGridTemplateColumn.CellTemplate>
@@ -264,7 +266,19 @@
                                     <DataTemplate>
                                         <ComboBox IsEditable="True" IsTextSearchEnabled="False"
                                                   ItemsSource="{Binding UseChoices}"
-                                                  Text="{Binding Use, UpdateSourceTrigger=PropertyChanged}" />
+                                                  Text="{Binding Use, UpdateSourceTrigger=PropertyChanged}">
+                                            <!-- 分段標題是清單裡的一項，但停用，所以點不到也跳不到。 -->
+                                            <ComboBox.ItemContainerStyle>
+                                                <Style TargetType="ComboBoxItem">
+                                                    <Setter Property="IsEnabled" Value="{Binding IsSelectable}" />
+                                                </Style>
+                                            </ComboBox.ItemContainerStyle>
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding Label}" />
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellEditingTemplate>
                             </DataGridTemplateColumn>
@@ -340,6 +354,34 @@
                                     <Style TargetType="ComboBox">
                                         <Setter Property="ItemsSource" Value="{Binding YesNoChoices}" />
                                         <Setter Property="ToolTip" Value="只有挑空需要填。第79條之2第3項第一款：避難層通達其直上層或直下層，且室內牆面與天花板以耐燃一級材料裝修者，得免依第1項單獨區劃。" />
+                                    </Style>
+                                </DataGridComboBoxColumn.ElementStyle>
+                                <DataGridComboBoxColumn.EditingElementStyle>
+                                    <Style TargetType="ComboBox">
+                                        <Setter Property="ItemsSource" Value="{Binding YesNoChoices}" />
+                                    </Style>
+                                </DataGridComboBoxColumn.EditingElementStyle>
+                            </DataGridComboBoxColumn>
+
+                            <!-- 第79條之1 的（丙）。只有那六個用途需要填，其餘停用：這個參數對別的
+                                 區劃沒有意義，能填會讓人以為它有作用（第79條之1規格 §7.3）。已經有值
+                                 的列不停用，否則用途改掉之後那個值只能回 Revit 清。三個選項而不是
+                                 打勾：未填是資料不足、否是不適用，檢討分得出來這兩件事。 -->
+                            <DataGridComboBoxColumn Header="無法區劃分隔" Width="112"
+                                                    SelectedItemBinding="{Binding CannotBeSubdivided, UpdateSourceTrigger=PropertyChanged}">
+                                <DataGridComboBoxColumn.CellStyle>
+                                    <Style TargetType="DataGridCell">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding CanEditCannotBeSubdivided}" Value="False">
+                                                <Setter Property="IsEnabled" Value="False" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </DataGridComboBoxColumn.CellStyle>
+                                <DataGridComboBoxColumn.ElementStyle>
+                                    <Style TargetType="ComboBox">
+                                        <Setter Property="ItemsSource" Value="{Binding YesNoChoices}" />
+                                        <Setter Property="ToolTip" Value="只有第79條之1 的六個用途（觀眾席、生產線、教室、體育館、零售市場、停車空間）需要填。第79條之1：防火構造建築物內，這些部分因建築物構造或設備而無法區劃分隔者，得不受第79條第1項之面積限制，但仍須以一小時以上防火時效之牆壁、防火門窗等防火設備與該處防火構造之樓地板自成一個區劃（第2項並要求該防火設備具一小時以上阻熱性）。工具看不到後面這兩件事，所以填「是」只會產生一筆待人工確認的結果，面積上限照樣適用。留白＝未填（資料不足）。" />
                                     </Style>
                                 </DataGridComboBoxColumn.ElementStyle>
                                 <DataGridComboBoxColumn.EditingElementStyle>

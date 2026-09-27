@@ -32,7 +32,8 @@ public sealed class FireReviewZoneRow
         FireReviewZoneParameters present = FireReviewZoneParameters.None,
         string? levelId = null,
         int? spannedFloors = null,
-        bool? linksRefugeFloor = null)
+        bool? linksRefugeFloor = null,
+        bool? cannotBeSubdivided = null)
     {
         if (string.IsNullOrWhiteSpace(elementUniqueId)) throw new ArgumentException("Element UniqueId is required.", nameof(elementUniqueId));
         if (areaSquareMeters is double a && (double.IsNaN(a) || double.IsInfinity(a) || a < 0))
@@ -50,6 +51,7 @@ public sealed class FireReviewZoneRow
         FloorNumber = floorNumber;
         SpannedFloors = AtriumExemption.StatedSpannedFloors(spannedFloors);
         LinksRefugeFloor = linksRefugeFloor;
+        CannotBeSubdivided = cannotBeSubdivided;
         Present = present;
     }
 
@@ -85,6 +87,13 @@ public sealed class FireReviewZoneRow
     /// <summary>防火檢討_避難層通達 — 第79條之2第3項第一款; null when the parameter holds no value.</summary>
     public bool? LinksRefugeFloor { get; }
 
+    /// <summary>
+    /// 防火檢討_無法區劃分隔 — （丙）of 第79條之1, which only a designer can state; null when the
+    /// parameter holds no value. A Revit YESNO cannot tell 未勾選 from 從未設定, so a bound-but-blank
+    /// box reads as 否 — the strict direction (第79條之1規格 §9).
+    /// </summary>
+    public bool? CannotBeSubdivided { get; }
+
     public FireReviewZoneParameters Present { get; }
 
     public string DisplayName => Number is null ? Name : $"{Number} {Name}";
@@ -97,12 +106,20 @@ public sealed class FireReviewZoneRow
     public bool IsAtrium => string.Equals(Use, ZoneUses.Atrium, StringComparison.Ordinal);
 
     /// <summary>
+    /// True when this Area's 區劃用途 is one of the six 第79條之1 names, the only ones for which
+    /// 無法區劃分隔 means anything.
+    /// </summary>
+    public bool IsArticle79_1Use => ZoneUses.IsArticle79_1Use(Use);
+
+    /// <summary>
     /// Which of the zone parameters this Area does not carry, so an edit cannot land.
     /// </summary>
     /// <remarks>
     /// The 第3項 pair is reported only for a 挑空. They are not required parameters (垂直區劃規格
     /// §6、決議 27) — a project with no 挑空 reviews perfectly well without them — so listing them on
     /// every Area would turn the 提醒 column red across a whole model over something nobody needs.
+    /// 防火檢討_無法區劃分隔 is reported the same way and for the same reason, only for the six uses
+    /// 第79條之1 names (第79條之1規格 §6、決議 9).
     /// </remarks>
     public IReadOnlyList<string> MissingParameters
     {
@@ -112,9 +129,15 @@ public sealed class FireReviewZoneRow
             if ((Present & FireReviewZoneParameters.Use) == 0) missing.Add(ReviewInputSources.ZoneUse);
             if ((Present & FireReviewZoneParameters.Sprinklered) == 0) missing.Add(ReviewInputSources.Sprinklered);
             if ((Present & FireReviewZoneParameters.FloorNumber) == 0) missing.Add(ReviewInputSources.FloorNumber);
-            if (!IsAtrium) return missing;
-            if ((Present & FireReviewZoneParameters.SpannedFloors) == 0) missing.Add(ReviewInputSources.SpannedFloors);
-            if ((Present & FireReviewZoneParameters.LinksRefugeFloor) == 0) missing.Add(ReviewInputSources.LinksRefugeFloor);
+            if (IsAtrium)
+            {
+                if ((Present & FireReviewZoneParameters.SpannedFloors) == 0) missing.Add(ReviewInputSources.SpannedFloors);
+                if ((Present & FireReviewZoneParameters.LinksRefugeFloor) == 0) missing.Add(ReviewInputSources.LinksRefugeFloor);
+            }
+
+            if (IsArticle79_1Use && (Present & FireReviewZoneParameters.CannotBeSubdivided) == 0)
+                missing.Add(ReviewInputSources.CannotBeSubdivided);
+
             return missing;
         }
     }
@@ -136,7 +159,12 @@ public enum FireReviewZoneParameters
     SpannedFloors = 8,
 
     /// <summary>防火檢討_避難層通達 (第79條之2第3項第一款); only a 挑空 needs it.</summary>
-    LinksRefugeFloor = 16
+    LinksRefugeFloor = 16,
+
+    /// <summary>
+    /// 防火檢討_無法區劃分隔 (第79條之1); only the six uses that article names need it.
+    /// </summary>
+    CannotBeSubdivided = 32
 }
 
 /// <summary>

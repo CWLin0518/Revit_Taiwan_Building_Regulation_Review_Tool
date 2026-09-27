@@ -214,14 +214,135 @@ public sealed class ZoneAreaLimitTests
         Assert.False(InteriorFinishGrades.IsKnown(null));
     }
 
+    // --- 第79條之1：上限照舊，但等一個人確認 -----------------------------------------------------
+
+    /// <summary>
+    /// 決議 11. The six uses 第79條之1 names are not exempt from anything the panel can see: the limit
+    /// is the same number, with the same article, and only a note is added.
+    /// </summary>
+    [Theory]
+    [InlineData(ZoneUses.Auditorium, false, 1500)]
+    [InlineData(ZoneUses.Auditorium, true, 3000)]
+    [InlineData(ZoneUses.ProductionLine, false, 1500)]
+    [InlineData(ZoneUses.Classroom, false, 1500)]
+    [InlineData(ZoneUses.Gymnasium, false, 1500)]
+    [InlineData(ZoneUses.RetailMarket, false, 1500)]
+    [InlineData(ZoneUses.CarPark, true, 3000)]
+    public void An_article_79_1_use_keeps_the_article_79_limit(string use, bool sprinklered, double limit)
+    {
+        var shown = ZoneAreaLimit.For(9, sprinklered, interiorFinish: null, buildingUse: null, use);
+
+        Assert.Equal(limit, shown.SquareMeters);
+        Assert.Equal("第79條", shown.Clause);
+        Assert.True(shown.IsKnown);
+        Assert.False(shown.IsExempt);
+        Assert.True(shown.NeedsArticle79_1Confirmation);
+    }
+
+    /// <summary>
+    /// The cell must not read 免適用 — that is the misreading 決議 11 exists to prevent. It shows the
+    /// number and says a person still has to confirm the rest.
+    /// </summary>
+    [Fact]
+    public void The_limit_cell_shows_the_number_and_says_the_confirmation_is_pending()
+    {
+        var shown = ZoneAreaLimit.For(9, false, null, null, ZoneUses.Auditorium);
+
+        Assert.Equal("第79條 上限 1500 m²" + ZoneAreaLimit.Article79_1Pending, shown.Description);
+        Assert.Contains("1500", shown.Description, StringComparison.Ordinal);
+        Assert.DoesNotContain("免適用", shown.Description, StringComparison.Ordinal);
+    }
+
+    /// <summary>A 垂直區劃 reads exactly as it did: the two exemptions do not bleed into each other.</summary>
+    [Fact]
+    public void A_vertical_compartment_still_reads_as_exempt_and_asks_for_no_confirmation()
+    {
+        var shown = ZoneAreaLimit.For(9, false, null, null, ZoneUses.Atrium);
+
+        Assert.True(shown.IsExempt);
+        Assert.False(shown.NeedsArticle79_1Confirmation);
+        Assert.Equal("第79條 免適用（第79條之2 垂直區劃）", shown.Description);
+    }
+
+    /// <summary>
+    /// §2.3: 第79條之1 only lets a 區劃 out of 前條第一項, and from the eleventh storey up 第83條 is the
+    /// one deciding. So the note stops at the same storey the article does.
+    /// </summary>
+    [Fact]
+    public void From_the_eleventh_storey_up_no_article_79_1_confirmation_is_pending()
+    {
+        var shown = ZoneAreaLimit.For(12, false, InteriorFinishGrades.None, "A-1", ZoneUses.Auditorium);
+
+        Assert.Equal("第83條", shown.Clause);
+        Assert.Equal(100, shown.SquareMeters);
+        Assert.False(shown.NeedsArticle79_1Confirmation);
+        Assert.DoesNotContain("第79條之1", shown.Description, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("辦公")]
+    [InlineData("觀眾廳")]
+    [InlineData("停車場")]
+    [InlineData(null)]
+    public void A_use_outside_the_article_asks_for_no_confirmation(string? use)
+    {
+        Assert.False(ZoneAreaLimit.For(9, false, null, null, use).NeedsArticle79_1Confirmation);
+    }
+
+    /// <summary>
+    /// The note rides along while a box is still blank, so a 觀眾席 whose 滅火設備 is unfilled still
+    /// shows the 第79條之1 question rather than hiding it until the limit resolves.
+    /// </summary>
+    [Fact]
+    public void An_article_79_1_zone_still_names_the_box_it_waits_on()
+    {
+        var shown = ZoneAreaLimit.For(9, null, null, null, ZoneUses.Auditorium);
+
+        Assert.Equal(ZoneAreaLimitGap.Sprinklered, shown.Gaps);
+        Assert.Equal("未填滅火設備，無法判定上限" + ZoneAreaLimit.Article79_1Pending, shown.Description);
+    }
+
+    /// <summary>
+    /// The panel builds its cell from <see cref="ZoneAreaLimit.ForZone"/>, so the note has to survive
+    /// that door too — and stop at the eleventh storey there as well.
+    /// </summary>
+    [Fact]
+    public void The_panel_path_carries_the_note_below_the_eleventh_storey_only()
+    {
+        Assert.True(ZoneAreaLimit.ForZone(9, false, null, ZoneUses.Auditorium).NeedsArticle79_1Confirmation);
+        Assert.False(ZoneAreaLimit.ForZone(12, false, null, ZoneUses.Auditorium).NeedsArticle79_1Confirmation);
+    }
+
+    /// <summary>
+    /// 限制條件: 第79條之1 must not move the number. The rules stay the authority here as everywhere
+    /// else in this file — evaluated for a 觀眾席, they still require 一、五○○平方公尺.
+    /// </summary>
+    [Theory]
+    [InlineData(ZoneUses.Auditorium)]
+    [InlineData(ZoneUses.CarPark)]
+    public void The_note_does_not_move_the_number_the_rules_require(string use)
+    {
+        var shown = ZoneAreaLimit.For(9, false, null, null, use);
+        var required = Outcome(Facts(9, false, null, null, zoneUse: use)).RequiredValue;
+
+        Assert.True(shown.NeedsArticle79_1Confirmation);
+        Assert.Equal(ReviewValue.Quantity(shown.SquareMeters!.Value, ReviewUnit.SquareMeter), required);
+        Assert.Equal(1500, shown.SquareMeters);
+    }
+
     private static RuleFacts Facts(
-        int floorNumber, bool? sprinklered, string? finish, string? buildingUse, double areaSquareMeters = 10)
+        int floorNumber,
+        bool? sprinklered,
+        string? finish,
+        string? buildingUse,
+        double areaSquareMeters = 10,
+        string zoneUse = "辦公")
     {
         var facts = new RuleFacts(RuleFieldCatalog.Default)
             .Set("building.fireResistiveConstruction", true)
             .Set("building.floorsAboveGround", 20, ReviewUnit.None)
             .Set("zone.id", "zone-1")
-            .Set("zone.use", "辦公")
+            .Set("zone.use", zoneUse)
             .Set("zone.floorNumber", floorNumber, ReviewUnit.None)
             .Set("zone.area", areaSquareMeters, ReviewUnit.SquareMeter);
 

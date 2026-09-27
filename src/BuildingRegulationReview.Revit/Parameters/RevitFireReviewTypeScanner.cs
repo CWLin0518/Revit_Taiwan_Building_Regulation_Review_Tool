@@ -258,6 +258,7 @@ public sealed class RevitFireReviewTypeScanner
             if (Find(area, ReviewInputSources.FloorNumber) is not null) present |= FireReviewZoneParameters.FloorNumber;
             if (Find(area, ReviewInputSources.SpannedFloors) is not null) present |= FireReviewZoneParameters.SpannedFloors;
             if (Find(area, ReviewInputSources.LinksRefugeFloor) is not null) present |= FireReviewZoneParameters.LinksRefugeFloor;
+            if (Find(area, ReviewInputSources.CannotBeSubdivided) is not null) present |= FireReviewZoneParameters.CannotBeSubdivided;
 
             yield return new FireReviewZoneRow(
                 area.UniqueId,
@@ -276,7 +277,10 @@ public sealed class RevitFireReviewTypeScanner
                 // 第79條之2第3項 (垂直區劃規格 §6). Only a 挑空 fills these; on every other Area they
                 // simply sit at their Revit default, which the row reads as 未填.
                 spannedFloors: Integer(area, ReviewInputSources.SpannedFloors),
-                linksRefugeFloor: YesNo(area, ReviewInputSources.LinksRefugeFloor));
+                linksRefugeFloor: YesNo(area, ReviewInputSources.LinksRefugeFloor),
+                // 第79條之1 (第79條之1規格 §6). Not a required parameter either, so an Area that does
+                // not carry it reads as 未填 and the panel says so only for the six uses that need it.
+                cannotBeSubdivided: YesNo(area, ReviewInputSources.CannotBeSubdivided));
         }
     }
 

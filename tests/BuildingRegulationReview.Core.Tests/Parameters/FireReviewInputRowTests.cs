@@ -25,10 +25,12 @@ public sealed class FireReviewInputRowTests
             FireReviewZoneParameters.Use | FireReviewZoneParameters.Sprinklered |
             FireReviewZoneParameters.FloorNumber,
         int? spannedFloors = null,
-        bool? linksRefugeFloor = null) =>
+        bool? linksRefugeFloor = null,
+        bool? cannotBeSubdivided = null) =>
         new(uid, name, number: "1", levelName: "FL9", areaSchemeName: "防火區劃",
             areaSquareMeters: areaM2, use: use, sprinklered: sprinklered, floorNumber: floorNumber, present: present,
-            spannedFloors: spannedFloors, linksRefugeFloor: linksRefugeFloor);
+            spannedFloors: spannedFloors, linksRefugeFloor: linksRefugeFloor,
+            cannotBeSubdivided: cannotBeSubdivided);
 
     [Fact]
     public void A_zone_row_reports_the_area_revit_measured_and_offers_no_way_to_change_it()
@@ -114,6 +116,55 @@ public sealed class FireReviewInputRowTests
 
         // A 樓梯間 is a 垂直區劃 too, but 第3項 is written for 挑空 alone.
         Assert.Empty(Zone(use: ZoneUses.Stairwell, present: everything).MissingParameters);
+    }
+
+    [Fact]
+    public void A_zone_row_keeps_the_subdivision_declaration_as_a_tri_state()
+    {
+        Assert.Null(Zone(cannotBeSubdivided: null).CannotBeSubdivided);
+        Assert.False(Zone(cannotBeSubdivided: false).CannotBeSubdivided);
+        Assert.True(Zone(cannotBeSubdivided: true).CannotBeSubdivided);
+    }
+
+    /// <summary>
+    /// 第79條之1 決議 9: 防火檢討_無法區劃分隔 is not a required parameter either, so it is reported
+    /// missing on the six uses that article names and on nothing else — same shape, same reason as
+    /// the 第3項 pair above.
+    /// </summary>
+    [Theory]
+    [InlineData(ZoneUses.Auditorium)]
+    [InlineData(ZoneUses.ProductionLine)]
+    [InlineData(ZoneUses.Classroom)]
+    [InlineData(ZoneUses.Gymnasium)]
+    [InlineData(ZoneUses.RetailMarket)]
+    [InlineData(ZoneUses.CarPark)]
+    public void The_subdivision_parameter_is_only_missed_on_an_article_79_1_use(string use)
+    {
+        var everything = FireReviewZoneParameters.Use | FireReviewZoneParameters.Sprinklered |
+                         FireReviewZoneParameters.FloorNumber;
+
+        var zone = Zone(use: use, present: everything);
+        Assert.True(zone.IsArticle79_1Use);
+        Assert.Equal(new[] { ReviewInputSources.CannotBeSubdivided }, zone.MissingParameters);
+
+        Assert.Empty(Zone(use: use, present: everything | FireReviewZoneParameters.CannotBeSubdivided)
+            .MissingParameters);
+    }
+
+    [Theory]
+    [InlineData("辦公")]
+    [InlineData("觀眾廳")]
+    [InlineData(ZoneUses.Atrium)]
+    [InlineData(null)]
+    public void A_use_outside_the_article_is_never_asked_for_a_subdivision_declaration(string? use)
+    {
+        var everything = FireReviewZoneParameters.Use | FireReviewZoneParameters.Sprinklered |
+                         FireReviewZoneParameters.FloorNumber |
+                         FireReviewZoneParameters.SpannedFloors | FireReviewZoneParameters.LinksRefugeFloor;
+
+        var zone = Zone(use: use, present: everything);
+        Assert.False(zone.IsArticle79_1Use);
+        Assert.DoesNotContain(ReviewInputSources.CannotBeSubdivided, zone.MissingParameters);
     }
 
     [Fact]

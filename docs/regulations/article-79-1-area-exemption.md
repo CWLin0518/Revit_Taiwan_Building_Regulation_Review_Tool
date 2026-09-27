@@ -2,7 +2,7 @@
 
 功能 ID：`article-79-1-area-exemption`
 
-狀態：**步驟 1（判定層）、2（參數層）、3（檢查層與接線）已完成，步驟 4（參數面板）未開始。**
+狀態：**步驟 1～4 全部完成。**
 本文件是規格；實作分步驟 1～4（§12）。規則檔至今一個字都沒動，既有判定沒有任何變化。
 
 ## 1. 功能摘要
@@ -326,8 +326,9 @@
 清單裡會讓人以為填了就免了。同一列的「適用上限」欄在選到六個新用字之一時顯示
 `第79條 1500 ㎡（第79條之1 待人工確認）`，**仍然顯示數字**——因為上限真的還在適用。
 
-新增一欄「無法區劃分隔」（`CheckBox`），只在「區劃用途」是六個新用字之一時可編輯，其餘情況
-停用並留空：這個參數對其他用途沒有意義，能填會讓人以為它有作用。
+新增一欄「無法區劃分隔」，只在「區劃用途」是六個新用字之一時可編輯，其餘情況停用並留空：這個
+參數對其他用途沒有意義，能填會讓人以為它有作用。（實作時改成三選一下拉而不是 `CheckBox`，
+見決議 15；已有值的列不停用，見決議 17。）
 
 ## 8. 程式組成
 
@@ -342,7 +343,10 @@
 | `FireReviewRunner` | 接上新 Check、法源條文 | `Application/Reviews/FireReviewRunner.cs`（擴充） | 3 |
 | `ReviewTable` | 新檢討類型的列 | `Application/Reviews/ReviewTable.cs`（擴充） | 3 |
 | `FireReviewWindow` | `GroupingOf` 對映、`EntryText` 的主體文字（§5.1 最後一段） | `FireReview/FireReviewWindow.cs`（擴充） | 3 |
-| 面板 | 下拉新用字、新 `CheckBox` 欄、「適用上限」文字 | `FireReview/FireReviewInputViewModels.cs`、`FireReviewParameterPanelWindow.xaml` | 4 |
+| 面板 | 下拉分兩段（`ZoneUseChoice`）、新「無法區劃分隔」欄、「適用上限」文字 | `FireReview/FireReviewInputViewModels.cs`、`FireReviewParameterPanelWindow.xaml`(`.cs`) | 4 |
+| `FireReviewZoneRow` | 面板這一側讀寫 `防火檢討_無法區劃分隔`、`IsArticle79_1Use`、`MissingParameters` | `Application/Parameters/FireReviewInputRows.cs`（擴充） | 4 |
+| `ZoneAreaLimit` | `NeedsArticle79_1Confirmation` 與「待人工確認」字樣（**不是** `IsExempt`，決議 11） | `Application/Parameters/ZoneAreaLimits.cs`（擴充） | 4 |
+| `RevitFireReviewTypeScanner` | 從 Area 讀 `防火檢討_無法區劃分隔` 給面板 | `Revit/Parameters/RevitFireReviewTypeScanner.cs`（擴充） | 4 |
 
 判定（`Article79_1Exemption`）與產生結果（`Article79_1ExemptionCheck`）分開，與
 `AtriumExemption`／`VerticalCompartmentCheck` 同一個切法：判定可以單獨測、也可以在面板上顯示
@@ -437,6 +441,9 @@
 | 12 | 不改面積結果的訊息 | 既有斷言會全部漂移，且同一件事兩列各講一次（§7.1） |
 | 13 | `building.use` 填了但**不是**第 3-3 條的類組（例如 `住宿類`）時，讀成「不是這幾組」→`不適用`，不是資料不足 | 步驟 1 實作時才出現的問題。`ZoneAreaLimit` 對第 83 條Ｈ－２組但書就是這樣讀的（`ZoneAreaLimits.cs`：只有 `IsNullOrWhiteSpace` 才算缺口，無法辨識的文字讓 `IsH2` 回 false），同一個字在兩處判法不同會更難解釋。訊息把讀到的原文引回來（`用途類組 住宿類 非 A-1、D-2`），所以不會是無聲的誤判 |
 | 14 | 樓層序**未填**時，先算免除：免除可能成立就回`資料不足`（訊息點名缺樓層序），免除已確定不成立就回`不適用`、不問樓層序 | 步驟 3 實作時才出現的問題（§12「步驟 3 的判定補充」）。§3.5 只寫了第 12 層不產生主體，沒寫未填。不產生主體會把專案裡最大的區劃藏起來，正是本功能要讓人看見的那一個；而免除不成立時，不論第 79 條第 1 項或第 83 條適用，答案都是`不適用`——這就是 §3.5「已確定不成立的要素讓其他缺口不必再問」用在高一層 |
+| 15 | 面板的「無法區劃分隔」用**空白／是／否 三選一下拉**，不是 `CheckBox` | 步驟 4 實作時才出現的問題。§7.3 寫的是 `CheckBox`，但打勾框只有兩態，而檢討分得出三態：未填是`資料不足`、否是`不適用`（§3.5）。用打勾框的話，誤填的「是」在面板上退不回「未填」——取消勾選寫的是 0，那是另一個答案。同一張表的「自動滅火設備」「避難層通達」也都是這個三選一，形狀一致 |
+| 16 | 「適用上限」的字串沿用既有格式，寫成 `第79條 上限 1500 m²（第79條之1 待人工確認）` | §7.3 舉的例子是 `第79條 1500 ㎡（…）`，但 `ZoneAreaLimit.Description` 既有的格式是「上限 N m²」，既有測試也照這個字串斷言。要點是決議 11 的「仍顯示數字、不寫免適用」，那一點完全照辦 |
+| 17 | 用途已不在六個字之列、但格子裡還有值的那一列，「無法區劃分隔」欄**不停用** | §7.3 只說「其餘情況停用」，沒說已有值的怎麼辦。全面停用會讓一個因為用途改掉而留下的舊值只能回 Revit 清。條件因此是「是六個用字**或**格子非空」 |
 
 ## 12. 實作進度
 
@@ -446,7 +453,7 @@
 | 1 | `ZoneUses` 六個用字與類組對照、`Article79_1Exemption` 純計算與其測試 | **已完成** |
 | 2 | 參數層：`防火檢討_無法區劃分隔`、`zone.cannotBeSubdivided` 白名單、`ReviewCheckTypes.AreaExemption`、`ReviewParameterSnapshot` 讀取 | **已完成** |
 | 3 | 檢查層與接線：`Article79_1ExemptionCheck`、`FireReviewRunner`、`ReviewTable` 新列 | **已完成** |
-| 4 | 參數面板：下拉六個新用字、「無法區劃分隔」欄、「適用上限」文字 | 未開始 |
+| 4 | 參數面板：下拉六個新用字、「無法區劃分隔」欄、「適用上限」文字 | **已完成** |
 
 ### 步驟 1 的實際產出
 
@@ -566,3 +573,73 @@
   `FireReviewIntegrationTests` 的 `Stages.Count` 6→7、兩處進度序列。
 - 全套 **1565 通過、0 失敗**（步驟 2 的基線 1542）。兩個專案 0 警告。
 - **未實機驗證**：本功能在 Revit 裡的表現（檢討表新列、`防火檢討_無法區劃分隔` 的實際讀取）。
+
+### 步驟 4 的實際產出
+
+面板三件事全部完成，並補上一條步驟 2 沒接的線：`防火檢討_無法區劃分隔` 原本只有**檢討**那一側
+會讀（`ReviewParameterSnapshot`），面板這一側的 `FireReviewZoneRow` 根本沒有這個欄位，所以參數
+面板既讀不到也寫不回。步驟 4 把它接起來。
+
+**參數層補線**（`FireReviewZoneRow`、`FireReviewZoneParameters`、`RevitFireReviewTypeScanner`）：
+
+- `FireReviewZoneRow` 新增 `cannotBeSubdivided` 建構參數與 `CannotBeSubdivided` 屬性（三態），
+  以及 `IsArticle79_1Use`（照 `IsAtrium` 的形狀）。
+- `FireReviewZoneParameters.CannotBeSubdivided = 32`；`MissingParameters` 只在六個用字時報它缺
+  （與第 3 項那兩欄同樣的理由，決議 9）。原本的 `if (!IsAtrium) return missing;` 改成兩個獨立的
+  區塊，既有行為不變（`IsAtrium` 與 `IsArticle79_1Use` 互斥）。
+- `RevitFireReviewTypeScanner` 讀 present 旗標與值。
+
+**（1）下拉分兩段**（`FireReviewInputViewModels.cs`、`FireReviewParameterPanelWindow.xaml`）：
+
+- 新型別 `ZoneUseChoice`（`Text`／`Label`／`IsHeading`／`IsSelectable`），`UseChoices` 因此從
+  `IReadOnlyList<string>` 變成 `IReadOnlyList<ZoneUseChoice>`，內容是
+  「（未填）／標題／五個垂直區劃／標題／六個第79條之1用字」，靜態共用一份。
+- 標題是清單裡的一項，靠 `ItemContainerStyle` 的 `IsEnabled="{Binding IsSelectable}"` 停用，
+  所以點不到、鍵盤也跳不到；`ToString()` 回 `Text`（標題是空字串），萬一真被選到也只是清空格子，
+  不會把標題文字當成用途填進去。
+- 兩段標題：`── 第79條之2 垂直區劃（免面積上限） ──`、
+  `── 第79條之1（上限仍適用，須人工確認） ──`。措辭刻意把差別講在標題上。
+- `ZoneFillWindow`（批次填入）同步加六個用字與同樣兩段標題，標題用 `IsEnabled = false` 的
+  `ComboBoxItem`（`ComboBoxItem` 本身就是容器，所以停用有效）。
+
+**（2）「無法區劃分隔」欄**：
+
+- `FireReviewZoneRowViewModel` 新增 `CannotBeSubdivided`（字串三態，沿用 `YesNoChoices`）、
+  `IsArticle79_1Use`、`CanEditCannotBeSubdivided`；`Use` 的 setter 多 `Raise` 後兩者。
+- `Edits()` 新增一段，走 `ReviewInputSources.CannotBeSubdivided` ＋ `YesNoParameterText`
+  （寫 1／0／空字串）。寫回路徑本來就通——面板的寫入是逐欄列舉，不是泛型迴圈，所以這一段必須自己加。
+- XAML 是 `DataGridComboBoxColumn`，`CellStyle` 的 `DataTrigger` 在
+  `CanEditCannotBeSubdivided == False` 時 `IsEnabled="False"`。ToolTip 寫上條文重點與「填是也只是
+  待人工確認、上限照樣適用」。
+- `ZoneFillWindow` 也加了這一欄，並在狀態列加上「待填無法區劃分隔 N 個區劃」（只數六個用字的列，
+  與挑空那一條同樣的理由）。
+
+**（3）「適用上限」文字**（`ZoneAreaLimits.cs`）：
+
+- 新增 `NeedsArticle79_1Confirmation` 旗標與公開常數 `Article79_1Pending`
+  （`（第79條之1 待人工確認）`）。**不是** `IsExempt`——那會顯示「免適用」，正是決議 11 要避免的。
+- 只在 `floorNumber < 11` 時掛上（§2.3：第 83 條作答時第 79 條之 1 碰不到），上限數字、`Gaps`、
+  `Clause` 一律不動。缺格子時字串是 `未填滅火設備，無法判定上限（第79條之1 待人工確認）`——
+  註記照掛，因為那一列的第 79 條之 1 問題不會因為別的格子沒填就消失。
+- `Equals`／`GetHashCode` 一併加上新欄位。
+
+### 步驟 4 寫完後的測試對照
+
+- `tests/.../Parameters/ZoneAreaLimitTests.cs` 新增 8 條（六用字×上限、
+  `The_limit_cell_shows_the_number_and_says_the_confirmation_is_pending`、
+  `A_vertical_compartment_still_reads_as_exempt_and_asks_for_no_confirmation`、
+  `From_the_eleventh_storey_up_no_article_79_1_confirmation_is_pending`、
+  `A_use_outside_the_article_asks_for_no_confirmation`、
+  `An_article_79_1_zone_still_names_the_box_it_waits_on`、
+  `The_panel_path_carries_the_note_below_the_eleventh_storey_only`、
+  `The_note_does_not_move_the_number_the_rules_require`）。最後一條是拿規則引擎的
+  `RequiredValue` 對面板顯示的數字，與這個檔案既有的交叉比對同一個做法——守著「第 79 條之 1
+  不得移動面積上限」。`Facts()` 多了一個 `zoneUse` 選用參數，預設仍是 `辦公`，既有斷言不受影響。
+- `tests/.../Parameters/FireReviewInputRowTests.cs` 新增 3 條（三態、六個用字才報缺、
+  其餘用字不報缺）。
+- 全套 **1594 通過、0 失敗**（步驟 3 的基線 1565，新增 29）。既有斷言一條都沒改。
+- 兩個專案 0 警告：`BuildingRegulationReview.Application`、`BuildingRegulationReview`（WPF）。
+- 兩段清單的守門在 `Article79_1ExemptionTests`（六個用字與五個垂直區劃互不相屬），已存在。
+  面板本身是 WPF／net48，不在測試專案的參照範圍內，所以 `ZoneUseChoice` 與新欄位的行為沒有
+  單元測試，只有編譯保證。
+- **未實機驗證**：下拉的兩段標題、新欄位的停用與寫回、「適用上限」的新字串，都還沒在 Revit 裡跑過。
