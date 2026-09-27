@@ -266,8 +266,13 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
             var element = _document.GetElement(id);
             if (element is null) continue;
 
+            // 貼在讀取範圍邊界上的嵌板要留下來，因為它就是收邊的那一片。外擴量是 MinFireRatedRunMm
+            // （900 mm），與防火帶的高度同一個數：一道貼齊樓層底面的 900 mm 帶，其下方收邊嵌板的頂端
+            // 必然正好落在 storey.Bottom 上。沒有公差的話這是一個浮點數等值比較，帶看不看得見取決於
+            // 進位——決議 7 的實體牆防火帶因此在最常見的建法上讀不到下段帷幕牆（docs §9）。
             var box = element.get_BoundingBox(null);
-            if (box is not null && (box.Max.Z <= storey.Bottom || box.Min.Z >= storey.Top)) continue;
+            if (box is not null &&
+                (box.Max.Z <= storey.Bottom - SnapFeet || box.Min.Z >= storey.Top + SnapFeet)) continue;
 
             // 豎框不判定：a mullion carries no rating of its own, so it is never read (docs §4.1).
             if (element.Category?.BuiltInCategory == BuiltInCategory.OST_CurtainWallMullions) continue;
