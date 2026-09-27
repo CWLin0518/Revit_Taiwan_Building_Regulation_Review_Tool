@@ -1019,7 +1019,12 @@ public sealed class FireReviewIntegrationTests
         Assert.True(run.Baseline.IsRecorded);
         Assert.All(new[] { ReviewCheckTypes.CompartmentArea, ReviewCheckTypes.FireResistance, ReviewCheckTypes.OpeningProtection },
             type => Assert.Contains(run.Results, r => r.CheckType == type));
-        var empty = new[] { ReviewCheckTypes.CompartmentContinuity, ReviewCheckTypes.VerticalCompartment };
+        // 區劃面積免除 joins them: this storey's 區劃用途 are 辦公 and none at all, and 第79條之1 reaches
+        // neither, so that row is 未檢討 too (第79條之1文件 §3.2、決議 10).
+        var empty = new[]
+        {
+            ReviewCheckTypes.AreaExemption, ReviewCheckTypes.CompartmentContinuity, ReviewCheckTypes.VerticalCompartment
+        };
         Assert.All(outcome.Table!.Sections.Where(s => !empty.Contains(s.CheckType)),
             s => Assert.NotEqual(ReviewStatus.NotRun, s.Status));
         Assert.Empty(outcome.Table.OtherEntries);
@@ -1041,11 +1046,12 @@ public sealed class FireReviewIntegrationTests
 
         Assert.Equal(new[]
             {
-                FireReviewStep.CompartmentArea, FireReviewStep.FireResistance, FireReviewStep.OpeningProtection,
-                FireReviewStep.CurtainWallJunction, FireReviewStep.VerticalCompartment, FireReviewStep.Evidence
+                FireReviewStep.CompartmentArea, FireReviewStep.AreaExemption, FireReviewStep.FireResistance,
+                FireReviewStep.OpeningProtection, FireReviewStep.CurtainWallJunction,
+                FireReviewStep.VerticalCompartment, FireReviewStep.Evidence
             },
             progress.Reports.Select(p => p.Step));
-        Assert.Equal("垂直區劃（5/6）", progress.Reports[4].Message);
+        Assert.Equal("垂直區劃（6/7）", progress.Reports[5].Message);
         Assert.Contains(outcome.Log.Entries, e => e.Code == ReviewErrorCode.ReviewCompleted && e.UserMessage.StartsWith("檢討完成"));
     }
 
@@ -1158,8 +1164,10 @@ public sealed class FireReviewIntegrationTests
         Assert.Equal(FireReviewOutcomeKind.Cancelled, outcome.Kind);
         Assert.Null(outcome.Run);
         Assert.Same(request.Package, outcome.Package);
-        Assert.Equal(new[] { FireReviewStep.CompartmentArea, FireReviewStep.FireResistance }, progress.Reports.Select(p => p.Step));
-        Assert.Equal(2, outcome.Performance.Stages.Count);
+        Assert.Equal(
+            new[] { FireReviewStep.CompartmentArea, FireReviewStep.AreaExemption, FireReviewStep.FireResistance },
+            progress.Reports.Select(p => p.Step));
+        Assert.Equal(3, outcome.Performance.Stages.Count);
     }
 
     [Fact]
@@ -1692,6 +1700,134 @@ public sealed class FireReviewIntegrationTests
 
         Assert.True(Readiness(parameters: parameters).CanRun);
     }
+    // --- 第79條之1 的結果（第79條之1文件 §7.1、§12 步驟 3）---------------------------------------
+
+    /// <summary>The fixture with A 區 declared an 觀眾席 that cannot be subdivided, in an Ａ－１組 building.</summary>
+    private static Parameters AuditoriumParameters(int? cannotBeSubdivided = 1, string? buildingUse = "A-1")
+    {
+        var parameters = new Parameters();
+        if (buildingUse is not null) parameters.Project[ReviewInputSources.BuildingUse] = ParameterReading.OfText(buildingUse);
+        parameters.Elements["area-a"][ReviewInputSources.ZoneUse] = ParameterReading.OfText(ZoneUses.Auditorium);
+        if (cannotBeSubdivided is int declared)
+            parameters.Elements["area-a"][ReviewInputSources.CannotBeSubdivided] = ParameterReading.OfYesNo(declared);
+        return parameters;
+    }
+
+    /// <summary>
+    /// 第79條之1 wired end to end: 防火檢討_區劃用途＝觀眾席 with 防火檢討_無法區劃分隔＝是 in an Ａ－１組
+    /// building gives A 區 a second row of its own — 人工覆核, naming what （丁） leaves to a person — on
+    /// the same Areas the 區劃面積 row carries. B 區 has no 區劃用途 at all, so the article reaches it not
+    /// at all and it gets no row (決議 10).
+    /// </summary>
+    [Fact]
+    public void An_auditorium_that_cannot_be_subdivided_is_one_manual_review_beside_the_area_row()
+    {
+        var outcome = Run(Request(parameters: AuditoriumParameters()));
+
+        Assert.True(outcome.IsCompleted, outcome.Message);
+        var entry = Assert.Single(outcome.Table!.Section(ReviewCheckTypes.AreaExemption).Entries);
+
+        Assert.Equal(ReviewStatus.ManualReview, entry.EffectiveStatus);
+        Assert.Equal(new[] { "area-a" }, entry.LocateUniqueIds);
+        Assert.Equal(Article79_1ExemptionCheck.LegalReference, entry.LegalReference);
+        Assert.DoesNotContain("第83條", entry.LegalReference, StringComparison.Ordinal);
+        Assert.Contains("符合第一款", entry.Message, StringComparison.Ordinal);
+        Assert.Contains(Article79_1Exemption.PersonMustConfirm, entry.Message, StringComparison.Ordinal);
+
+        // A 區劃 is no candidate category, so the row names the 區劃 and shows no Type (§5.1).
+        Assert.Equal("區劃", entry.CategoryLabel);
+        Assert.Equal("A 區", entry.ZoneName);
+        Assert.Null(entry.TypeKey);
+        Assert.Equal(new[] { "A 區" },
+            outcome.Table.Section(ReviewCheckTypes.AreaExemption).GroupsBy(ReviewTableGrouping.Zone).Select(g => g.Label));
+
+        // The same Areas as the 區劃面積 row, so both rows expand onto the same place in the plan.
+        var area = ResultOf(outcome.Run!, ReviewCheckTypes.CompartmentArea, "area-a", ZoneA);
+        Assert.Equal(area.SubjectUniqueIds, entry.Result.SubjectUniqueIds);
+    }
+
+    /// <summary>
+    /// 決議 12, end to end: the 區劃面積 row of the very same run reads word for word as it does when
+    /// A 區 is an 辦公 區劃. 第79條之1 adds a row; releasing the area is 人工覆寫 and nothing else (§3.7).
+    /// </summary>
+    [Fact]
+    public void The_area_row_reads_the_same_whether_or_not_the_exemption_holds()
+    {
+        var withExemption = ResultOf(Run(Request(parameters: AuditoriumParameters())).Run!,
+            ReviewCheckTypes.CompartmentArea, "area-a", ZoneA);
+        var plain = ResultOf(Run(Request(), prefix: 2).Run!, ReviewCheckTypes.CompartmentArea, "area-a", ZoneA);
+
+        Assert.Equal(plain.Status, withExemption.Status);
+        Assert.Equal(plain.Message, withExemption.Message);
+        Assert.Equal(plain.RuleId, withExemption.RuleId);
+        Assert.Equal(plain.RuleVersion, withExemption.RuleVersion);
+        Assert.Equal(plain.LegalReference, withExemption.LegalReference);
+        Assert.Equal(plain.ActualValue, withExemption.ActualValue);
+        Assert.Equal(plain.RequiredValue, withExemption.RequiredValue);
+        Assert.DoesNotContain("第79條之1", withExemption.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The declaration is read from 防火檢討_無法區劃分隔 and from nowhere else: unbound or unticked, the
+    /// exemption does not hold, and 未勾選 reads as 否 — 不適用, the strict direction (§9 第4項).
+    /// </summary>
+    [Fact]
+    public void The_declaration_decides_the_exemption_and_a_missing_one_is_insufficient_data()
+    {
+        var unfilled = Assert.Single(Run(Request(parameters: AuditoriumParameters(cannotBeSubdivided: null)))
+            .Table!.Section(ReviewCheckTypes.AreaExemption).Entries);
+        Assert.Equal(ReviewStatus.InsufficientData, unfilled.EffectiveStatus);
+        Assert.Contains("無法區劃分隔", unfilled.Message, StringComparison.Ordinal);
+
+        var unticked = Assert.Single(Run(Request(parameters: AuditoriumParameters(cannotBeSubdivided: 0)), prefix: 2)
+            .Table!.Section(ReviewCheckTypes.AreaExemption).Entries);
+        Assert.Equal(ReviewStatus.NotApplicable, unticked.EffectiveStatus);
+        Assert.Contains("第79條第1項照常適用", unticked.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// 決議 9: 防火檢討_無法區劃分隔 is not a required binding. No rule reads it — 第79條之1 does not go
+    /// through the engine — so a project with no 觀眾席 must be able to start a review without it.
+    /// </summary>
+    [Fact]
+    public void The_declaration_has_a_source_but_never_holds_a_review_up()
+    {
+        var source = ReviewInputSources.For("zone.cannotBeSubdivided")!;
+        Assert.NotNull(source);
+        Assert.Equal(ReviewParameterLevel.Instance, source.Level);
+        Assert.Equal(new[] { ReviewParameterHost.Areas }, source.Hosts);
+        Assert.DoesNotContain("zone.cannotBeSubdivided", ReviewInputSources.NeededBy(Rules()).Select(s => s.Field));
+
+        var parameters = AuditoriumParameters();
+        parameters.Bindings.RemoveAll(b => b.Key == ReviewInputSources.CannotBeSubdivided);
+
+        Assert.True(Readiness(parameters: parameters).CanRun);
+    }
+
+    /// <summary>
+    /// 第79條之1 has no 未符合 (§3.5), so it never paints anything and never issues a drawing number
+    /// (§7.2). The 區劃 may well be painted red — by the 區劃面積 row, which is where that belongs.
+    /// </summary>
+    [Fact]
+    public void The_exemption_is_never_marked_in_the_review_view()
+    {
+        foreach (var declared in new int?[] { 1, 0, null })
+        {
+            var request = Request(parameters: AuditoriumParameters(cannotBeSubdivided: declared));
+            var outcome = Run(request);
+            var entry = Assert.Single(outcome.Table!.Section(ReviewCheckTypes.AreaExemption).Entries);
+
+            Assert.NotEqual(ReviewStatus.Fail, entry.EffectiveStatus);
+            Assert.NotEqual(ReviewStatus.Pass, entry.EffectiveStatus);
+
+            var plan = ReviewMarkupPlan.Build(outcome.Table!, request.Candidates.Zones);
+            Assert.True(plan.IsSuccess, plan.IsSuccess ? string.Empty : plan.Error.ToString());
+            Assert.DoesNotContain(plan.Value.Regions, r => r.ResultId == entry.ResultId);
+            Assert.DoesNotContain(plan.Value.Overrides, o => o.ResultIds.Contains(entry.ResultId));
+            Assert.False(plan.Value.Numbers.ContainsKey(entry.ResultId));
+        }
+    }
+
     // --- a stored run judged again (spec 13.1, 16.3 情境 8) -------------------------------------
 
     private static ReviewBaseline CurrentBaseline(
@@ -1824,7 +1960,7 @@ public sealed class FireReviewIntegrationTests
         var set = Set();
         Assert.Equal(set.Members.Count + set.Openings.Count + set.UnrelatedMemberCount + set.UnrelatedOpeningCount, outcome.Performance.CandidateCount);
         Assert.Equal(TimeSpan.FromSeconds(1), outcome.Performance.Prescan);
-        Assert.Equal(6, outcome.Performance.Stages.Count);
+        Assert.Equal(7, outcome.Performance.Stages.Count);
     }
 
     // --- domain ---------------------------------------------------------------------------------

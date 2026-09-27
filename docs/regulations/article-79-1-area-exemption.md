@@ -2,8 +2,8 @@
 
 功能 ID：`article-79-1-area-exemption`
 
-狀態：**步驟 1（判定層）已完成，步驟 2～4 未開始。** 本文件是規格；實作分步驟 1～4（§12）。
-規則檔至今一個字都沒動，既有判定沒有任何變化。
+狀態：**步驟 1（判定層）、2（參數層）、3（檢查層與接線）已完成，步驟 4（參數面板）未開始。**
+本文件是規格；實作分步驟 1～4（§12）。規則檔至今一個字都沒動，既有判定沒有任何變化。
 
 ## 1. 功能摘要
 
@@ -259,10 +259,15 @@
 `VerticalCompartment` 搬出來，會落在同一個檢討類型下。**本輪不搬**——挑空免除已經在
 `VerticalCompartment` 下運作、有守門測試，搬家是獨立的一次變更。
 
-**還有一處要一起改，否則檢討表那一列會顯示成空的類別名稱。** `FireReviewWindow.EntryText` 的
-主體文字只有 `ReviewCheckTypes.CompartmentArea` 走「顯示 `ZoneName ?? ZoneId`」那一支，其餘全部
-走「`{CategoryLabel}「{TypeName}」 {UniqueId 前幾碼}＠{ZoneName}`」。本功能的主體是區劃、沒有
-`CategoryLabel` 也沒有 `TypeName`，所以那個條件要改成同時認 `AreaExemption`。
+**還有兩處要一起改，否則檢討表那一列會顯示成空的類別名稱。** 都是「主體是區劃還是元素」的分支，
+本功能的主體是區劃、沒有 `CategoryLabel` 也沒有 `TypeName`，兩處都要同時認 `AreaExemption`：
+
+- `ReviewTable.ToEntry` 的 `isArea`（`ReviewTable.cs`）：目前是「`CheckType == CompartmentArea`
+  **或** `shaftRequirement == AtriumExemption`」。這一處決定 `CategoryLabel` 是不是「區劃」、
+  `TypeKey`／`TypeName` 是不是 `null`。（步驟 3 實作時才發現，原本本節只寫了下面那一處。）
+- `FireReviewWindow.EntryText`：主體文字只有 `ReviewCheckTypes.CompartmentArea` 走
+  「顯示 `ZoneName ?? ZoneId`」那一支，其餘全部走
+  「`{CategoryLabel}「{TypeName}」 {UniqueId 前幾碼}＠{ZoneName}`」。
 
 ### 5.2 新增白名單欄位
 
@@ -431,6 +436,7 @@
 | 11 | 面板的「適用上限」仍顯示數字 | 上限真的還在適用，顯示「免適用」會誤導（§7.3） |
 | 12 | 不改面積結果的訊息 | 既有斷言會全部漂移，且同一件事兩列各講一次（§7.1） |
 | 13 | `building.use` 填了但**不是**第 3-3 條的類組（例如 `住宿類`）時，讀成「不是這幾組」→`不適用`，不是資料不足 | 步驟 1 實作時才出現的問題。`ZoneAreaLimit` 對第 83 條Ｈ－２組但書就是這樣讀的（`ZoneAreaLimits.cs`：只有 `IsNullOrWhiteSpace` 才算缺口，無法辨識的文字讓 `IsH2` 回 false），同一個字在兩處判法不同會更難解釋。訊息把讀到的原文引回來（`用途類組 住宿類 非 A-1、D-2`），所以不會是無聲的誤判 |
+| 14 | 樓層序**未填**時，先算免除：免除可能成立就回`資料不足`（訊息點名缺樓層序），免除已確定不成立就回`不適用`、不問樓層序 | 步驟 3 實作時才出現的問題（§12「步驟 3 的判定補充」）。§3.5 只寫了第 12 層不產生主體，沒寫未填。不產生主體會把專案裡最大的區劃藏起來，正是本功能要讓人看見的那一個；而免除不成立時，不論第 79 條第 1 項或第 83 條適用，答案都是`不適用`——這就是 §3.5「已確定不成立的要素讓其他缺口不必再問」用在高一層 |
 
 ## 12. 實作進度
 
@@ -439,7 +445,7 @@
 | 0 | 設計（本文件） | **已完成** |
 | 1 | `ZoneUses` 六個用字與類組對照、`Article79_1Exemption` 純計算與其測試 | **已完成** |
 | 2 | 參數層：`防火檢討_無法區劃分隔`、`zone.cannotBeSubdivided` 白名單、`ReviewCheckTypes.AreaExemption`、`ReviewParameterSnapshot` 讀取 | **已完成** |
-| 3 | 檢查層與接線：`Article79_1ExemptionCheck`、`FireReviewRunner`、`ReviewTable` 新列 | 未開始 |
+| 3 | 檢查層與接線：`Article79_1ExemptionCheck`、`FireReviewRunner`、`ReviewTable` 新列 | **已完成** |
 | 4 | 參數面板：下拉六個新用字、「無法區劃分隔」欄、「適用上限」文字 | 未開始 |
 
 ### 步驟 1 的實際產出
@@ -492,3 +498,71 @@
   簽出時還原出來的——換一台 `core.autocrlf=false` 的機器或在非 Windows 上簽出就會拿到 LF。
   `-text` 讓 git 逐位元組存放，§6 的「不得改變換行」從此由 repo 宣告，而不是靠設定值的巧合。
   這一輪因此把該檔重新正規化過一次（diff 上是 27 刪 28 增，內容只多了一行）。
+
+### 步驟 3 的實際產出
+
+**第 79 條之 1 從這一輪開始出現在檢討表上。** 檢討表多了一列「區劃面積免除（第79條之1）」，排在
+「防火區劃面積」之後，分組 `ReviewTableGrouping.Zone`；檢討流程多了一段
+`FireReviewStep.AreaExemption`（進度 2/7，緊接在區劃面積之後，因為它讀的是同一批區劃輸入）。
+
+- **新檔** `src/BuildingRegulationReview.Application/Checks/Article79_1ExemptionCheck.cs`：
+  `Article79_1ExemptionCheck.Review(set, inputs, ruleSet, runId, newResultId)`、
+  `Article79_1ExemptionReview`、`Article79_1ExemptionFinding`（`Exemption` 在區劃範圍有問題時是
+  `null`——那種區劃一個事實都沒讀）、公開常數 `LegalReference`。
+  **取 `CompiledRuleSet` 而不是 `RuleEngine`**：本檢討不評估任何規則，只需要 `RuleSetId`／
+  `Version` 填進結果（與挑空免除同形），拿引擎會讓簽章說謊。
+  輸入型別直接用 `CompartmentAreaInputs`——四個事實全部在區劃面積那一批輸入裡，不必新型別。
+- `FireReviewRunner`：`FireReviewStep.AreaExemption`（列在 `CompartmentArea` 之後）、`Label`、
+  `total` 6→7、結果併入 `run.Results`、警告與 finding 進日誌。
+  **`HostLegalReferences` 不必改**（§8 的表把它列成步驟 3 的工作是設計時的預估）：它是從
+  `CompartmentAreaReview.Findings` 的法源條文挑出第 83 條的區劃，只看面積那一批結果，本功能的
+  結果不在裡面。這也是為什麼 §3.2「法源條文不得出現第83條」不只是文件上的潔癖——那個字串真的
+  被別的功能拿去判斷。
+- `ReviewTable` 共三處：`CheckTypes`（六列）、`Title`、`GroupsFor`（與 `CompartmentArea` 共用
+  同一個 `case`）。
+- `ReviewTable.ToEntry` 的 `isArea`：加認 `AreaExemption`。**這一處 §5.1 原本沒寫**（只點名
+  `FireReviewWindow.EntryText`），漏掉會讓那一列的主體被當成元素，去找不存在的
+  `CategoryLabel`／`TypeName`。
+- `FireReviewWindow`：`GroupingOf` 加 `AreaExemption => Zone`、`EntryText` 的主體文字加認
+  `AreaExemption`。
+
+### 步驟 3 的判定補充：樓層序未填（決議 14）
+
+§3.5 的表只列了「第 12 層的觀眾席 → 不產生主體」，沒有說樓層序**未填**時怎麼辦。實作時必須決定，
+決議見 §11 決議 14：先算免除，再看樓層序——
+
+| 情形 | 結果 |
+| --- | --- |
+| 樓層序 ≥ 11 | **不產生主體**（§2.3，第 83 條作答） |
+| 樓層序未填、且免除可能成立（`Holds` 或 `IsUndecided`） | `資料不足`，訊息點名缺樓層序並說明十一層以上由第 83 條作答 |
+| 樓層序未填、但免除已確定不成立（`IsInapplicable`） | `不適用`，不問樓層序 |
+| 樓層序 ≤ 10 | 照 §3.5 的三態 |
+
+### 步驟 3 寫完後的測試對照
+
+§10 表上原本缺的四條全部補上，`Article_79_1_does_not_reach_the_eleventh_storey` 的「不產生主體」
+那一半也補上（同名測試現在有兩個：`Rules/Article79_1AreaExemptionTests` 驗規則引擎那一半，
+`Checks/Article79_1ExemptionCheckTests` 驗檢查層那一半）。
+
+- **新檔** `tests/.../Checks/Article79_1ExemptionCheckTests.cs`（12 個 `[Fact]`／`[Theory]`）：
+  `A_use_outside_the_list_gets_no_subject`（`辦公`、`觀眾廳`、`看台`、`停車場`、空字串、未填）、
+  `Article_79_1_does_not_reach_the_eleventh_storey`（11／12／30 層，三種宣告填法都不產生主體）、
+  `A_missing_storey_leaves_the_exemption_undecided_unless_it_already_failed`（決議 14）、
+  `A_holding_exemption_is_manual_review_and_names_what_a_person_must_confirm`、
+  `A_declaration_of_no_is_inapplicable_and_a_missing_one_is_insufficient_data`、
+  `The_exemption_never_passes_and_never_fails`（六用字×七類組×三宣告×三構造＝378 組）、
+  `A_zone_whose_extent_is_in_doubt_is_manual_review_and_nothing_is_judged`、
+  `The_result_keeps_every_fact_it_read_and_where_it_came_from`、
+  `The_area_result_is_untouched_by_the_exemption`、`No_marking_is_planned_for_an_exemption`、
+  `The_table_names_the_zone_not_a_category`。
+- `tests/.../Reviews/FireReviewIntegrationTests.cs` 新增五條端到端（參數→輸入→判定→檢討表→標示）：
+  `An_auditorium_that_cannot_be_subdivided_is_one_manual_review_beside_the_area_row`、
+  `The_area_row_reads_the_same_whether_or_not_the_exemption_holds`、
+  `The_declaration_decides_the_exemption_and_a_missing_one_is_insufficient_data`、
+  `The_declaration_has_a_source_but_never_holds_a_review_up`（決議 9 的端到端守門）、
+  `The_exemption_is_never_marked_in_the_review_view`。
+  這五條是第一次真的讓 `防火檢討_無法區劃分隔` 從參數讀到結果。
+- 既有測試改了四處斷言（都是列數／段數，不是判定）：`ReviewTableTests` 的列標題與空列清單、
+  `FireReviewIntegrationTests` 的 `Stages.Count` 6→7、兩處進度序列。
+- 全套 **1565 通過、0 失敗**（步驟 2 的基線 1542）。兩個專案 0 警告。
+- **未實機驗證**：本功能在 Revit 裡的表現（檢討表新列、`防火檢討_無法區劃分隔` 的實際讀取）。

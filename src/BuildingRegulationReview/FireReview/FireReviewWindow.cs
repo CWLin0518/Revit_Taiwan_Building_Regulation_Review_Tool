@@ -380,6 +380,7 @@ namespace BuildingRegulationReview.FireReview
         private static ReviewTableGrouping GroupingOf(string checkType) => checkType switch
         {
             ReviewCheckTypes.CompartmentArea => ReviewTableGrouping.Zone,
+            ReviewCheckTypes.AreaExemption => ReviewTableGrouping.Zone,
             ReviewCheckTypes.FireResistance => ReviewTableGrouping.Type,
             ReviewCheckTypes.CompartmentContinuity => ReviewTableGrouping.JunctionKind,
             ReviewCheckTypes.VerticalCompartment => ReviewTableGrouping.ShaftRequirement,
@@ -388,7 +389,10 @@ namespace BuildingRegulationReview.FireReview
 
         private string EntryText(ReviewTableEntry entry)
         {
-            var subject = entry.CheckType == ReviewCheckTypes.CompartmentArea
+            // 第79條之1 is a 區劃 too, so it reads as the 區劃's name rather than as an empty 類別
+            // （第79條之1文件 §5.1）.
+            var subject = entry.CheckType == ReviewCheckTypes.CompartmentArea ||
+                          entry.CheckType == ReviewCheckTypes.AreaExemption
                 ? entry.ZoneName ?? entry.ZoneId
                 : $"{entry.CategoryLabel}{(entry.TypeName == null ? string.Empty : "「" + entry.TypeName + "」")} {Shorten(entry.LocateUniqueIds.FirstOrDefault())}" +
                   (entry.ZoneName == null ? string.Empty : "＠" + entry.ZoneName);

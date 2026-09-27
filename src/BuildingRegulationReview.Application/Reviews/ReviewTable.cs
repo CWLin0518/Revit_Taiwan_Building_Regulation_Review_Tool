@@ -371,10 +371,16 @@ public sealed class ReviewTable
     /// reads 未檢討, which is what a package with no curtain wall — or one whose storey holds no
     /// 昇降機道 or 管道間 — actually is.
     /// </summary>
+    /// <remarks>
+    /// 區劃面積免除 follows 防火區劃面積 because it is the exception to that row and nothing else: the
+    /// two carry the same <c>SubjectUniqueIds</c>, so expanding either points at the same batch of
+    /// Areas (第79條之1文件 §7.1).
+    /// </remarks>
     public static readonly IReadOnlyList<string> CheckTypes = new ReadOnlyCollection<string>(new[]
     {
-        ReviewCheckTypes.CompartmentArea, ReviewCheckTypes.FireResistance, ReviewCheckTypes.OpeningProtection,
-        ReviewCheckTypes.CompartmentContinuity, ReviewCheckTypes.VerticalCompartment
+        ReviewCheckTypes.CompartmentArea, ReviewCheckTypes.AreaExemption, ReviewCheckTypes.FireResistance,
+        ReviewCheckTypes.OpeningProtection, ReviewCheckTypes.CompartmentContinuity,
+        ReviewCheckTypes.VerticalCompartment
     });
 
     internal const string CurtainWallKind = "幕牆";
@@ -452,6 +458,7 @@ public sealed class ReviewTable
     public static string Title(string checkType) => checkType switch
     {
         ReviewCheckTypes.CompartmentArea => "防火區劃面積",
+        ReviewCheckTypes.AreaExemption => "區劃面積免除（第79條之1）",
         ReviewCheckTypes.FireResistance => "構件防火時效",
         ReviewCheckTypes.OpeningProtection => "防火門窗",
         ReviewCheckTypes.CompartmentContinuity => "帷幕牆區劃交接",
@@ -463,7 +470,10 @@ public sealed class ReviewTable
     {
         switch (checkType)
         {
+            // 第79條之1 is counted per 區劃 like the area row it excepts — one 區劃, one result, so the
+            // two rows' statistics line up (第79條之1文件 §5.1).
             case ReviewCheckTypes.CompartmentArea:
+            case ReviewCheckTypes.AreaExemption:
                 return Group(ReviewTableGrouping.Zone, entries, e => e.ZoneId ?? Unclassified, e => e.ZoneName ?? e.ZoneId ?? Unclassified);
 
             case ReviewCheckTypes.FireResistance:
@@ -532,9 +542,11 @@ public sealed class ReviewTable
         var junctionKind = JunctionKindOf(evidence);
         var shaftRequirement = ShaftRequirementOf(evidence);
 
-        // Whose subject is a 區劃 rather than an element: every 區劃面積 result, and 第79條之2第3項,
-        // whose subject is the 挑空 itself and so has no category and no Type to show (垂直區劃 §3.6).
+        // Whose subject is a 區劃 rather than an element: every 區劃面積 result, every 第79條之1 one, and
+        // 第79條之2第3項, whose subject is the 挑空 itself. None of them has a category or a Type to show
+        // (垂直區劃 §3.6、第79條之1文件 §5.1).
         var isArea = string.Equals(result.CheckType, ReviewCheckTypes.CompartmentArea, StringComparison.Ordinal) ||
+                     string.Equals(result.CheckType, ReviewCheckTypes.AreaExemption, StringComparison.Ordinal) ||
                      shaftRequirement == VerticalCompartmentRequirement.AtriumExemption;
 
         var typeUniqueId = TextOf(evidence, "source.typeUniqueId");

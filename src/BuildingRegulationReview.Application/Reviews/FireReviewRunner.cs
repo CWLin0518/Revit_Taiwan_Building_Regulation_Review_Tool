@@ -85,6 +85,13 @@ public sealed class FireReviewRequest
 public enum FireReviewStep
 {
     CompartmentArea,
+
+    /// <summary>
+    /// 第79條之1 之免除, run straight after the area it is the exception to
+    /// (docs/regulations/article-79-1-area-exemption.md §7.1).
+    /// </summary>
+    AreaExemption,
+
     FireResistance,
     OpeningProtection,
     CurtainWallJunction,
@@ -225,8 +232,9 @@ public sealed class ReviewPerformance
 }
 
 /// <summary>
-/// P3-T09: runs 區劃面積, 構件防火時效, 防火門窗, 帷幕牆區劃交接 and 垂直區劃 as one review (spec 11,
-/// 帷幕牆規格 §8, 垂直區劃規格 §12 步驟 5), on data the adapter has already read — except the curtain walls, which can only be measured
+/// P3-T09: runs 區劃面積, 區劃面積免除（第79條之1）, 構件防火時效, 防火門窗, 帷幕牆區劃交接 and 垂直區劃
+/// as one review (spec 11, 帷幕牆規格 §8, 垂直區劃規格 §12 步驟 5, 第79條之1文件 §12 步驟 3), on data the
+/// adapter has already read — except the curtain walls, which can only be measured
 /// once the required ratings are known and are therefore read in the step itself
 /// (<see cref="FireReviewRequest.CurtainWallReader"/>). Between checks is a safe point: a cancellation there returns without a run, so
 /// nothing is stored and the model is not touched. A completed run carries its evidence baseline
@@ -263,7 +271,7 @@ public static class FireReviewRunner
         var run = new ReviewRun(runId, request.Package.PackageId, ruleSet.RuleSetId, ruleSet.Version,
             request.Package.BoundaryRevision, started);
         var engine = new RuleEngine(request.RuleSet);
-        const int total = 6;
+        const int total = 7;
 
         if (cancellation.IsCancellationRequested) return Cancelled(request, log, Performance());
 
@@ -274,37 +282,47 @@ public static class FireReviewRunner
         progress?.Report(new FireReviewProgress(FireReviewStep.CompartmentArea, 1, total));
         if (cancellation.IsCancellationRequested) return Cancelled(request, log, Performance());
 
+        // 第79條之1 reads the same 區劃 inputs the area check just read, and says nothing about the
+        // area result — it is the exception to that row, reported beside it (第79條之1文件 §3.5、決議 12).
+        watch.Restart();
+        var exemption = Article79_1ExemptionCheck.Review(set, request.Inputs.Area, request.RuleSet, runId, newId);
+        stages.Add(Stage(FireReviewStep.AreaExemption, watch));
+        if (exemption.IsFailure) return Failed(request, log, Performance(), exemption.Error, FireReviewStep.AreaExemption);
+        progress?.Report(new FireReviewProgress(FireReviewStep.AreaExemption, 2, total));
+        if (cancellation.IsCancellationRequested) return Cancelled(request, log, Performance());
+
         watch.Restart();
         var rating = FireResistanceCheck.Review(set, request.Inputs.Rating, engine, request.Context, runId, newId);
         stages.Add(Stage(FireReviewStep.FireResistance, watch));
         if (rating.IsFailure) return Failed(request, log, Performance(), rating.Error, FireReviewStep.FireResistance);
-        progress?.Report(new FireReviewProgress(FireReviewStep.FireResistance, 2, total));
+        progress?.Report(new FireReviewProgress(FireReviewStep.FireResistance, 3, total));
         if (cancellation.IsCancellationRequested) return Cancelled(request, log, Performance());
 
         watch.Restart();
         var opening = OpeningProtectionCheck.Review(set, request.Inputs.Protection, engine, request.Context, runId, newId);
         stages.Add(Stage(FireReviewStep.OpeningProtection, watch));
         if (opening.IsFailure) return Failed(request, log, Performance(), opening.Error, FireReviewStep.OpeningProtection);
-        progress?.Report(new FireReviewProgress(FireReviewStep.OpeningProtection, 3, total));
+        progress?.Report(new FireReviewProgress(FireReviewStep.OpeningProtection, 4, total));
         if (cancellation.IsCancellationRequested) return Cancelled(request, log, Performance());
 
         watch.Restart();
         var junction = Junctions(request, area.Value, rating.Value, engine, runId, log, newId);
         stages.Add(Stage(FireReviewStep.CurtainWallJunction, watch));
         if (junction.IsFailure) return Failed(request, log, Performance(), junction.Error, FireReviewStep.CurtainWallJunction);
-        progress?.Report(new FireReviewProgress(FireReviewStep.CurtainWallJunction, 4, total));
+        progress?.Report(new FireReviewProgress(FireReviewStep.CurtainWallJunction, 5, total));
         if (cancellation.IsCancellationRequested) return Cancelled(request, log, Performance());
 
         watch.Restart();
         var shaft = VerticalCompartmentCheck.Review(set, request.Inputs.VerticalCompartment, engine, request.Context, runId, newId);
         stages.Add(Stage(FireReviewStep.VerticalCompartment, watch));
         if (shaft.IsFailure) return Failed(request, log, Performance(), shaft.Error, FireReviewStep.VerticalCompartment);
-        progress?.Report(new FireReviewProgress(FireReviewStep.VerticalCompartment, 5, total));
+        progress?.Report(new FireReviewProgress(FireReviewStep.VerticalCompartment, 6, total));
         if (cancellation.IsCancellationRequested) return Cancelled(request, log, Performance());
 
         watch.Restart();
         var baseline = ReviewBaselineBuilder.Build(set, request.Environment, request.Inputs);
         var results = area.Value.Results
+            .Concat(exemption.Value.Results)
             .Concat(rating.Value.Results)
             .Concat(opening.Value.Results)
             .Concat(junction.Value.Results)
@@ -321,12 +339,12 @@ public static class FireReviewRunner
             completed = carryOver.Run;
         }
         stages.Add(Stage(FireReviewStep.Evidence, watch));
-        progress?.Report(new FireReviewProgress(FireReviewStep.Evidence, 6, total));
+        progress?.Report(new FireReviewProgress(FireReviewStep.Evidence, 7, total));
 
         var package = request.Package.WithReviewRun(ruleSet.RuleSetId, ruleSet.Version, runId,
             ReviewPackageStatus.Reviewed, completedAt);
 
-        Findings(log, area.Value, rating.Value, opening.Value, junction.Value, shaft.Value);
+        Findings(log, area.Value, exemption.Value, rating.Value, opening.Value, junction.Value, shaft.Value);
         if (carryOver is not null) CarryOverLog(log, carryOver);
         var table = ReviewTable.Build(completed);
         log.Add(ReviewErrorCode.ReviewCompleted, ReviewStage.Review,
@@ -343,6 +361,7 @@ public static class FireReviewRunner
     public static string Label(FireReviewStep step) => step switch
     {
         FireReviewStep.CompartmentArea => "防火區劃面積",
+        FireReviewStep.AreaExemption => "區劃面積免除（第79條之1）",
         FireReviewStep.FireResistance => "構件防火時效",
         FireReviewStep.OpeningProtection => "防火門窗",
         FireReviewStep.CurtainWallJunction => "帷幕牆區劃交接",
@@ -457,12 +476,14 @@ public static class FireReviewRunner
     private static void Findings(
         ReviewLog.Builder log,
         CompartmentAreaReview area,
+        Article79_1ExemptionReview exemption,
         FireResistanceReview rating,
         OpeningProtectionReview opening,
         CurtainWallJunctionReview junction,
         VerticalCompartmentReview shaft)
     {
-        foreach (var warning in area.Warnings.Concat(rating.Warnings).Concat(opening.Warnings).Concat(junction.Warnings)
+        foreach (var warning in area.Warnings.Concat(exemption.Warnings)
+                     .Concat(rating.Warnings).Concat(opening.Warnings).Concat(junction.Warnings)
                      .Concat(shaft.Warnings)
                      .Distinct(StringComparer.Ordinal))
             log.Add(ReviewErrorCode.ReviewCompleted, ReviewStage.Review, ReviewSeverity.Warning, warning);
@@ -479,6 +500,7 @@ public static class FireReviewRunner
         }
 
         var findings = area.Findings.Select(f => (f.Result, f.ErrorCode, Element: (string?)f.Zone.AreaUniqueIds.FirstOrDefault()))
+            .Concat(exemption.Findings.Select(f => (f.Result, f.ErrorCode, Element: (string?)f.ElementUniqueId)))
             .Concat(rating.Findings.Select(f => (f.Result, f.ErrorCode, Element: (string?)f.ElementUniqueId)))
             .Concat(opening.Findings.Select(f => (f.Result, f.ErrorCode, Element: (string?)f.ElementUniqueId)))
             .Concat(junction.Findings.Select(f => (f.Result, f.ErrorCode, Element: (string?)f.Junction.CurtainWallUniqueId)))

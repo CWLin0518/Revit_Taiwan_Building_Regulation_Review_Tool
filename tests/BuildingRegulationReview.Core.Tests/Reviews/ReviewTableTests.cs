@@ -124,14 +124,21 @@ public sealed class ReviewTableTests
     {
         var table = ReviewTable.Build(ReviewAll(new Model()));
 
-        Assert.Equal(new[] { "防火區劃面積", "構件防火時效", "防火門窗", "帷幕牆區劃交接", "垂直區劃" },
+        Assert.Equal(
+            new[] { "防火區劃面積", "區劃面積免除（第79條之1）", "構件防火時效", "防火門窗", "帷幕牆區劃交接", "垂直區劃" },
             table.Sections.Select(s => s.Title));
-        var empty = new[] { ReviewCheckTypes.CompartmentContinuity, ReviewCheckTypes.VerticalCompartment };
+
+        // 區劃面積免除 is 未檢討 here for the same reason the last two rows are: this model's 區劃用途 is
+        // none of the six words 第79條之1 names, so the article reaches no 區劃 of it (第79條之1文件 §3.2).
+        var empty = new[]
+        {
+            ReviewCheckTypes.AreaExemption, ReviewCheckTypes.CompartmentContinuity, ReviewCheckTypes.VerticalCompartment
+        };
         Assert.All(table.Sections.Where(s => !empty.Contains(s.CheckType)),
             s => Assert.Equal(ReviewStatus.Pass, s.Status));
 
-        // 帷幕牆區劃交接 and 垂直區劃 have no result in this model: an empty row is 未檢討 and adds nothing
-        // to the verdict — the table counts results, not rows (spec 11.7).
+        // Those three rows have no result in this model: an empty row is 未檢討 and adds nothing to the
+        // verdict — the table counts results, not rows (spec 11.7).
         Assert.All(empty, type => Assert.Equal(ReviewStatus.NotRun, table.Section(type).Status));
         Assert.Equal(ReviewVerdict.Pass, table.Verdict);
         Assert.False(table.IsStale);
