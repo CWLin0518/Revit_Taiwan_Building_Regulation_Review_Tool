@@ -2,7 +2,7 @@
 
 > 狀態：**實作中**。§12 的步驟 1–15 已完成（步驟 11、12 隨決議 13 移除），**步驟 16a、16b、16c、16d、16e
 > 已完成，並已於 2026-09-28 部署與實機驗證**（16c 的讀取、16d 的面板、16e 的綁定與寫入皆已驗到，
-> **檢討表上 CW-O 玻璃那一路的判定已逐字核對**；驗證證據與其界線見 §12 的 16e 列）。
+> **檢討表的 CW-O（玻璃）、CW-H、CW-V 三列都已逐字核對**；驗證證據與其界線見 §12 的 16e 列）。
 > 步驟 16（決議 16）把帷幕嵌板分成兩路作答：實心嵌板以 `防火檢討_設計防火時效` 作答且時效比照牆體由
 > 模型尺寸推定，玻璃嵌板與帷幕牆門窗以 `防火檢討_設計防火保護` 作答；種類由新參數 `防火檢討_嵌板種類`
 > 宣告，未宣告為資料不足。16a 是判定層（規則、幾何分流、六態），16b 是參數層（尺寸推定支援帷幕嵌板、
@@ -941,7 +941,7 @@ CW-V 的立面**由工具自己建立**，名稱帶著上面說的檢討圖號�
 | 11 | 決議 7：上下帷幕牆之間的實體牆防火帶（`CurtainWallJunctionResolver.SolidWallBand`、`CompartmentWallObservation.ProvidedFireRating`） | **已移除**（決議 13 取代，見第 13 列）。程式碼與其測試都已隨步驟 13 刪除 |
 | 12 | 交點落在豎框上時取該格的嵌板（`CurtainWallJunctionResolver.PanelLookup`） | **已移除**（曾實機驗證成立：`CW-H-01` 由「未符合／0 m」轉為「資料不足」，`panelCount` 0 → 1；但隨決議 13 一併作廢——CW-H 不再查嵌板，豎框就不再擋路） |
 | 13 | CW-H 改由立面內的實體外牆供給但書長度（決議 13）：新增 `FacadeWallObservation`／`CurtainWallObservation.IsInFacadePlane`／`FacadeRun`，移除 `SolidWallBand`、`PanelLookup` 與 `WallJunction` 的嵌板量測路徑 | **已完成並實機驗證**（建置 0 警告、1620 條測試全通過；2026-09-27 於 Revit 重跑，`CW-H-01` 由「資料不足」轉為 `Fail`／0 m，七項證據逐項相符）。但書成立的路徑（`NotApplicable`）當時未驗到，使用者依 §4.2 建模要求改立面後，已隨步驟 14、15 於 2026-09-28 驗到 |
-| 14 | 交點落在實體外牆連續段上也判 CW-H（決議 14）：交點求解擴充到延長線、交接帶高程改為交集、未符合時塗紅實體外牆、躺在立面內的區劃牆不產出 CW-H | **已完成並實機驗證**（建置 0 警告、1637 條測試全通過；§10 案例 26–33 已釘住，含整合層的「一列且 `NotApplicable`」）。2026-09-28 與步驟 15 一併部署後重跑，使用者確認 CW-H 檢討結果無誤 |
+| 14 | 交點落在實體外牆連續段上也判 CW-H（決議 14）：交點求解擴充到延長線、交接帶高程改為交集、未符合時塗紅實體外牆、躺在立面內的區劃牆不產出 CW-H | **已完成並實機驗證**（建置 0 警告、1637 條測試全通過；§10 案例 26–33 已釘住，含整合層的「一列且 `NotApplicable`」）。2026-09-28 與步驟 15 一併部署後重跑，使用者確認 CW-H 檢討結果無誤。**交接帶高程改為交集這一項已於同日由檢討表 CW-H 那一列逐字驗到**（`placement` Z 段 27.55 – 28，對照步驟 13 同一交接處的 27.55 – 28.45），見 16e 列的驗證證據 |
 | 15 | 外側法線改由所屬區劃推定（決議 15）：`CurtainWallJunctionResolver` 新增定向步驟，`§4.6` 的三站多數決 | **已完成並實機驗證**（建置 0 警告、1637 條測試全通過；§10 案例 34–39 已釘住，含守門測試）。2026-09-28 與步驟 14 一併部署後重跑，使用者確認 CW-H 檢討結果無誤 |
 | 16a | 決議 16 的**判定層**：`CurtainPanelKind`／`CurtainPanelKinds`、`CurtainPanelObservation.Kind`、`junction.panelKind` 與 `junction.minFireProtection` 兩個白名單欄位、`CurtainWallJunctionResolver` 把 CW-O 拆三路、`CurtainWallJunctionCheck` 寫入兩個新 fact、規則集加 `tw-bcr-79-4-curtain-wall-other-glazed`（規則集版本升至 `2026.7-provisional`） | **已完成**（建置 0 警告、1650 條測試全通過；§10 案例 40–48 已釘住）。Revit 端尚未接線 |
 | 16b | 決議 16 的**參數層**：`FireRatingDeriver` 支援 `CandidateCategory.CurtainPanel`（沿用牆壁門檻）、`FireReviewTypeRow` 的 `PanelKind` 欄位與 `CarriesRating`／`CarriesProtection` 改看種類、共享參數檔加 `防火檢討_嵌板種類`（`…0013`） | **已完成**（建置 0 警告、1672 條測試全通過）。Revit 端尚未接線 |
@@ -988,8 +988,43 @@ CW-V 的立面**由工具自己建立**，名稱帶著上面說的檢討圖號�
 14 片嵌板（2 列 × 7 行，`get_curtain_wall_info`），CW-O 只數了 7 片（`junction.panelCount = 7`，
 284158–284164），另外 7 片確實被交接帶扣掉了——這反而證明中點規則的扣除是活的，但也表示「282773 下排
 嵌板中點遠高於 900 mm 帶、因此一片都不扣」這個算例沒有被這一列證實。帷幕牆 282773 是否另有一列 CW-O、
-其 `panelCount` 是多少，尚未核對。**CW-H 與 CW-V 兩列同樣仍未逐字核對**（步驟 14、15 的實機驗證是
-使用者一句「CW-H 檢討無誤」的整體確認，沒有逐欄基線）。
+其 `panelCount` 是多少，尚未核對。
+
+**CW-H 與 CW-V 兩列也已逐字核對（2026-09-28，同一次檢討執行）**，都在帷幕牆 `…-0004508b`（282763）上。
+CW-H 列對上 `tw-bcr-79-curtain-wall-junction`：版本 1、`legalReference`
+「建築技術規則建築設計施工編第79條第3項、第4項（區劃來源含第83條）」全文、`appliesWhen` 的
+`WallToCurtainWall`、`requiredValue` 的 `projectionDepth >= 500 mm`（實際 1.1275 m，符合）、`junction.id`
+為 `CW-H:<帷幕牆>:<區劃牆>`（無第三段，`CurtainWallJunctionResolver.cs:162`）、`hostLegalReference = 第79條`
+（第 83 條那一路仍未驗）。CW-V 列對上 `tw-bcr-79-3-curtain-wall-spandrel`：版本 1、`legalReference`
+「建築技術規則建築設計施工編第79條之3」、`appliesWhen` 的 `FloorToCurtainWall`、`requiredValue` 同樣
+`>= 500 mm`（實際 0.5875 m，符合）、`junction.id` 尾碼 `:0` 是同一對帷幕牆 × 樓板的交接處序號
+（`:509` 的 `index`）。
+
+這兩列一次證實三件文件裡寫過、但先前沒有實測證據的事：
+
+1. **決議 14 的「交接帶高程改為區劃牆 × 帷幕牆的交集」**。同一個交接處（282763 × 區劃牆 297567）在
+   步驟 13 那一輪記到 `placement` 的 Z 段是 **27.55 – 28.45**（區劃牆自己的高程帶），這一輪是
+   **27.55 – 28**——上緣被 282763 的頂（FL9 = 28000）夾掉了。這是決議 14 第三項配套在 Revit 端的第一個
+   實測證據，且可與步驟 13 的舊證據逐欄對照。
+2. **本文成立時但書算出什麼都不影響判定**（§3.2）。兩列的但書值都是 0（`continuousFireRatedLength = 0`／
+   `continuousFireRatedHeight = 0`）、`panelCount = 0`，狀態仍是符合——本文（突出 ≥ 500 mm）先成立，
+   引擎沒有因為但書為 0 而翻盤。
+3. **§9「CW-H 不供給 `junction.hasUnprotectedOpening`」**。證據裡確實沒有這一欄，滿足步驟 13 那張表列的
+   驗證條件；`CurtainWallJunctionResolver.cs:227` 硬寫 `null` 並附註了原因。
+
+CW-H 的 `continuousFireRatedLength = 0` 精確對應 `FacadeMeasurement.Glazed`（`:280`，`RunMm = 0`、
+`Rating = null`）：**交點上沒有涵蓋整個交接帶高程的實體外牆**，該處整段立面是玻璃。這與 §3.1 寫的另一條
+供 0 路徑（「讀得到但未達區劃牆要求」）不同源，兩者由 `junction.minFireRating` 有無區分——Glazed 那一路
+`Rating` 為 null 所以該欄不印，不達標那一路會印出那道牆的讀值。
+
+`projectionDepth` 由步驟 13 的 0 m 變成 1.1275 m，是使用者照 §4.2「建模要求」的第二個做法改的：把區劃牆
+297567 突出帷幕牆外側面（1.13 m ≥ 0.5 m）。所以這一列驗到的是**本文成立**那條路（`Pass`），與步驟 14
+記的「得免突出」（`NotApplicable`，但書成立）是不同路徑。
+
+**順帶釘出一個惰性欄位**：`junction.hasUnprotectedOpening` 目前在系統裡沒有任何出口——CW-H 把它宣告在
+`evidenceFields` 裡卻永不供給（`:227`），CW-V 供給了（`:533`）卻沒宣告、`JunctionEvidence` 也不印它，
+而且沒有任何規則的 `appliesWhen`／`requiredValue`／`exemptions` 讀它。它被算出來、寫進 `facts`，然後誰也
+看不到。修它（刪掉 CW-H 的宣告，或替 CW-V 補上）**不影響判定，只影響證據可見性，是一個獨立決定。**
 
 **一併驗到的既有缺陷（不屬於決議 16，未修）**：`RevitCurtainWallGeometryReader.cs:285` 的警告
 「帷幕嵌板（Id X）的尺寸無法讀取，該處的交接帶將判為資料不足。」把後果說得比實際嚴重——程式碼是
@@ -1892,9 +1927,9 @@ XAML 的繫結路徑不由編譯器檢查（markup compile 過了不表示 `{Bin
 
 #### 16e 完成後的狀態
 
-決議 16 的五個步驟 16a–16e 全部完成，CW-O 已在 Revit 端作答，且**玻璃那一路的檢討表列已逐字核對**
-（2026-09-28，帷幕牆 282761，見上方「16e 的驗證證據」）。**仍未驗到的四處**：
-`RevitFireReviewTypeScanner` 對 `FamilySymbol`（訂製嵌板族）的讀取路徑（這個模型的兩個嵌板型別都是
-`PanelType`）、實心那一路的完整鏈路（本模型沒有宣告為實心的嵌板，`結構材料`＋`防火被覆厚度` 推定時效
-未在 Revit 端跑過）、帷幕牆 282773 是否另有一列 CW-O（推定前提 (3) 算的是它，但核對到的是 282761），
-以及檢討表 CW-H 與 CW-V 兩列的逐字內容。
+決議 16 的五個步驟 16a–16e 全部完成，CW-O 已在 Revit 端作答。**檢討表的 CW-O（玻璃）、CW-H、CW-V 三列
+都已逐字核對**（2026-09-28，見上方「16e 的驗證證據」；CW-O 在帷幕牆 282761，CW-H 與 CW-V 在 282763）。
+**仍未驗到的三處**：`RevitFireReviewTypeScanner` 對 `FamilySymbol`（訂製嵌板族）的讀取路徑（這個模型的
+兩個嵌板型別都是 `PanelType`）、實心那一路的完整鏈路（本模型沒有宣告為實心的嵌板，`結構材料`＋
+`防火被覆厚度` 推定時效未在 Revit 端跑過）、帷幕牆 282773 是否另有一列 CW-O（推定前提 (3) 算的是它，
+但核對到的是 282761）。
