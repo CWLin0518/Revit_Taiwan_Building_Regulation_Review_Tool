@@ -6,6 +6,7 @@
 
 - [整體專案架構](architecture.md)
 - [防火檢討工具完整規格](fire-review-spec.md)
+- [Revit 端待驗證項目清單](revit-verification-checklist.md)
 - [Phase 1 任務計畫](agent/phase-1-plan.md)
 - [ADR-0001：分層與 Revit 版本適配](adr/0001-layered-architecture-and-revit-versioning.md)
 - [Agent Phase 狀態](agent/phase-state.yaml)
