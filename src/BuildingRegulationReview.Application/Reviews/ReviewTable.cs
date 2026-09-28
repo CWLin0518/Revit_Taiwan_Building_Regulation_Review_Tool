@@ -118,8 +118,12 @@ public sealed class ReviewStatusCounts
     public int Pass => this[ReviewStatus.Pass];
     public int Fail => this[ReviewStatus.Fail];
 
-    /// <summary>The 統計 column's Unknown: 資料不足, 人工覆核 and 未檢討 — neither a pass nor a fail.</summary>
-    public int Unknown => this[ReviewStatus.InsufficientData] + this[ReviewStatus.ManualReview] + this[ReviewStatus.NotRun];
+    /// <summary>
+    /// The 統計 column's Unknown: 資料不足, 人工覆核 and 未檢討 — neither a pass nor a fail. It is
+    /// <see cref="ReviewStatusBand.Pending"/> counted, so the 統計 and the panel's 待確認 filter can never
+    /// disagree about which states belong to it.
+    /// </summary>
+    public int Unknown => _counts.Where(c => ReviewStatusBands.Of(c.Key) == ReviewStatusBand.Pending).Sum(c => c.Value);
 
     public int NotApplicable => this[ReviewStatus.NotApplicable];
 
@@ -464,6 +468,22 @@ public sealed class ReviewTable
         ReviewCheckTypes.CompartmentContinuity => "帷幕牆區劃交接",
         ReviewCheckTypes.VerticalCompartment => "垂直區劃",
         _ => checkType
+    };
+
+    /// <summary>
+    /// The breakdown the 檢討表 shows a row by when it is expanded — one of the several a section may
+    /// carry. 構件防火時效 is counted per category and per Type but read per Type, and 帷幕牆區劃交接 is
+    /// counted per kind and per 條文 but read per kind; a check with no breakdown of its own reads per
+    /// opening kind, which is what 防火門窗 and anything unrecognised group by.
+    /// </summary>
+    public static ReviewTableGrouping PrimaryGrouping(string checkType) => checkType switch
+    {
+        ReviewCheckTypes.CompartmentArea => ReviewTableGrouping.Zone,
+        ReviewCheckTypes.AreaExemption => ReviewTableGrouping.Zone,
+        ReviewCheckTypes.FireResistance => ReviewTableGrouping.Type,
+        ReviewCheckTypes.CompartmentContinuity => ReviewTableGrouping.JunctionKind,
+        ReviewCheckTypes.VerticalCompartment => ReviewTableGrouping.ShaftRequirement,
+        _ => ReviewTableGrouping.OpeningKind
     };
 
     internal static IEnumerable<ReviewTableGroup> GroupsFor(string checkType, IReadOnlyList<ReviewTableEntry> entries)

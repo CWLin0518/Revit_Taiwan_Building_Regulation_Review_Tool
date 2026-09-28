@@ -57,6 +57,12 @@ namespace BuildingRegulationReview.FireReview
         private readonly ProgressBar _progress = new ProgressBar { Width = 180, Height = 14, Maximum = 5, Margin = new Thickness(6, 0, 6, 0) };
         private readonly TextBlock _status = new TextBlock { VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
         private readonly TreeView _tree = new TreeView { FontSize = DetailFontSize };
+        private readonly Dictionary<ReviewStatusBand, CheckBox> _bands = new Dictionary<ReviewStatusBand, CheckBox>();
+        private readonly ComboBox _checkTypes = new ComboBox { MinWidth = 140, Margin = new Thickness(0, 0, 10, 2), VerticalContentAlignment = VerticalAlignment.Center };
+        private readonly CheckBox _staleOnly = new CheckBox { Content = "只看需更新", Margin = new Thickness(0, 0, 12, 2), VerticalAlignment = VerticalAlignment.Center };
+        private readonly TextBox _search = new TextBox { Width = 190, Margin = new Thickness(0, 0, 6, 2), VerticalContentAlignment = VerticalAlignment.Center };
+        private readonly Button _clearFilter = new Button { Content = "清除篩選", Padding = new Thickness(8, 1, 8, 1), Margin = new Thickness(0, 0, 10, 2) };
+        private readonly TextBlock _filterSummary = new TextBlock { Foreground = MutedBrush, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 0, 2) };
         private readonly StackPanel _detailBody = new StackPanel { Margin = new Thickness(12, 4, 12, 12) };
         private readonly ScrollViewer _detail = new ScrollViewer
         {
@@ -89,6 +95,9 @@ namespace BuildingRegulationReview.FireReview
 
         private CancellationTokenSource _cancellation;
         private bool _busy;
+
+        /// <summary>Set while 清除篩選 resets the controls, so the tree is rebuilt once rather than per control.</summary>
+        private bool _filterChanging;
 
         public FireReviewWindow(Guid packageId)
         {
@@ -138,7 +147,12 @@ namespace BuildingRegulationReview.FireReview
             stretch.Setters.Add(new Setter(Control.HorizontalContentAlignmentProperty, HorizontalAlignment.Stretch));
             _tree.ItemContainerStyle = stretch;
             ScrollViewer.SetHorizontalScrollBarVisibility(_tree, ScrollBarVisibility.Disabled);
-            body.Children.Add(_tree);
+            var left = new DockPanel();
+            var filter = BuildFilterBar();
+            DockPanel.SetDock(filter, Dock.Top);
+            left.Children.Add(filter);
+            left.Children.Add(_tree);
+            body.Children.Add(left);
             var splitter = new GridSplitter { Width = 6, HorizontalAlignment = HorizontalAlignment.Stretch };
             Grid.SetColumn(splitter, 1);
             body.Children.Add(splitter);
@@ -154,6 +168,7 @@ namespace BuildingRegulationReview.FireReview
             _start.Click += (_, __) => Start();
             _cancel.Click += (_, __) => _cancellation?.Cancel();
             _tree.SelectedItemChanged += (_, __) => ShowSelection();
+            _clearFilter.Click += (_, __) => ClearFilter();
             _locate.Click += (_, __) => LocateSelected();
             _override.Click += (_, __) => ChangeOverride(OverrideAction.Override);
             _reconfirm.Click += (_, __) => ChangeOverride(OverrideAction.Reconfirm);
@@ -358,6 +373,7 @@ namespace BuildingRegulationReview.FireReview
                 _verdict.Text = "尚未檢討";
                 _verdict.Foreground = MutedBrush;
                 _stale.Text = string.Empty;
+                _filterSummary.Text = string.Empty;
                 return;
             }
 
@@ -369,27 +385,129 @@ namespace BuildingRegulationReview.FireReview
                 ? "需更新：" + string.Join("；", _table.StaleReasons) + "。請重新執行「開始檢討」。"
                 : string.Empty;
 
-            foreach (var section in _table.Sections)
+            RenderTree();
+        }
+
+        /// <summary>
+        /// 篩選 (spec 11.7.2): the four states, one 檢討項目, 需更新 only, and free text over what the row
+        /// says. A <see cref="WrapPanel"/> rather than a row, so the bar folds instead of clipping when
+        /// the window is narrow or the detail pane is dragged wide.
+        /// </summary>
+        private UIElement BuildFilterBar()
+        {
+            var bar = new WrapPanel { Margin = new Thickness(0, 0, 6, 6) };
+            bar.Children.Add(new TextBlock { Text = "篩選", Foreground = MutedBrush, Margin = new Thickness(0, 0, 8, 2), VerticalAlignment = VerticalAlignment.Center });
+
+            foreach (var band in ReviewStatusBands.All)
             {
+                var box = new CheckBox
+                {
+                    Content = ReviewStatusBands.Label(band),
+                    IsChecked = true,
+                    Margin = new Thickness(0, 0, 10, 2),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                box.Click += (_, __) => RenderTree();
+                _bands.Add(band, box);
+                bar.Children.Add(box);
+            }
+
+            _staleOnly.Click += (_, __) => RenderTree();
+            bar.Children.Add(_staleOnly);
+
+            _checkTypes.Items.Add(new ComboBoxItem { Content = "全部項目", Tag = null });
+            foreach (var checkType in ReviewTable.CheckTypes)
+                _checkTypes.Items.Add(new ComboBoxItem { Content = ReviewTable.Title(checkType), Tag = checkType });
+            _checkTypes.SelectedIndex = 0;
+            _checkTypes.SelectionChanged += (_, __) => RenderTree();
+            bar.Children.Add(_checkTypes);
+
+            bar.Children.Add(new TextBlock { Text = "搜尋", Foreground = MutedBrush, Margin = new Thickness(0, 0, 6, 2), VerticalAlignment = VerticalAlignment.Center });
+            _search.ToolTip = "可搜尋元素編號、類型名稱、區劃名稱、檢討圖號、條文、規則編號與原因說明。空白分隔的詞必須全部命中。";
+            _search.TextChanged += (_, __) => RenderTree();
+            bar.Children.Add(_search);
+            bar.Children.Add(_clearFilter);
+            bar.Children.Add(_filterSummary);
+            return bar;
+        }
+
+        private ReviewTableFilter CurrentFilter() =>
+            new ReviewTableFilter(
+                ReviewStatusBands.All.Where(band => _bands[band].IsChecked == true),
+                (_checkTypes.SelectedItem as ComboBoxItem)?.Tag as string,
+                _search.Text,
+                _staleOnly.IsChecked == true);
+
+        private void ClearFilter()
+        {
+            _filterChanging = true;
+            try
+            {
+                foreach (var box in _bands.Values) box.IsChecked = true;
+                _staleOnly.IsChecked = false;
+                _checkTypes.SelectedIndex = 0;
+                _search.Text = string.Empty;
+            }
+            finally
+            {
+                _filterChanging = false;
+            }
+            RenderTree();
+        }
+
+        /// <summary>
+        /// Draws the tree for the filter as it now stands. The statistics in every heading stay the
+        /// section's and the group's own — filtering hides rows, it never re-counts the review — and a
+        /// heading that shows less than it counts says so. The selected row is kept if the filter still
+        /// shows it, so ticking a box does not throw away the detail being read.
+        /// </summary>
+        private void RenderTree()
+        {
+            if (_filterChanging) return;
+
+            var selected = SelectedEntry?.ResultId;
+            _tree.Items.Clear();
+            if (_table == null)
+            {
+                _filterSummary.Text = string.Empty;
+                ShowDetail(null);
+                UpdateButtons();
+                return;
+            }
+
+            var filter = CurrentFilter();
+            var view = filter.Apply(_table, _marks);
+            _filterSummary.Text = view.Summary;
+            _filterSummary.Foreground = view.IsEmpty ? PendingBrush : MutedBrush;
+
+            foreach (var sectionView in view.Sections)
+            {
+                // An empty row still reads 未檢討 when nothing is being filtered — that is what a package
+                // with no curtain wall is. While a filter is on it is noise, so it goes.
+                if (filter.IsActive && sectionView.IsEmpty) continue;
+
+                var section = sectionView.Section;
                 var sectionItem = new TreeViewItem
                 {
                     Header = Line($"{section.Title}　{ReviewStatusText.Label(section.Status)}　（{section.Counts.Text}）" +
-                                  (section.StaleCount > 0 ? $"　需更新 {section.StaleCount}" : string.Empty),
+                                  (section.StaleCount > 0 ? $"　需更新 {section.StaleCount}" : string.Empty) + sectionView.ShownText,
                         BrushOf(section.Status), bold: true),
                     Tag = section,
                     IsExpanded = true
                 };
 
-                var grouping = GroupingOf(section.CheckType);
-                foreach (var group in section.GroupsBy(grouping))
+                foreach (var groupView in sectionView.Groups)
                 {
-                    var ids = new HashSet<Guid>(group.ResultIds);
+                    var group = groupView.Group;
                     var groupItem = new TreeViewItem
                     {
-                        Header = Line($"{group.Label}　{ReviewStatusText.Label(group.Status)}　（{group.Counts.Text}）", BrushOf(group.Status)),
-                        Tag = group
+                        Header = Line($"{group.Label}　{ReviewStatusText.Label(group.Status)}　（{group.Counts.Text}）" + groupView.ShownText,
+                            BrushOf(group.Status)),
+                        Tag = group,
+                        // Filtering is asking to see the rows, not the headings they hide behind.
+                        IsExpanded = filter.IsActive
                     };
-                    foreach (var entry in section.Entries.Where(e => ids.Contains(e.ResultId)))
+                    foreach (var entry in groupView.Entries)
                         groupItem.Items.Add(new TreeViewItem { Header = Line(EntryText(entry), BrushOf(entry.EffectiveStatus)), Tag = entry });
                     sectionItem.Items.Add(groupItem);
                 }
@@ -397,26 +515,45 @@ namespace BuildingRegulationReview.FireReview
                 _tree.Items.Add(sectionItem);
             }
 
-            if (_table.OtherEntries.Count > 0)
+            if (view.OtherEntries.Count > 0)
             {
                 var others = new TreeViewItem { Header = Line("其他檢討項目", Brushes.Black, bold: true), IsExpanded = true };
-                foreach (var entry in _table.OtherEntries)
+                foreach (var entry in view.OtherEntries)
                     others.Items.Add(new TreeViewItem { Header = Line(EntryText(entry), BrushOf(entry.EffectiveStatus)), Tag = entry });
                 _tree.Items.Add(others);
             }
 
+            if (_tree.Items.Count == 0)
+                _tree.Items.Add(new TreeViewItem { Header = Line("沒有符合篩選條件的項目。請放寬篩選條件，或按「清除篩選」。", PendingBrush) });
+
+            if (selected.HasValue) Reselect(selected.Value);
             UpdateButtons();
         }
 
-        private static ReviewTableGrouping GroupingOf(string checkType) => checkType switch
+        /// <summary>Puts the selection back on a row after a rebuild, if the filter still shows it.</summary>
+        private void Reselect(Guid resultId)
         {
-            ReviewCheckTypes.CompartmentArea => ReviewTableGrouping.Zone,
-            ReviewCheckTypes.AreaExemption => ReviewTableGrouping.Zone,
-            ReviewCheckTypes.FireResistance => ReviewTableGrouping.Type,
-            ReviewCheckTypes.CompartmentContinuity => ReviewTableGrouping.JunctionKind,
-            ReviewCheckTypes.VerticalCompartment => ReviewTableGrouping.ShaftRequirement,
-            _ => ReviewTableGrouping.OpeningKind
-        };
+            foreach (TreeViewItem sectionItem in _tree.Items)
+                foreach (var child in sectionItem.Items)
+                {
+                    var childItem = (TreeViewItem)child;
+                    if (childItem.Tag is ReviewTableEntry other && other.ResultId == resultId)
+                    {
+                        sectionItem.IsExpanded = true;
+                        childItem.IsSelected = true;
+                        return;
+                    }
+
+                    foreach (TreeViewItem entryItem in childItem.Items)
+                    {
+                        if (!(entryItem.Tag is ReviewTableEntry entry) || entry.ResultId != resultId) continue;
+                        sectionItem.IsExpanded = true;
+                        childItem.IsExpanded = true;
+                        entryItem.IsSelected = true;
+                        return;
+                    }
+                }
+        }
 
         private string EntryText(ReviewTableEntry entry) =>
             ReviewEntryReport.Headline(entry, CurtainWallMarkNumbers.Of(_marks, entry.ResultId));
