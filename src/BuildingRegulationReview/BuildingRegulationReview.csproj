@@ -36,5 +36,14 @@
     <Content Include="Data\fire-review-rules.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <!--
+      「防火參數一鍵建立」讀的共用參數主檔。放進 Data 是因為安裝腳本只逐檔複製四個 DLL 與 Data 的
+      內容，另開一個資料夾就不會被部署。檔案是 Big5／cp950 ＋ CRLF（Revit 的 DefinitionFile parser
+      以 OS ANSI codepage 讀取），MSBuild 的複製是逐位元組的，編碼不會在複製時被改掉。
+    -->
+    <Content Include="..\..\assets\SharedParameters\fire-review-shared-params.txt"
+             Link="Data\fire-review-shared-params.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 </Project>

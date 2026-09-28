@@ -349,10 +349,10 @@ public static class ReviewReadiness
                 items.Add(boundAnywhere.Count == 0
                     ? Block(ReadinessCondition.Parameters, ReviewErrorCode.ParameterMissing,
                         $"規則需要「{source.Label}」（{source.Field}），但專案沒有參數 {source.ParameterName}。",
-                        $"請在「管理 > 專案參數」加入 {source.ParameterName}（{ReviewInputSources.Label(source.Level)}），類別：{where}。")
+                        $"請按 Ribbon 的「防火參數一鍵建立」，或在「管理 > 專案參數」加入 {source.ParameterName}（{ReviewInputSources.Label(source.Level)}），類別：{where}。")
                     : Block(ReadinessCondition.Parameters, ReviewErrorCode.ParameterMissing,
                         $"規則需要「{source.Label}」（{source.Field}），但參數 {source.ParameterName} 沒有綁定到 {where}。",
-                        $"請在「管理 > 專案參數」把 {source.ParameterName}（{ReviewInputSources.Label(source.Level)}）的類別加上 {where}。"));
+                        $"請按 Ribbon 的「防火參數一鍵建立」補綁，或在「管理 > 專案參數」把 {source.ParameterName}（{ReviewInputSources.Label(source.Level)}）的類別加上 {where}。"));
                 continue;
             }
 

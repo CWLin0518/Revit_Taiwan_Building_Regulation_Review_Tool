@@ -10,7 +10,10 @@ public enum SharedParameterValueType
     Text,
     YesNo,
     Integer,
-    Number
+    Number,
+
+    /// <summary>A LENGTH parameter — 防火被覆厚度 is one, and a 長度 read as a plain 數值 would be in feet.</summary>
+    Length
 }
 
 public enum SharedParameterBindingKind

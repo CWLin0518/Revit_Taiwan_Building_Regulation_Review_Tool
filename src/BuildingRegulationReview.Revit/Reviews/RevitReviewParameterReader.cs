@@ -5,6 +5,7 @@ using Autodesk.Revit.DB;
 using BuildingRegulationReview.Application.Candidates;
 using BuildingRegulationReview.Application.Reviews;
 using BuildingRegulationReview.Domain.Geometry;
+using BuildingRegulationReview.Revit.Parameters;
 using BuildingRegulationReview.Revit.WriteBack;
 
 namespace BuildingRegulationReview.Revit.Reviews;
@@ -18,21 +19,9 @@ namespace BuildingRegulationReview.Revit.Reviews;
 /// </summary>
 public sealed class RevitReviewParameterReader
 {
+    /// <summary>讀綁定與建立綁定共用同一份類別對應（<see cref="RevitParameterHosts"/>）。</summary>
     private static readonly IReadOnlyDictionary<BuiltInCategory, ReviewParameterHost> Hosts =
-        new Dictionary<BuiltInCategory, ReviewParameterHost>
-        {
-            { BuiltInCategory.OST_ProjectInformation, ReviewParameterHost.ProjectInformation },
-            { BuiltInCategory.OST_Areas, ReviewParameterHost.Areas },
-            { BuiltInCategory.OST_Walls, ReviewParameterHost.Walls },
-            { BuiltInCategory.OST_Columns, ReviewParameterHost.Columns },
-            { BuiltInCategory.OST_StructuralColumns, ReviewParameterHost.Columns },
-            { BuiltInCategory.OST_StructuralFraming, ReviewParameterHost.StructuralFraming },
-            { BuiltInCategory.OST_Floors, ReviewParameterHost.Floors },
-            { BuiltInCategory.OST_Ceilings, ReviewParameterHost.Ceilings },
-            { BuiltInCategory.OST_Doors, ReviewParameterHost.Doors },
-            { BuiltInCategory.OST_Windows, ReviewParameterHost.Windows },
-            { BuiltInCategory.OST_CurtainWallPanels, ReviewParameterHost.CurtainPanels }
-        };
+        RevitParameterHosts.ByCategory;
 
     private readonly Document _document;
 

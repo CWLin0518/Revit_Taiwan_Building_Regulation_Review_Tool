@@ -53,12 +53,14 @@ public sealed class RevitSharedParameterInventoryReader : ISharedParameterInvent
         return $"BIC:{category.Id.Value}";
     }
 
-    private static SharedParameterValueType? ToValueType(ForgeTypeId dataType)
+    /// <summary>建立參數時也用同一份對應，兩邊才會對同一個型別有同一個答案。</summary>
+    public static SharedParameterValueType? ToValueType(ForgeTypeId dataType)
     {
         if (dataType == SpecTypeId.String.Text) return SharedParameterValueType.Text;
         if (dataType == SpecTypeId.Boolean.YesNo) return SharedParameterValueType.YesNo;
         if (dataType == SpecTypeId.Int.Integer) return SharedParameterValueType.Integer;
         if (dataType == SpecTypeId.Number) return SharedParameterValueType.Number;
+        if (dataType == SpecTypeId.Length) return SharedParameterValueType.Length;
         return null;
     }
 }
