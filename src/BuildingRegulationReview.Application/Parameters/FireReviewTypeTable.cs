@@ -23,6 +23,10 @@ namespace BuildingRegulationReview.Application.Parameters;
 /// </remarks>
 public sealed class FireReviewTypeRow
 {
+    private readonly double? _dimensionMeters;
+    private readonly string? _material;
+    private readonly string? _providedRating;
+
     public FireReviewTypeRow(
         string typeUniqueId,
         CandidateCategory category,
@@ -38,7 +42,8 @@ public sealed class FireReviewTypeRow
         bool? providedSmokeProtection = null,
         FireReviewTypeParameters present = FireReviewTypeParameters.None,
         string? panelKind = null,
-        CurtainPanelKind? proposedPanelKind = null)
+        CurtainPanelKind? proposedPanelKind = null,
+        CurtainPanelSourceType? substitutedFrom = null)
     {
         if (string.IsNullOrWhiteSpace(typeUniqueId)) throw new ArgumentException("Type UniqueId is required.", nameof(typeUniqueId));
         if (instanceCount < 0) throw new ArgumentOutOfRangeException(nameof(instanceCount));
@@ -54,10 +59,13 @@ public sealed class FireReviewTypeRow
         FamilyName = string.IsNullOrWhiteSpace(familyName) ? null : familyName!.Trim();
         InstanceCount = instanceCount;
         ProjectInstanceCount = Math.Max(projectInstanceCount, instanceCount);
-        DimensionMeters = dimensionMeters;
-        Material = string.IsNullOrWhiteSpace(material) ? null : material!.Trim();
+        _dimensionMeters = dimensionMeters;
+        _material = string.IsNullOrWhiteSpace(material) ? null : material!.Trim();
         CoverMeters = coverMeters;
-        ProvidedRating = string.IsNullOrWhiteSpace(providedRating) ? null : providedRating!.Trim();
+        _providedRating = string.IsNullOrWhiteSpace(providedRating) ? null : providedRating!.Trim();
+        // 只有帷幕嵌板會遇上 Revit 的保留型別，別的類別帶了來源也不採用——那會讓一列牆的值悄悄
+        // 變成另一個型別的值（決議 16、步驟 16h）。
+        SubstitutedFrom = category == CandidateCategory.CurtainPanel ? substitutedFrom : null;
         ProvidedProtection = providedProtection;
         ProvidedSmokeProtection = providedSmokeProtection;
         Present = present;
@@ -78,17 +86,32 @@ public sealed class FireReviewTypeRow
     /// <summary>How many instances the whole project holds — the real reach of an edit.</summary>
     public int ProjectInstanceCount { get; }
 
-    /// <summary>牆厚／板厚／柱短邊 in metres, as the Type reports it.</summary>
-    public double? DimensionMeters { get; }
+    /// <summary>
+    /// 牆厚／板厚／柱短邊 in metres, as the Type reports it — or, on a 佔位嵌板列, as the wall Type the
+    /// curtain wall Type names reports it (<see cref="SubstitutedFrom"/>、決議 16、步驟 16h).
+    /// </summary>
+    public double? DimensionMeters => IsSubstituted ? SubstitutedFrom!.ThicknessMeters : _dimensionMeters;
 
-    /// <summary>結構材料 exactly as the parameter holds it.</summary>
-    public string? Material { get; }
+    /// <summary>結構材料 exactly as the parameter holds it (佔位嵌板列讀來源牆型別的).</summary>
+    public string? Material => IsSubstituted ? SubstitutedFrom!.Material : _material;
 
     /// <summary>防火被覆厚度 in metres.</summary>
     public double? CoverMeters { get; }
 
-    /// <summary>防火檢討_設計防火時效 exactly as the parameter holds it.</summary>
-    public string? ProvidedRating { get; }
+    /// <summary>防火檢討_設計防火時效 exactly as the parameter holds it (佔位嵌板列讀來源牆型別的).</summary>
+    public string? ProvidedRating => IsSubstituted ? SubstitutedFrom!.ProvidedRating : _providedRating;
+
+    /// <summary>
+    /// 這一列的厚度／材料／時效是哪一個牆型別供給的，或 null 表示這一列就是自己作答
+    /// （<see cref="CurtainPanelTypeSubstitution"/>、決議 16、步驟 16h）。
+    /// </summary>
+    public CurtainPanelSourceType? SubstitutedFrom { get; }
+
+    /// <summary>
+    /// 這一列是 Revit 的保留嵌板型別，參數唯讀：面板顯示來源牆型別的值，但一個字都寫不回去，
+    /// 所以 <see cref="RatingEdit"/> 與 <see cref="PanelKindEdit"/> 都不產生編輯，面板那一列也唯讀。
+    /// </summary>
+    public bool IsSubstituted => SubstitutedFrom is not null;
 
     /// <summary>
     /// 防火檢討_設計防火保護 as the Type's Yes/No parameter holds it (openings only): true is ticked,
@@ -114,8 +137,12 @@ public sealed class FireReviewTypeRow
     /// </summary>
     public string? PanelKind { get; }
 
-    /// <summary>實心／玻璃, or null when the declaration is blank or is neither.</summary>
-    public CurtainPanelKind? ParsedPanelKind => CurtainPanelKinds.Parse(PanelKind);
+    /// <summary>
+    /// 實心／玻璃, or null when the declaration is blank or is neither. 佔位嵌板列沒有宣告可讀
+    /// （參數唯讀），由來源牆型別補成實心——那是事實，不是提案（決議 16、步驟 16h）。
+    /// </summary>
+    public CurtainPanelKind? ParsedPanelKind =>
+        CurtainPanelTypeSubstitution.Kind(isOpening: false, isPanelAsWall: false, PanelKind, IsSubstituted);
 
     /// <summary>
     /// 種類的提案，由讀取層從嵌板型別的材料算出（<see cref="CurtainPanelKinds.ProposeFrom"/>、決議 16、
@@ -140,7 +167,12 @@ public sealed class FireReviewTypeRow
     /// category a threshold, the row has to answer by 時效 at all, and an undeclared 帷幕嵌板 has to
     /// say which kind it is first.
     /// </summary>
-    public bool SupportsDerivation => FireRatingDeriver.IsDerivable(Category) && CarriesRating && !AwaitsPanelKind;
+    /// <remarks>
+    /// 佔位嵌板列排除在外：推定值只有寫得回去才有意義，而那個型別的參數是唯讀的——推得出 120 分也
+    /// 套用不了，列進「可推定」只會讓批次套用每一次都少寫一列而說不出原因（決議 16、步驟 16h）。
+    /// </remarks>
+    public bool SupportsDerivation =>
+        FireRatingDeriver.IsDerivable(Category) && CarriesRating && !AwaitsPanelKind && !IsSubstituted;
 
     /// <summary>
     /// Whether this Type answers 設計防火時效. Every 主要構造 does; among the openings, 門 does because
@@ -211,11 +243,13 @@ public sealed class FireReviewTypeRow
 
     /// <summary>
     /// The edit that declares this 帷幕嵌板's kind, for the proposal the reader makes from the panel's
-    /// material (決議 16). Null for anything that is not a 帷幕嵌板, and for <see cref="CurtainPanelKind.Opening"/>,
-    /// which the reader recognises by category and never writes back.
+    /// material (決議 16). Null for anything that is not a 帷幕嵌板, for <see cref="CurtainPanelKind.Opening"/>,
+    /// which the reader recognises by category and never writes back, and for a 佔位嵌板列, whose
+    /// 嵌板種類 parameter is read-only — its 實心 comes from the wall Type, not from a write (步驟 16h).
     /// </summary>
     public FireReviewParameterEdit? PanelKindEdit(CurtainPanelKind kind) =>
-        Category == CandidateCategory.CurtainPanel && CurtainPanelKinds.ParameterText(kind) is string text
+        Category == CandidateCategory.CurtainPanel && !IsSubstituted &&
+        CurtainPanelKinds.ParameterText(kind) is string text
             ? FireReviewParameterEdit.OfText(TypeUniqueId, CurtainPanelKindParameters.Provided, text)
             : null;
 

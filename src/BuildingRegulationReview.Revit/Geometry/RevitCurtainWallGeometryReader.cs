@@ -8,6 +8,7 @@ using BuildingRegulationReview.Application.Checks;
 using BuildingRegulationReview.Application.Reviews;
 using BuildingRegulationReview.Domain.Common;
 using BuildingRegulationReview.Domain.Geometry;
+using BuildingRegulationReview.Revit.Parameters;
 using BuildingRegulationReview.Revit.Reviews;
 using BuildingRegulationReview.Revit.WriteBack;
 
@@ -287,8 +288,15 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
             }
 
             var type = _document.GetElement(element.GetTypeId());
+
+            // 佔位嵌板（System Panel : Wall）：Revit 把型別參數全設成唯讀，格子裡也沒有任何量體，
+            // 所以構造只能問帷幕牆型別的 Curtain Panel 指到的那個牆型別——模型裡唯一一句關於這些
+            // 格子是什麼構造的宣告（決議 16、步驟 16h）。逐格判斷：被個別改過型別的那一格走自己的路。
+            var source = RevitReservedPanelType.SourceWallTypeOf(_document, element, type as ElementType);
+            var declaring = source ?? type;
+
             var rating = ReviewInputAssembler.Rating(
-                RevitReviewParameterReader.ReadingOf(type?.LookupParameter(FireRatingParameters.Provided)),
+                RevitReviewParameterReader.ReadingOf(declaring?.LookupParameter(FireRatingParameters.Provided)),
                 request.BareNumberUnit);
 
             var isOpening = element.Category?.BuiltInCategory is BuiltInCategory.OST_Doors or BuiltInCategory.OST_Windows;
@@ -299,12 +307,13 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
             var protection = ReviewInputAssembler.Protection(
                 RevitReviewParameterReader.ReadingOf(type?.LookupParameter(FireProtectionParameters.Provided)));
 
-            // 種類的三個事實交給 Application 層判：類別是不是門窗、這片嵌板本身是不是一道牆、型別參數
-            // 寫了什麼。述詞只有一份，讀取層不自己另訂一套（決議 16、步驟 16c）。
-            var kind = CurtainPanelKinds.Classify(
+            // 種類的四個事實交給 Application 層判：類別是不是門窗、這片嵌板本身是不是一道牆、型別參數
+            // 寫了什麼、有沒有來源牆型別接手。述詞只有一份，讀取層不自己另訂一套（決議 16、步驟 16c、16h）。
+            var kind = CurtainPanelTypeSubstitution.Kind(
                 isOpening,
                 element is Wall,
-                Text(type, CurtainPanelKindParameters.Provided));
+                Text(type, CurtainPanelKindParameters.Provided),
+                source is not null);
 
             panels.Add(new CurtainPanelObservation(
                 element.UniqueId,
@@ -451,8 +460,11 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
         var planes = curtainWalls.Where(c => c.IsPlanar).ToList();
         if (planes.Count == 0) return facades;
 
-        // 「嵌板為牆」的嵌板本身就是一片 Wall，沒有 CurtainGrid，而且必然躺在帷幕牆的定位面內——
-        // 不排掉它，它會同時以嵌板和實體外牆兩個身分出現，每個交接處都自己跟自己重疊而判人工覆核。
+        // 帷幕牆型別把 Curtain Panel 指到一個牆型別時，Revit 有兩種放法，兩種都要排掉：格子裡放一片
+        // 真的 Wall（「嵌板為牆」，沒有 CurtainGrid，必然躺在帷幕牆的定位面內），或放一片沒有量體的
+        // 保留型別嵌板（System Panel : Wall，步驟 16h）。不排掉，前者會同時以嵌板和實體外牆兩個身分
+        // 出現，每個交接處都自己跟自己重疊而判人工覆核。下面用 UniqueId 集合排除，所以兩種都涵蓋——
+        // 保留型別那一種本來就不是 Wall，走不到這個迴圈，集合比對仍然成立。
         var panelWalls = CurtainPanelUniqueIds();
 
         foreach (var wall in Collect<Wall>(BuiltInCategory.OST_Walls).Where(w => w.CurtainGrid is null))

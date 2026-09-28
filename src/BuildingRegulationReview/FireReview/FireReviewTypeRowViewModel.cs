@@ -53,6 +53,22 @@ namespace BuildingRegulationReview.FireReview
 
         public bool IsCurtainPanel => Source.Category == CandidateCategory.CurtainPanel;
 
+        /// <summary>
+        /// 這一列是 Revit 的保留嵌板型別（<c>System Panel : Wall</c>）：三個欄位顯示的是帷幕牆型別的
+        /// <c>Curtain Panel</c> 所指的牆型別的值，型別自己的參數唯讀，寫不進去（決議 16、步驟 16h）。
+        /// </summary>
+        public bool IsSubstituted => Source.IsSubstituted;
+
+        /// <summary>可編輯就是「沒有被來源牆型別接手」——XAML 三個欄位共用這一個述詞。</summary>
+        public bool IsEditable => !IsSubstituted;
+
+        /// <summary>來源牆型別的名稱，讓使用者看得出要改去改哪一列；不是佔位列時是空字串。</summary>
+        public string SubstitutionSource => Source.SubstitutedFrom?.DisplayName ?? "";
+
+        public string SubstitutionNote => Source.SubstitutedFrom is null
+            ? ""
+            : CurtainPanelTypeSubstitution.Note(Source.SubstitutedFrom);
+
         /// <summary>實心／玻璃 as currently chosen in this row, not as the model holds it.</summary>
         private CurtainPanelKind? TypedPanelKind => CurtainPanelKinds.Parse(_panelKind);
 
@@ -103,7 +119,15 @@ namespace BuildingRegulationReview.FireReview
         /// does, the tool does not know whether it is looking at a piece of 構造 or at 防火設備.
         /// </summary>
         public bool SupportsDerivation =>
-            FireRatingDeriver.IsDerivable(Source.Category) && CarriesRating && !(IsCurtainPanel && TypedPanelKind is null);
+            FireRatingDeriver.IsDerivable(Source.Category) && CarriesRating &&
+            !(IsCurtainPanel && TypedPanelKind is null) && IsEditable;
+
+        /// <summary>三個欄位各自的可編輯性：問的事本來就不問這一列，或這一列整列唯讀。</summary>
+        public bool CanEditPanelKind => IsCurtainPanel && IsEditable;
+
+        public bool CanEditMaterial => CarriesMaterial && IsEditable;
+
+        public bool CanEditRating => CarriesRating && IsEditable;
 
         public IReadOnlyList<string> MaterialChoices { get; } =
             new[] { "" }.Concat(StructuralMaterialText.All.Select(StructuralMaterialText.Code)).ToList();
@@ -139,6 +163,8 @@ namespace BuildingRegulationReview.FireReview
                 Raise(nameof(CarriesRating));
                 Raise(nameof(CarriesProtection));
                 Raise(nameof(CarriesMaterial));
+                Raise(nameof(CanEditMaterial));
+                Raise(nameof(CanEditRating));
                 Raise(nameof(SupportsDerivation));
                 Raise(nameof(DimensionText));
                 Raise(nameof(NeedsCover));
@@ -257,6 +283,10 @@ namespace BuildingRegulationReview.FireReview
         {
             get
             {
+                // 佔位嵌板列不缺參數——它的答案由來源牆型別供給，沒有任何一格等著被填。列出「缺少
+                // 參數」只會讓使用者去找一個永遠填不進去的格子（決議 16、步驟 16h）。
+                if (IsSubstituted) return "";
+
                 var missing = new List<string>();
                 // 嵌板種類 comes first: without it the row cannot even say which of the two questions
                 // below it owes an answer to (決議 16).
@@ -290,6 +320,10 @@ namespace BuildingRegulationReview.FireReview
         /// <summary>Only the values that differ from what the model held — nothing is rewritten for its own sake.</summary>
         public IEnumerable<FireReviewParameterEdit> Edits()
         {
+            // 佔位嵌板列一個字都寫不回去：Revit 把那個型別的每一個參數都設成唯讀，寫入只會整批失敗。
+            // 面板顯示的是來源牆型別的值，使用者要改就去改那一列（決議 16、步驟 16h）。
+            if (IsSubstituted) yield break;
+
             // 嵌板種類 is written first because it decides which of the two answers below is asked
             // for at all. The tool may have proposed 玻璃 from the panel's material, but nothing is
             // written until the user leaves that choice standing (決議 16、D1).

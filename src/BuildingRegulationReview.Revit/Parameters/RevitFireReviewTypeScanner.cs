@@ -66,22 +66,24 @@ public sealed class RevitFireReviewTypeScanner
     {
         var warnings = new List<string>();
         var inView = new Dictionary<ElementId, List<Element>>();
-        var projectCounts = new Dictionary<ElementId, int>();
+        var inProject = new Dictionary<ElementId, List<Element>>();
 
         foreach (var category in Categories.Keys)
         {
             Gather(Collect(category, view), inView);
-            if (view is not null) Count(Collect(category, null), projectCounts);
+            if (view is not null) Gather(Collect(category, null), inProject);
         }
 
-        if (view is null)
-            projectCounts = inView.ToDictionary(x => x.Key, x => x.Value.Count);
+        // 專案全體的實體留著而不是只留一個數：佔位嵌板列要從實體回頭問 host 帷幕牆型別，才知道那些
+        // 格子的構造是哪一個牆型別宣告的（決議 16、步驟 16h）。收集本來就已經把它們都取出來了，
+        // 這裡只是多留一份參考。
+        if (view is null) inProject = inView;
 
         var rows = new List<FireReviewTypeRow>();
         foreach (var pair in inView)
         {
-            var row = Row(pair.Key, pair.Value,
-                projectCounts.TryGetValue(pair.Key, out var all) ? all : pair.Value.Count);
+            var all = inProject.TryGetValue(pair.Key, out var list) ? list : pair.Value;
+            var row = Row(pair.Key, pair.Value, all, warnings);
             if (row is not null) rows.Add(row);
         }
 
@@ -90,11 +92,11 @@ public sealed class RevitFireReviewTypeScanner
         // 平面圖由視圖範圍決定顯示什麼，整段落在剪切面下方的帷幕嵌板因此一列都不會產生——而
         // 防火檢討_嵌板種類 是必要參數，列不出來就等於宣告不了，那些嵌板在 CW-O 只能答資料不足。
         // 這些列的「數量」欄顯示 0 / 專案數，與視圖裡有實體的列一眼分得開。
-        foreach (var pair in projectCounts)
+        foreach (var pair in inProject)
         {
             if (inView.ContainsKey(pair.Key)) continue;
 
-            var row = Row(pair.Key, Array.Empty<Element>(), pair.Value);
+            var row = Row(pair.Key, Array.Empty<Element>(), pair.Value, warnings);
             if (row is not null) rows.Add(row);
         }
 
@@ -105,13 +107,17 @@ public sealed class RevitFireReviewTypeScanner
     }
 
     /// <summary>One row, or null when the Type is gone or is not a category the panel edits.</summary>
-    private FireReviewTypeRow? Row(ElementId typeId, IReadOnlyList<Element> instances, int inProject)
+    private FireReviewTypeRow? Row(
+        ElementId typeId,
+        IReadOnlyList<Element> instances,
+        IReadOnlyList<Element> projectInstances,
+        List<string> warnings)
     {
         if (_document.GetElement(typeId) is not ElementType type) return null;
         if (type.Category is null || !Categories.TryGetValue(type.Category.BuiltInCategory, out var candidate))
             return null;
 
-        return Row(type, candidate, instances, inProject);
+        return Row(type, candidate, instances, projectInstances, warnings);
     }
 
     private IEnumerable<Element> Collect(BuiltInCategory category, View? view)
@@ -121,12 +127,6 @@ public sealed class RevitFireReviewTypeScanner
             : new FilteredElementCollector(_document, view.Id);
 
         return collector.OfCategory(category).WhereElementIsNotElementType().ToElements();
-    }
-
-    private static void Count(IEnumerable<Element> elements, Dictionary<ElementId, int> counts)
-    {
-        foreach (var typeId in TypeIds(elements))
-            counts[typeId] = counts.TryGetValue(typeId, out var current) ? current + 1 : 1;
     }
 
     /// <summary>Groups the view's elements by Type, which is what a row is and how it is counted.</summary>
@@ -142,9 +142,6 @@ public sealed class RevitFireReviewTypeScanner
         }
     }
 
-    private static IEnumerable<ElementId> TypeIds(IEnumerable<Element> elements) =>
-        elements.Select(TypeIdOf).Where(id => id is not null).Select(id => id!);
-
     private static ElementId? TypeIdOf(Element element)
     {
         // A stacked wall reports its members as walls too; only the members carry a WallType.
@@ -154,10 +151,16 @@ public sealed class RevitFireReviewTypeScanner
         return typeId is null || typeId == ElementId.InvalidElementId ? null : typeId;
     }
 
-    private FireReviewTypeRow Row(ElementType type, CandidateCategory category, IReadOnlyList<Element> instances, int inProject)
+    private FireReviewTypeRow Row(
+        ElementType type,
+        CandidateCategory category,
+        IReadOnlyList<Element> instances,
+        IReadOnlyList<Element> projectInstances,
+        List<string> warnings)
     {
         var opening = CandidateCategories.IsOpening(category);
         var panel = category == CandidateCategory.CurtainPanel;
+        var substitutedFrom = panel ? PanelSource(type, projectInstances, warnings) : null;
 
         var present = FireReviewTypeParameters.None;
         if (Find(type, FireRatingParameters.Provided) is not null) present |= FireReviewTypeParameters.Rating;
@@ -178,7 +181,7 @@ public sealed class RevitFireReviewTypeScanner
             type.Name,
             familyName: string.IsNullOrWhiteSpace(type.FamilyName) ? null : type.FamilyName,
             instanceCount: instances.Count,
-            projectInstanceCount: inProject,
+            projectInstanceCount: projectInstances.Count,
             dimensionMeters: Dimension(type, category),
             material: Text(type, StructuralMaterialParameters.Material),
             coverMeters: Meters(type, StructuralMaterialParameters.Cover),
@@ -187,7 +190,40 @@ public sealed class RevitFireReviewTypeScanner
             providedSmokeProtection: opening ? Ticked(type, SmokeProtectionParameters.Provided) : null,
             present: present,
             panelKind: panel ? Text(type, CurtainPanelKindParameters.Provided) : null,
-            proposedPanelKind: panel ? ProposedPanelKind(type) : null);
+            // 佔位嵌板不提案：種類是事實（模型自己說了那些格子是一道牆），不是由材料猜的提案，
+            // 所以不走 ProposeFrom／AwaitsPanelKind 那條路（決議 16、步驟 16h）。
+            proposedPanelKind: panel && substitutedFrom is null ? ProposedPanelKind(type) : null,
+            substitutedFrom: substitutedFrom);
+    }
+
+    /// <summary>
+    /// 佔位嵌板型別（<c>System Panel : Wall</c>）真正的構造來源，或 null 表示這一列自己作答
+    /// （決議 16、步驟 16h）。
+    /// </summary>
+    /// <remarks>
+    /// 一列就是一個型別，所以來源必須是唯一的：同一個保留型別若被兩個帷幕牆型別用、而兩者的
+    /// <c>Curtain Panel</c> 指到不同的牆型別，這一列代表不了其中任何一個，寧可不顯示也不挑一個。
+    /// 檢討本身不受影響——<c>RevitCurtainWallGeometryReader</c> 是逐片解析的。
+    /// </remarks>
+    private CurtainPanelSourceType? PanelSource(ElementType type, IReadOnlyList<Element> instances, List<string> warnings)
+    {
+        if (!RevitReservedPanelType.IsReserved(type)) return null;
+
+        var sources = instances
+            .Select(element => RevitReservedPanelType.SourceWallTypeOf(_document, element, type))
+            .Where(wallType => wallType is not null)
+            .Select(wallType => wallType!.Id)
+            .Distinct()
+            .ToList();
+
+        if (sources.Count == 1 && _document.GetElement(sources[0]) is WallType single)
+            return RevitReservedPanelType.Describe(single);
+
+        warnings.Add(sources.Count == 0
+            ? $"帷幕嵌板類型「{type.Name}」是 Revit 的保留類型，參數唯讀且無法從帷幕牆類型的 Curtain Panel 解析出來源牆類型；這些嵌板在檢討中會答資料不足。"
+            : $"帷幕嵌板類型「{type.Name}」是 Revit 的保留類型，但不同實體指向 {sources.Count} 種牆類型，面板無法以單一來源顯示；檢討仍逐片解析，不受影響。");
+
+        return null;
     }
 
     /// <summary>

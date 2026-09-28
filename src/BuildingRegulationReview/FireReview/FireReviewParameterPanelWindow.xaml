@@ -83,7 +83,20 @@
                                     </Style>
                                 </DataGridTextColumn.ElementStyle>
                             </DataGridTextColumn>
-                            <DataGridTextColumn Header="斷面尺寸" Binding="{Binding DimensionText}" IsReadOnly="True" Width="122" />
+                            <DataGridTextColumn Header="斷面尺寸" Binding="{Binding DimensionText}" IsReadOnly="True" Width="122">
+                                <DataGridTextColumn.CellStyle>
+                                    <Style TargetType="DataGridCell">
+                                        <Style.Triggers>
+                                            <!-- 保留型別那一列的厚度不是嵌板自己的（它沒有量體），是來源牆型別的（步驟 16h）。 -->
+                                            <DataTrigger Binding="{Binding IsSubstituted}" Value="True">
+                                                <Setter Property="Background" Value="#EDF3FA" />
+                                                <Setter Property="ToolTip" Value="{Binding SubstitutionNote}" />
+                                                <Setter Property="ToolTipService.ShowDuration" Value="60000" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </DataGridTextColumn.CellStyle>
+                            </DataGridTextColumn>
 
                             <!-- 決議 16。這一欄決定右邊要填哪一格：實心嵌板是構造，答「設計防火時效」
                                  （並由結構材料＋嵌板厚推定）；玻璃嵌板是防火設備，答「防火門窗」。留白
@@ -108,6 +121,15 @@
                                                 <Setter Property="Background" Value="#FFF8E1" />
                                                 <Setter Property="ToolTip" Value="{Binding PanelKindProposalNote}" />
                                             </DataTrigger>
+                                            <!-- 保留型別（System Panel : Wall）：Revit 把它的每一個參數都設成
+                                                 唯讀，這一列填不了。值改由帷幕牆型別的 Curtain Panel 所指的牆
+                                                 型別供給，種類是實心。整列留著讓使用者看得到它存在，只是改不得
+                                                 ——要改請改那個牆型別那一列（決議 16、步驟 16h）。 -->
+                                            <DataTrigger Binding="{Binding IsEditable}" Value="False">
+                                                <Setter Property="IsEnabled" Value="False" />
+                                                <Setter Property="Background" Value="#EDF3FA" />
+                                                <Setter Property="ToolTip" Value="{Binding SubstitutionNote}" />
+                                            </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
                                 </DataGridTemplateColumn.CellStyle>
@@ -117,6 +139,9 @@
                                             <TextBlock Text="{Binding PanelKind}" TextTrimming="CharacterEllipsis" />
                                             <TextBlock Text="（提案）" Foreground="#8A5200"
                                                        Visibility="{Binding PanelKindIsProposed, Converter={StaticResource BoolToVis}}" />
+                                            <TextBlock Text="（取自牆型別）" Foreground="#1F5EA8"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       Visibility="{Binding IsSubstituted, Converter={StaticResource BoolToVis}}" />
                                         </StackPanel>
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
@@ -135,16 +160,27 @@
                                  它）；帷幕嵌板則是宣告實心之後才亮（決議 16）。 -->
                             <DataGridComboBoxColumn Header="結構材料" Width="96"
                                                     SelectedItemBinding="{Binding Material, UpdateSourceTrigger=PropertyChanged}">
+                                <DataGridComboBoxColumn.CellStyle>
+                                    <Style TargetType="DataGridCell">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsEditable}" Value="False">
+                                                <Setter Property="Background" Value="#EDF3FA" />
+                                                <Setter Property="ToolTip" Value="{Binding SubstitutionNote}" />
+                                                <Setter Property="ToolTipService.ShowDuration" Value="60000" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </DataGridComboBoxColumn.CellStyle>
                                 <DataGridComboBoxColumn.ElementStyle>
                                     <Style TargetType="ComboBox">
                                         <Setter Property="ItemsSource" Value="{Binding MaterialChoices}" />
-                                        <Setter Property="IsEnabled" Value="{Binding CarriesMaterial}" />
+                                        <Setter Property="IsEnabled" Value="{Binding CanEditMaterial}" />
                                     </Style>
                                 </DataGridComboBoxColumn.ElementStyle>
                                 <DataGridComboBoxColumn.EditingElementStyle>
                                     <Style TargetType="ComboBox">
                                         <Setter Property="ItemsSource" Value="{Binding MaterialChoices}" />
-                                        <Setter Property="IsEnabled" Value="{Binding CarriesMaterial}" />
+                                        <Setter Property="IsEnabled" Value="{Binding CanEditMaterial}" />
                                     </Style>
                                 </DataGridComboBoxColumn.EditingElementStyle>
                             </DataGridComboBoxColumn>
@@ -186,6 +222,13 @@
                                             <DataTrigger Binding="{Binding CarriesRating}" Value="False">
                                                 <Setter Property="IsEnabled" Value="False" />
                                                 <Setter Property="Background" Value="#F0F1F2" />
+                                            </DataTrigger>
+                                            <!-- 保留型別那一列：時效顯示的是來源牆型別的宣告，改不得（步驟 16h）。 -->
+                                            <DataTrigger Binding="{Binding IsEditable}" Value="False">
+                                                <Setter Property="IsEnabled" Value="False" />
+                                                <Setter Property="Background" Value="#EDF3FA" />
+                                                <Setter Property="ToolTip" Value="{Binding SubstitutionNote}" />
+                                                <Setter Property="ToolTipService.ShowDuration" Value="60000" />
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
