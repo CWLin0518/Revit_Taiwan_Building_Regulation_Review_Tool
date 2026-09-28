@@ -35,6 +35,13 @@ namespace BuildingRegulationReview.FireReview
         private static readonly Brush PendingBrush = new SolidColorBrush(Color.FromRgb(0xB8, 0x6E, 0x00));
         private static readonly Brush PassBrush = new SolidColorBrush(Color.FromRgb(0x1E, 0x7B, 0x34));
         private static readonly Brush MutedBrush = new SolidColorBrush(Color.FromRgb(0x66, 0x66, 0x66));
+        private static readonly Brush HeadingBrush = new SolidColorBrush(Color.FromRgb(0x1F, 0x4E, 0x79));
+        private static readonly Brush PanelBrush = new SolidColorBrush(Color.FromRgb(0xF7, 0xF7, 0xF7));
+
+        /// <summary>The 標籤 column of the detail pane, wide enough for 「Revit 元素編號」 at this size.</summary>
+        private const double LabelColumnWidth = 118;
+
+        private const double DetailFontSize = 13;
 
         private readonly Guid _packageId;
         private readonly List<ReviewLogEntry> _log = new List<ReviewLogEntry>();
@@ -49,14 +56,24 @@ namespace BuildingRegulationReview.FireReview
         private readonly Button _cancel = new Button { Content = "取消", Padding = new Thickness(10, 2, 10, 2), Margin = new Thickness(0, 0, 6, 0), IsEnabled = false };
         private readonly ProgressBar _progress = new ProgressBar { Width = 180, Height = 14, Maximum = 5, Margin = new Thickness(6, 0, 6, 0) };
         private readonly TextBlock _status = new TextBlock { VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
-        private readonly TreeView _tree = new TreeView();
-        private readonly TextBox _detail = new TextBox { IsReadOnly = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, FontFamily = new FontFamily("Microsoft JhengHei UI") };
+        private readonly TreeView _tree = new TreeView { FontSize = DetailFontSize };
+        private readonly StackPanel _detailBody = new StackPanel { Margin = new Thickness(12, 4, 12, 12) };
+        private readonly ScrollViewer _detail = new ScrollViewer
+        {
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Background = PanelBrush
+        };
         private readonly Button _locate = new Button { Content = "定位", Padding = new Thickness(10, 2, 10, 2), Margin = new Thickness(0, 0, 6, 0) };
         private readonly Button _override = new Button { Content = "人工覆寫…", Padding = new Thickness(10, 2, 10, 2), Margin = new Thickness(0, 0, 6, 0) };
         private readonly Button _reconfirm = new Button { Content = "重新確認…", Padding = new Thickness(10, 2, 10, 2), Margin = new Thickness(0, 0, 6, 0) };
         private readonly Button _withdraw = new Button { Content = "撤回覆寫…", Padding = new Thickness(10, 2, 10, 2), Margin = new Thickness(0, 0, 6, 0) };
         private readonly Button _remark = new Button { Content = "重新標示檢討視圖", Padding = new Thickness(10, 2, 10, 2), Margin = new Thickness(0, 0, 6, 0) };
+        private readonly Button _copy = new Button { Content = "複製明細", Padding = new Thickness(10, 2, 10, 2), Margin = new Thickness(0, 0, 6, 0) };
         private readonly Button _saveLog = new Button { Content = "儲存日誌", Padding = new Thickness(10, 2, 10, 2), Margin = new Thickness(0, 0, 6, 0) };
+
+        /// <summary>What 複製明細 puts on the clipboard: the detail pane exactly as it reads.</summary>
+        private string _detailText = string.Empty;
 
         private FireReviewScan _scan;
         private ReviewRun _run;
@@ -90,7 +107,7 @@ namespace BuildingRegulationReview.FireReview
             top.Children.Add(_header);
             top.Children.Add(_verdict);
             top.Children.Add(_stale);
-            top.Children.Add(new TextBlock { Text = "前置檢查（spec 11.1）", Margin = new Thickness(0, 6, 0, 0), Foreground = MutedBrush });
+            top.Children.Add(new TextBlock { Text = "開始檢討前的檢查", Margin = new Thickness(0, 6, 0, 0), Foreground = MutedBrush });
             top.Children.Add(_readiness);
             top.Children.Add(_acceptUpdate);
             var run = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 6) };
@@ -104,7 +121,7 @@ namespace BuildingRegulationReview.FireReview
 
             var bottom = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
             DockPanel.SetDock(bottom, Dock.Bottom);
-            foreach (var button in new[] { _locate, _override, _reconfirm, _withdraw, _remark, _saveLog }) bottom.Children.Add(button);
+            foreach (var button in new[] { _locate, _override, _reconfirm, _withdraw, _remark, _copy, _saveLog }) bottom.Children.Add(button);
             var close = new Button { Content = "關閉", Padding = new Thickness(10, 2, 10, 2) };
             close.Click += (_, __) => Close();
             bottom.Children.Add(close);
@@ -114,10 +131,19 @@ namespace BuildingRegulationReview.FireReview
             body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(3, GridUnitType.Star) });
             body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(6) });
             body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
+            // Wrapping rather than a horizontal scrollbar: a 檢討表 line names an element, a Type and a
+            // 說明, which is longer than any pane is wide, and a line that runs off the right edge is a
+            // line nobody reads.
+            var stretch = new Style(typeof(TreeViewItem));
+            stretch.Setters.Add(new Setter(Control.HorizontalContentAlignmentProperty, HorizontalAlignment.Stretch));
+            _tree.ItemContainerStyle = stretch;
+            ScrollViewer.SetHorizontalScrollBarVisibility(_tree, ScrollBarVisibility.Disabled);
             body.Children.Add(_tree);
             var splitter = new GridSplitter { Width = 6, HorizontalAlignment = HorizontalAlignment.Stretch };
             Grid.SetColumn(splitter, 1);
             body.Children.Add(splitter);
+            _detail.Content = _detailBody;
+            _detail.MinWidth = 320;
             Grid.SetColumn(_detail, 2);
             body.Children.Add(_detail);
             root.Children.Add(body);
@@ -133,6 +159,7 @@ namespace BuildingRegulationReview.FireReview
             _reconfirm.Click += (_, __) => ChangeOverride(OverrideAction.Reconfirm);
             _withdraw.Click += (_, __) => ChangeOverride(OverrideAction.Withdraw);
             _remark.Click += (_, __) => Remark();
+            _copy.Click += (_, __) => CopyDetail();
             _saveLog.Click += (_, __) => SaveLog();
             Closing += (_, e) =>
             {
@@ -186,10 +213,13 @@ namespace BuildingRegulationReview.FireReview
             _readiness.Items.Clear();
             foreach (var item in scan.Readiness.Items)
             {
+                var severity = item.Severity == ReadinessSeverity.Blocking ? "✖ 必須修正"
+                    : item.Severity == ReadinessSeverity.Warning ? "▲ 建議確認"
+                    : "・ 說明";
                 _readiness.Items.Add(new TextBlock
                 {
-                    Text = (item.Severity == ReadinessSeverity.Blocking ? "✖ " : item.Severity == ReadinessSeverity.Warning ? "▲ " : "・ ") +
-                           $"[{item.ConditionText}] {item.Message}" + (item.Fix == null ? string.Empty : "　→ " + item.Fix),
+                    Text = $"{severity}（{item.ConditionText}）：{item.Message}" +
+                           (item.Fix == null ? string.Empty : "　修正方式：" + item.Fix),
                     TextWrapping = TextWrapping.Wrap,
                     MaxWidth = 1000,
                     Foreground = item.Severity == ReadinessSeverity.Blocking ? FailBrush : item.Severity == ReadinessSeverity.Warning ? PendingBrush : Brushes.Black
@@ -321,7 +351,7 @@ namespace BuildingRegulationReview.FireReview
             _table = table ?? (run == null ? null : ReviewTable.Build(run, freshness));
             _marks = _table == null ? new Dictionary<Guid, string>() : CurtainWallMarkNumbers.Assign(_table);
             _tree.Items.Clear();
-            _detail.Text = string.Empty;
+            ShowDetail(null);
 
             if (_table == null)
             {
@@ -331,9 +361,10 @@ namespace BuildingRegulationReview.FireReview
                 return;
             }
 
-            _verdict.Text = $"總狀態：{ReviewVerdictText.Label(_table.Verdict)}　（{_table.Counts.Text}）　" +
-                            $"檢討時間 {_table.Run.StartedAtUtc.ToLocalTime():yyyy-MM-dd HH:mm}　Run {_table.RunId.ToString("D").Substring(0, 8)}";
+            _verdict.Text = $"總狀態：{ReviewVerdictText.Label(_table.Verdict)}　{_table.Counts.Text}　" +
+                            $"檢討時間 {_table.Run.StartedAtUtc.ToLocalTime():yyyy-MM-dd HH:mm}";
             _verdict.Foreground = BrushOf(_table.Verdict);
+            _verdict.ToolTip = $"檢討批次 {_table.RunId:D}";
             _stale.Text = _table.IsStale || _table.StaleReasons.Count > 0
                 ? "需更新：" + string.Join("；", _table.StaleReasons) + "。請重新執行「開始檢討」。"
                 : string.Empty;
@@ -387,85 +418,109 @@ namespace BuildingRegulationReview.FireReview
             _ => ReviewTableGrouping.OpeningKind
         };
 
-        private string EntryText(ReviewTableEntry entry)
-        {
-            // 第79條之1 is a 區劃 too, so it reads as the 區劃's name rather than as an empty 類別
-            // （第79條之1文件 §5.1）.
-            var subject = entry.CheckType == ReviewCheckTypes.CompartmentArea ||
-                          entry.CheckType == ReviewCheckTypes.AreaExemption
-                ? entry.ZoneName ?? entry.ZoneId
-                : $"{entry.CategoryLabel}{(entry.TypeName == null ? string.Empty : "「" + entry.TypeName + "」")} {Shorten(entry.LocateUniqueIds.FirstOrDefault())}" +
-                  (entry.ZoneName == null ? string.Empty : "＠" + entry.ZoneName);
-            var number = CurtainWallMarkNumbers.Of(_marks, entry.ResultId);
-            return $"{entry.StatusText}　{(number == null ? string.Empty : number + "　")}{subject}　{entry.Message}";
-        }
+        private string EntryText(ReviewTableEntry entry) =>
+            ReviewEntryReport.Headline(entry, CurtainWallMarkNumbers.Of(_marks, entry.ResultId));
 
         private void ShowSelection()
         {
             UpdateButtons();
             var selected = (_tree.SelectedItem as TreeViewItem)?.Tag;
-            if (selected is ReviewTableEntry entry)
-            {
-                _detail.Text = Describe(entry);
-            }
+            if (selected is ReviewTableEntry entry && _table != null)
+                ShowDetail(ReviewEntryReport.Describe(_table, entry, CurtainWallMarkNumbers.Of(_marks, entry.ResultId)));
             else if (selected is ReviewTableSection section)
-            {
-                _detail.Text = $"{section.Title}\n狀態：{ReviewStatusText.Label(section.Status)}（總狀態 {ReviewVerdictText.Label(section.Verdict)}）\n統計：{section.Counts.Text}\n" +
-                               string.Join("\n", section.Groups.Select(g => "・" + g));
-            }
+                ShowDetail(ReviewEntryReport.Describe(section));
             else if (selected is ReviewTableGroup group)
-            {
-                _detail.Text = group.ToString();
-            }
+                ShowDetail(ReviewEntryReport.Describe(group));
+            else
+                ShowDetail(null);
         }
 
-        private string Describe(ReviewTableEntry entry)
+        /// <summary>
+        /// Renders the detail pane: a heading per section, then one label and one value per line. The
+        /// value is a read-only TextBox rather than a TextBlock so a Type name, a parameter's raw text
+        /// or an element id can be selected and pasted into Revit without retyping it.
+        /// </summary>
+        private void ShowDetail(IReadOnlyList<ReviewDetailSection> sections)
         {
-            var text = new StringBuilder();
-            text.AppendLine($"項目：{ReviewTable.Title(entry.CheckType)}");
-            if (CurtainWallMarkNumbers.Of(_marks, entry.ResultId) is string number)
-                text.AppendLine($"檢討圖號：{number}" +
-                                (entry.JunctionKind == CurtainWallJunctionKind.FloorToCurtainWall
-                                    ? $"　（層間帶立面視圖名稱含「{number}」）"
-                                    : "　（標註於檢討平面）"));
-            if (entry.ZoneName != null || entry.ZoneId != null) text.AppendLine($"區劃：{entry.ZoneName ?? entry.ZoneId}");
-            text.AppendLine($"類別：{entry.CategoryLabel}" + (entry.TypeName == null ? string.Empty : $"　Type：{entry.TypeName}"));
-            text.AppendLine($"狀態：{entry.StatusText}");
-            text.AppendLine($"實際值：{entry.ActualValue?.ToString() ?? "—"}");
-            text.AppendLine($"規定值：{entry.RequiredValue?.ToString() ?? "—"}");
-            text.AppendLine($"條文：{(string.IsNullOrWhiteSpace(entry.LegalReference) ? "—" : entry.LegalReference)}");
-            text.AppendLine($"規則：{entry.RuleId}　版本 {entry.RuleVersion}　（規則集 {_table.RuleSetId} {_table.RuleSetVersion}）");
-            text.AppendLine($"說明：{entry.Message}");
-            text.AppendLine($"元素：{string.Join("、", entry.LocateUniqueIds)}" + (entry.IsLinked ? "（連結模型）" : string.Empty));
-
-            if (entry.CurrentOverride is ReviewOverride current)
+            _detailBody.Children.Clear();
+            _detailText = sections == null ? string.Empty : ReviewEntryReport.ToText(sections);
+            if (sections == null)
             {
-                text.AppendLine();
-                text.AppendLine(current.IsActive ? "人工覆寫（生效中）" : "人工覆寫（需重新確認，未生效）");
-                text.AppendLine($"　{ReviewStatusText.Label(current.OriginalStatus)} → {ReviewStatusText.Label(current.OverriddenStatus)}");
-                text.AppendLine($"　操作者：{current.OverriddenBy}　時間：{current.OverriddenAtUtc.ToLocalTime():yyyy-MM-dd HH:mm}");
-                text.AppendLine($"　原因：{current.Reason}");
-                if (current.Comment != null) text.AppendLine($"　註解：{current.Comment}");
-                if (current.StandingReason != null) text.AppendLine($"　{current.StandingReason}");
+                UpdateButtons();
+                return;
             }
 
-            var history = _run?.Overrides.Where(o => o.ResultId == entry.ResultId && !o.IsCurrent).ToList();
-            if (history != null && history.Count > 0)
+            foreach (var section in sections)
             {
-                text.AppendLine();
-                text.AppendLine("覆寫紀錄：");
-                foreach (var old in history)
-                    text.AppendLine($"　{old.OverriddenAtUtc.ToLocalTime():yyyy-MM-dd HH:mm} {old.OverriddenBy}：{ReviewStatusText.Label(old.OverriddenStatus)}（{old.Reason}）— {old.StandingReason}");
+                if (section.IsEmpty) continue;
+                _detailBody.Children.Add(new TextBlock
+                {
+                    Text = section.Title,
+                    FontWeight = FontWeights.SemiBold,
+                    FontSize = DetailFontSize + 1,
+                    Foreground = HeadingBrush,
+                    Margin = new Thickness(0, _detailBody.Children.Count == 0 ? 8 : 14, 0, 4),
+                    TextWrapping = TextWrapping.Wrap
+                });
+                foreach (var line in section.Lines) _detailBody.Children.Add(DetailLine(line));
             }
 
-            if (entry.Result.Evidence.Count > 0)
+            UpdateButtons();
+        }
+
+        private static UIElement DetailLine(ReviewDetailLine line)
+        {
+            var row = new Grid { Margin = new Thickness(0, 1, 0, 1) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(LabelColumnWidth) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            row.Children.Add(new TextBlock
             {
-                text.AppendLine();
-                text.AppendLine("證據：");
-                foreach (var item in entry.Result.Evidence.Items) text.AppendLine($"　{item.Field} = {item.Value}");
+                Text = line.Label,
+                Foreground = MutedBrush,
+                FontSize = DetailFontSize,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 1, 8, 0)
+            });
+
+            var value = new TextBox
+            {
+                Text = line.Value,
+                IsReadOnly = true,
+                IsTabStop = false,
+                BorderThickness = new Thickness(0),
+                Background = Brushes.Transparent,
+                Padding = new Thickness(0),
+                TextWrapping = TextWrapping.Wrap,
+                FontSize = DetailFontSize,
+                FontWeight = line.Emphasis ? FontWeights.SemiBold : FontWeights.Normal,
+                FontFamily = new FontFamily("Microsoft JhengHei UI")
+            };
+            Grid.SetColumn(value, 1);
+            row.Children.Add(value);
+            return row;
+        }
+
+        private void CopyDetail()
+        {
+            if (_detailText.Length == 0)
+            {
+                _status.Text = "請先在左側選一個檢討項目，才有明細可以複製。";
+                _status.Foreground = PendingBrush;
+                return;
             }
 
-            return text.ToString();
+            try
+            {
+                Clipboard.SetText(_detailText);
+                _status.Text = "已複製此項目的明細。";
+                _status.Foreground = Brushes.Black;
+            }
+            catch (Exception exception)
+            {
+                _status.Text = "無法複製到剪貼簿：" + exception.Message;
+                _status.Foreground = FailBrush;
+            }
         }
 
         private ReviewTableEntry SelectedEntry => (_tree.SelectedItem as TreeViewItem)?.Tag as ReviewTableEntry;
@@ -639,11 +694,19 @@ namespace BuildingRegulationReview.FireReview
             _reconfirm.IsEnabled = !_busy && entry != null && candidates && entry.OverrideNeedsReconfirmation && !entry.IsStale;
             _withdraw.IsEnabled = !_busy && entry != null && candidates && entry.CurrentOverride != null;
             _remark.IsEnabled = !_busy && candidates && _run?.State == ReviewRunState.Completed;
+            _copy.IsEnabled = _detailText.Length > 0;
             _saveLog.IsEnabled = !_busy;
         }
 
         private static TextBlock Line(string text, Brush brush, bool bold = false) =>
-            new TextBlock { Text = text, Foreground = brush, FontWeight = bold ? FontWeights.SemiBold : FontWeights.Normal };
+            new TextBlock
+            {
+                Text = text,
+                Foreground = brush,
+                FontWeight = bold ? FontWeights.SemiBold : FontWeights.Normal,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 1, 0, 1)
+            };
 
         private static Brush BrushOf(ReviewVerdict verdict) => verdict switch
         {
@@ -661,8 +724,5 @@ namespace BuildingRegulationReview.FireReview
             ReviewStatus.NotRun => MutedBrush,
             _ => PendingBrush
         };
-
-        private static string Shorten(string uniqueId) =>
-            uniqueId == null ? string.Empty : uniqueId.Length <= 12 ? uniqueId : "…" + uniqueId.Substring(uniqueId.Length - 8);
     }
 }
