@@ -31,7 +31,7 @@ namespace BuildingRegulationReview
                 {
                     message = elementSource.StartsWith("Selection Set")
                         ? $"名稱為「{SelectionSetName}」的 Selection Set 內沒有牆或樓板元件。請確認其中已加入要納入檢討的牆／樓板，或先刪除/清空該 Selection Set 以改用自動判斷。"
-                        : "找不到外牆或樓板。請確認：牆類型的 Function（Identity Data）設為 Exterior，或自訂參數 Exterior Wall = Yes；" +
+                        : "找不到外牆或高於目前樓層的樓板。請確認：牆類型的 Function（Identity Data）設為 Exterior，或自訂參數 Exterior Wall = Yes；" +
                           "也可以先在模型中建立名稱為「" + SelectionSetName + "」的 Selection Set 指定要納入的牆與樓板。" +
                           "若目前視圖沒有裁剪範圍（Crop Region），請先裁剪至基地範圍再執行，以避免抓到不相關的元件。";
                     return Result.Failed;
@@ -69,22 +69,13 @@ namespace BuildingRegulationReview
                 if ((roadPoint - start).DotProduct(normal) < 0) normal = -normal;
                 var baseZ = GetViewElevation((ViewPlan)doc.ActiveView);
 
-                var triangles = new List<RCurve>();
-                foreach (var element in shadowElements)
-                    CollectProjectedTriangles(element.get_Geometry(new Options { DetailLevel = ViewDetailLevel.Fine }),
-                        Autodesk.Revit.DB.Transform.Identity, baseZ, normal, triangles);
-                if (triangles.Count == 0) { message = "選取物件沒有可運算的實體幾何。"; return Result.Failed; }
-
                 var tolerance = doc.Application.ShortCurveTolerance;
-                var shadow = RCurve.CreateBooleanUnion(triangles, tolerance)?.Where(c => c.IsClosed).ToArray() ?? Array.Empty<RCurve>();
-                if (shadow.Length == 0) { message = "Rhino 無法建立道路陰影封閉區域。"; return Result.Failed; }
+                var shadow = ProjectAndUnion(shadowElements, baseZ, normal, tolerance, out var shadowFailed);
+                if (shadow == null) { message = "選取物件沒有可運算的實體幾何。"; return Result.Failed; }
+                if (shadow.Length == 0) { message = UnionFailureMessage("道路陰影", shadowFailed); return Result.Failed; }
 
-                var footprintTriangles = new List<RCurve>();
-                foreach (var element in shadowElements)
-                    CollectProjectedTriangles(element.get_Geometry(new Options { DetailLevel = ViewDetailLevel.Fine }),
-                        Autodesk.Revit.DB.Transform.Identity, baseZ, XYZ.Zero, footprintTriangles);
-                var footprint = RCurve.CreateBooleanUnion(footprintTriangles, tolerance)?.Where(c => c.IsClosed).ToArray() ?? Array.Empty<RCurve>();
-                if (footprint.Length == 0) { message = "Rhino 無法建立建物平面投影封閉區域。"; return Result.Failed; }
+                var footprint = ProjectAndUnion(shadowElements, baseZ, XYZ.Zero, tolerance, out var footprintFailed);
+                if (footprint == null || footprint.Length == 0) { message = UnionFailureMessage("建物平面投影", footprintFailed); return Result.Failed; }
 
                 var roadWidth = UnitUtils.ConvertToInternalUnits(options.RoadWidthMeters, UnitTypeId.Meters);
                 var roadBoundary = Rectangle(start, end, normal, roadWidth);
@@ -149,7 +140,11 @@ namespace BuildingRegulationReview
 
             var outline = activeView.CropBoxActive ? GetPlanOutline(activeView) : null;
             var walls = CollectByCategory<Wall>(document, outline).Where(wall => IsExteriorWall(document, wall));
-            var floors = CollectByCategory<Floor>(document, outline);
+            // 頂面不高於檢討基準樓層的樓板（基地、道路、1F 地坪等）不會產生超出建物投影的陰影，
+            // 且彼此大面積重疊、共用邊界，會使 Rhino 布林聯集失敗，故排除
+            var baseZ = GetViewElevation(activeView);
+            var floors = CollectByCategory<Floor>(document, outline)
+                .Where(floor => floor.get_BoundingBox(null) is BoundingBoxXYZ box && box.Max.Z > baseZ + document.Application.ShortCurveTolerance);
             var combined = walls.Cast<Element>().Concat(floors.Cast<Element>()).ToList();
             return (combined, "自動判斷");
         }
@@ -200,10 +195,52 @@ namespace BuildingRegulationReview
             return points.Max(p => (p.X - origin.X) * normal.X + (p.Y - origin.Y) * normal.Y);
         }
 
+        /// <summary>
+        /// 先逐一元件聯集，再合併各元件結果，避免上萬個三角形一次聯集時被單一退化情形拖垮。
+        /// 回傳 null 表示沒有任何可投影的三角形；空陣列表示 Rhino 聯集失敗。
+        /// </summary>
+        private static RCurve[] ProjectAndUnion(IEnumerable<Element> elements, double baseZ, XYZ direction,
+            double tolerance, out List<ElementId> failedElements)
+        {
+            failedElements = new List<ElementId>();
+            var pieces = new List<RCurve>();
+            foreach (var element in elements)
+            {
+                var triangles = new List<RCurve>();
+                CollectProjectedTriangles(element.get_Geometry(new Options { DetailLevel = ViewDetailLevel.Fine }),
+                    Autodesk.Revit.DB.Transform.Identity, baseZ, direction, triangles);
+                if (triangles.Count == 0) continue;
+                var union = UnionClosed(triangles, tolerance);
+                if (union.Length > 0) { pieces.AddRange(union); continue; }
+                // 單一元件聯集失敗時，改以原始三角形參與最終聯集，並記錄元件以便失敗時回報
+                failedElements.Add(element.Id);
+                pieces.AddRange(triangles);
+            }
+            return pieces.Count == 0 ? null : UnionClosed(pieces, tolerance);
+        }
+
+        private static RCurve[] UnionClosed(List<RCurve> curves, double tolerance)
+        {
+            if (curves.Count == 1) return curves[0].IsClosed ? curves.ToArray() : Array.Empty<RCurve>();
+            return RCurve.CreateBooleanUnion(curves, tolerance)?.Where(c => c.IsClosed).ToArray() ?? Array.Empty<RCurve>();
+        }
+
+        private static string UnionFailureMessage(string regionName, List<ElementId> failedElements)
+        {
+            var message = $"Rhino 無法建立{regionName}封閉區域。";
+            if (failedElements.Count == 0) return message;
+            var ids = string.Join(", ", failedElements.Take(20).Select(id => id.ToString()));
+            return message + $"\n以下元件的投影無法合併（共 {failedElements.Count} 個），可在類型篩選視窗排除其類型後重試：\n{ids}" +
+                   (failedElements.Count > 20 ? " …" : "");
+        }
+
         private static void CollectProjectedTriangles(GeometryElement geometry, Autodesk.Revit.DB.Transform transform,
             double baseZ, XYZ direction, ICollection<RCurve> result)
         {
             if (geometry == null) return;
+            // 投影沿 view 方向：點沿此向量移動時投影位置不變。實體的投影等於「朝向 view 的面」的投影聯集，
+            // 只取這些面可去掉背面（例如樓板底面）與頂面重疊的三角形，並讓三角形數量減半
+            var view = new XYZ(-direction.X / Slope, -direction.Y / Slope, 1);
             foreach (var obj in geometry)
             {
                 if (obj is GeometryInstance instance)
@@ -215,10 +252,14 @@ namespace BuildingRegulationReview
                     for (var i = 0; i < mesh.NumTriangles; i++)
                     {
                         var tri = mesh.get_Triangle(i);
+                        var vertices = new[] { tri.get_Vertex(0), tri.get_Vertex(1), tri.get_Vertex(2) };
+                        // 完全位於基準面以下的三角形以垂直方向投影（高度被夾為 0）
+                        var allBelowBase = vertices.All(v => transform.OfPoint(v).Z <= baseZ);
+                        if (!FacesToward(face, vertices, transform, allBelowBase ? XYZ.BasisZ : view)) continue;
                         var points = new List<Point3d>(4);
                         for (var j = 0; j < 3; j++)
                         {
-                            var p = transform.OfPoint(tri.get_Vertex(j));
+                            var p = transform.OfPoint(vertices[j]);
                             var h = Math.Max(0, p.Z - baseZ);
                             points.Add(new Point3d(p.X + direction.X * h / Slope, p.Y + direction.Y * h / Slope, 0));
                         }
@@ -230,6 +271,24 @@ namespace BuildingRegulationReview
                     }
                 }
             }
+        }
+
+        private static bool FacesToward(Face face, XYZ[] vertices, Autodesk.Revit.DB.Transform transform, XYZ view)
+        {
+            // 以三角形本身的法向量判斷（曲面輪廓處較準確），方向則以面的外法向量校正
+            var triNormal = (vertices[1] - vertices[0]).CrossProduct(vertices[2] - vertices[0]);
+            if (triNormal.IsZeroLength()) return false;
+            XYZ outward;
+            if (face is PlanarFace planar) outward = planar.FaceNormal;
+            else
+            {
+                var centroid = (vertices[0] + vertices[1] + vertices[2]) / 3;
+                var uv = face.Project(centroid)?.UVPoint;
+                if (uv == null) return true; // 無法判斷時保守保留
+                outward = face.ComputeNormal(uv);
+            }
+            if (triNormal.DotProduct(outward) < 0) triNormal = -triNormal;
+            return transform.OfVector(triNormal).Normalize().DotProduct(view) > 1e-9;
         }
 
         private static CurveLoop Rectangle(XYZ a, XYZ b, XYZ n, double width)
