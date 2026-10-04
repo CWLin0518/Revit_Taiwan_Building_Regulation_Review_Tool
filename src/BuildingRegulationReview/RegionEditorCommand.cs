@@ -201,7 +201,7 @@ namespace BuildingRegulationReview
 
             if (snapshot.Value.IsEmpty)
             {
-                TaskDialog.Show(DialogTitle, "這個 Area Plan 的範圍內沒有可用的牆、柱或輔助線，無法建立區劃。");
+                TaskDialog.Show(DialogTitle, "這個 Area Plan 的範圍內沒有可用的牆、柱、房間分隔線或輔助線，無法建立區劃。");
                 return null;
             }
 

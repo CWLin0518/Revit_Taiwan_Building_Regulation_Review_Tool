@@ -14,16 +14,18 @@ public sealed class PlanGeometryExtractionOptions
         bool includeWallCenterlines = true,
         bool includeColumnOutlines = true,
         bool includeAuxiliaryLines = true,
+        bool includeRoomSeparationLines = true,
         bool includeLinkedModels = false,
         bool restrictToViewExtent = true,
         GeometryTolerance? tolerance = null)
     {
-        if (!includeWallCenterlines && !includeColumnOutlines && !includeAuxiliaryLines)
+        if (!includeWallCenterlines && !includeColumnOutlines && !includeAuxiliaryLines && !includeRoomSeparationLines)
             throw new ArgumentException("At least one geometry source must be enabled.", nameof(includeWallCenterlines));
 
         IncludeWallCenterlines = includeWallCenterlines;
         IncludeColumnOutlines = includeColumnOutlines;
         IncludeAuxiliaryLines = includeAuxiliaryLines;
+        IncludeRoomSeparationLines = includeRoomSeparationLines;
         IncludeLinkedModels = includeLinkedModels;
         RestrictToViewExtent = restrictToViewExtent;
         Tolerance = tolerance ?? GeometryTolerance.Default;
@@ -32,6 +34,9 @@ public sealed class PlanGeometryExtractionOptions
     public bool IncludeWallCenterlines { get; }
     public bool IncludeColumnOutlines { get; }
     public bool IncludeAuxiliaryLines { get; }
+
+    /// <summary>Room Separation lines on this level — the only edge a 挑空 or other wall-less 區劃 has.</summary>
+    public bool IncludeRoomSeparationLines { get; }
 
     /// <summary>Links stay read-only references; write-back always happens in the host document.</summary>
     public bool IncludeLinkedModels { get; }
@@ -48,6 +53,7 @@ public sealed class PlanGeometryExtractionOptions
             case GeometrySourceKind.WallCenterline: return IncludeWallCenterlines;
             case GeometrySourceKind.ColumnOutline: return IncludeColumnOutlines;
             case GeometrySourceKind.AuxiliaryLine: return IncludeAuxiliaryLines;
+            case GeometrySourceKind.RoomSeparationLine: return IncludeRoomSeparationLines;
             default: throw new ArgumentOutOfRangeException(nameof(kind));
         }
     }

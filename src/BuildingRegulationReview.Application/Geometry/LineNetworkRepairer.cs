@@ -34,6 +34,14 @@ public sealed class LineNetworkRepairer
     /// </summary>
     public const double GapReportingFactor = 10.0;
 
+    /// <summary>
+    /// How far a dangling Room Separation end may travel to reach a wall centreline. A separator is
+    /// drawn for rooms, so it is usually snapped to the wall face — half a wall thickness short of
+    /// the centreline the network runs on, well past the general extension tolerance. 300 mm covers
+    /// the half of a 600 mm wall; only wall centrelines are accepted as the target.
+    /// </summary>
+    public static readonly double RoomSeparatorWallReachFeet = PlanUnits.MillimetersToFeet(300.0);
+
     public Result<PlanLineNetwork> Repair(PlanGeometrySnapshot snapshot, DateTime? repairedAtUtc = null)
     {
         if (snapshot is null) throw new ArgumentNullException(nameof(snapshot));
@@ -680,13 +688,41 @@ public sealed class LineNetworkRepairer
                 var dirY = (origin.Y - far.Y) / length;
 
                 if (TryExtend(nodeId, edge, origin, dirX, dirY, incidence)) continue;
+                if (IsRoomSeparator(edge) && !TouchesWall(edge.OtherNode(nodeId), incidence) &&
+                    TryExtend(nodeId, edge, origin, dirX, dirY, incidence, RoomSeparatorWallReachFeet, IsWall)) continue;
 
                 ReportUnreachableEnd(nodeId, edge, origin);
             }
         }
 
-        private bool TryExtend(int nodeId, WorkEdge edge, Point2D origin, double dirX, double dirY, Dictionary<int, List<WorkEdge>> incidence)
+        private static bool IsRoomSeparator(WorkEdge edge) =>
+            edge.Sources.All(s => s.Kind == GeometrySourceKind.RoomSeparationLine);
+
+        private static bool IsWall(WorkEdge edge) =>
+            edge.Sources.Any(s => s.Kind == GeometrySourceKind.WallCenterline);
+
+        // A separator snapped to a wall's far face is split at the centreline, leaving a stub that
+        // starts on the wall and points away from it. That stub already met its wall; letting it
+        // reach on would bridge to a parallel wall behind (結構牆與粉刷牆分開建模、管道間雙牆).
+        private static bool TouchesWall(int nodeId, Dictionary<int, List<WorkEdge>> incidence) =>
+            incidence.TryGetValue(nodeId, out var edges) && edges.Any(e => !e.Removed && IsWall(e));
+
+        /// <param name="reach">How far the end may travel; the general extension tolerance when omitted.</param>
+        /// <param name="acceptTarget">
+        /// Restricts which lines the end may land on. When given, only a line is a target — an
+        /// existing junction is not, since it need not lie on an accepted line.
+        /// </param>
+        private bool TryExtend(
+            int nodeId,
+            WorkEdge edge,
+            Point2D origin,
+            double dirX,
+            double dirY,
+            Dictionary<int, List<WorkEdge>> incidence,
+            double? reach = null,
+            Func<WorkEdge, bool>? acceptTarget = null)
         {
+            var limit = reach ?? _tolerance.GapExtensionFeet;
             var bestDistance = double.MaxValue;
             var bestNode = -1;
             WorkEdge? bestTarget = null;
@@ -696,12 +732,13 @@ public sealed class LineNetworkRepairer
             // the node count down and avoids splitting a line a hair away from its own end.
             foreach (var pair in incidence)
             {
+                if (acceptTarget is not null) break;
                 if (pair.Key == nodeId || pair.Value.Count == 0) continue;
                 if (pair.Value.Contains(edge)) continue;
 
                 var target = _nodes[pair.Key];
                 var along = ((target.X - origin.X) * dirX) + ((target.Y - origin.Y) * dirY);
-                if (along <= GeometryTolerance.ZeroLengthFeet || along > _tolerance.GapExtensionFeet) continue;
+                if (along <= GeometryTolerance.ZeroLengthFeet || along > limit) continue;
 
                 var lateral = Math.Abs(((target.X - origin.X) * -dirY) + ((target.Y - origin.Y) * dirX));
                 if (lateral > _tolerance.SnapFeet) continue;
@@ -719,8 +756,9 @@ public sealed class LineNetworkRepairer
             {
                 if (candidate.Removed || ReferenceEquals(candidate, edge)) continue;
                 if (candidate.StartNode == nodeId || candidate.EndNode == nodeId) continue;
+                if (acceptTarget is not null && !acceptTarget(candidate)) continue;
 
-                if (!SegmentGeometry.TryRayHitSegment(origin, dirX, dirY, _tolerance.GapExtensionFeet,
+                if (!SegmentGeometry.TryRayHitSegment(origin, dirX, dirY, limit,
                         candidate.Start, candidate.End, out var distance, out _, out var hit))
                 {
                     continue;
@@ -753,7 +791,9 @@ public sealed class LineNetworkRepairer
                 _nodes[targetNode],
                 bestDistance,
                 edge.Sources,
-                $"沿原方向延伸 {Mm(bestDistance)} mm 以接合缺口（容差 {Mm(_tolerance.GapExtensionFeet)} mm）。"));
+                acceptTarget is null
+                    ? $"沿原方向延伸 {Mm(bestDistance)} mm 以接合缺口（容差 {Mm(_tolerance.GapExtensionFeet)} mm）。"
+                    : $"房間分隔線沿原方向延伸 {Mm(bestDistance)} mm 接上牆中心線（分隔線多畫在牆面，上限 {Mm(limit)} mm）。"));
             return true;
         }
 
@@ -823,7 +863,9 @@ public sealed class LineNetworkRepairer
                     origin,
                     nearest,
                     nearestSources,
-                    $"端點距離最近的線 {Mm(nearest)} mm，超過 {Mm(_tolerance.GapExtensionFeet)} mm 的延伸容差，需人工確認要如何接合。"));
+                    $"端點距離最近的線 {Mm(nearest)} mm，超過 {Mm(_tolerance.GapExtensionFeet)} mm 的延伸容差" +
+                    (IsRoomSeparator(edge) ? $"（房間分隔線另可延伸 {Mm(RoomSeparatorWallReachFeet)} mm 接上牆中心線，亦未接上）" : "") +
+                    "，需人工確認要如何接合。"));
                 return;
             }
 

@@ -175,13 +175,14 @@ public sealed class PlanGeometrySnapshotTests
 public sealed class PlanGeometryExtractionRequestTests
 {
     [Fact]
-    public void Default_options_read_host_walls_columns_and_aux_lines_only()
+    public void Default_options_read_host_walls_columns_aux_lines_and_room_separators_only()
     {
         var options = PlanGeometryExtractionOptions.Default;
 
         Assert.True(options.Includes(GeometrySourceKind.WallCenterline));
         Assert.True(options.Includes(GeometrySourceKind.ColumnOutline));
         Assert.True(options.Includes(GeometrySourceKind.AuxiliaryLine));
+        Assert.True(options.Includes(GeometrySourceKind.RoomSeparationLine));
         Assert.False(options.IncludeLinkedModels);
         Assert.True(options.RestrictToViewExtent);
         Assert.Same(GeometryTolerance.Default, options.Tolerance);
@@ -190,7 +191,17 @@ public sealed class PlanGeometryExtractionRequestTests
     [Fact]
     public void Options_reject_an_extraction_with_no_source_enabled()
     {
-        Assert.Throws<ArgumentException>(() => new PlanGeometryExtractionOptions(false, false, false));
+        Assert.Throws<ArgumentException>(() => new PlanGeometryExtractionOptions(false, false, false, false));
+    }
+
+    [Fact]
+    public void Room_separators_alone_are_enough_to_extract()
+    {
+        // A 挑空 has no wall: an extraction of nothing but Room Separation lines is a real request.
+        var options = new PlanGeometryExtractionOptions(false, false, false, includeRoomSeparationLines: true);
+
+        Assert.True(options.Includes(GeometrySourceKind.RoomSeparationLine));
+        Assert.False(options.Includes(GeometrySourceKind.WallCenterline));
     }
 
     [Fact]

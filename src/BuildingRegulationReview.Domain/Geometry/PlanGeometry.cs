@@ -55,7 +55,11 @@ public enum GeometrySourceKind
 {
     WallCenterline,
     ColumnOutline,
-    AuxiliaryLine
+    AuxiliaryLine,
+
+    // Appended, not inserted: the kind is stored as its integer in the package's plan geometry.
+    // A 挑空 has no wall around it, so its 區劃 edge is drawn as a Room Separation line instead.
+    RoomSeparationLine
 }
 
 public sealed class SourceRef : IEquatable<SourceRef>

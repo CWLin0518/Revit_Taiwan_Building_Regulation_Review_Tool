@@ -10,13 +10,17 @@ namespace BuildingRegulationReview.Revit.Geometry;
 
 // P2-T02: the read-only Revit side of IPlanGeometryExtractor (spec 10.1). It opens no transaction
 // and changes nothing in the model. Its job is narrow on purpose: resolve the Area Plan's scope,
-// read wall centrelines, column outlines and auxiliary lines, and hand plan points plus their
+// read wall centrelines, column outlines, auxiliary lines and Room Separation lines, and hand plan points plus their
 // source element to PlanGeometryBuilder. Repair belongs to P2-T03, not here.
 public sealed class RevitPlanGeometryExtractor : IPlanGeometryExtractor
 {
     // A link element only counts when the extraction plane actually passes through it. The slack
     // keeps a slab-thickness difference between host and link levels from dropping a whole wall.
     private static readonly double LinkPlaneSlackFeet = PlanUnits.MillimetersToFeet(50.0);
+
+    // A Room Separation line sits on its level's sketch plane; this is how far off that plane one may
+    // be and still count as drawn on the level, when the line is not tied to the level by id.
+    private static readonly double SketchPlaneSlackFeet = PlanUnits.MillimetersToFeet(1.0);
 
     private static readonly BuiltInCategory[] ColumnCategories =
     {
@@ -78,6 +82,7 @@ public sealed class RevitPlanGeometryExtractor : IPlanGeometryExtractor
             PlanTransform2D.Identity);
 
         AddAuxiliaryLines(view, options, builder);
+        AddRoomSeparationLines(view, level, options, builder);
 
         if (options.IncludeLinkedModels)
             AddLinkedGeometry(view, options, builder, cutElevation);
@@ -216,6 +221,82 @@ public sealed class RevitPlanGeometryExtractor : IPlanGeometryExtractor
 
         if (skippedByStyle > 0)
             builder.AddWarning($"已略過 {skippedByStyle} 條線型不在輔助線清單中的線段。");
+    }
+
+    // A 挑空 is a 區劃 with no wall around it: its edge is the Room Separation line the designer drew
+    // to split the void from the floor (垂直區劃文件 §3.6). Host only — a link's separators answer
+    // that link's rooms, and the link reader decides membership by cutting the plane through an
+    // element's height, which a flat line on the floor never meets.
+    private void AddRoomSeparationLines(ViewPlan view, Level level, PlanGeometryExtractionOptions options, PlanGeometryBuilder builder)
+    {
+        if (!options.IncludeRoomSeparationLines) return;
+
+        var hostDocumentUniqueId = RevitDocumentIdentity.Of(_document);
+        var onLevel = new FilteredElementCollector(_document)
+            .OfCategory(BuiltInCategory.OST_RoomSeparationLines)
+            .WhereElementIsNotElementType()
+            .OfType<CurveElement>()
+            .Where(x => x.GeometryCurve is not null && IsOnLevel(x, level))
+            .ToList();
+        if (onLevel.Count == 0) return;
+
+        // Same rule as walls: with the view scope on, what the Area Plan does not show is not read —
+        // outside the crop, another phase or design option. A hidden <房間分隔> subcategory is the one
+        // case worth saying out loud: it silently drops every 挑空 on the floor.
+        var lines = onLevel;
+        if (options.RestrictToViewExtent)
+        {
+            if (IsHidden(view, BuiltInCategory.OST_Lines) || IsHidden(view, BuiltInCategory.OST_RoomSeparationLines))
+            {
+                builder.AddWarning($"本樓層有 {onLevel.Count} 條房間分隔線，但此 Area Plan 在可見性／圖形中隱藏了「線」或其子品類「<房間分隔>」，已全部略過；若挑空以房間分隔線圍出，請將其顯示。");
+                return;
+            }
+
+            var visible = new HashSet<ElementId>(new FilteredElementCollector(_document, view.Id)
+                .OfCategory(BuiltInCategory.OST_RoomSeparationLines)
+                .WhereElementIsNotElementType()
+                .ToElementIds());
+            lines = onLevel.Where(x => visible.Contains(x.Id)).ToList();
+        }
+
+        foreach (var line in lines)
+        {
+            try
+            {
+                builder.AddPolyline(
+                    RevitPlanShapeReader.Flatten(line.GeometryCurve),
+                    new SourceRef(hostDocumentUniqueId, line.UniqueId, GeometrySourceKind.RoomSeparationLine));
+            }
+            catch (Autodesk.Revit.Exceptions.ApplicationException exception)
+            {
+                builder.AddWarning($"房間分隔線（Id {line.Id}）無法讀取，已略過：{exception.Message}");
+            }
+        }
+    }
+
+    private static bool IsHidden(View view, BuiltInCategory category)
+    {
+        try
+        {
+            return view.GetCategoryHidden(new ElementId(category));
+        }
+        catch (Autodesk.Revit.Exceptions.ApplicationException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsOnLevel(CurveElement line, Level level)
+    {
+        if (line.LevelId == level.Id) return true;
+        if (line.LevelId != ElementId.InvalidElementId) return false;
+
+        Plane? plane;
+        try { plane = line.SketchPlane?.GetPlane(); }
+        catch (Autodesk.Revit.Exceptions.ApplicationException) { return false; }
+        return plane is not null &&
+               Math.Abs(Math.Abs(plane.Normal.Z) - 1.0) < 1e-6 &&
+               Math.Abs(plane.Origin.Z - level.Elevation) <= SketchPlaneSlackFeet;
     }
 
     private bool MatchesAuxiliaryStyle(CurveElement curveElement)

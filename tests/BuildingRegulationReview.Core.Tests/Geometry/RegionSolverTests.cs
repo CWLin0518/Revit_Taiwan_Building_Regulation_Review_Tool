@@ -61,6 +61,89 @@ public class RegionSolverTests
     }
 
     [Fact]
+    public void RoomSeparationLinesCutAnAtriumOutOfAWalledFloor()
+    {
+        // A 挑空 in the corner of a floor: walls on two sides, Room Separation lines on the other two.
+        // The separators must close it into a face of its own so it can be drawn as one 區劃.
+        var separators = new[]
+        {
+            new Segment2D(new Point2D(0, 12), new Point2D(8, 12), new SourceRef("doc", "RS-S", GeometrySourceKind.RoomSeparationLine)),
+            new Segment2D(new Point2D(8, 12), new Point2D(8, 20), new SourceRef("doc", "RS-E", GeometrySourceKind.RoomSeparationLine))
+        };
+
+        var map = Succeeds(Solve(Rectangle(0, 0, 20, 20, "W").Concat(separators)));
+
+        Assert.Equal(2, map.Faces.Count);
+        var atrium = Assert.IsType<PlanFace>(map.FaceAt(new Point2D(4, 16)));
+        var floor = Assert.IsType<PlanFace>(map.FaceAt(new Point2D(15, 5)));
+        Assert.Equal(64.0, atrium.NetAreaSquareFeet, 9);
+        Assert.Equal(336.0, floor.NetAreaSquareFeet, 9);
+        Assert.True(map.AreAdjacent(atrium.Id, floor.Id));
+    }
+
+    [Fact]
+    public void RoomSeparationLinesSnappedToTheWallFaceStillReachTheCentreline()
+    {
+        // Drawn for rooms, a separator stops at the wall face: ~100 mm short of the centreline, past
+        // the 50 mm general tolerance. It may still travel on to the wall it was snapped to.
+        var face = PlanUnits.MillimetersToFeet(100.0);
+        var separators = new[]
+        {
+            RoomSeparator(face, 12, 8, 12, "RS-S"),
+            RoomSeparator(8, 12, 8, 20 - face, "RS-E")
+        };
+
+        var map = Succeeds(Solve(Rectangle(0, 0, 20, 20, "W").Concat(separators)));
+
+        Assert.Equal(2, map.Faces.Count);
+        Assert.Equal(64.0, Assert.IsType<PlanFace>(map.FaceAt(new Point2D(4, 16))).NetAreaSquareFeet, 9);
+    }
+
+    [Fact]
+    public void TheWiderReachOfARoomSeparatorOnlyLandsOnAWall()
+    {
+        // RS-S points straight at RS-E, 100 mm short. Neither is a wall, so the general tolerance still
+        // decides and the gap stays open for the user rather than being closed by the allowance.
+        var gap = PlanUnits.MillimetersToFeet(100.0);
+        var snapshot = new PlanGeometrySnapshot(PackageId, "host-doc", "level-1",
+            Rectangle(0, 0, 20, 20, "W").Concat(new[]
+            {
+                RoomSeparator(0, 12, 8, 12, "RS-S"),
+                RoomSeparator(8 + gap, 11, 8 + gap, 20, "RS-E")
+            }),
+            Tolerance);
+
+        var network = new LineNetworkRepairer().Repair(snapshot, SolvedAt);
+
+        Assert.True(network.IsSuccess);
+        Assert.Empty(network.Value.RepairsOfKind(NetworkRepairKind.GapExtended));
+        Assert.Contains(network.Value.Issues, i => i.Kind == NetworkIssueKind.GapBeyondTolerance);
+    }
+
+    [Fact]
+    public void ARoomSeparatorStubPastTheCentrelineDoesNotBridgeToAParallelWall()
+    {
+        // Snapped to the far face of the west wall, RS-S crosses its centreline and leaves a ~100 mm
+        // stub outside. A second wall runs 180 mm further out (結構牆與粉刷牆分開建模). The stub has
+        // already met its wall, so it must not reach on to the one behind.
+        var face = PlanUnits.MillimetersToFeet(100.0);
+        var behind = PlanUnits.MillimetersToFeet(280.0);
+        var snapshot = new PlanGeometrySnapshot(PackageId, "host-doc", "level-1",
+            Rectangle(0, 0, 20, 20, "W").Concat(new[]
+            {
+                Seg(-behind, 0, -behind, 20, "W2"),
+                RoomSeparator(8, 12, -face, 12, "RS-S"),
+                RoomSeparator(8, 12, 8, 20, "RS-E")
+            }),
+            Tolerance);
+
+        var network = new LineNetworkRepairer().Repair(snapshot, SolvedAt);
+
+        Assert.True(network.IsSuccess, network.IsFailure ? network.Error.ToString() : string.Empty);
+        Assert.Empty(network.Value.RepairsOfKind(NetworkRepairKind.GapExtended));
+    }
+
+    [Fact]
     public void TurnsAnIslandIntoAHoleOfTheFaceAroundIt()
     {
         var map = Succeeds(Solve(Rectangle(0, 0, 20, 20, "OUT").Concat(Rectangle(5, 5, 5, 5, "IN"))));
@@ -354,6 +437,12 @@ public class RegionSolverTests
             new Point2D(x1, y1),
             new Point2D(x2, y2),
             new SourceRef("doc", element, GeometrySourceKind.WallCenterline));
+
+    private static Segment2D RoomSeparator(double x1, double y1, double x2, double y2, string element) =>
+        new Segment2D(
+            new Point2D(x1, y1),
+            new Point2D(x2, y2),
+            new SourceRef("doc", element, GeometrySourceKind.RoomSeparationLine));
 
     private static Result<PlanRegionMap> Solve(IEnumerable<Segment2D> segments)
     {

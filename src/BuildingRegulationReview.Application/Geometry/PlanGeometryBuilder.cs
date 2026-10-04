@@ -120,7 +120,7 @@ public sealed class PlanGeometryBuilder
         {
             return Result.Failure<PlanGeometrySnapshot>(new Error(
                 "geometry.extraction.empty",
-                "在此 Area Plan 的範圍內找不到任何可用的牆、柱或輔助線，無法建立區劃線網。",
+                "在此 Area Plan 的範圍內找不到任何可用的牆、柱、房間分隔線或輔助線，無法建立區劃線網。",
                 BuildAccountingDetail()));
         }
 
