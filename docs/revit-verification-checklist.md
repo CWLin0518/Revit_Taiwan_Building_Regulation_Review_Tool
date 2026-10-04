@@ -18,10 +18,10 @@
 
 | 項目 | 狀態 |
 | --- | --- |
-| 部署版本 | `$APPDATA/Autodesk/Revit/Addins/2024/BuildingRegulationReview/` 八個 dll／pdb 為 **2026-09-28 19:36**（含檢討視窗的可讀性改版與篩選列） |
-| 程式碼 | 自該次部署後未再變更，**A～E 組都不必重新部署，但要重開 Revit 2024 才會載到新版** |
+| 部署版本 | `$APPDATA/Autodesk/Revit/Addins/2024/BuildingRegulationReview/` 四個 dll 為 **2026-09-28 20:37**（含檢討視窗的可讀性改版、篩選列，以及「防火參數一鍵建立」按鈕）；`Data\fire-review-shared-params.txt` 為 2,969 bytes（已與主檔逐位元組核對，SHA256 相同） |
+| 程式碼 | 自該次部署後未再變更，**A～F 組都不必重新部署，但要重開 Revit 2024 才會載到新版** |
 | 重新部署方式 | 先關掉 Revit，再於 PowerShell 執行 `& "<repo>\scripts\install-revit-2024.ps1"`（**不要用 `redeploy.bat`**，它有 `pause` 會卡住）；換版與否看 `.dll`／`.pdb` 的 `LastWriteTime`，不要只看 bytes |
-| 測試基線 | 1792 條全通過、0 警告。**但 `BuildingRegulationReview.Revit` 與 WPF 面板零測試覆蓋**——這份清單上絕大多數項目就是因為這個原因只能靠實機驗 |
+| 測試基線 | 1829 條全通過、0 警告。**但 `BuildingRegulationReview.Revit` 與 WPF 面板零測試覆蓋**——這份清單上絕大多數項目就是因為這個原因只能靠實機驗 |
 
 ---
 
