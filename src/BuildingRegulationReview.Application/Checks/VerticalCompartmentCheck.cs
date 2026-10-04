@@ -409,10 +409,10 @@ public static class VerticalCompartmentCheck
     /// 第3項 for one 挑空 (文件 §3.6). No rule runs: 第3項 is a classification rather than a
     /// requirement, so the judgement is <see cref="AtriumExemption.For"/>'s and the result is
     /// attributed to the rule set itself, the same shape <see cref="Withhold"/> and
-    /// <see cref="Unresolved"/> take. There are only three states — 免除成立 is 人工覆核 because the
-    /// 連通範圍's own 區劃分隔 is not in the model (決議 25; its 面積 goes back to the 區劃面積 rules,
-    /// 決議 32), a gap is 資料不足, and neither is 不適用. There is no 符合 and no 未符合: failing 第3項 is not a violation, it only means 第1項
-    /// applies as usual and the existing boundary rules review it.
+    /// <see cref="Unresolved"/> take. There are only three states — 免除成立 is 符合, the 連通區劃's
+    /// area and separation being reviewed by the 區劃面積, 構件防火時效 and 防火門窗 results (決議 39),
+    /// a gap is 資料不足, and neither is 不適用. There is no 未符合: failing 第3項 is not a violation, it
+    /// only means 第1項 applies as usual and the existing boundary rules review it.
     /// </summary>
     private static VerticalCompartmentFinding Atrium(
         CandidateSet set,
@@ -444,7 +444,11 @@ public static class VerticalCompartmentCheck
         var supplied = inputs.Context.Building.Concat(inputs.Context.ForZone(zone.ZoneId)).ToList();
         var facts = AtriumExemptionFacts.Read(supplied);
         var exemption = facts.Exemption;
-        var status = exemption.Holds ? ReviewStatus.ManualReview
+        // 免除成立 is 符合 (決議 39, replacing 決議 25's 人工覆核): what 第3項 leaves to check — the
+        // 連通區劃's area and its separation from the rest — is reviewed elsewhere in the same run, by
+        // the 區劃面積 rules (決議 32) and by the boundary walls and 防火設備 of its 區劃, 阻熱性
+        // included (決議 38). Whether the design complies is read off those results, not this one.
+        var status = exemption.Holds ? ReviewStatus.Pass
             : exemption.IsUndecided ? ReviewStatus.InsufficientData
             : ReviewStatus.NotApplicable;
 
@@ -452,7 +456,7 @@ public static class VerticalCompartmentCheck
             ? $"{subject}：{exemption.Description}，得不受第1項單獨區劃分隔之限制。" +
               "免除成立後此挑空不再是第79條之2之垂直區劃：其連通區劃之合計樓地板面積改依第79條" +
               "（所跨樓層含第十一層以上者並依第83條）檢討，見區劃面積結果；連通範圍與其他部分之區劃分隔" +
-              "（一小時以上防火時效，防火設備具一小時以上阻熱性）需人工覆核。"
+              "（一小時以上防火時效之牆壁、具一小時以上阻熱性之防火設備）見各區劃之構件防火時效與防火門窗結果。"
             : exemption.IsUndecided
                 ? $"{subject}：{exemption.Description}，第3項之免除資料不足。"
                 : $"{subject}：{exemption.Description}，不適用第3項之免除。" +
@@ -470,8 +474,14 @@ public static class VerticalCompartmentCheck
             },
             InputEvidence(supplied));
 
+        // A 符合 carries what was compared: the 款 that holds, against 「第一款或第二款」.
+        var actual = exemption.Holds
+            ? ReviewValue.OfText(exemption.Clause == AtriumExemptionClause.FirstClause ? "第一款" : "第二款")
+            : null;
+        var required = exemption.Holds ? ReviewValue.OfText("第一款或第二款") : null;
+
         var result = new ReviewResult(resultId, runId, set.PackageId, ReviewCheckTypes.VerticalCompartment,
-            zone.AreaUniqueIds, zone.ZoneIdText, status, null, null,
+            zone.AreaUniqueIds, zone.ZoneIdText, status, actual, required,
             info.RuleSetId, info.Version, AtriumLegalReference, message, evidence);
 
         return new VerticalCompartmentFinding(requirement, result, element, null, null, null, null, null, errorCode, exemption);

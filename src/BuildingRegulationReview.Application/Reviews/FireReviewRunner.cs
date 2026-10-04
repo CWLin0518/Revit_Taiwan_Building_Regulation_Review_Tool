@@ -403,7 +403,7 @@ public static class FireReviewRunner
                 Array.Empty<CurtainWallJunctionFinding>(), Array.Empty<string>()));
         }
 
-        var references = HostLegalReferences(set, area);
+        var references = HostLegalReferences(set, area, MergedAtriums.Of(set, request.Inputs.Area));
         var read = request.CurtainWallReader.Read(new CurtainWallReadRequest(
             set.PackageId, request.Package.AreaPlanUniqueId,
             RequiredRatings(rating, references.Keys), references, request.BareNumberUnit, request.JunctionOptions));
@@ -453,7 +453,7 @@ public static class FireReviewRunner
     /// (垂直區劃規格 §3.7). Such a 區劃 falls back to the general clause like any other.
     /// </para>
     /// </remarks>
-    private static IReadOnlyDictionary<string, string> HostLegalReferences(CandidateSet set, CompartmentAreaReview area)
+    private static IReadOnlyDictionary<string, string> HostLegalReferences(CandidateSet set, CompartmentAreaReview area, MergedAtriums merged)
     {
         var article83 = new HashSet<Guid>(area.Findings
             .Where(f => f.Outcome is { IsApplicabilityUndecided: false } &&
@@ -472,7 +472,10 @@ public static class FireReviewRunner
 
             if (member.Category != CandidateCategory.Wall) continue;
             var zones = member.Relations.Where(r => r.IsBoundary).Select(r => r.ZoneId).ToList();
-            if (zones.Count == 0) continue;
+
+            // The line between a merged 挑空 and its 連通區劃 is no 區劃牆, so it owes the façade no
+            // 交接處 either (垂直區劃規格決議 37).
+            if (zones.Count == 0 || merged.IsInterior(member)) continue;
             references[uniqueId] = zones.All(article83.Contains)
                 ? CurtainWallJunctionReferences.Article83
                 : CurtainWallJunctionReferences.Article79;

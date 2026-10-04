@@ -132,14 +132,14 @@ public sealed class FireReviewParameterCatalogTests
     }
 
     /// <summary>
-    /// Fifteen — 防火檢討_連跨樓層數 left when 連跨樓層數 came to be traced through the storeys
-    /// (垂直區劃規格決議 35) — and no sixteenth slipping in unnoticed: the count is what the preview shows and what
+    /// Sixteen — 防火檢討_連跨樓層數 left when 連跨樓層數 came to be traced through the storeys
+    /// (垂直區劃規格決議 35), 防火檢討_阻熱性 joined (決議 38) — and no seventeenth slipping in unnoticed: the count is what the preview shows and what
     /// V-22 counts the rows against.
     /// </summary>
     [Fact]
-    public void The_catalog_holds_fifteen_parameters()
+    public void The_catalog_holds_sixteen_parameters()
     {
-        Assert.Equal(15, FireReviewParameterCatalog.All.Count);
+        Assert.Equal(16, FireReviewParameterCatalog.All.Count);
     }
 
     /// <summary>Two definitions cannot share a name or a GUID: either collision makes Revit reject the file.</summary>

@@ -190,7 +190,15 @@ public static class ReviewBaselineBuilder
                 .Append("|at=").Append(Point(o.Location))
                 .Append("|w=").Append(Length(o.WidthFeet)).Append("|h=").Append(Length(o.HeightFeet)).Append('\n');
             AppendRelations(text, opening.Relations);
-            if (protectionInputs is not null) text.Append("protection|").Append(Protection(protectionInputs.For(o))).Append('\n');
+            if (protectionInputs is not null)
+            {
+                text.Append("protection|").Append(Protection(protectionInputs.For(o))).Append('\n');
+
+                // 第79條第1項之阻熱性 (決議 38): ticking it must make a stored run 需更新 like 防火保護 does.
+                var insulation = protectionInputs.InsulationFor(o);
+                text.Append("insulation|").Append(insulation.Kind).Append('|').Append(insulation.RawText ?? "-")
+                    .Append('|').Append(insulation.Reason ?? "-").Append('\n');
+            }
 
             // 第79條之2 reads 遮煙性能 on every opening Type and 設計防火時效 on a 門's, neither of which
             // any other input covers — a 維修門 is not a member, so <c>rating|</c> above never sees it

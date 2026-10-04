@@ -200,6 +200,9 @@ public static class FireResistanceCheck
                 .Select(t => $"Type「{t.TypeName ?? t.TypeUniqueId}」有防火時效資料，但此工作包沒有該 Type 的候選構件。"))
             .ToList();
 
+        // 第79條之2第3項: the line between a merged 挑空 and its 連通區劃 is no 區劃邊界 (決議 37).
+        var merged = MergedAtriums.Of(set, inputs.Context);
+
         var findings = new List<MemberRatingFinding>();
         foreach (var zone in set.Zones)
         {
@@ -209,7 +212,7 @@ public static class FireResistanceCheck
                 if (relation.IsAmbiguous) continue;
 
                 findings.Add(zone.IsClear
-                    ? Decide(set, zone, member, inputs, engine, context, runId, newResultId())
+                    ? Decide(set, zone, member, inputs, engine, context, runId, newResultId(), merged: merged)
                     : Withhold(set, zone, member, engine.RuleSet, runId, newResultId()));
             }
         }
@@ -220,7 +223,7 @@ public static class FireResistanceCheck
             if (member is null && ambiguity.Kind != CandidateAmbiguityKind.NoPlanGeometry) continue;
 
             var resultId = newResultId();
-            if (member is not null && Settled(set, member, ambiguity, inputs, engine, context, runId, resultId) is { } settled)
+            if (member is not null && Settled(set, member, ambiguity, inputs, engine, context, runId, resultId, merged) is { } settled)
             {
                 findings.Add(settled);
                 continue;
@@ -251,10 +254,14 @@ public static class FireResistanceCheck
         RuleEvaluationContext context,
         Guid runId,
         Guid resultId,
-        MemberCandidate? assumed = null)
+        MemberCandidate? assumed = null,
+        MergedAtriums? merged = null,
+        bool interiorOverride = false)
     {
         var observation = member.Observation;
         var facts = CandidateFacts.ForMember(set, assumed ?? member, zone.ZoneId, engine.RuleSet.Catalog);
+        var interior = interiorOverride || (assumed is null && merged is not null && merged.IsInterior(member));
+        if (interior) facts.Set("element.isCompartmentBoundary", false);
         var supplied = inputs.Context.Building.Concat(inputs.Context.ForZone(zone.ZoneId)).ToList();
         foreach (var input in supplied) input.ApplyTo(facts);
 
@@ -276,7 +283,7 @@ public static class FireResistanceCheck
         var outcome = engine.Evaluate(RuleCategory.FireResistance, facts, context);
         var subject = $"{CandidateCategories.Label(observation.Category)}「{observation.TypeName ?? "無 Type 名稱"}」（{observation.Source}）於區劃「{zone.Name}」";
         var status = outcome.Status;
-        var message = $"{subject}：{outcome.Message}";
+        var message = $"{subject}：{outcome.Message}" + (interior ? MergedAtriums.Note : string.Empty);
         var errorCode = RuleOutcomeErrorCode.For(outcome);
 
         var providedGap = outcome.Gaps.FirstOrDefault(g => g.Field == ProvidedField);
@@ -302,6 +309,7 @@ public static class FireResistanceCheck
 
         var evidence = new ReviewEvidence(outcome.Evidence.Items
             .Concat(member.EvidenceFor(zone.ZoneId).Items)
+            .Concat(interior ? new[] { merged!.Evidence() } : Enumerable.Empty<ReviewEvidenceItem>())
             .Concat(ProvidedEvidence(observation, typeRating, provided))
             .Concat(InputEvidence(supplied))
             .Concat(GapEvidence(outcome)));
@@ -364,10 +372,21 @@ public static class FireResistanceCheck
         RuleEngine engine,
         RuleEvaluationContext context,
         Guid runId,
-        Guid resultId)
+        Guid resultId,
+        MergedAtriums merged)
     {
         if (!IsBoundaryDoubt(ambiguity.Kind) || ambiguity.ZoneId is not Guid zoneId) return null;
         if (set.Zone(zoneId) is not { IsClear: true } zone) return null;
+
+        // A line on the face of an atrium's railing is in doubt only about whether it bounds; between
+        // an exempt 挑空 and its 連通區劃 it is interior either way (決議 37).
+        if (merged.IsInterior(member))
+        {
+            var interior = Decide(set, zone, member, inputs, engine, context, runId, resultId,
+                Assuming(member, zoneId, ZoneRelationKind.Inside), merged, interiorOverride: true);
+            return new MemberRatingFinding(interior.Result, interior.ElementUniqueId, interior.Category, interior.TypeUniqueId,
+                interior.TypeName, interior.Provided, interior.Outcome, ambiguity, interior.ErrorCode);
+        }
 
         var asBoundary = Decide(set, zone, member, inputs, engine, context, runId, resultId, Assuming(member, zoneId, ZoneRelationKind.Boundary));
         var asNot = Decide(set, zone, member, inputs, engine, context, runId, resultId, Assuming(member, zoneId, ZoneRelationKind.Inside));

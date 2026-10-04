@@ -25,6 +25,7 @@ namespace BuildingRegulationReview.FireReview
         private string _coverCm;
         private string _rating;
         private bool _protection;
+        private bool _insulation;
         private bool _smokeProtection;
         private string _panelKind;
 
@@ -43,6 +44,7 @@ namespace BuildingRegulationReview.FireReview
             _rating = source.ProvidedRating ?? "";
             _protection = source.ProvidedProtection == true;
             _smokeProtection = source.ProvidedSmokeProtection == true;
+            _insulation = source.ProvidedInsulation == true;
         }
 
         public FireReviewTypeRow Source { get; }
@@ -240,6 +242,22 @@ namespace BuildingRegulationReview.FireReview
             }
         }
 
+        /// <summary>
+        /// 防火檢討_阻熱性 on the Type: ticked means this 型號's 防火設備 has 一小時以上之阻熱性, which
+        /// 第79條第1項 asks of every 防火設備 on a 區劃 boundary (垂直區劃規格決議 38). Asked of the
+        /// same rows as 防火門窗, since only a 防火設備 is asked it.
+        /// </summary>
+        public bool Insulation
+        {
+            get => _insulation;
+            set
+            {
+                if (_insulation == value) return;
+                _insulation = value;
+                Raise(nameof(Insulation));
+            }
+        }
+
         /// <summary>What the clauses derive from what is currently typed in this row.</summary>
         public FireRatingDerivation Derivation => FireRatingDeriver.Derive(
             Source.Category, StructuralMaterialText.Parse(_material), Source.DimensionMeters, Meters(_coverCm));
@@ -296,6 +314,8 @@ namespace BuildingRegulationReview.FireReview
                     missing.Add(FireProtectionParameters.Provided);
                 if (CarriesSmokeProtection && (Source.Present & FireReviewTypeParameters.SmokeSeal) == 0)
                     missing.Add(SmokeProtectionParameters.Provided);
+                if (CarriesProtection && (Source.Present & FireReviewTypeParameters.Insulation) == 0)
+                    missing.Add(InsulationParameters.Provided);
                 if (CarriesRating && (Source.Present & FireReviewTypeParameters.Rating) == 0)
                     missing.Add(FireRatingParameters.Provided);
                 if (CarriesMaterial)
@@ -342,6 +362,10 @@ namespace BuildingRegulationReview.FireReview
             // (第1條第45款 is a test on the 構造), not of one installed leaf.
             if (CarriesSmokeProtection && (Source.ProvidedSmokeProtection ?? false) != _smokeProtection)
                 yield return FireReviewParameterEdit.OfYesNo(Source.TypeUniqueId, SmokeProtectionParameters.Provided, _smokeProtection);
+
+            // 阻熱性 likewise: a test result on the 型號 (第79條第1項).
+            if (CarriesProtection && (Source.ProvidedInsulation ?? false) != _insulation)
+                yield return FireReviewParameterEdit.OfYesNo(Source.TypeUniqueId, InsulationParameters.Provided, _insulation);
 
             // 一片實心嵌板 answers by 設計防火時效, because the 交接帶 of 第79條第4項／第79條之3第2項 is
             // measured by the panels' own rating (帷幕牆規格 §6); a 玻璃 one answers 防火門窗 above instead.

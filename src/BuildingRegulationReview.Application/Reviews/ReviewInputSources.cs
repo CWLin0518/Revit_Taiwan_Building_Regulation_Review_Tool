@@ -141,6 +141,10 @@ public static class ReviewInputSources
         new ReviewInputSource("element.providedFireRating", FireRatingParameters.Provided, ReviewParameterLevel.Type, "設計／認證防火時效", FireRatingHosts.ToArray()),
         new ReviewInputSource("opening.providedFireProtection", FireProtectionParameters.Provided, ReviewParameterLevel.Type, "設計防火保護", OpeningHosts.ToArray()),
 
+        // 第79條第1項之阻熱性 (垂直區劃規格決議 38). Read by tw-bcr-79-opening-insulation, so it is a
+        // required parameter like 設計防火保護: every 區劃 boundary's 防火設備 owes it.
+        new ReviewInputSource("opening.providedInsulation", InsulationParameters.Provided, ReviewParameterLevel.Type, "防火設備一小時以上阻熱性", OpeningHosts.ToArray()),
+
         // 第79條之4 的兩路作答（帷幕牆規格 §3.3、決議 16）。只有種類需要自己的參數：玻璃那一路讀的
         // junction.minFireProtection 就是上面那個 設計防火保護，同一個參數答兩個欄位，前置檢查看的是
         // 參數有沒有綁，所以不必再登錄一次。種類沒綁時 CW-O 兩條規則都判不出適用與否，這是必要參數。

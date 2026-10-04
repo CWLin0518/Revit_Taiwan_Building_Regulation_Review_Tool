@@ -180,6 +180,10 @@ public sealed class RuleFieldCatalog
             new RuleFieldDefinition("opening.area", RuleValueType.Quantity(ReviewUnit.SquareMeter), "開口面積", opening),
             new RuleFieldDefinition("opening.providedFireProtection", text, "設計防火保護（是／否）", opening),
 
+            // 第79條第1項「防火設備並應具有一小時以上之阻熱性」（垂直區劃規格決議 38）。只對已是防火設備
+            // 的開口問，由 tw-bcr-79-opening-insulation 讀。
+            new RuleFieldDefinition("opening.providedInsulation", text, "防火設備是否具一小時以上阻熱性（是／否）", opening),
+
             // 防火區劃與帷幕牆交接（docs/regulations/curtain-wall-fire-compartment.md §5.2）。
             // 主體是「交接處」而非單一元素：一個交接處由區劃牆或區劃樓地板、帷幕牆與兩者相交
             // 的那一段牆面共同構成，因此長度、高度、突出深度都是交接處自己的量測值。

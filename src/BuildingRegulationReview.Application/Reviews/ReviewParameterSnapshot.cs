@@ -306,10 +306,25 @@ public static class ReviewInputAssembler
                 g.First().TypeName))
             .ToList();
 
+        // 第79條第1項之阻熱性 is read like 設計防火保護 (垂直區劃規格決議 38): the opening's own value when
+        // it carries one, otherwise its Type's, an unticked box being 否 and an unbound parameter Missing.
+        var insulation = new Dictionary<string, ProvidedFireProtection>(StringComparer.Ordinal);
+        foreach (var opening in set.Openings.Select(o => o.Observation)
+                     .OrderBy(o => o.Source.ElementUniqueId, StringComparer.Ordinal))
+        {
+            var own = snapshot.Element(opening.Source.ElementUniqueId, InsulationParameters.Provided);
+            if (own.HasValue) insulation[opening.Source.ElementUniqueId] = Protection(own, InsulationParameters.Provided);
+
+            if (opening.TypeUniqueId is null || insulation.ContainsKey(opening.TypeUniqueId)) continue;
+            var type = snapshot.Element(opening.TypeUniqueId, InsulationParameters.Provided);
+            if (type.Kind != ParameterReadingKind.Absent)
+                insulation[opening.TypeUniqueId] = Protection(type, InsulationParameters.Provided);
+        }
+
         return new ReviewInputAssembly(
             context,
             new FireResistanceInputs(context, ratings),
-            new OpeningProtectionInputs(context, protections),
+            new OpeningProtectionInputs(context, protections, insulation),
             new VerticalCompartmentInputs(context, devices),
             panelRatings);
     }

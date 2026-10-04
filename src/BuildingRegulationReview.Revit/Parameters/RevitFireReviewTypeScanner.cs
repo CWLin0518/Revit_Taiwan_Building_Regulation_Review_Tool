@@ -170,6 +170,8 @@ public sealed class RevitFireReviewTypeScanner
             present |= FireReviewTypeParameters.Protection;
         if (opening && Find(type, SmokeProtectionParameters.Provided) is not null)
             present |= FireReviewTypeParameters.SmokeSeal;
+        if (opening && Find(type, InsulationParameters.Provided) is not null)
+            present |= FireReviewTypeParameters.Insulation;
         // 只有帷幕嵌板該帶種類。這份共享參數檔綁 Curtain Panels 時會連門窗一起綁到（同一個檔），所以
         // 旗標由類別把關，而不是「型別上找得到這個參數」（決議 16、步驟 16c）。
         if (panel && Find(type, CurtainPanelKindParameters.Provided) is not null)
@@ -188,6 +190,7 @@ public sealed class RevitFireReviewTypeScanner
             providedRating: Text(type, FireRatingParameters.Provided),
             providedProtection: opening ? Ticked(type, FireProtectionParameters.Provided) : null,
             providedSmokeProtection: opening ? Ticked(type, SmokeProtectionParameters.Provided) : null,
+            providedInsulation: opening ? Ticked(type, InsulationParameters.Provided) : null,
             present: present,
             panelKind: panel ? Text(type, CurtainPanelKindParameters.Provided) : null,
             // 佔位嵌板不提案：種類是事實（模型自己說了那些格子是一道牆），不是由材料猜的提案，

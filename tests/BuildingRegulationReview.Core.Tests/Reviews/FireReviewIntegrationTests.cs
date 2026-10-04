@@ -30,7 +30,7 @@ namespace BuildingRegulationReview.Core.Tests.Reviews;
 public sealed class FireReviewIntegrationTests
 {
     private const string RuleSetId = "tw-bcr-fire";
-    private const string ShippedVersion = "2026.8-provisional";
+    private const string ShippedVersion = "2026.9-provisional";
 
     [Fact]
     public void Interior_finish_is_a_model_derived_wall_and_ceiling_type_fact_not_an_area_input()
@@ -112,7 +112,12 @@ public sealed class FireReviewIntegrationTests
                 [ReviewInputSources.FloorNumber] = ParameterReading.OfInteger(1)
             },
             ["type-rc200"] = new() { [FireRatingParameters.Provided] = ParameterReading.OfText("2 小時") },
-            ["D1-shared"] = new() { [FireProtectionParameters.Provided] = ParameterReading.OfYesNo(1) },
+            ["D1-shared"] = new()
+            {
+                [FireProtectionParameters.Provided] = ParameterReading.OfYesNo(1),
+                // 第79條第1項之阻熱性 (垂直區劃規格決議 38): a 防火設備 on the boundary owes it too.
+                [InsulationParameters.Provided] = ParameterReading.OfYesNo(1)
+            },
             ["WN1-bottom"] = new() { [FireProtectionParameters.Provided] = ParameterReading.OfText("否") }
         };
 
@@ -207,6 +212,7 @@ public sealed class FireReviewIntegrationTests
         Assert.Contains("zone.use", fields);
         Assert.Contains("element.providedFireRating", fields);
         Assert.Contains("opening.providedFireProtection", fields);
+        Assert.Contains("opening.providedInsulation", fields); // 第79條第1項之阻熱性（決議 38）
         // 第70條 decides a column's required rating from where its storey sits, counted from the top.
         Assert.Contains("building.floorsAboveGround", fields);
         Assert.Contains("zone.floorNumber", fields);
@@ -230,6 +236,8 @@ public sealed class FireReviewIntegrationTests
             // 決議 16：junction.panelKind 是 第79條之4 兩路作答的前提，沒綁定就判不出適用哪一條。
             CurtainPanelKindParameters.Provided,
             FireProtectionParameters.Provided,
+            // 第79條第1項之阻熱性（垂直區劃規格決議 38）。
+            InsulationParameters.Provided,
             // 設計防火時效 twice: element.providedFireRating for a 主要構造, shaft.providedFireRating for
             // a 管道間之維修門. Two fields with different categories, so the pre-review check needs both.
             FireRatingParameters.Provided, SmokeProtectionParameters.Provided,
@@ -1063,6 +1071,64 @@ public sealed class FireReviewIntegrationTests
         Assert.Contains(outcome.Log.Entries, e => e.Code == ReviewErrorCode.ReviewCompleted && e.UserMessage.StartsWith("檢討完成"));
     }
 
+    // --- 第79條第1項之阻熱性（垂直區劃規格決議 38）---------------------------------------------------
+
+    /// <summary>
+    /// A 防火設備 on a 區劃 boundary owes 一小時以上之阻熱性. Asked only once the opening is a 防火設備:
+    /// tw-bcr-79-opening-insulation sits above tw-bcr-79-opening, so a 否 is that rule's 未符合 and an
+    /// unstated one is 資料不足; an opening that is no 防火設備 at all still fails 防火門窗 itself.
+    /// </summary>
+    [Theory]
+    [InlineData(1, 1, ReviewStatus.Pass, "tw-bcr-79-opening-insulation")]
+    [InlineData(1, 0, ReviewStatus.Fail, "tw-bcr-79-opening-insulation")]
+    [InlineData(1, null, ReviewStatus.InsufficientData, "tw-bcr-79-opening-insulation")]
+    [InlineData(0, 1, ReviewStatus.Fail, "tw-bcr-79-opening")]
+    public void A_boundary_fire_door_is_held_to_one_hour_of_insulation(int protection, int? insulation, ReviewStatus expected, string ruleId)
+    {
+        var parameters = new Parameters();
+        parameters.Elements["D1-shared"][FireProtectionParameters.Provided] = ParameterReading.OfYesNo(protection);
+        if (insulation is int ticked)
+            parameters.Elements["D1-shared"][InsulationParameters.Provided] = ParameterReading.OfYesNo(ticked);
+        else
+            parameters.Elements["D1-shared"].Remove(InsulationParameters.Provided);
+
+        var door = ResultOf(Run(Request(parameters: parameters)).Run!, ReviewCheckTypes.OpeningProtection, "D1-shared", ZoneA);
+
+        Assert.Equal(expected, door.Status);
+        Assert.Equal(ruleId, door.RuleId);
+    }
+
+    /// <summary>
+    /// Code review: a 防火門窗 nobody filled in is a 防火門窗 question, not an 阻熱性 one. The insulation
+    /// rule cannot tell whether it applies without 設計防火保護, so 第79條第1項's 防火門窗 rule answers:
+    /// 資料不足, requiring 「是」, still a 防火設備 the 區劃 needs.
+    /// </summary>
+    [Fact]
+    public void A_door_with_no_fire_protection_stated_is_filed_under_the_fire_door_rule()
+    {
+        var parameters = new Parameters();
+        parameters.Elements["D1-shared"].Remove(FireProtectionParameters.Provided);
+
+        var door = ResultOf(Run(Request(parameters: parameters)).Run!, ReviewCheckTypes.OpeningProtection, "D1-shared", ZoneA);
+
+        Assert.Equal(ReviewStatus.InsufficientData, door.Status);
+        Assert.Equal("tw-bcr-79-opening", door.RuleId);
+        Assert.Equal(ReviewValue.OfText("是"), door.RequiredValue);
+    }
+
+    /// <summary>Ticking 阻熱性 makes a stored run 需更新, like ticking 防火門窗 does (spec 13.1).</summary>
+    [Fact]
+    public void Changing_a_doors_insulation_makes_the_stored_run_need_an_update()
+    {
+        var first = Run(Request());
+        var now = new Parameters();
+        now.Elements["D1-shared"][InsulationParameters.Provided] = ParameterReading.OfYesNo(0);
+
+        var inspection = StoredRunInspection.Inspect(first.Package, first.Run!, CurrentBaseline(now), RuleSetId, ShippedVersion, Now);
+
+        Assert.True(inspection.Freshness.IsStale);
+    }
+
     [Fact]
     public void Review_verdicts_follow_the_model_parameters()
     {
@@ -1736,11 +1802,11 @@ public sealed class FireReviewIntegrationTests
 
     /// <summary>
     /// The judgement is wired into the run: one 挑空 is one result, counted in the fourth requirement
-    /// row of the fifth 檢討表 row. 免除成立 is 人工覆核 — the 連通範圍's own 區劃分隔 is not in the
-    /// model (決議 25); its 面積 goes back to the 區劃面積 rules (決議 32).
+    /// row of the fifth 檢討表 row. 免除成立 is 符合 (決議 39): its 面積 goes back to the 區劃面積 rules
+    /// (決議 32), its separation to the boundary walls and 防火設備 of its 區劃 (決議 38).
     /// </summary>
     [Fact]
-    public void An_exempt_atrium_is_one_manual_review_in_the_fourth_requirement_row()
+    public void An_exempt_atrium_is_one_pass_in_the_fourth_requirement_row()
     {
         var outcome = Run(Request(parameters: AtriumParameters(), openings: ShaftDoorOnly(), model: AtriumStoreys()));
 
@@ -1750,7 +1816,7 @@ public sealed class FireReviewIntegrationTests
 
         Assert.Equal(VerticalCompartmentRequirement.AtriumExemption, entry.ShaftRequirement);
         Assert.Equal("挑空免除（第3項）", entry.ShaftRequirementLabel);
-        Assert.Equal(ReviewStatus.ManualReview, entry.EffectiveStatus);
+        Assert.Equal(ReviewStatus.Pass, entry.EffectiveStatus);
         Assert.Equal(new[] { "area-a" }, entry.LocateUniqueIds);
         Assert.Equal("建築技術規則建築設計施工編第79條之2第3項（挑空得不受第1項限制）", entry.LegalReference);
         Assert.DoesNotContain("第83條", entry.LegalReference, StringComparison.Ordinal);
@@ -1763,7 +1829,7 @@ public sealed class FireReviewIntegrationTests
             section.GroupsBy(ReviewTableGrouping.ShaftRequirement).Select(g => g.Label));
         Assert.Contains(outcome.Log.Entries, e =>
             e.UserMessage.Contains("垂直區劃（第79條之2）") &&
-            e.UserMessage.Contains("挑空免除（第3項） 1 件人工覆核") &&
+            e.UserMessage.Contains("挑空免除（第3項） 1 件符合") &&
             e.UserMessage.Contains("管道間維修門防火時效 0 件未檢討"));
     }
 
@@ -1789,6 +1855,64 @@ public sealed class FireReviewIntegrationTests
     }
 
     /// <summary>
+    /// 決議 37: once 第3項 holds, A 區 (the 挑空) and B 區 are one 連通區劃, so W2-shared between them is
+    /// no 區劃牆 and its door D1-shared need be no 防火設備. W1-bottom only runs along both on the
+    /// outside, and stays a boundary — so does the window in it.
+    /// </summary>
+    [Fact]
+    public void The_line_between_an_exempt_atrium_and_its_connected_zone_is_no_compartment_boundary()
+    {
+        var outcome = Run(Request(parameters: AtriumParameters(), model: AtriumStoreys()));
+        Assert.True(outcome.IsCompleted, outcome.Message);
+
+        var door = ResultOf(outcome.Run!, ReviewCheckTypes.OpeningProtection, "D1-shared", ZoneA);
+        Assert.Equal(ReviewStatus.NotApplicable, door.Status);
+        Assert.Contains(MergedAtriums.Note, door.Message, StringComparison.Ordinal);
+        Assert.Equal(ReviewValue.OfBoolean(true), door.Evidence.Find(MergedAtriums.EvidenceField));
+        Assert.Equal(ReviewStatus.NotApplicable, ResultOf(outcome.Run!, ReviewCheckTypes.OpeningProtection, "D1-shared", ZoneB).Status);
+
+        var wall = ResultOf(outcome.Run!, ReviewCheckTypes.FireResistance, "W2-shared", ZoneA);
+        Assert.Equal(ReviewValue.OfBoolean(true), wall.Evidence.Find(MergedAtriums.EvidenceField));
+
+        var outside = ResultOf(outcome.Run!, ReviewCheckTypes.FireResistance, "W1-bottom", ZoneA);
+        Assert.Null(outside.Evidence.Find(MergedAtriums.EvidenceField));
+        Assert.NotEqual(ReviewStatus.NotApplicable, ResultOf(outcome.Run!, ReviewCheckTypes.OpeningProtection, "WN1-bottom", ZoneB).Status);
+    }
+
+    /// <summary>
+    /// A 樓梯間 is 單獨區劃分隔 under 第1項 whatever the 挑空 beside it does, so the line between them
+    /// stays a boundary even when the 挑空 is exempt.
+    /// </summary>
+    [Fact]
+    public void The_line_between_an_exempt_atrium_and_a_stairwell_stays_a_compartment_boundary()
+    {
+        var parameters = AtriumParameters();
+        parameters.Elements["area-b"][ReviewInputSources.ZoneUse] = ParameterReading.OfText(ZoneUses.Stairwell);
+
+        var outcome = Run(Request(parameters: parameters, model: AtriumStoreys()));
+        Assert.True(outcome.IsCompleted, outcome.Message);
+
+        var door = ResultOf(outcome.Run!, ReviewCheckTypes.OpeningProtection, "D1-shared", ZoneA);
+        Assert.Null(door.Evidence.Find(MergedAtriums.EvidenceField));
+        Assert.NotEqual(ReviewStatus.NotApplicable, door.Status);
+    }
+
+    /// <summary>
+    /// When 第3項 does not hold, 第1項 requires exactly that line: the 挑空 is 單獨區劃分隔, and its door
+    /// must be a 防火設備.
+    /// </summary>
+    [Fact]
+    public void The_line_around_an_atrium_that_is_not_exempt_stays_a_compartment_boundary()
+    {
+        var outcome = Run(Request(parameters: AtriumParameters(linksRefugeFloor: 0), model: AtriumStoreys(belowSquareMeters: 4000)));
+        Assert.True(outcome.IsCompleted, outcome.Message);
+
+        var door = ResultOf(outcome.Run!, ReviewCheckTypes.OpeningProtection, "D1-shared", ZoneA);
+        Assert.NotEqual(ReviewStatus.NotApplicable, door.Status);
+        Assert.Null(door.Evidence.Find(MergedAtriums.EvidenceField));
+    }
+
+    /// <summary>
     /// 決議 23: the 挑空's own 防火設備 are held to none of 第1項's three requirements, so the 維修門 in
     /// this fixture — which would be two results were A 區 a 管道間 — yields nothing but 第3項's result.
     /// </summary>
@@ -1803,7 +1927,7 @@ public sealed class FireReviewIntegrationTests
 
     /// <summary>
     /// 第3項 has no 未符合 to report, so it can never paint an element red (§3.6、決議 20) and can never
-    /// turn the run's verdict into 未符合 by itself.
+    /// turn the run's verdict into 未符合 by itself. (Its 免除成立 is 符合 since 決議 39.)
     /// </summary>
     [Fact]
     public void The_third_paragraph_never_fails_and_so_is_never_marked()
@@ -1816,7 +1940,6 @@ public sealed class FireReviewIntegrationTests
             var entry = Assert.Single(outcome.Table!.Section(ReviewCheckTypes.VerticalCompartment).Entries);
 
             Assert.NotEqual(ReviewStatus.Fail, entry.EffectiveStatus);
-            Assert.NotEqual(ReviewStatus.Pass, entry.EffectiveStatus);
 
             var plan = ReviewMarkupPlan.Build(outcome.Table!, request.Candidates.Zones);
             Assert.True(plan.IsSuccess, plan.IsSuccess ? string.Empty : plan.Error.ToString());

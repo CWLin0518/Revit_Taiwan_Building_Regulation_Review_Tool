@@ -103,19 +103,19 @@ public sealed class OpeningsSharedParameterFileTests
     }
 
     /// <summary>
-    /// The four the openings and the panels need: 設計防火保護、遮煙性能、嵌板種類、設計防火時效
-    /// (帷幕牆規格 §6、垂直區劃文件 §6、決議 16). 結構材料 and 防火被覆厚度 are deliberately not here —
+    /// The five the openings and the panels need: 設計防火保護、遮煙性能、嵌板種類、設計防火時效、阻熱性
+    /// (帷幕牆規格 §6、垂直區劃文件 §6、決議 16、38). 結構材料 and 防火被覆厚度 are deliberately not here —
     /// they come from <c>fire-review-members-type.txt</c>, so binding this file to 門、窗 does not give a
     /// door a 結構材料 box.
     /// </summary>
     [Fact]
-    public void The_file_declares_exactly_the_four_parameters_these_categories_answer_with()
+    public void The_file_declares_exactly_the_five_parameters_these_categories_answer_with()
     {
         var params_ = Lines(Raw(), "\n").Where(IsParam).ToList();
 
-        Assert.Equal(4, params_.Count);
-        Assert.Equal(4, params_.Select(Guid).Distinct(StringComparer.Ordinal).Count());
-        Assert.Equal(4, params_.Select(l => l.Split('\t')[2]).Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(5, params_.Count);
+        Assert.Equal(5, params_.Select(Guid).Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(5, params_.Select(l => l.Split('\t')[2]).Distinct(StringComparer.Ordinal).Count());
         Assert.Contains(PanelKindGuid, params_.Select(Guid));
     }
 

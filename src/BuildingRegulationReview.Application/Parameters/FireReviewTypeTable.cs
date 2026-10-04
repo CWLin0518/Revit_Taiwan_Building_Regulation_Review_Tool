@@ -43,7 +43,8 @@ public sealed class FireReviewTypeRow
         FireReviewTypeParameters present = FireReviewTypeParameters.None,
         string? panelKind = null,
         CurtainPanelKind? proposedPanelKind = null,
-        CurtainPanelSourceType? substitutedFrom = null)
+        CurtainPanelSourceType? substitutedFrom = null,
+        bool? providedInsulation = null)
     {
         if (string.IsNullOrWhiteSpace(typeUniqueId)) throw new ArgumentException("Type UniqueId is required.", nameof(typeUniqueId));
         if (instanceCount < 0) throw new ArgumentOutOfRangeException(nameof(instanceCount));
@@ -68,6 +69,7 @@ public sealed class FireReviewTypeRow
         SubstitutedFrom = category == CandidateCategory.CurtainPanel ? substitutedFrom : null;
         ProvidedProtection = providedProtection;
         ProvidedSmokeProtection = providedSmokeProtection;
+        ProvidedInsulation = providedInsulation;
         Present = present;
         PanelKind = string.IsNullOrWhiteSpace(panelKind) ? null : panelKind!.Trim();
         // 門窗的種類由類別認定，不是提案，也不寫回；把它當提案帶進來只會讓面板在門窗列上出現一個
@@ -127,6 +129,12 @@ public sealed class FireReviewTypeRow
     /// asks a 昇降機道's 防火設備 both (垂直區劃文件 §6).
     /// </summary>
     public bool? ProvidedSmokeProtection { get; }
+
+    /// <summary>
+    /// 防火檢討_阻熱性 as the Type's Yes/No parameter holds it (openings only): 第79條第1項 asks every
+    /// 防火設備 on a 區劃 boundary for 一小時以上之阻熱性 (垂直區劃規格決議 38).
+    /// </summary>
+    public bool? ProvidedInsulation { get; }
 
     /// <summary>Which of the review parameters this Type actually carries.</summary>
     public FireReviewTypeParameters Present { get; }
@@ -270,7 +278,10 @@ public enum FireReviewTypeParameters
     SmokeSeal = 16,
 
     /// <summary>防火檢討_嵌板種類 (決議 16); only 帷幕嵌板 are expected to carry it.</summary>
-    PanelKind = 32
+    PanelKind = 32,
+
+    /// <summary>防火檢討_阻熱性 (第79條第1項、垂直區劃規格決議 38).</summary>
+    Insulation = 64
 }
 
 /// <summary>What kind of value one edit carries, so the adapter never has to guess from the text.</summary>

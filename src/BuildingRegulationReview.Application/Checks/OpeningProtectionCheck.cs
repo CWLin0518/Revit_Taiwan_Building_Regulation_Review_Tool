@@ -186,6 +186,7 @@ public sealed class OpeningProtectionReview
 public static class OpeningProtectionCheck
 {
     private const string ProvidedField = "opening.providedFireProtection";
+    private const string InsulationField = "opening.providedInsulation";
 
     /// <summary>
     /// Leads every message of a facade opening, so the 檢討表 search finds all of them: 「外側沒有區劃」
@@ -219,6 +220,9 @@ public static class OpeningProtectionCheck
                     : $"Type {p.UniqueId} 有防火保護資料，但此工作包沒有該 Type 的候選開口。"))
             .ToList();
 
+        // 第79條之2第3項: an opening between a merged 挑空 and its 連通區劃 is no 區劃開口 (決議 37).
+        var merged = MergedAtriums.Of(set, inputs.Context);
+
         var findings = new List<OpeningProtectionFinding>();
         foreach (var zone in set.Zones)
         {
@@ -229,13 +233,24 @@ public static class OpeningProtectionCheck
 
                 findings.Add(!zone.IsClear ? Withhold(set, zone, opening, engine.RuleSet, runId, newResultId())
                     : relation.IsFacade ? Facade(set, zone, opening, relation, engine.RuleSet, runId, newResultId())
-                    : Decide(set, zone, opening, inputs, engine, context, runId, newResultId()));
+                    : Decide(set, zone, opening, inputs, engine, context, runId, newResultId(), merged));
             }
         }
 
         foreach (var ambiguity in set.Ambiguities)
         {
             var opening = AmbiguousOpening(set, ambiguity);
+
+            // An opening whose host lies on a line drawn on its face, between an exempt 挑空 and its
+            // 連通區劃, is interior either way (決議 37).
+            if (opening is not null && ambiguity.ZoneId is Guid ambiguousZone &&
+                set.Zone(ambiguousZone) is { IsClear: true } clearZone && merged.IsInterior(opening))
+            {
+                findings.Add(Decide(set, clearZone, opening, inputs, engine, context, runId, newResultId(), merged,
+                    Assuming(opening, ambiguousZone)));
+                continue;
+            }
+
             var category = opening?.Category ?? CategoryOf(ambiguity.Evidence.Find("source.category"));
             if (opening is null && !(ambiguity.Kind == CandidateAmbiguityKind.OpeningLocationUnknown &&
                                      category is CandidateCategory known && CandidateCategories.IsOpening(known)))
@@ -266,10 +281,14 @@ public static class OpeningProtectionCheck
         RuleEngine engine,
         RuleEvaluationContext context,
         Guid runId,
-        Guid resultId)
+        Guid resultId,
+        MergedAtriums merged,
+        OpeningCandidate? assumed = null)
     {
         var observation = opening.Observation;
-        var facts = CandidateFacts.ForOpening(set, opening, zone.ZoneId, engine.RuleSet.Catalog);
+        var facts = CandidateFacts.ForOpening(set, assumed ?? opening, zone.ZoneId, engine.RuleSet.Catalog);
+        var interior = merged.IsInterior(opening);
+        if (interior) facts.Set("opening.hostIsCompartmentBoundary", false);
         var supplied = inputs.Context.Building.Concat(inputs.Context.ForZone(zone.ZoneId)).ToList();
         foreach (var input in supplied) input.ApplyTo(facts);
 
@@ -288,21 +307,41 @@ public static class OpeningProtectionCheck
                 break;
         }
 
-        var outcome = engine.Evaluate(RuleCategory.OpeningProtection, facts, context);
+        // 第79條第1項之阻熱性 (決議 38): only asked once the opening is a 防火設備, by the higher-priority
+        // tw-bcr-79-opening-insulation; a 否 here is a 未符合 of that rule, not of 防火門窗 itself.
+        var insulation = inputs.InsulationFor(observation);
+        switch (insulation.Kind)
+        {
+            case ProvidedFireProtectionKind.Yes:
+            case ProvidedFireProtectionKind.No:
+                facts.Set(InsulationField, insulation.RuleText!);
+                break;
+            case ProvidedFireProtectionKind.Unreadable:
+                facts.MarkUnreadable(InsulationField, $"「{insulation.RawText}」{insulation.Reason}");
+                break;
+        }
+
+        var outcome = Evaluate(engine, facts, context);
         var errorCode = RuleOutcomeErrorCode.For(outcome);
         var providedGap = outcome.Gaps.Any(g => g.Field == ProvidedField);
+        var insulationGap = outcome.Gaps.Any(g => g.Field == InsulationField);
         if (outcome.Status == ReviewStatus.InsufficientData && providedGap)
             errorCode ??= provided.Kind == ProvidedFireProtectionKind.Missing ? ReviewErrorCode.ParameterMissing : ReviewErrorCode.ParameterTypeMismatch;
+        if (outcome.Status == ReviewStatus.InsufficientData && insulationGap)
+            errorCode ??= insulation.Kind == ProvidedFireProtectionKind.Missing ? ReviewErrorCode.ParameterMissing : ReviewErrorCode.ParameterTypeMismatch;
 
         var evidence = new ReviewEvidence(outcome.Evidence.Items
             .Concat(opening.EvidenceFor(zone.ZoneId).Items)
+            .Concat(interior ? new[] { merged.Evidence() } : Enumerable.Empty<ReviewEvidenceItem>())
             .Concat(ProvidedEvidence(observation, source, provided))
+            .Concat(new[] { new ReviewEvidenceItem("insulation.kind", ReviewValue.OfText(insulation.Kind.ToString())) })
             .Concat(InputEvidence(supplied))
             .Concat(GapEvidence(outcome)));
 
         var result = new ReviewResult(resultId, runId, set.PackageId, ReviewCheckTypes.OpeningProtection,
             new[] { observation.Source.ElementUniqueId }, zone.ZoneIdText, outcome.Status, outcome.ActualValue, outcome.RequiredValue,
-            outcome.RuleId, outcome.RuleVersion, outcome.LegalReference, $"{Subject(observation)}於區劃「{zone.Name}」：{outcome.Message}", evidence);
+            outcome.RuleId, outcome.RuleVersion, outcome.LegalReference,
+            $"{Subject(observation)}於區劃「{zone.Name}」：{outcome.Message}" + (interior ? MergedAtriums.Note : string.Empty), evidence);
 
         return new OpeningProtectionFinding(result, observation.Source.ElementUniqueId, observation.Category,
             OpeningGroups.Of(observation.Category, opening.Host?.IsCurtainWall == true),
@@ -314,6 +353,8 @@ public static class OpeningProtectionCheck
                 ReviewStatus.NotApplicable => false,
                 // Only the design value is missing: a rule applied and stated what it requires.
                 ReviewStatus.InsufficientData when providedGap && outcome.Gaps.Count == 1 && outcome.RequiredValue is not null => true,
+                // A 防火設備 whose 阻熱性 is not stated is still one the 區劃 requires.
+                ReviewStatus.InsufficientData when insulationGap && outcome.Gaps.Count == 1 && outcome.RequiredValue is not null => true,
                 _ => null
             }
         };
@@ -379,6 +420,33 @@ public static class OpeningProtectionCheck
 
     private static string Subject(OpeningObservation observation) =>
         $"{CandidateCategories.Label(observation.Category)}「{observation.TypeName ?? "無 Type 名稱"}」（{observation.Source}）";
+
+    /// <summary>
+    /// The engine's verdict, with one correction. tw-bcr-79-opening-insulation asks 阻熱性 only of a
+    /// 防火設備, so its applicability reads 設計防火保護 (決議 38). When that is the only fact missing,
+    /// the engine stops at the insulation rule's priority as 「cannot tell whether it applies」 — and an
+    /// opening whose 防火門窗 nobody filled in would be filed under 阻熱性, with no required value. The
+    /// question that is really open is 防火門窗 itself, so the highest rule that does apply regardless
+    /// answers instead: the same 資料不足, under 第79條第1項's 防火門窗 rule, requiring 「是」.
+    /// </summary>
+    private static RuleOutcome Evaluate(RuleEngine engine, RuleFacts facts, RuleEvaluationContext context)
+    {
+        var outcome = engine.Evaluate(RuleCategory.OpeningProtection, facts, context);
+        if (!outcome.IsApplicabilityUndecided || outcome.Gaps.Any(g => g.Field != ProvidedField)) return outcome;
+
+        var fallback = engine.RuleSet.OfCategory(RuleCategory.OpeningProtection)
+            .Where(r => context.IsInForce(r.Rule))
+            .OrderByDescending(r => r.Priority)
+            .ThenBy(r => r.RuleId, StringComparer.Ordinal)
+            .FirstOrDefault(r => r.AppliesWhen.Evaluate(facts).IsTrue);
+        return fallback is null ? outcome : engine.EvaluateApplicable(fallback, facts);
+    }
+
+    /// <summary>The opening with its doubtful relation to one zone taken as 「not a boundary」.</summary>
+    private static OpeningCandidate Assuming(OpeningCandidate opening, Guid zoneId) =>
+        new OpeningCandidate(opening.Observation, opening.Relations.Select(r => r.ZoneId != zoneId
+            ? r
+            : new ZoneRelation(zoneId, ZoneRelationKind.Inside, r.Message, r.Measurements)), opening.Host);
 
     /// <summary>The opening an ambiguity is about, when it is an ambiguous opening relation.</summary>
     private static OpeningCandidate? AmbiguousOpening(CandidateSet set, CandidateAmbiguity ambiguity)

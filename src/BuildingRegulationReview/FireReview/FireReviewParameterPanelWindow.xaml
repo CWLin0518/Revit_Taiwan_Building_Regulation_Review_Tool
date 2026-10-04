@@ -252,6 +252,23 @@
                                 </DataGridCheckBoxColumn.EditingElementStyle>
                             </DataGridCheckBoxColumn>
 
+                            <DataGridCheckBoxColumn Header="阻熱性" Width="72"
+                                                    Binding="{Binding Insulation, UpdateSourceTrigger=PropertyChanged}">
+                                <DataGridCheckBoxColumn.ElementStyle>
+                                    <Style TargetType="CheckBox">
+                                        <Setter Property="HorizontalAlignment" Value="Center" />
+                                        <Setter Property="IsEnabled" Value="{Binding CarriesProtection}" />
+                                        <Setter Property="ToolTip" Value="勾選＝此型號的防火設備具一小時以上阻熱性。第79條第1項要求區劃分隔處的防火設備具一小時以上阻熱性；已勾「防火門窗」的型號都要回答，未勾＝否。" />
+                                    </Style>
+                                </DataGridCheckBoxColumn.ElementStyle>
+                                <DataGridCheckBoxColumn.EditingElementStyle>
+                                    <Style TargetType="CheckBox">
+                                        <Setter Property="HorizontalAlignment" Value="Center" />
+                                        <Setter Property="IsEnabled" Value="{Binding CarriesProtection}" />
+                                    </Style>
+                                </DataGridCheckBoxColumn.EditingElementStyle>
+                            </DataGridCheckBoxColumn>
+
                             <DataGridCheckBoxColumn Header="遮煙性能" Width="84"
                                                     Binding="{Binding SmokeProtection, UpdateSourceTrigger=PropertyChanged}">
                                 <DataGridCheckBoxColumn.ElementStyle>

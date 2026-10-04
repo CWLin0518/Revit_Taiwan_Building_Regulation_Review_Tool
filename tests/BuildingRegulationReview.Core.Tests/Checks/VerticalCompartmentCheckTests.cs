@@ -412,15 +412,17 @@ public sealed class VerticalCompartmentCheckTests
     /// says where the 面積 went: back to the 區劃面積 rules, not to a person (決議 32).
     /// </summary>
     [Fact]
-    public void An_atrium_within_three_storeys_and_the_area_limit_is_exempt_and_manual_review()
+    public void An_atrium_within_three_storeys_and_the_area_limit_is_exempt_and_passes()
     {
         var finding = Only(Review(Set(), AtriumContext(spannedFloors: 3)));
 
-        Assert.Equal(ReviewStatus.ManualReview, finding.Status);
+        Assert.Equal(ReviewStatus.Pass, finding.Status);
         Assert.Equal(AtriumExemptionClause.SecondClause, finding.Exemption!.Clause);
         Assert.Contains("符合第二款", finding.Result.Message, StringComparison.Ordinal);
         Assert.Contains("見區劃面積結果", finding.Result.Message, StringComparison.Ordinal);
-        Assert.Contains("需人工覆核", finding.Result.Message, StringComparison.Ordinal);
+        Assert.Contains("構件防火時效與防火門窗結果", finding.Result.Message, StringComparison.Ordinal);
+        Assert.Equal(ReviewValue.OfText("第二款"), finding.Result.ActualValue);
+        Assert.Equal(ReviewValue.OfText("第一款或第二款"), finding.Result.RequiredValue);
         Assert.Null(finding.ErrorCode);
     }
 
@@ -457,7 +459,7 @@ public sealed class VerticalCompartmentCheckTests
         var finding = Only(Review(Set(), AtriumContext(
             linksRefugeFloor: true, interiorFinish: InteriorFinishGrades.ClassOne, spannedFloors: 9)));
 
-        Assert.Equal(ReviewStatus.ManualReview, finding.Status);
+        Assert.Equal(ReviewStatus.Pass, finding.Status);
         Assert.Equal(AtriumExemptionClause.FirstClause, finding.Exemption!.Clause);
     }
 
@@ -584,13 +586,14 @@ public sealed class VerticalCompartmentCheckTests
     [InlineData(true, false, null, 9)]
     [InlineData(false, true, "耐燃一級", 2)]
     [InlineData(null, null, null, null)]
-    public void The_third_paragraph_never_passes_and_never_fails(
+    public void The_third_paragraph_never_fails(
         bool? fireResistive, bool? linksRefugeFloor, string? interiorFinish, int? spannedFloors)
     {
         var finding = Only(Review(Set(), AtriumContext(fireResistive, linksRefugeFloor, interiorFinish, spannedFloors)));
 
+        // 免除成立 is 符合 since 決議 39; there is still no 未符合 to paint red.
         Assert.Contains(finding.Status,
-            new[] { ReviewStatus.ManualReview, ReviewStatus.InsufficientData, ReviewStatus.NotApplicable });
+            new[] { ReviewStatus.Pass, ReviewStatus.InsufficientData, ReviewStatus.NotApplicable });
     }
 
     /// <summary>

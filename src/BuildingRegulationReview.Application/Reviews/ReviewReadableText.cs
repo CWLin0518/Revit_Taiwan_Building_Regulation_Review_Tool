@@ -219,6 +219,7 @@ public static class ReviewFieldText
         ["article79_1.gaps"] = "第79條之1 尚缺的資料",
         ["atrium.clause"] = "挑空免除適用款次",
         ["atrium.gaps"] = "挑空免除尚缺的資料",
+        ["atrium.interiorBoundary"] = "位於免除挑空與其連通區劃之間（非區劃邊界）",
 
         ["candidate.ambiguity"] = "無法判定空間關係的原因",
         ["candidate.areaCount"] = "區劃內的 Area 數",
