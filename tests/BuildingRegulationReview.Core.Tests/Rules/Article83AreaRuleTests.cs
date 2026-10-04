@@ -59,7 +59,9 @@ public sealed class Article83AreaRuleTests
             .Set("zone.use", zoneUse)
             .Set("zone.floorNumber", floorNumber, ReviewUnit.None)
             .Set("zone.area", areaSquareMeters, ReviewUnit.SquareMeter)
-            .Set("zone.sprinklered", sprinklered);
+            .Set("zone.sprinklered", sprinklered)
+            // 檢查層對每個不是「第3項免除成立之挑空」的區劃都設這個值（決議 32）。
+            .Set("zone.atriumMerged", false);
 
     private static string Reference(CompiledRuleSet set, string ruleId) =>
         set.Rules.Single(x => string.Equals(x.RuleId, ruleId, StringComparison.Ordinal)).Rule.LegalReference;
@@ -71,15 +73,23 @@ public sealed class Article83AreaRuleTests
 
     // --- the rule file itself -------------------------------------------------------------------
 
+    /// <summary>
+    /// Two area rules, each with an atrium twin above it (決議 32). Within each pair the 第83條 one sits
+    /// higher, because every 第83條 tier is stricter than 第79條's 一、五○○平方公尺.
+    /// </summary>
     [Fact]
     public void Shipped_rule_set_compiles_both_area_rules_with_the_stricter_one_on_top()
     {
-        var rules = Shipped().OfCategory(RuleCategory.CompartmentArea)
-            .OrderBy(x => x.RuleId, StringComparer.Ordinal).ToList();
+        var priorities = Shipped().OfCategory(RuleCategory.CompartmentArea)
+            .ToDictionary(x => x.RuleId, x => x.Priority, StringComparer.Ordinal);
 
-        Assert.Equal(new[] { "tw-bcr-79-area", "tw-bcr-83-area" }, rules.Select(x => x.RuleId));
-        Assert.Equal(10, rules[0].Priority);
-        Assert.Equal(20, rules[1].Priority);
+        Assert.Equal(
+            new[] { "tw-bcr-79-area", "tw-bcr-79-area-atrium", "tw-bcr-83-area", "tw-bcr-83-area-atrium" },
+            priorities.Keys.OrderBy(x => x, StringComparer.Ordinal));
+        Assert.Equal(10, priorities["tw-bcr-79-area"]);
+        Assert.Equal(20, priorities["tw-bcr-83-area"]);
+        Assert.Equal(25, priorities["tw-bcr-79-area-atrium"]);
+        Assert.Equal(30, priorities["tw-bcr-83-area-atrium"]);
     }
 
     /// <summary>
@@ -95,7 +105,9 @@ public sealed class Article83AreaRuleTests
         var set = Shipped();
 
         Assert.Contains(Article83, Reference(set, "tw-bcr-83-area"));
+        Assert.Contains(Article83, Reference(set, "tw-bcr-83-area-atrium"));
         Assert.DoesNotContain(Article83, Reference(set, "tw-bcr-79-area"));
+        Assert.DoesNotContain(Article83, Reference(set, "tw-bcr-79-area-atrium"));
         Assert.DoesNotContain(Article83, set.RuleSet.Title);
     }
 
@@ -277,7 +289,9 @@ public sealed class Article83AreaRuleTests
             .Set("zone.floorNumber", 11, ReviewUnit.None)
             .Set("zone.area", 900, ReviewUnit.SquareMeter)
             .Set("zone.sprinklered", false)
-            .Set("zone.interiorFinish", "無");
+            .Set("zone.interiorFinish", "無")
+            // 檢查層對每個不是「第3項免除成立之挑空」的區劃都設這個值（決議 32）。
+            .Set("zone.atriumMerged", false);
 
         var outcome = Outcome(facts);
 

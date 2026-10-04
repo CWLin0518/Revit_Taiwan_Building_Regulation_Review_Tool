@@ -1,9 +1,37 @@
 {
   "schemaVersion": "1.0",
   "ruleSetId": "tw-bcr-fire",
-  "version": "2026.7-provisional",
-  "title": "建築技術規則建築設計施工編 防火構造與防火區劃（暫定示意規則：條文、版本與生效日期待 spec 19 第 2 項確認）。第70條主要構造規則列於優先序 20、第79條防火區劃規則列於優先序 10：兩者重疊的樓地板與承重牆壁，第70條的要求恆不低於第79條，故由第70條決定；非承重的區劃牆壁不屬第70條的主要構造，落回第79條。CompartmentArea 同樣分兩層：`tw-bcr-83-area` 是十一層以上部分的區劃面積規則，列於優先序 20，其上限（即使備有自動滅火設備而加倍，最寬也只到一○○○平方公尺）恆嚴於優先序 10 的 `tw-bcr-79-area`，故十一層以上由前者決定，十層以下前者的適用條件不成立而落回後者。兩條面積規則的豁免清單一致，都是第79條之2第1項的垂直區劃（挑空、昇降階梯間、樓梯間、昇降機道、管道間）：那些空間由第79條之2 單獨區劃，不因所在樓層而改由另一條面積規則管；「其他類似部分」無法逐一列舉，清單外的用字一律不豁免。CompartmentContinuity 規則檢討防火區劃與帷幕外牆的交接，依條文結構把「應突出五十公分」寫成要求值、把「得免突出」的九十公分但書寫成豁免條件，詳見 docs/regulations/curtain-wall-fire-compartment.md。VerticalCompartment 規則接手上述豁免的垂直區劃，但只寫第79條之2第1項本文之外的附加要求——昇降機道防火設備的遮煙性能、管道間維修門的一小時防火時效與遮煙性能；本文的一小時區劃牆壁與防火設備不分區劃來源，仍由 tw-bcr-79-wall-rating 與 tw-bcr-79-opening 檢討，不在此重複，詳見 docs/regulations/vertical-compartment.md。",
+  "version": "2026.8-provisional",
+  "title": "建築技術規則建築設計施工編 防火構造與防火區劃（暫定示意規則：條文、版本與生效日期待 spec 19 第 2 項確認）。第70條主要構造規則列於優先序 20、第79條防火區劃規則列於優先序 10：兩者重疊的樓地板與承重牆壁，第70條的要求恆不低於第79條，故由第70條決定；非承重的區劃牆壁不屬第70條的主要構造，落回第79條。CompartmentArea 同樣分兩層：`tw-bcr-83-area` 是十一層以上部分的區劃面積規則，列於優先序 20，其上限（即使備有自動滅火設備而加倍，最寬也只到一○○○平方公尺）恆嚴於優先序 10 的 `tw-bcr-79-area`，故十一層以上由前者決定，十層以下前者的適用條件不成立而落回後者。兩條面積規則的豁免清單一致，都是第79條之2第1項的垂直區劃（挑空、昇降階梯間、樓梯間、昇降機道、管道間）：那些空間由第79條之2 單獨區劃，不因所在樓層而改由另一條面積規則管；「其他類似部分」無法逐一列舉，清單外的用字一律不豁免。挑空另有例外：依第79條之2第3項免除單獨區劃分隔的挑空不再是垂直區劃，十一層以上區劃面積規定本文的除外不再涵蓋它，依內政部106年9月27日內授營建管字第1060814830號函，其連通區劃之合計樓地板面積回到第79條檢討（`tw-bcr-79-area-atrium`，優先序 25），所跨樓層含第十一層以上者並依十一層以上之區劃面積規定（`tw-bcr-83-area-atrium`，優先序 30）；兩條規則讀的是檢查層推得的 zone.atrium* 欄位，第3項不成立的挑空不適用它們，落回上述兩條規則的用途豁免，詳見 docs/regulations/vertical-compartment.md 決議 31～33。CompartmentContinuity 規則檢討防火區劃與帷幕外牆的交接，依條文結構把「應突出五十公分」寫成要求值、把「得免突出」的九十公分但書寫成豁免條件，詳見 docs/regulations/curtain-wall-fire-compartment.md。VerticalCompartment 規則接手上述豁免的垂直區劃，但只寫第79條之2第1項本文之外的附加要求——昇降機道防火設備的遮煙性能、管道間維修門的一小時防火時效與遮煙性能；本文的一小時區劃牆壁與防火設備不分區劃來源，仍由 tw-bcr-79-wall-rating 與 tw-bcr-79-opening 檢討，不在此重複，詳見 docs/regulations/vertical-compartment.md。",
   "rules": [
+    {
+      "ruleId": "tw-bcr-83-area-atrium",
+      "version": "1",
+      "category": "CompartmentArea",
+      "legalReference": "建築技術規則建築設計施工編第83條第1款至第4款；內政部106年9月27日內授營建管字第1060814830號函第4點（依第79條之2第3項免除區劃之挑空，所跨樓層含第十一層以上者，其連通區劃仍應依第83條區劃，暫定）",
+      "effectiveDate": "2024-01-01",
+      "jurisdiction": "TW",
+      "priority": 30,
+      "appliesWhen": "building.fireResistiveConstruction == true && zone.atriumMerged == true && (zone.floorNumber >= 11 || zone.atriumTopFloor >= 11)",
+      "requiredValue": "zone.atriumCompartmentArea <= (zone.sprinklered ? 2 : 1) * (zone.interiorFinish == \"耐燃一級含底材\" ? 500 m2 : (zone.interiorFinish == \"耐燃一級\" ? (building.use == \"H-2\" ? 400 m2 : 200 m2) : (building.use == \"H-2\" ? 200 m2 : 100 m2)))",
+      "exemptions": [],
+      "evidenceFields": [ "zone.atriumCompartmentArea", "zone.atriumMerged", "zone.floorNumber", "zone.atriumTopFloor", "zone.interiorFinish", "zone.sprinklered", "zone.use", "building.use", "building.fireResistiveConstruction" ],
+      "severity": "Error"
+    },
+    {
+      "ruleId": "tw-bcr-79-area-atrium",
+      "version": "1",
+      "category": "CompartmentArea",
+      "legalReference": "建築技術規則建築設計施工編第79條第1項；內政部106年9月27日內授營建管字第1060814830號函（依第79條之2第3項免除區劃之挑空，其連通區劃之合計樓地板面積，暫定）",
+      "effectiveDate": "2024-01-01",
+      "jurisdiction": "TW",
+      "priority": 25,
+      "appliesWhen": "building.fireResistiveConstruction == true && zone.atriumMerged == true",
+      "requiredValue": "zone.atriumCompartmentArea <= (zone.sprinklered ? 3000 m2 : 1500 m2)",
+      "exemptions": [],
+      "evidenceFields": [ "zone.atriumCompartmentArea", "zone.atriumMerged", "zone.floorNumber", "zone.atriumTopFloor", "zone.sprinklered", "zone.use", "building.fireResistiveConstruction" ],
+      "severity": "Error"
+    },
     {
       "ruleId": "tw-bcr-79-area",
       "version": "2",

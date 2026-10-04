@@ -6,6 +6,7 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using BuildingRegulationReview.Application.Candidates;
 using BuildingRegulationReview.Application.Diagnostics;
+using BuildingRegulationReview.Application.Parameters;
 using BuildingRegulationReview.Application.ReviewPackages;
 using BuildingRegulationReview.Application.Reviews;
 using BuildingRegulationReview.Application.WriteBack;
@@ -114,6 +115,24 @@ namespace BuildingRegulationReview.FireReview
                 package, boundaryReasons, ruleSet, environmentReader.ReadConditions(package), parameters, candidates, acceptRuleSetUpdate));
             var modelFacts = new RevitBuildingHeightReader(document).Read();
             var inputs = set == null ? null : ReviewInputAssembler.Assemble(set, parameters, model: modelFacts);
+
+            // 挑空's 連跨樓層數 and 連通區劃面積 are traced through every storey of the scheme
+            // (垂直區劃規格 §3.8). Only a package that has a 挑空 pays for reading every Area of the
+            // scheme. The traced facts enter the zone inputs, so the baseline below sees them too, and
+            // a 區劃 changed on another storey makes this package's stored run 需更新.
+            if (set != null && inputs != null && HasAtrium(set, inputs))
+            {
+                try
+                {
+                    var (storeys, problem) = new RevitStoreyZoneReader(document).Read(package.AreaPlanUniqueId);
+                    modelFacts = storeys != null ? modelFacts.WithStoreys(storeys) : modelFacts.WithStoreysUnavailable(problem);
+                }
+                catch (Exception exception)
+                {
+                    modelFacts = modelFacts.WithStoreysUnavailable("讀取其他樓層的區劃時發生錯誤：" + exception.Message);
+                }
+                inputs = ReviewInputAssembler.Assemble(set, parameters, model: modelFacts);
+            }
             watch.Stop();
 
             var scan = new FireReviewScan
@@ -133,6 +152,12 @@ namespace BuildingRegulationReview.FireReview
             scan.Log = log.Build();
             return scan;
         }
+
+        private static bool HasAtrium(CandidateSet set, ReviewInputAssembly inputs) =>
+            set.Zones.Any(zone => inputs.Area.ForZone(zone.ZoneId).Any(input =>
+                input.Field == "zone.use" && !input.IsUnreadable &&
+                input.Value.Kind == ReviewValueKind.Text &&
+                string.Equals(input.Value.Text.Trim(), ZoneUses.Atrium, StringComparison.Ordinal)));
 
         /// <summary>
         /// The latest run, judged against the model now (spec 13.1). What the judgement changes —

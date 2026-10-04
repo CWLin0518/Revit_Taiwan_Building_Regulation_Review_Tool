@@ -151,7 +151,8 @@ public sealed class SharedParameterFileTests
 
     /// <summary>
     /// One definition per GUID and per name, and nothing lost: 決議 16 adds one line to the sixteen
-    /// that were already there. A duplicate GUID makes Revit reject the whole file.
+    /// that were already there, and 垂直區劃規格決議 35 retired 防火檢討_連跨樓層數 (…0010). A duplicate
+    /// GUID makes Revit reject the whole file.
     /// </summary>
     [Fact]
     public void Every_parameter_keeps_its_own_guid_and_name()
@@ -159,7 +160,7 @@ public sealed class SharedParameterFileTests
         var params_ = Lines().Where(l => l.StartsWith("PARAM\t", StringComparison.Ordinal))
             .Select(l => l.Split('\t')).ToList();
 
-        Assert.Equal(17, params_.Count);
+        Assert.Equal(16, params_.Count);
         Assert.Equal(params_.Count, params_.Select(f => f[1]).Distinct(StringComparer.Ordinal).Count());
         Assert.Equal(params_.Count, params_.Select(f => f[2]).Distinct(StringComparer.Ordinal).Count());
     }

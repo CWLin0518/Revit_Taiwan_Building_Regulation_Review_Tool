@@ -119,15 +119,35 @@ public sealed class RuleFieldCatalog
             new RuleFieldDefinition("zone.interiorFinish", text,
                 "由區劃內牆面與天花板類型推導的室內裝修耐燃等級（無／耐燃一級／耐燃一級含底材）", all),
 
-            // 第79條之2第3項 的兩款免除（docs/regulations/vertical-compartment.md §3.6）。這兩個欄位
-            // 是 Area 實體上的事實，與 zone.floorNumber 同一類，所以對所有類別開放；但**沒有任何規則
-            // 讀它們**——第 3 項是分類而不是要求，沒有可比較的 requiredValue，判定寫在
-            // AtriumExemption.For 這個純計算裡（決議 24）。它們仍要進白名單，因為組裝層會把整份
-            // zone.* 輸入 ApplyTo 到每個受檢主體，白名單外的欄位會在那裡例外。也因為
-            // ReviewInputSources.NeededBy 是規則驅動的，這兩個參數不會變成前置檢查的阻擋項（決議 27）。
-            new RuleFieldDefinition("zone.spannedFloors", number, "第3項第二款之連跨樓層數", all),
+            // 第79條之2第3項 的兩款免除（docs/regulations/vertical-compartment.md §3.6、§3.8）。這幾個欄位
+            // 是區劃的事實，與 zone.floorNumber 同一類，所以對所有類別開放；但**沒有任何規則讀它們**——
+            // 第 3 項是分類而不是要求，沒有可比較的 requiredValue，判定寫在 AtriumExemption.For 這個
+            // 純計算裡（決議 24）。它們仍要進白名單，因為組裝層會把整份 zone.* 輸入 ApplyTo 到每個
+            // 受檢主體，白名單外的欄位會在那裡例外。
+            //
+            // 只有 zone.linksRefugeFloor 是設計者宣告的參數。連跨樓層數、起始樓層序與連通區劃面積由
+            // ReviewInputAssembler 從各樓層的區劃推得（AtriumStackResolver，決議 35）：從挑空的所在
+            // 區劃往上下層找有挑空的區劃，起始樓層是最低開口的下一層，連通區劃面積加總各開口樓層的
+            // 所在區劃與起始樓層位於其正下方的區劃（依內政部106年9月27日內授營建管字第1060814830號函
+            // 合計，決議 31）。也因為 NeededBy 是規則驅動的，這些欄位不會變成前置檢查的阻擋項（決議 27）。
             new RuleFieldDefinition("zone.linksRefugeFloor", boolean,
                 "第3項第一款：本挑空是否為避難層通達其直上層或直下層者", all),
+            new RuleFieldDefinition("zone.spannedFloors", number, "第3項第二款之連跨樓層數（由各樓層區劃推得）", all),
+            new RuleFieldDefinition("zone.connectedArea", RuleValueType.Quantity(ReviewUnit.SquareMeter),
+                "第3項第二款：挑空連通區劃之合計樓地板面積（由各樓層區劃推得）", all),
+            new RuleFieldDefinition("zone.atriumBaseFloor", number,
+                "挑空起始樓層序（最低開口的下一層，由各樓層區劃推得）", all),
+
+            // 第3項免除成立的挑空不再是第79條之2之垂直區劃，第83條本文的除外不再涵蓋它，其連通區劃
+            // 回到第79條、第83條的面積檢討（同函第4點；決議 32）。以下三個欄位**沒有輸入來源**，由
+            // CompartmentAreaCheck 依 AtriumExemptionFacts 推得，所以讀它們的兩條面積規則不會讓
+            // 任何挑空的事實變成全專案的必要參數；推不出來時欄位留空，引擎照常判資料不足。
+            new RuleFieldDefinition("zone.atriumMerged", boolean,
+                "挑空是否依第79條之2第3項免除單獨區劃而併入連通區劃（詳見挑空免除結果）", all),
+            new RuleFieldDefinition("zone.atriumTopFloor", number,
+                "挑空所跨之最高樓層序（起始樓層序＋連跨樓層數－1）", all),
+            new RuleFieldDefinition("zone.atriumCompartmentArea", RuleValueType.Quantity(ReviewUnit.SquareMeter),
+                "併入挑空之連通區劃合計樓地板面積（由各樓層區劃推得）", all),
 
             // 第79條之1「無法區劃分隔部分」（docs/regulations/article-79-1-area-exemption.md §5.2）。
             // 與上面兩個欄位完全同一類：Area 實體上、只有設計者能宣告的事實，沒有任何規則讀它

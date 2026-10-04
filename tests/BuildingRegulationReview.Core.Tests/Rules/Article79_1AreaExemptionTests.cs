@@ -89,7 +89,7 @@ public sealed class Article79_1AreaExemptionTests
         Assert.Equal(5, Enum.GetValues<RuleCategory>().Length);
 
         var rules = Shipped().OfCategory(RuleCategory.CompartmentArea).ToArray();
-        Assert.Equal(2, rules.Length);
+        Assert.Equal(4, rules.Length);
         Assert.All(rules, x => Assert.DoesNotContain("79-1", x.RuleId, StringComparison.Ordinal));
         Assert.All(rules, x => Assert.DoesNotContain("第79條之1", x.Rule.LegalReference, StringComparison.Ordinal));
     }
@@ -169,7 +169,9 @@ public sealed class Article79_1AreaExemptionTests
             .Set("zone.floorNumber", floorNumber, ReviewUnit.None)
             .Set("zone.area", areaSquareMeters, ReviewUnit.SquareMeter)
             .Set("zone.sprinklered", false)
-            .Set("zone.interiorFinish", InteriorFinishGrades.None);
+            .Set("zone.interiorFinish", InteriorFinishGrades.None)
+            // 檢查層對每個不是「第3項免除成立之挑空」的區劃都設這個值（決議 32）。
+            .Set("zone.atriumMerged", false);
 
     private static RuleOutcome Outcome(RuleFacts facts) =>
         new RuleEngine(Shipped()).Evaluate(RuleCategory.CompartmentArea, facts, Today);

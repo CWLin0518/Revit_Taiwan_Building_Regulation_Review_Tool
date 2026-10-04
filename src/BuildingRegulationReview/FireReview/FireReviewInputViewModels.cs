@@ -126,7 +126,6 @@ namespace BuildingRegulationReview.FireReview
         private string _sprinklered;
         private string _floorNumber;
         private string _buildingUse;
-        private string _spannedFloors;
         private string _linksRefugeFloor;
         private string _cannotBeSubdivided;
 
@@ -138,7 +137,6 @@ namespace BuildingRegulationReview.FireReview
             _sprinklered = TextOf(source.Sprinklered);
             _floorNumber = TextOf(source.FloorNumber);
             _buildingUse = buildingUse ?? "";
-            _spannedFloors = TextOf(source.SpannedFloors);
             _linksRefugeFloor = TextOf(source.LinksRefugeFloor);
             _cannotBeSubdivided = TextOf(source.CannotBeSubdivided);
         }
@@ -306,18 +304,6 @@ namespace BuildingRegulationReview.FireReview
             }
         }
 
-        /// <summary>
-        /// 防火檢討_連跨樓層數 — 第79條之2第3項第二款「連跨樓層數在三層以下」. Blank means nobody said,
-        /// and so does 0: a Revit Integer parameter has no blank state, so a number below 1 is read
-        /// as 未填 rather than let 「連跨 0 層」 pass 「三層以下」 (see
-        /// <see cref="AtriumExemption.StatedSpannedFloors"/>).
-        /// </summary>
-        public string SpannedFloors
-        {
-            get => _spannedFloors;
-            set => Set(ref _spannedFloors, value);
-        }
-
         /// <summary>防火檢討_避難層通達 — 第79條之2第3項第一款之「避難層通達其直上層或直下層」.</summary>
         public string LinksRefugeFloor
         {
@@ -374,16 +360,6 @@ namespace BuildingRegulationReview.FireReview
             {
                 yield return FireReviewParameterEdit.OfText(
                     Source.ElementUniqueId, ReviewInputSources.FloorNumber, TextOf(IntegerOf(_floorNumber)));
-            }
-
-            // 第79條之2第3項. The typed number goes through StatedSpannedFloors before it is compared
-            // and before it is written, so a 0 or a negative is an erasure rather than a 連跨 0 層
-            // that would silently satisfy 「三層以下」.
-            var spanned = AtriumExemption.StatedSpannedFloors(IntegerOf(_spannedFloors));
-            if (spanned != Source.SpannedFloors)
-            {
-                yield return FireReviewParameterEdit.OfText(
-                    Source.ElementUniqueId, ReviewInputSources.SpannedFloors, TextOf(spanned));
             }
 
             if (YesNoOf(_linksRefugeFloor) != Source.LinksRefugeFloor)

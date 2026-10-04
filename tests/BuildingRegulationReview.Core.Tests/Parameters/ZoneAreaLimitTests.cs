@@ -261,7 +261,7 @@ public sealed class ZoneAreaLimitTests
 
         Assert.True(shown.IsExempt);
         Assert.False(shown.NeedsArticle79_1Confirmation);
-        Assert.Equal("第79條 免適用（第79條之2 垂直區劃）", shown.Description);
+        Assert.Equal("第79條 免適用（第79條之2 垂直區劃）" + ZoneAreaLimit.AtriumNote, shown.Description);
     }
 
     /// <summary>
@@ -344,7 +344,9 @@ public sealed class ZoneAreaLimitTests
             .Set("zone.id", "zone-1")
             .Set("zone.use", zoneUse)
             .Set("zone.floorNumber", floorNumber, ReviewUnit.None)
-            .Set("zone.area", areaSquareMeters, ReviewUnit.SquareMeter);
+            .Set("zone.area", areaSquareMeters, ReviewUnit.SquareMeter)
+            // 檢查層對每個不是「第3項免除成立之挑空」的區劃都設這個值（決議 32）。
+            .Set("zone.atriumMerged", false);
 
         if (sprinklered is bool value) facts = facts.Set("zone.sprinklered", value);
         if (buildingUse is not null) facts = facts.Set("building.use", buildingUse);

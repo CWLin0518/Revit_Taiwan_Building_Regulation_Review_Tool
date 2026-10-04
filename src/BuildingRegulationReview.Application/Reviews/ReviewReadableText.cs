@@ -465,6 +465,8 @@ public static class ReviewFieldText
                 ("RefugeFloorLink", "避難層通達直上層或直下層"),
                 ("InteriorFinish", "室內裝修耐燃等級"),
                 ("SpannedFloors", "連跨樓層數"),
+                ("ConnectedArea", "連通區劃合計樓地板面積"),
+                // 步驟 8 之前存下的結果，第二款讀的還是挑空自己的面積。
                 ("CompartmentArea", "樓地板面積"))
         };
     }

@@ -227,6 +227,17 @@ public static class ReviewInputAssembler
             if (inputs.Count > 0) zones[zone.ZoneId] = inputs;
         }
 
+        if (model.Storeys is not null || model.StoreysUnavailable is not null)
+        {
+            foreach (var zone in set.Zones)
+            {
+                var own = zones.TryGetValue(zone.ZoneId, out var existing) ? existing.ToList() : new List<ReviewInput>();
+                var traced = AtriumInputs(model, set.PackageId, set.LevelUniqueId, zone.ZoneId, own, catalog);
+                if (traced.Count == 0) continue;
+                zones[zone.ZoneId] = own.Concat(traced).ToList();
+            }
+        }
+
         var context = new CompartmentAreaInputs(building, zones);
 
         var ratings = set.Members
@@ -359,11 +370,65 @@ public static class ReviewInputAssembler
         };
     }
 
+    /// <summary>
+    /// 連跨樓層數, 起始樓層序 and 連通區劃面積 for one 挑空 區劃, traced through the storeys rather
+    /// than typed (垂直區劃規格 §3.8、決議 35). A figure the trace cannot tell is an unreadable input
+    /// with the reason, so 第79條之2第3項 and the 區劃面積 rules both say why rather than 「未設定」.
+    /// Only a 區劃 whose 用途 reads 挑空 is traced.
+    /// </summary>
+    private static IReadOnlyList<ReviewInput> AtriumInputs(
+        ReviewModelFacts model, Guid packageId, string levelUniqueId, Guid zoneId, IReadOnlyList<ReviewInput> own, RuleFieldCatalog catalog)
+    {
+        var use = own.FirstOrDefault(i => string.Equals(i.Field, "zone.use", StringComparison.Ordinal));
+        if (use is not { IsUnreadable: false, Value: { Kind: ReviewValueKind.Text } text } ||
+            !string.Equals(text.Text.Trim(), ZoneUses.Atrium, StringComparison.Ordinal))
+            return Array.Empty<ReviewInput>();
+
+        var stack = model.Storeys is StoreyZoneMap storeys
+            ? AtriumStackResolver.Resolve(storeys, packageId, zoneId, levelUniqueId)
+            : null;
+        if (stack is null)
+        {
+            var reason = model.StoreysUnavailable ?? "此挑空不在各樓層的區劃中（尚未寫入區劃範圍，或區劃用途與其他樓層讀到的不一致）";
+            const string tracedSource = "由跨樓層區劃推得";
+            return new[] { "zone.spannedFloors", "zone.atriumBaseFloor", "zone.connectedArea" }
+                .Where(f => catalog.Find(f) is not null)
+                .Select(f => ReviewInput.Unreadable(f, reason, tracedSource))
+                .ToList();
+        }
+
+        var source = stack.Explanation;
+        var inputs = new List<ReviewInput>();
+        if (catalog.Find("zone.spannedFloors") is not null)
+        {
+            inputs.Add(stack.SpannedFloors is int spanned
+                ? ReviewInput.Known("zone.spannedFloors", spanned, ReviewUnit.None, source)
+                : ReviewInput.Unreadable("zone.spannedFloors", stack.SpanProblem!, source));
+        }
+
+        if (catalog.Find("zone.atriumBaseFloor") is not null)
+        {
+            inputs.Add(stack.BaseFloorNumber is int baseFloor
+                ? ReviewInput.Known("zone.atriumBaseFloor", baseFloor, ReviewUnit.None, source)
+                : ReviewInput.Unreadable("zone.atriumBaseFloor",
+                    stack.SpanProblem ?? "起始樓層與最低挑空所在樓層的防火檢討_所在樓層序都沒有填或彼此不一致", source));
+        }
+
+        if (catalog.Find("zone.connectedArea") is not null)
+        {
+            inputs.Add(stack.ConnectedAreaSquareMeters is double connected
+                ? ReviewInput.Known("zone.connectedArea", connected, ReviewUnit.SquareMeter, source)
+                : ReviewInput.Unreadable("zone.connectedArea", stack.AreaProblem!, source));
+        }
+
+        return inputs;
+    }
+
     private static ReviewInput? ZoneInput(RuleFieldDefinition field, ReviewInputSource source, CandidateZone zone, ReviewParameterSnapshot snapshot)
     {
         var sourceText = "面積：" + source.ParameterName;
         var readings = zone.AreaUniqueIds
-            .Select(uid => Stated(source, snapshot.Element(uid, source.ParameterName))).ToList();
+            .Select(uid => snapshot.Element(uid, source.ParameterName)).ToList();
         if (readings.Count == 0 || readings.All(r => !r.HasValue)) return null;
 
         var inputs = readings.Select(r => Convert(field, r, sourceText)).ToList();
@@ -379,20 +444,6 @@ public static class ReviewInputAssembler
             $"此區劃的 {readings.Count} 個面積填寫不一致（{string.Join("、", readings.Select(r => r.Raw))}）",
             sourceText);
     }
-
-    /// <summary>
-    /// One Area's reading as the review should see it. Only 連跨樓層數 needs the treatment: a Revit
-    /// Integer parameter cannot be blank, so an Area nobody filled in reads 0, and 第79條之2第3項
-    /// 第二款's 「三層以下」 would take that as satisfied (see
-    /// <see cref="AtriumExemption.StatedSpannedFloors"/>). Everything else is passed through — an
-    /// unticked Yes/No is 否, which is an answer, not a blank.
-    /// </summary>
-    private static ParameterReading Stated(ReviewInputSource source, ParameterReading reading) =>
-        string.Equals(source.Field, "zone.spannedFloors", StringComparison.Ordinal) &&
-        reading.Kind is ParameterReadingKind.Integer or ParameterReadingKind.Number &&
-        !AtriumExemption.IsStatedSpannedFloors(reading.Number)
-            ? ParameterReading.Empty
-            : reading;
 
     private static ReviewInput Boolean(string field, ParameterReading reading, string source)
     {

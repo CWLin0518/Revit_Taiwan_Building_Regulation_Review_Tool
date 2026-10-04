@@ -93,6 +93,13 @@ public sealed class RuleOutcome
     /// <summary>The rules this outcome speaks for: the decider, or every rule in a conflict.</summary>
     public IReadOnlyList<string> ConsideredRuleIds { get; }
 
+    /// <summary>
+    /// True when the engine could not tell whether the rule applied at all, so the rule named here
+    /// decided nothing — it is only the first of the rules still in doubt. Every outcome of a rule
+    /// that did apply carries that rule's comparator; this one alone has none.
+    /// </summary>
+    public bool IsApplicabilityUndecided => Reason == RuleOutcomeReason.MissingData && Comparator is null;
+
     public ReviewResult ToReviewResult(
         Guid resultId,
         Guid runId,

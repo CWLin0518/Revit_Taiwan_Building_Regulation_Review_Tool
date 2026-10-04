@@ -60,7 +60,7 @@ public sealed class AtriumExemptionTests
 
         Assert.True(exemption.Holds);
         Assert.Equal(AtriumExemptionClause.SecondClause, exemption.Clause);
-        Assert.Equal("符合第二款（連跨 2 層、樓地板面積 320.5 ㎡）", exemption.Description);
+        Assert.Equal("符合第二款（連跨 2 層、連通區劃合計樓地板面積 320.5 ㎡）", exemption.Description);
     }
 
     [Fact]
@@ -160,7 +160,7 @@ public sealed class AtriumExemptionTests
 
         Assert.True(exemption.IsInapplicable);
         Assert.Equal(AtriumExemptionGap.None, exemption.Gaps);
-        Assert.Equal("兩款均不成立（避難層通達＝否、樓地板面積 2000 ㎡）", exemption.Description);
+        Assert.Equal("兩款均不成立（避難層通達＝否、連通區劃合計樓地板面積 2000 ㎡）", exemption.Description);
     }
 
     // --- 門檻兩側 -------------------------------------------------------------------------------
@@ -207,14 +207,96 @@ public sealed class AtriumExemptionTests
         Assert.Equal(holds ? AtriumExemptionClause.FirstClause : AtriumExemptionClause.None, exemption.Clause);
     }
 
-    /// <summary>A missing Revit Area is a gap like any other, not an area of zero.</summary>
+    /// <summary>
+    /// A 連通區劃面積 nobody stated is a gap like any other, not an area of zero — and the gap names
+    /// the 合計, not the 挑空's own area (決議 31).
+    /// </summary>
     [Fact]
-    public void An_area_the_model_does_not_give_leaves_the_second_clause_undecided()
+    public void A_connected_area_nobody_stated_leaves_the_second_clause_undecided()
     {
         var exemption = AtriumExemption.For(true, linksRefugeFloor: false, InteriorFinishGrades.ClassOne, 2, null);
 
         Assert.True(exemption.IsUndecided);
-        Assert.Equal(AtriumExemptionGap.CompartmentArea, exemption.Gaps);
+        Assert.Equal(AtriumExemptionGap.ConnectedArea, exemption.Gaps);
+        Assert.Equal("缺連通區劃面積，無法判定兩款是否成立", exemption.Description);
+    }
+
+    /// <summary>
+    /// The 函 example table (防火區劃與挑空規則 §3): three storeys of 500 ㎡ is 1,500 ㎡ and holds; three
+    /// of 600 ㎡ is 1,800 ㎡ and does not, although each storey alone is far below 1,500 ㎡ — the limit
+    /// is on the 合計, never on a storey; four storeys fails on the count whatever the area.
+    /// </summary>
+    [Theory]
+    [InlineData(3, 500 + 500 + 500, true)]
+    [InlineData(3, 600 + 600 + 600, false)]
+    [InlineData(4, 300 + 300 + 300 + 300, false)]
+    public void The_second_clause_reads_the_total_over_the_connected_storeys(int spannedFloors, double total, bool holds)
+    {
+        var exemption = AtriumExemption.For(true, linksRefugeFloor: false, InteriorFinishGrades.ClassOne, spannedFloors, total);
+
+        Assert.Equal(holds, exemption.Holds);
+        Assert.True(holds || exemption.IsInapplicable);
+    }
+
+    /// <summary>
+    /// A Revit Number parameter is never blank either, so 0 ㎡ is 未填 rather than 「一千五百平方公尺
+    /// 以下」 satisfied unasked.
+    /// </summary>
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData(0.0, null)]
+    [InlineData(-5.0, null)]
+    [InlineData(double.NaN, null)]
+    [InlineData(0.5, 0.5)]
+    [InlineData(1500.0, 1500.0)]
+    public void A_connected_area_of_zero_or_less_is_nothing_stated(double? read, double? stated)
+    {
+        Assert.Equal(stated, AtriumExemption.StatedConnectedArea(read));
+    }
+
+    /// <summary>樓層序 has no 0: 1F is 1 and B1 is −1, so 0 names no storey.</summary>
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(1, true)]
+    [InlineData(-2, true)]
+    [InlineData(12, true)]
+    public void A_floor_number_of_zero_names_no_storey(int read, bool stated)
+    {
+        Assert.Equal(stated, AtriumExemption.IsStatedFloorNumber(read));
+    }
+
+    /// <summary>
+    /// Both checks read the five facts through <see cref="AtriumExemptionFacts"/>: an unreadable input
+    /// is a gap, 0 floors and 0 ㎡ are 未填, and the exemption is the one <see cref="AtriumExemption.For"/>
+    /// would give for what is left.
+    /// </summary>
+    [Fact]
+    public void The_facts_reader_turns_inputs_into_the_exemption_both_checks_share()
+    {
+        var facts = AtriumExemptionFacts.Read(new[]
+        {
+            ReviewInput.Known("building.fireResistiveConstruction", true),
+            ReviewInput.Known("zone.linksRefugeFloor", false),
+            ReviewInput.Known("zone.spannedFloors", 3, Domain.Reviews.ReviewUnit.None),
+            ReviewInput.Known("zone.connectedArea", 1200, Domain.Reviews.ReviewUnit.SquareMeter)
+        });
+
+        Assert.Equal(3, facts.SpannedFloors);
+        Assert.Equal(1200, facts.ConnectedAreaSquareMeters);
+        Assert.Equal(AtriumExemptionClause.SecondClause, facts.Exemption.Clause);
+        Assert.Contains(facts.Evidence(), x => x.Field == "zone.connectedArea");
+
+        var unstated = AtriumExemptionFacts.Read(new[]
+        {
+            ReviewInput.Known("building.fireResistiveConstruction", true),
+            ReviewInput.Known("zone.linksRefugeFloor", false),
+            ReviewInput.Known("zone.spannedFloors", 0, Domain.Reviews.ReviewUnit.None),
+            ReviewInput.Unreadable("zone.connectedArea", "此區劃的 2 個面積填寫不一致（800、900）")
+        });
+
+        Assert.Null(unstated.SpannedFloors);
+        Assert.Null(unstated.ConnectedAreaSquareMeters);
+        Assert.Equal(AtriumExemptionGap.SpannedFloors | AtriumExemptionGap.ConnectedArea, unstated.Exemption.Gaps);
     }
 
     /// <summary>
@@ -252,9 +334,10 @@ public sealed class AtriumExemptionTests
     // --- 白名單與規則的關係 ----------------------------------------------------------------------
 
     /// <summary>
-    /// The two new fields are 區劃 facts like 所在樓層序, so they are open to every category — but no
+    /// The three facts are 區劃 facts like 所在樓層序, so they are open to every category — but no
     /// rule reads them, because 第3項 has no comparable requiredValue to be written as one (決議 24).
-    /// That is also why they never become a 前置檢查 blocker: NeededBy is rule-driven (決議 27).
+    /// The two atrium area rules read the derived <c>zone.atrium*</c> fields instead (決議 32). That is
+    /// also why they never become a 前置檢查 blocker: NeededBy is rule-driven (決議 27).
     /// </summary>
     [Fact]
     public void The_third_paragraphs_two_facts_are_whitelisted_but_read_by_no_rule()
@@ -263,7 +346,7 @@ public sealed class AtriumExemptionTests
         var read = ReviewInputSources.FieldsUsedBy(Shipped()).Select(f => f.Name).ToList();
         var needed = ReviewInputSources.NeededBy(Shipped()).Select(s => s.Field).ToList();
 
-        foreach (var name in new[] { "zone.spannedFloors", "zone.linksRefugeFloor" })
+        foreach (var name in new[] { "zone.spannedFloors", "zone.linksRefugeFloor", "zone.connectedArea", "zone.atriumBaseFloor" })
         {
             var field = catalog.Find(name);
             Assert.NotNull(field);
@@ -272,9 +355,15 @@ public sealed class AtriumExemptionTests
             Assert.DoesNotContain(name, read);
             Assert.DoesNotContain(name, needed);
 
-            // 步驟 7c gave each of them a parameter to come from; 決議 27 still keeps them out of
-            // the pre-review check, because only a 挑空 needs them.
+            // Only 避難層通達 is typed; the other three are traced through the storeys and have no
+            // parameter to come from at all (決議 35).
             var source = ReviewInputSources.For(name);
+            if (name != "zone.linksRefugeFloor")
+            {
+                Assert.Null(source);
+                continue;
+            }
+
             Assert.NotNull(source);
             Assert.Equal(ReviewParameterLevel.Instance, source!.Level);
             Assert.Equal(new[] { ReviewParameterHost.Areas }, source.Hosts);
@@ -282,21 +371,18 @@ public sealed class AtriumExemptionTests
     }
 
     /// <summary>
-    /// 步驟 7c: what counts as a stated 連跨樓層數. A Revit Integer parameter is never blank — every
-    /// Area reads 0 until someone types a number — and 「連跨 0 層」 taken at face value would satisfy
-    /// 第二款's 「三層以下」 and exempt the 挑空 unasked, so anything below one storey is 未填.
+    /// What counts as a 連跨樓層數 at all: 「連跨 0 層」 taken at face value would satisfy 第二款's
+    /// 「三層以下」 and exempt the 挑空 unasked, so anything below one storey is no answer.
     /// </summary>
     [Theory]
-    [InlineData(null, null)]
-    [InlineData(0, null)]
-    [InlineData(-1, null)]
-    [InlineData(1, 1)]
-    [InlineData(3, 3)]
-    [InlineData(12, 12)]
-    public void A_span_below_one_storey_is_nothing_stated(int? read, int? stated)
+    [InlineData(0, false)]
+    [InlineData(-1, false)]
+    [InlineData(1, true)]
+    [InlineData(3, true)]
+    [InlineData(12, true)]
+    public void A_span_below_one_storey_is_nothing_stated(int read, bool stated)
     {
-        Assert.Equal(stated, AtriumExemption.StatedSpannedFloors(read));
-        if (read is int floors) Assert.Equal(stated is not null, AtriumExemption.IsStatedSpannedFloors(floors));
+        Assert.Equal(stated, AtriumExemption.IsStatedSpannedFloors(read));
     }
 
     private static CompiledRuleSet Shipped()

@@ -113,7 +113,6 @@ public sealed class FireReviewParameterCatalogTests
     [InlineData("防火檢討_區劃用途", "實體參數", "面積")]
     [InlineData("防火檢討_自動滅火設備", "實體參數", "面積")]
     [InlineData("防火檢討_所在樓層序", "實體參數", "面積")]
-    [InlineData("防火檢討_連跨樓層數", "實體參數", "面積")]
     [InlineData("防火檢討_避難層通達", "實體參數", "面積")]
     [InlineData("防火檢討_無法區劃分隔", "實體參數", "面積")]
     [InlineData("防火檢討_室內裝修等級", "類型參數", "牆、天花板")]
@@ -133,13 +132,14 @@ public sealed class FireReviewParameterCatalogTests
     }
 
     /// <summary>
-    /// Sixteen, and no seventeenth slipping in unnoticed: the count is what the preview shows and what
+    /// Fifteen — 防火檢討_連跨樓層數 left when 連跨樓層數 came to be traced through the storeys
+    /// (垂直區劃規格決議 35) — and no sixteenth slipping in unnoticed: the count is what the preview shows and what
     /// V-22 counts the rows against.
     /// </summary>
     [Fact]
-    public void The_catalog_holds_sixteen_parameters()
+    public void The_catalog_holds_fifteen_parameters()
     {
-        Assert.Equal(16, FireReviewParameterCatalog.All.Count);
+        Assert.Equal(15, FireReviewParameterCatalog.All.Count);
     }
 
     /// <summary>Two definitions cannot share a name or a GUID: either collision makes Revit reject the file.</summary>

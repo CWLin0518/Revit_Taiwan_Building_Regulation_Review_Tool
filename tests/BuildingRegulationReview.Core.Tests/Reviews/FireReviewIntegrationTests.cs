@@ -30,7 +30,7 @@ namespace BuildingRegulationReview.Core.Tests.Reviews;
 public sealed class FireReviewIntegrationTests
 {
     private const string RuleSetId = "tw-bcr-fire";
-    private const string ShippedVersion = "2026.7-provisional";
+    private const string ShippedVersion = "2026.8-provisional";
 
     [Fact]
     public void Interior_finish_is_a_model_derived_wall_and_ceiling_type_fact_not_an_area_input()
@@ -142,10 +142,11 @@ public sealed class FireReviewIntegrationTests
         CompiledRuleSet? rules = null,
         IEnumerable<MemberObservation>? members = null,
         IEnumerable<OpeningObservation>? openings = null,
-        ICurtainWallGeometryReader? curtainWalls = null)
+        ICurtainWallGeometryReader? curtainWalls = null,
+        ReviewModelFacts? model = null)
     {
         var set = Set(members, openings);
-        var inputs = ReviewInputAssembler.Assemble(set, (parameters ?? new Parameters()).Snapshot());
+        var inputs = ReviewInputAssembler.Assemble(set, (parameters ?? new Parameters()).Snapshot(), model: model);
         return new FireReviewRequest(package ?? Package(), rules ?? Rules(), Today, set, inputs, Environment(), previous,
             TimeSpan.FromSeconds(1), curtainWallReader: curtainWalls);
     }
@@ -1597,60 +1598,104 @@ public sealed class FireReviewIntegrationTests
         Assert.DoesNotContain(outcome.Log.Entries, e => e.UserMessage.Contains("垂直區劃（第79條之2）"));
     }
 
-    // --- 第79條之2第3項 的兩個事實進來 (垂直區劃規格 §6 步驟 7c) -------------------------------
+    // --- 第79條之2第3項 的事實進來 (垂直區劃規格 §3.8、§6，決議 35) ------------------------------
 
-    private static Parameters AtriumParameters(int spannedFloors = 2, int linksRefugeFloor = 1)
+    private static readonly Guid LowerPackageId = Guid.Parse("22222222-0000-0000-0000-000000000001");
+    private static readonly Guid LowerZoneId = Guid.Parse("22222222-0000-0000-0000-0000000000a1");
+
+    /// <summary>A 區 is the 挑空 on 2F (the package's storey); 避難層通達 is the one fact typed.</summary>
+    private static Parameters AtriumParameters(int linksRefugeFloor = 1)
     {
         var parameters = new Parameters();
         parameters.Elements["area-a"][ReviewInputSources.ZoneUse] = ParameterReading.OfText(ZoneUses.Atrium);
-        parameters.Elements["area-a"][ReviewInputSources.SpannedFloors] = ParameterReading.OfInteger(spannedFloors);
+        parameters.Elements["area-a"][ReviewInputSources.FloorNumber] = ParameterReading.OfInteger(2);
         parameters.Elements["area-a"][ReviewInputSources.LinksRefugeFloor] = ParameterReading.OfYesNo(linksRefugeFloor);
         return parameters;
     }
 
+    /// <summary>
+    /// The storeys around it: on 2F the 挑空 A 區 and B 區 beside it, its 所在區劃; on 1F one 區劃
+    /// under both. 連跨 2 層, 起始樓層 1F, 連通區劃面積 = B 區 + 1F 區劃.
+    /// </summary>
+    private static ReviewModelFacts AtriumStoreys(double surroundingSquareMeters = 300, double belowSquareMeters = 600) =>
+        ReviewModelFacts.None.WithStoreys(new StoreyZoneMap(new[]
+        {
+            new StoreyZone(PackageId, ZoneA, "level-1F", 10, "2F", "A 區", ZoneUses.Atrium, 2,
+                PlanUnits.SquareMetersToSquareFeet(100), new[] { Rect(0, 0, 10, 10) }, new[] { "area-a" }),
+            new StoreyZone(PackageId, ZoneB, "level-1F", 10, "2F", "B 區", "辦公", 2,
+                PlanUnits.SquareMetersToSquareFeet(surroundingSquareMeters), new[] { Rect(10, 0, 20, 10) }, new[] { "area-b" }),
+            new StoreyZone(LowerPackageId, LowerZoneId, "level-below", 0, "1F", "大廳", "辦公", 1,
+                PlanUnits.SquareMetersToSquareFeet(belowSquareMeters), new[] { Rect(0, 0, 20, 10) }, new[] { "area-1f" })
+        }));
+
     /// <summary>The zone inputs assembled for area-a, which is the 挑空 in these fixtures.</summary>
-    private static IReadOnlyList<ReviewInput> AtriumZoneInputs(Parameters parameters)
+    private static IReadOnlyList<ReviewInput> AtriumZoneInputs(Parameters parameters, ReviewModelFacts? model = null)
     {
         var set = Set();
-        var inputs = ReviewInputAssembler.Assemble(set, parameters.Snapshot());
+        var inputs = ReviewInputAssembler.Assemble(set, parameters.Snapshot(), model: model);
         var zone = set.Zones.Single(z => z.AreaUniqueIds.Contains("area-a"));
         return inputs.Area.ForZone(zone.ZoneId).ToList();
     }
 
     /// <summary>
-    /// 垂直區劃規格 §6: the two new Area parameters are ordinary zone inputs, so the generic assembly
-    /// carries them from the snapshot to the 區劃's inputs with no code of their own — which is what
-    /// lets 步驟 7d simply read them off the zone.
+    /// 決議 35: 連跨樓層數, 起始樓層序 and 連通區劃面積 are traced through the storeys and reach the
+    /// 區劃's inputs like any other zone fact, each naming where it came from; 避難層通達 is still read
+    /// off the Area.
     /// </summary>
     [Fact]
-    public void The_third_paragraphs_two_facts_reach_the_zone_inputs()
+    public void The_traced_facts_and_the_refuge_box_reach_the_zone_inputs()
     {
-        var inputs = AtriumZoneInputs(AtriumParameters(spannedFloors: 2, linksRefugeFloor: 1));
+        var inputs = AtriumZoneInputs(AtriumParameters(linksRefugeFloor: 1), AtriumStoreys());
 
         var spanned = inputs.Single(i => i.Field == "zone.spannedFloors");
         Assert.Equal(ReviewValue.Quantity(2, ReviewUnit.None), spanned.Value);
-        Assert.Equal("面積：" + ReviewInputSources.SpannedFloors, spanned.Source);
+        Assert.StartsWith("由跨樓層區劃推得", spanned.Source, StringComparison.Ordinal);
+        Assert.Contains("1F「大廳」 600 ㎡", spanned.Source, StringComparison.Ordinal);
+        Assert.Contains("2F「B 區」 300 ㎡", spanned.Source, StringComparison.Ordinal);
+
+        Assert.Equal(ReviewValue.Quantity(1, ReviewUnit.None), inputs.Single(i => i.Field == "zone.atriumBaseFloor").Value);
+        Assert.Equal(900, inputs.Single(i => i.Field == "zone.connectedArea").Value!.Number, 6);
 
         var links = inputs.Single(i => i.Field == "zone.linksRefugeFloor");
         Assert.Equal(ReviewValue.OfBoolean(true), links.Value);
         Assert.Equal("面積：" + ReviewInputSources.LinksRefugeFloor, links.Source);
     }
 
+    /// <summary>Without the other storeys nothing is traced, and nothing is guessed in its place.</summary>
+    [Fact]
+    public void Without_the_other_storeys_the_traced_facts_are_simply_missing()
+    {
+        var inputs = AtriumZoneInputs(AtriumParameters());
+
+        Assert.DoesNotContain(inputs, i => i.Field == "zone.spannedFloors");
+        Assert.DoesNotContain(inputs, i => i.Field == "zone.connectedArea");
+    }
+
     /// <summary>
-    /// A Revit Integer parameter has no blank state, so every Area reads 0 until someone types a
-    /// number. Read as a value, 「連跨 0 層」 would sail through 第二款's 「三層以下」 and exempt the
-    /// 挑空 although nobody said anything — so 0 is 未填, which is the 資料不足 §3.6 asks for.
+    /// Storeys that could not be read are a reason, not a blank: the three traced facts are 資料不足
+    /// that says why, so nobody goes looking for a parameter that no longer exists.
     /// </summary>
     [Fact]
-    public void An_unfilled_span_is_nothing_stated_rather_than_a_zero_storey_atrium()
+    public void Storeys_that_could_not_be_read_leave_a_reason_rather_than_a_blank()
     {
-        var parameters = AtriumParameters(spannedFloors: 0, linksRefugeFloor: 0);
+        var inputs = AtriumZoneInputs(AtriumParameters(), ReviewModelFacts.None.WithStoreysUnavailable("找不到此工作包的 Area Plan"));
 
-        Assert.DoesNotContain(AtriumZoneInputs(parameters), i => i.Field == "zone.spannedFloors");
-        Assert.True(AtriumExemption.For(true, false, null, null, 320).IsUndecided);
+        foreach (var field in new[] { "zone.spannedFloors", "zone.atriumBaseFloor", "zone.connectedArea" })
+        {
+            var input = inputs.Single(i => i.Field == field);
+            Assert.True(input.IsUnreadable);
+            Assert.Contains("Area Plan", input.UnreadableReason, StringComparison.Ordinal);
+        }
+    }
 
-        // What it would have meant had the zero been taken at face value.
-        Assert.Equal(AtriumExemptionClause.SecondClause, AtriumExemption.For(true, false, null, 0, 320).Clause);
+    /// <summary>Only a 挑空 is traced: B 區 gets none of the three facts.</summary>
+    [Fact]
+    public void Only_an_atrium_is_traced()
+    {
+        var set = Set();
+        var inputs = ReviewInputAssembler.Assemble(set, AtriumParameters().Snapshot(), model: AtriumStoreys());
+
+        Assert.DoesNotContain(inputs.Area.ForZone(ZoneB), i => i.Field == "zone.spannedFloors");
     }
 
     /// <summary>
@@ -1667,37 +1712,37 @@ public sealed class FireReviewIntegrationTests
     }
 
     /// <summary>
-    /// The evidence baseline needs no line of its own for these two: it records every zone input
-    /// already, so retyping 連跨樓層數 moves the 區劃's fingerprint and the stored 檢討 reads 需更新
-    /// (spec 13.1). The gate is here because 步驟 7d's results hang on the value.
+    /// The evidence baseline records every zone input, and the traced facts are zone inputs — so a
+    /// 區劃 changed on <em>another</em> storey moves this 區劃's fingerprint and the stored 檢討 reads
+    /// 需更新 (spec 13.1), although nothing on this package's storey moved.
     /// </summary>
     [Fact]
-    public void Changing_an_atriums_spanned_floors_makes_the_stored_run_need_an_update()
+    public void Changing_a_zone_on_another_storey_makes_the_stored_run_need_an_update()
     {
-        var first = Run(Request(parameters: AtriumParameters(spannedFloors: 2)));
+        var first = Run(Request(parameters: AtriumParameters(), model: AtriumStoreys()));
 
         var inspection = StoredRunInspection.Inspect(first.Package, first.Run!,
-            CurrentBaseline(AtriumParameters(spannedFloors: 5)), RuleSetId, ShippedVersion, Now);
+            CurrentBaseline(AtriumParameters(), model: AtriumStoreys(belowSquareMeters: 800)), RuleSetId, ShippedVersion, Now);
 
         Assert.True(inspection.Freshness.IsStale);
         Assert.All(inspection.Freshness.ChangedSubjects, s => Assert.True(ReviewBaselineKeys.IsZone(s)));
 
-        // And the same for the other one, which is the other half of 第3項's facts.
+        // And the typed half of 第3項's facts.
         Assert.True(StoredRunInspection.Inspect(first.Package, first.Run!,
-            CurrentBaseline(AtriumParameters(linksRefugeFloor: 0)), RuleSetId, ShippedVersion, Now).Freshness.IsStale);
+            CurrentBaseline(AtriumParameters(linksRefugeFloor: 0), model: AtriumStoreys()), RuleSetId, ShippedVersion, Now).Freshness.IsStale);
     }
 
     // --- 第79條之2第3項 的結果 (垂直區劃規格 §7.3、§12 步驟 7d) ---------------------------------
 
     /// <summary>
     /// The judgement is wired into the run: one 挑空 is one result, counted in the fourth requirement
-    /// row of the fifth 檢討表 row. 免除成立 is 人工覆核 — the 樓地板面積 it hands back is not reviewed by
-    /// this tool, so the consequence can only go to a person (決議 25、26).
+    /// row of the fifth 檢討表 row. 免除成立 is 人工覆核 — the 連通範圍's own 區劃分隔 is not in the
+    /// model (決議 25); its 面積 goes back to the 區劃面積 rules (決議 32).
     /// </summary>
     [Fact]
     public void An_exempt_atrium_is_one_manual_review_in_the_fourth_requirement_row()
     {
-        var outcome = Run(Request(parameters: AtriumParameters(spannedFloors: 2), openings: ShaftDoorOnly()));
+        var outcome = Run(Request(parameters: AtriumParameters(), openings: ShaftDoorOnly(), model: AtriumStoreys()));
 
         Assert.True(outcome.IsCompleted, outcome.Message);
         var section = outcome.Table!.Section(ReviewCheckTypes.VerticalCompartment);
@@ -1723,13 +1768,34 @@ public sealed class FireReviewIntegrationTests
     }
 
     /// <summary>
+    /// 決議 32, end to end: the same run hands the exempt 挑空's 面積 back to the 區劃面積 row — the
+    /// 連通區劃面積 traced through the storeys, held to 第79條 — instead of the unconditional use
+    /// exemption. A 區劃 on 1F growing then makes the stored 檢討 需更新, like any other zone input.
+    /// </summary>
+    [Fact]
+    public void An_exempt_atriums_connected_total_goes_back_to_the_area_row()
+    {
+        var outcome = Run(Request(parameters: AtriumParameters(), openings: ShaftDoorOnly(), model: AtriumStoreys()));
+
+        Assert.True(outcome.IsCompleted, outcome.Message);
+        var area = ResultOf(outcome.Run!, ReviewCheckTypes.CompartmentArea, "area-a", ZoneA);
+        Assert.Equal("tw-bcr-79-area-atrium", area.RuleId);
+        Assert.Equal(ReviewValue.Quantity(900, ReviewUnit.SquareMeter), area.ActualValue);
+        Assert.NotEqual(ReviewStatus.NotApplicable, area.Status);
+
+        var inspection = StoredRunInspection.Inspect(outcome.Package, outcome.Run!,
+            CurrentBaseline(AtriumParameters(), model: AtriumStoreys(belowSquareMeters: 1100)), RuleSetId, ShippedVersion, Now);
+        Assert.True(inspection.Freshness.IsStale);
+    }
+
+    /// <summary>
     /// 決議 23: the 挑空's own 防火設備 are held to none of 第1項's three requirements, so the 維修門 in
     /// this fixture — which would be two results were A 區 a 管道間 — yields nothing but 第3項's result.
     /// </summary>
     [Fact]
     public void An_atriums_openings_are_held_to_none_of_the_first_paragraphs_requirements()
     {
-        var outcome = Run(Request(parameters: AtriumParameters(), openings: ShaftDoorOnly()));
+        var outcome = Run(Request(parameters: AtriumParameters(), openings: ShaftDoorOnly(), model: AtriumStoreys()));
 
         Assert.DoesNotContain(outcome.Run!.Results,
             r => r.CheckType == ReviewCheckTypes.VerticalCompartment && r.SubjectUniqueIds.Contains("D9-shaft"));
@@ -1742,10 +1808,10 @@ public sealed class FireReviewIntegrationTests
     [Fact]
     public void The_third_paragraph_never_fails_and_so_is_never_marked()
     {
-        foreach (var spanned in new[] { 2, 9 })
+        foreach (var model in new[] { AtriumStoreys(), AtriumStoreys(belowSquareMeters: 4000) })
         {
-            var request = Request(parameters: AtriumParameters(spannedFloors: spanned, linksRefugeFloor: 0),
-                openings: ShaftDoorOnly());
+            var request = Request(parameters: AtriumParameters(linksRefugeFloor: 0),
+                openings: ShaftDoorOnly(), model: model);
             var outcome = Run(request);
             var entry = Assert.Single(outcome.Table!.Section(ReviewCheckTypes.VerticalCompartment).Entries);
 
@@ -1761,25 +1827,23 @@ public sealed class FireReviewIntegrationTests
     }
 
     /// <summary>
-    /// 決議 27: neither parameter is a required one. A project with no 挑空 must be able to start a
-    /// review without binding them, so they stay out of the pre-review check although they now have
-    /// an input source like every other zone fact.
+    /// 決議 27: 避難層通達 is not a required parameter. A project with no 挑空 must be able to start a
+    /// review without binding it. The traced facts have no parameter at all (決議 35).
     /// </summary>
     [Fact]
     public void The_third_paragraphs_parameters_have_a_source_but_never_hold_a_review_up()
     {
-        foreach (var field in new[] { "zone.spannedFloors", "zone.linksRefugeFloor" })
-        {
-            var source = ReviewInputSources.For(field)!;
-            Assert.NotNull(source);
-            Assert.Equal(ReviewParameterLevel.Instance, source.Level);
-            Assert.Equal(new[] { ReviewParameterHost.Areas }, source.Hosts);
-            Assert.DoesNotContain(field, ReviewInputSources.NeededBy(Rules()).Select(s => s.Field));
-        }
+        var source = ReviewInputSources.For("zone.linksRefugeFloor")!;
+        Assert.NotNull(source);
+        Assert.Equal(ReviewParameterLevel.Instance, source.Level);
+        Assert.Equal(new[] { ReviewParameterHost.Areas }, source.Hosts);
+        Assert.DoesNotContain("zone.linksRefugeFloor", ReviewInputSources.NeededBy(Rules()).Select(s => s.Field));
+
+        foreach (var traced in new[] { "zone.spannedFloors", "zone.connectedArea", "zone.atriumBaseFloor" })
+            Assert.Null(ReviewInputSources.For(traced));
 
         var parameters = AtriumParameters();
-        parameters.Bindings.RemoveAll(b =>
-            b.Key == ReviewInputSources.SpannedFloors || b.Key == ReviewInputSources.LinksRefugeFloor);
+        parameters.Bindings.RemoveAll(b => b.Key == ReviewInputSources.LinksRefugeFloor);
 
         Assert.True(Readiness(parameters: parameters).CanRun);
     }
@@ -1914,10 +1978,11 @@ public sealed class FireReviewIntegrationTests
     // --- a stored run judged again (spec 13.1, 16.3 情境 8) -------------------------------------
 
     private static ReviewBaseline CurrentBaseline(
-        Parameters parameters, string phase = "新建", IEnumerable<OpeningObservation>? openings = null)
+        Parameters parameters, string phase = "新建", IEnumerable<OpeningObservation>? openings = null,
+        ReviewModelFacts? model = null)
     {
         var set = Set(openings: openings);
-        var inputs = ReviewInputAssembler.Assemble(set, parameters.Snapshot());
+        var inputs = ReviewInputAssembler.Assemble(set, parameters.Snapshot(), model: model);
 
         // The same overload the run uses: a baseline built from less than the whole assembly gives a
         // different fingerprint and reads as 需更新 although nothing moved (ReviewBaselineBuilder.Build).

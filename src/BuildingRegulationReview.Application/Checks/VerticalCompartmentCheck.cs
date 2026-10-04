@@ -173,11 +173,6 @@ public sealed class VerticalCompartmentReview
 public static class VerticalCompartmentCheck
 {
     private const string ZoneUseField = "zone.use";
-    private const string FireResistiveField = "building.fireResistiveConstruction";
-    private const string RefugeFloorField = "zone.linksRefugeFloor";
-    private const string InteriorFinishField = "zone.interiorFinish";
-    private const string SpannedFloorsField = "zone.spannedFloors";
-    private const string ZoneAreaField = "zone.area";
 
     /// <summary>第3項 lifts 第1項 alone; it says nothing about 第83條's 面積 (文件 §3.6、§5.3).</summary>
     private const string AtriumLegalReference = "建築技術規則建築設計施工編第79條之2第3項（挑空得不受第1項限制）";
@@ -415,8 +410,8 @@ public static class VerticalCompartmentCheck
     /// requirement, so the judgement is <see cref="AtriumExemption.For"/>'s and the result is
     /// attributed to the rule set itself, the same shape <see cref="Withhold"/> and
     /// <see cref="Unresolved"/> take. There are only three states — 免除成立 is 人工覆核 because the
-    /// 面積 it hands back is not reviewed by this tool (決議 25、26), a gap is 資料不足, and neither is
-    /// 不適用. There is no 符合 and no 未符合: failing 第3項 is not a violation, it only means 第1項
+    /// 連通範圍's own 區劃分隔 is not in the model (決議 25; its 面積 goes back to the 區劃面積 rules,
+    /// 決議 32), a gap is 資料不足, and neither is 不適用. There is no 符合 and no 未符合: failing 第3項 is not a violation, it only means 第1項
     /// applies as usual and the existing boundary rules review it.
     /// </summary>
     private static VerticalCompartmentFinding Atrium(
@@ -447,34 +442,27 @@ public static class VerticalCompartmentCheck
         }
 
         var supplied = inputs.Context.Building.Concat(inputs.Context.ForZone(zone.ZoneId)).ToList();
-        var fireResistive = Flag(supplied, FireResistiveField);
-        var linksRefugeFloor = Flag(supplied, RefugeFloorField);
-        var interiorFinish = Text(supplied, InteriorFinishField);
-        var spannedFloors = Span(supplied);
-        var area = zone.RevitAreaSquareMeters;
-
-        var exemption = AtriumExemption.For(fireResistive, linksRefugeFloor, interiorFinish, spannedFloors, area);
+        var facts = AtriumExemptionFacts.Read(supplied);
+        var exemption = facts.Exemption;
         var status = exemption.Holds ? ReviewStatus.ManualReview
             : exemption.IsUndecided ? ReviewStatus.InsufficientData
             : ReviewStatus.NotApplicable;
 
         var message = exemption.Holds
             ? $"{subject}：{exemption.Description}，得不受第1項單獨區劃分隔之限制。" +
-              "本工具對挑空一律不檢討區劃面積，免除成立後其樓地板面積是否應回歸第79條、第83條計算，需人工覆核。"
+              "免除成立後此挑空不再是第79條之2之垂直區劃：其連通區劃之合計樓地板面積改依第79條" +
+              "（所跨樓層含第十一層以上者並依第83條）檢討，見區劃面積結果；連通範圍與其他部分之區劃分隔" +
+              "（一小時以上防火時效，防火設備具一小時以上阻熱性）需人工覆核。"
             : exemption.IsUndecided
                 ? $"{subject}：{exemption.Description}，第3項之免除資料不足。"
                 : $"{subject}：{exemption.Description}，不適用第3項之免除。" +
-                  (fireResistive == true ? "第1項之區劃分隔照常適用，其牆壁與開口由第79條之區劃規則檢討。" : string.Empty);
+                  (facts.FireResistive == true ? "第1項之區劃分隔照常適用，其牆壁與開口由第79條之區劃規則檢討。" : string.Empty);
 
-        var errorCode = exemption.IsUndecided
-            ? exemption.Gaps == AtriumExemptionGap.CompartmentArea
-                ? ReviewErrorCode.AreaNotEnclosed
-                : ReviewErrorCode.ParameterMissing
-            : null;
+        var errorCode = exemption.IsUndecided ? ReviewErrorCode.ParameterMissing : null;
 
         var evidence = Merge(
             AtriumEvidence(zone),
-            AtriumFactEvidence(fireResistive, linksRefugeFloor, interiorFinish, spannedFloors, area),
+            facts.Evidence(),
             new[]
             {
                 new ReviewEvidenceItem("atrium.clause", ReviewValue.OfText(exemption.Clause.ToString())),
@@ -509,34 +497,6 @@ public static class VerticalCompartmentCheck
         $"{CandidateCategories.Label(observation.Category)}「{observation.TypeName ?? "無 Type 名稱"}」" +
         $"（{observation.Source}）於區劃「{zone.Name}」之{VerticalCompartmentRequirements.Label(requirement)}";
 
-    /// <summary>
-    /// One supplied fact as <see cref="AtriumExemption.For"/> wants it: a value, or null. Turning the
-    /// three states of a <see cref="ReviewInput"/> into two is the caller's job by design — 「沒有」 and
-    /// 「同一區劃各 Area 填得不一致」 are the same kind of gap, and neither picks a value (文件 §3.6).
-    /// </summary>
-    private static ReviewValue? Supplied(IEnumerable<ReviewInput> inputs, string field) =>
-        inputs.FirstOrDefault(x => string.Equals(x.Field, field, StringComparison.Ordinal)) is { IsUnreadable: false } input
-            ? input.Value
-            : null;
-
-    private static bool? Flag(IEnumerable<ReviewInput> inputs, string field) =>
-        Supplied(inputs, field) is { Kind: ReviewValueKind.Boolean } value ? value.Flag : (bool?)null;
-
-    private static string? Text(IEnumerable<ReviewInput> inputs, string field) =>
-        Supplied(inputs, field) is { Kind: ReviewValueKind.Text } value && value.Text.Length > 0 ? value.Text : null;
-
-    /// <summary>
-    /// 連跨樓層數 as a stated fact. The assembler already drops a reading nobody typed, but the check
-    /// asks <see cref="AtriumExemption.IsStatedSpannedFloors"/> again rather than trust its caller:
-    /// an input may also come from a test fixture or a future panel, and 「連跨 0 層」 must never be
-    /// read as 「三層以下」 whichever way it arrives.
-    /// </summary>
-    private static int? Span(IEnumerable<ReviewInput> inputs) =>
-        Supplied(inputs, SpannedFloorsField) is { Kind: ReviewValueKind.Quantity } value &&
-        AtriumExemption.IsStatedSpannedFloors(value.Number)
-            ? (int)Math.Round(value.Number, MidpointRounding.AwayFromZero)
-            : (int?)null;
-
     /// <summary>What every 第3項 result carries, whether or not it reached the judgement.</summary>
     private static IEnumerable<ReviewEvidenceItem> AtriumEvidence(CandidateZone zone)
     {
@@ -545,25 +505,6 @@ public static class VerticalCompartmentCheck
         yield return new ReviewEvidenceItem("shaft.requirementLabel",
             ReviewValue.OfText(VerticalCompartmentRequirements.Label(VerticalCompartmentRequirement.AtriumExemption)));
         yield return new ReviewEvidenceItem("zone.name", ReviewValue.OfText(zone.Name));
-    }
-
-    /// <summary>
-    /// The five facts 第3項 reads, each recorded only when it was read at all — a field left out says
-    /// 「沒有這個事實」 exactly as the rules' own evidence does.
-    /// </summary>
-    private static IEnumerable<ReviewEvidenceItem> AtriumFactEvidence(
-        bool? fireResistive, bool? linksRefugeFloor, string? interiorFinish, int? spannedFloors, double? areaSquareMeters)
-    {
-        if (fireResistive is bool construction)
-            yield return new ReviewEvidenceItem(FireResistiveField, ReviewValue.OfBoolean(construction));
-        if (linksRefugeFloor is bool links)
-            yield return new ReviewEvidenceItem(RefugeFloorField, ReviewValue.OfBoolean(links));
-        if (interiorFinish is not null)
-            yield return new ReviewEvidenceItem(InteriorFinishField, ReviewValue.OfText(interiorFinish));
-        if (spannedFloors is int floors)
-            yield return new ReviewEvidenceItem(SpannedFloorsField, ReviewValue.Quantity(floors, ReviewUnit.None));
-        if (areaSquareMeters is double area)
-            yield return new ReviewEvidenceItem(ZoneAreaField, ReviewValue.Quantity(area, ReviewUnit.SquareMeter));
     }
 
     private static string MissingReason(OpeningObservation observation, string parameterName) =>

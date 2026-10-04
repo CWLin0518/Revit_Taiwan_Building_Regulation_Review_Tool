@@ -31,7 +31,6 @@ public sealed class FireReviewZoneRow
         int? floorNumber = null,
         FireReviewZoneParameters present = FireReviewZoneParameters.None,
         string? levelId = null,
-        int? spannedFloors = null,
         bool? linksRefugeFloor = null,
         bool? cannotBeSubdivided = null)
     {
@@ -49,7 +48,6 @@ public sealed class FireReviewZoneRow
         Use = Clean(use);
         Sprinklered = sprinklered;
         FloorNumber = floorNumber;
-        SpannedFloors = AtriumExemption.StatedSpannedFloors(spannedFloors);
         LinksRefugeFloor = linksRefugeFloor;
         CannotBeSubdivided = cannotBeSubdivided;
         Present = present;
@@ -76,13 +74,6 @@ public sealed class FireReviewZoneRow
 
     /// <summary>防火檢討_所在樓層序.</summary>
     public int? FloorNumber { get; }
-
-    /// <summary>
-    /// 防火檢討_連跨樓層數 — 第79條之2第3項第二款, and only a 挑空 has one. Null when nothing was
-    /// stated, which a Revit Integer parameter spells 0 (see
-    /// <see cref="AtriumExemption.StatedSpannedFloors"/>).
-    /// </summary>
-    public int? SpannedFloors { get; }
 
     /// <summary>防火檢討_避難層通達 — 第79條之2第3項第一款; null when the parameter holds no value.</summary>
     public bool? LinksRefugeFloor { get; }
@@ -115,8 +106,9 @@ public sealed class FireReviewZoneRow
     /// Which of the zone parameters this Area does not carry, so an edit cannot land.
     /// </summary>
     /// <remarks>
-    /// The 第3項 pair is reported only for a 挑空. They are not required parameters (垂直區劃規格
-    /// §6、決議 27) — a project with no 挑空 reviews perfectly well without them — so listing them on
+    /// 防火檢討_避難層通達 is reported only for a 挑空 — the one 第3項 fact only a designer can state;
+    /// 連跨樓層數 and 連通區劃面積 are traced through the storeys (決議 35). It is not a required
+    /// parameter (垂直區劃規格 §6、決議 27) — a project with no 挑空 reviews perfectly well without them — so listing them on
     /// every Area would turn the 提醒 column red across a whole model over something nobody needs.
     /// 防火檢討_無法區劃分隔 is reported the same way and for the same reason, only for the six uses
     /// 第79條之1 names (第79條之1規格 §6、決議 9).
@@ -129,11 +121,8 @@ public sealed class FireReviewZoneRow
             if ((Present & FireReviewZoneParameters.Use) == 0) missing.Add(ReviewInputSources.ZoneUse);
             if ((Present & FireReviewZoneParameters.Sprinklered) == 0) missing.Add(ReviewInputSources.Sprinklered);
             if ((Present & FireReviewZoneParameters.FloorNumber) == 0) missing.Add(ReviewInputSources.FloorNumber);
-            if (IsAtrium)
-            {
-                if ((Present & FireReviewZoneParameters.SpannedFloors) == 0) missing.Add(ReviewInputSources.SpannedFloors);
-                if ((Present & FireReviewZoneParameters.LinksRefugeFloor) == 0) missing.Add(ReviewInputSources.LinksRefugeFloor);
-            }
+            if (IsAtrium && (Present & FireReviewZoneParameters.LinksRefugeFloor) == 0)
+                missing.Add(ReviewInputSources.LinksRefugeFloor);
 
             if (IsArticle79_1Use && (Present & FireReviewZoneParameters.CannotBeSubdivided) == 0)
                 missing.Add(ReviewInputSources.CannotBeSubdivided);
@@ -154,9 +143,6 @@ public enum FireReviewZoneParameters
     Use = 1,
     Sprinklered = 2,
     FloorNumber = 4,
-
-    /// <summary>防火檢討_連跨樓層數 (第79條之2第3項第二款); only a 挑空 needs it.</summary>
-    SpannedFloors = 8,
 
     /// <summary>防火檢討_避難層通達 (第79條之2第3項第一款); only a 挑空 needs it.</summary>
     LinksRefugeFloor = 16,

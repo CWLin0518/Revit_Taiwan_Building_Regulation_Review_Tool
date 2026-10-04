@@ -446,11 +446,18 @@ public static class FireReviewRunner
     /// decided it under, which is the rule engine's answer and no one else's. A wall between a 第79條
     /// 區劃 and a 第83條 one is recorded as 第79條, the general clause — one junction yields one result,
     /// and it must read the same on every rerun.
+    /// <para>
+    /// An outcome whose applicability the engine could not decide names a rule that decided nothing:
+    /// it is merely the first rule still in doubt. A 2F 挑空 whose 第79條之2第3項 is undecided is in
+    /// doubt under <c>tw-bcr-83-area-atrium</c>, and must not make its walls 第83條's for it
+    /// (垂直區劃規格 §3.7). Such a 區劃 falls back to the general clause like any other.
+    /// </para>
     /// </remarks>
     private static IReadOnlyDictionary<string, string> HostLegalReferences(CandidateSet set, CompartmentAreaReview area)
     {
         var article83 = new HashSet<Guid>(area.Findings
-            .Where(f => f.Result.LegalReference.IndexOf(CurtainWallJunctionReferences.Article83, StringComparison.Ordinal) >= 0)
+            .Where(f => f.Outcome is { IsApplicabilityUndecided: false } &&
+                        f.Result.LegalReference.IndexOf(CurtainWallJunctionReferences.Article83, StringComparison.Ordinal) >= 0)
             .Select(f => f.ZoneId));
 
         var references = new Dictionary<string, string>(StringComparer.Ordinal);

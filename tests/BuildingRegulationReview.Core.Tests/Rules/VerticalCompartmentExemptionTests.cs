@@ -160,8 +160,10 @@ public sealed class VerticalCompartmentExemptionTests
         Assert.True(below.IsExempt);
         Assert.True(above.IsExempt);
         Assert.Null(below.SquareMeters);
-        Assert.Equal("第79條 免適用（第79條之2 垂直區劃）", below.Description);
-        Assert.Equal("第83條 免適用（第79條之2 垂直區劃）", above.Description);
+        // Only a 挑空's exemption can come undone under 第79條之2第3項, so only it carries the note.
+        var note = use == ZoneUses.Atrium ? ZoneAreaLimit.AtriumNote : "";
+        Assert.Equal("第79條 免適用（第79條之2 垂直區劃）" + note, below.Description);
+        Assert.Equal("第83條 免適用（第79條之2 垂直區劃）" + note, above.Description);
     }
 
     /// <summary>
@@ -213,7 +215,9 @@ public sealed class VerticalCompartmentExemptionTests
             .Set("zone.floorNumber", floorNumber, ReviewUnit.None)
             .Set("zone.area", areaSquareMeters, ReviewUnit.SquareMeter)
             .Set("zone.sprinklered", false)
-            .Set("zone.interiorFinish", InteriorFinishGrades.None);
+            .Set("zone.interiorFinish", InteriorFinishGrades.None)
+            // 檢查層對每個不是「第3項免除成立之挑空」的區劃都設這個值（決議 32）。
+            .Set("zone.atriumMerged", false);
 
     private static RuleOutcome Outcome(RuleFacts facts) =>
         new RuleEngine(Shipped()).Evaluate(RuleCategory.CompartmentArea, facts, Today);

@@ -203,7 +203,6 @@ namespace BuildingRegulationReview.FireReview
                 if (chooser.Use != null) zone.Use = chooser.Use;
                 if (chooser.Sprinklered != null) zone.Sprinklered = chooser.Sprinklered;
                 if (chooser.FloorNumber != null) zone.FloorNumber = chooser.FloorNumber;
-                if (chooser.SpannedFloors != null) zone.SpannedFloors = chooser.SpannedFloors;
                 if (chooser.LinksRefugeFloor != null) zone.LinksRefugeFloor = chooser.LinksRefugeFloor;
                 if (chooser.CannotBeSubdivided != null) zone.CannotBeSubdivided = chooser.CannotBeSubdivided;
             }
@@ -332,7 +331,7 @@ namespace BuildingRegulationReview.FireReview
             // Only 挑空 are counted: 第79條之2第3項 is written for nothing else, so an empty box on any
             // other 區劃 is not something to chase (垂直區劃規格 §6、決議 27).
             var atria = _zones.Count(z => z.IsAtrium &&
-                                          (string.IsNullOrEmpty(z.SpannedFloors) || string.IsNullOrEmpty(z.LinksRefugeFloor)));
+                                          string.IsNullOrEmpty(z.LinksRefugeFloor));
             if (atria > 0) parts.Add($"待填挑空免除事實 {atria} 個區劃");
 
             // Same reasoning for 第79條之1: only the six uses it names need 無法區劃分隔, so a blank box
@@ -392,7 +391,6 @@ namespace BuildingRegulationReview.FireReview
 
         private readonly ComboBox _sprinklered = new ComboBox { Margin = new Thickness(0, 4, 0, 12), MinWidth = 220 };
         private readonly TextBox _floorNumber = new TextBox { Margin = new Thickness(0, 4, 0, 12), MinWidth = 220 };
-        private readonly TextBox _spannedFloors = new TextBox { Margin = new Thickness(0, 4, 0, 12), MinWidth = 220 };
         private readonly ComboBox _linksRefugeFloor = new ComboBox { Margin = new Thickness(0, 4, 0, 12), MinWidth = 220 };
         private readonly ComboBox _cannotBeSubdivided = new ComboBox { Margin = new Thickness(0, 4, 0, 12), MinWidth = 220 };
 
@@ -447,13 +445,11 @@ namespace BuildingRegulationReview.FireReview
             panel.Children.Add(_floorNumber);
             panel.Children.Add(new TextBlock
             {
-                Text = "以下兩項只有挑空需要填（第79條之2第3項）",
+                Text = "以下一項只有挑空需要填（第79條之2第3項第一款；連跨樓層數與連通面積由各樓層區劃推得）",
                 Margin = new Thickness(0, 6, 0, 0),
                 FontWeight = FontWeights.SemiBold
             });
-            panel.Children.Add(new TextBlock { Text = "連跨樓層數（留白代表不變更）", Margin = new Thickness(0, 8, 0, 0) });
-            panel.Children.Add(_spannedFloors);
-            panel.Children.Add(new TextBlock { Text = "避難層通達其直上層或直下層" });
+            panel.Children.Add(new TextBlock { Text = "避難層通達其直上層或直下層", Margin = new Thickness(0, 8, 0, 0) });
             panel.Children.Add(_linksRefugeFloor);
             panel.Children.Add(new TextBlock
             {
@@ -496,9 +492,6 @@ namespace BuildingRegulationReview.FireReview
         public string Sprinklered => _sprinklered.SelectedIndex <= 0 ? null : (string)_sprinklered.SelectedItem;
 
         public string FloorNumber => string.IsNullOrWhiteSpace(_floorNumber.Text) ? null : _floorNumber.Text.Trim();
-
-        /// <summary>防火檢討_連跨樓層數 as typed, or null to leave each zone as it is.</summary>
-        public string SpannedFloors => string.IsNullOrWhiteSpace(_spannedFloors.Text) ? null : _spannedFloors.Text.Trim();
 
         public string LinksRefugeFloor => _linksRefugeFloor.SelectedIndex <= 0 ? null : (string)_linksRefugeFloor.SelectedItem;
 

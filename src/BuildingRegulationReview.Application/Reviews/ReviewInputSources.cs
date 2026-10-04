@@ -94,12 +94,10 @@ public static class ReviewInputSources
     public const string InteriorFinish = "防火檢討_室內裝修等級";
 
     /// <summary>
-    /// 挑空連跨的樓層數（第79條之2第3項第二款）。只有挑空需要填，沒有任何規則讀它——
-    /// 判定寫在 <see cref="Checks.AtriumExemption"/>（垂直區劃規格 §3.6、決議 24、27）。
+    /// 挑空是否避難層通達其直上層或直下層（第79條之2第3項第一款）。只有挑空需要填，沒有任何規則讀它——
+    /// 判定寫在 <see cref="Checks.AtriumExemption"/>（垂直區劃規格 §3.6、決議 24、27）。第3項的另外
+    /// 兩個事實（連跨樓層數、連通區劃面積）由各樓層的區劃推得，沒有參數（決議 35）。
     /// </summary>
-    public const string SpannedFloors = "防火檢討_連跨樓層數";
-
-    /// <summary>挑空是否避難層通達其直上層或直下層（第79條之2第3項第一款）。同上，只有挑空需要填。</summary>
     public const string LinksRefugeFloor = "防火檢討_避難層通達";
 
     /// <summary>
@@ -156,12 +154,12 @@ public static class ReviewInputSources
         new ReviewInputSource("shaft.providedFireRating", FireRatingParameters.Provided, ReviewParameterLevel.Type, "管道間維修門之設計防火時效", ReviewParameterHost.Doors),
         new ReviewInputSource("shaft.providedSmokeProtection", SmokeProtectionParameters.Provided, ReviewParameterLevel.Type, "遮煙性能", OpeningHosts.ToArray()),
 
-        // 第79條之2第3項 的兩款免除 (垂直區劃文件 §3.6、§6). Area instance facts like 所在樓層序,
-        // because a 挑空 is one 區劃 and both are things only the designer can state. No rule reads
-        // them — 第3項 is a classification, not a requirement — so NeededBy, which is rule-driven,
-        // leaves them out of the pre-review check on purpose: a project with no 挑空 must still be
-        // able to start a review without binding them (決議 27).
-        new ReviewInputSource("zone.spannedFloors", SpannedFloors, ReviewParameterLevel.Instance, "挑空連跨樓層數", ReviewParameterHost.Areas),
+        // 第79條之2第3項第一款 (垂直區劃文件 §3.6、§6). An Area instance fact like 所在樓層序, because
+        // only the designer can state it. No rule reads it — 第3項 is a classification, not a
+        // requirement — so NeededBy, which is rule-driven, leaves it out of the pre-review check on
+        // purpose: a project with no 挑空 must still be able to start a review without binding it
+        // (決議 27). 連跨樓層數 and 連通區劃面積 have no parameter: they are traced through the storeys
+        // (ReviewInputAssembler.AtriumInputs, 決議 35).
         new ReviewInputSource("zone.linksRefugeFloor", LinksRefugeFloor, ReviewParameterLevel.Instance, "挑空是否避難層通達其直上層或直下層", ReviewParameterHost.Areas),
 
         // 第79條之1 之無法區劃分隔部分 (第79條之1規格 §6). Same shape and same reason as the two

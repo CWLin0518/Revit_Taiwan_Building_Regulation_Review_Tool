@@ -71,7 +71,8 @@ public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
         ZoneAreaLimitGap gaps,
         bool finishUnrecognised,
         bool exempt,
-        bool needsArticle79_1Confirmation = false)
+        bool needsArticle79_1Confirmation = false,
+        bool atrium = false)
     {
         SquareMeters = squareMeters;
         Clause = clause;
@@ -79,6 +80,7 @@ public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
         FinishUnrecognised = finishUnrecognised;
         IsExempt = exempt;
         NeedsArticle79_1Confirmation = needsArticle79_1Confirmation;
+        IsAtrium = atrium;
     }
 
     /// <summary>The limit in square metres, or null while <see cref="Gaps"/> names something unfilled.</summary>
@@ -110,6 +112,17 @@ public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
     /// </summary>
     public bool NeedsArticle79_1Confirmation { get; }
 
+    /// <summary>
+    /// True when the exempt 垂直區劃 is a 挑空. Its exemption is the one that can come undone: once
+    /// 第79條之2第3項 lets it out of 單獨區劃分隔 it is no 垂直區劃 any more, and the review holds its
+    /// 連通區劃面積 to the limit instead (垂直區劃規格決議 32). The panel cannot tell which way 第3項
+    /// goes — that is the review's judgement — so it says so rather than promise 免適用.
+    /// </summary>
+    public bool IsAtrium { get; }
+
+    /// <summary>What the 適用上限 cell adds for a 挑空; see <see cref="IsAtrium"/>.</summary>
+    public const string AtriumNote = "（第79條之2第3項免除成立時，改以連通區劃面積檢討）";
+
     public bool IsKnown => Gaps == ZoneAreaLimitGap.None;
 
     /// <summary>
@@ -126,7 +139,7 @@ public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
     {
         get
         {
-            if (IsExempt) return $"{Clause} 免適用（第79條之2 垂直區劃）";
+            if (IsExempt) return $"{Clause} 免適用（第79條之2 垂直區劃）" + (IsAtrium ? AtriumNote : "");
 
             var pending = NeedsArticle79_1Confirmation ? Article79_1Pending : "";
             if (Gaps != ZoneAreaLimitGap.None)
@@ -153,7 +166,11 @@ public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
 
         // The engine decides an exemption before the requirement, so an exempt 區劃 needs none of
         // the boxes the limit would otherwise wait on.
-        if (ZoneUses.IsVerticalCompartment(use)) return new ZoneAreaLimit(null, clause, ZoneAreaLimitGap.None, false, true);
+        if (ZoneUses.IsVerticalCompartment(use))
+        {
+            var atrium = string.Equals(use?.Trim(), ZoneUses.Atrium, StringComparison.Ordinal);
+            return new ZoneAreaLimit(null, clause, ZoneAreaLimitGap.None, false, true, atrium: atrium);
+        }
 
         if (floorNumber >= 11) return Article83(sprinklered, interiorFinish, buildingUse);
 
@@ -243,7 +260,8 @@ public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
         Gaps == other.Gaps &&
         FinishUnrecognised == other.FinishUnrecognised &&
         IsExempt == other.IsExempt &&
-        NeedsArticle79_1Confirmation == other.NeedsArticle79_1Confirmation;
+        NeedsArticle79_1Confirmation == other.NeedsArticle79_1Confirmation &&
+        IsAtrium == other.IsAtrium;
 
     public override bool Equals(object? obj) => obj is ZoneAreaLimit other && Equals(other);
 
@@ -256,6 +274,7 @@ public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
             hash = (hash * 397) ^ (int)Gaps;
             hash = (hash * 397) ^ (FinishUnrecognised ? 1 : 0);
             hash = (hash * 397) ^ (IsExempt ? 1 : 0);
+            hash = (hash * 397) ^ (IsAtrium ? 1 : 0);
             return (hash * 397) ^ (NeedsArticle79_1Confirmation ? 1 : 0);
         }
     }

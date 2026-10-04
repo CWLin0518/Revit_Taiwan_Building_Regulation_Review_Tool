@@ -13,9 +13,17 @@ namespace BuildingRegulationReview.Application.Checks;
 /// </summary>
 public sealed class CompartmentAreaInputs
 {
-    /// <summary>Fields the check derives from the model itself.</summary>
+    /// <summary>
+    /// Fields the check derives itself: from the model, or — for the three <c>zone.atrium*</c> facts —
+    /// from 第79條之2第3項's judgement over the other inputs (決議 32). Supplying one would let an input
+    /// overrule that judgement.
+    /// </summary>
     public static readonly IReadOnlyCollection<string> ModelOwnedFields =
-        new ReadOnlyCollection<string>(new[] { "zone.id", "zone.area", "zone.levelName" });
+        new ReadOnlyCollection<string>(new[]
+        {
+            "zone.id", "zone.area", "zone.levelName",
+            "zone.atriumMerged", "zone.atriumTopFloor", "zone.atriumCompartmentArea"
+        });
 
     public static readonly CompartmentAreaInputs None = new(null, null);
 

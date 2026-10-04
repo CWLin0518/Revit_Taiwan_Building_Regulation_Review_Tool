@@ -425,21 +425,8 @@
                                 </DataGridTextColumn.CellStyle>
                             </DataGridTextColumn>
 
-                            <!-- 第79條之2第3項 的兩款免除只寫給挑空，所以這兩欄在用途不是「挑空」時
-                                 淡出：欄位仍可編輯（用途可能還沒填），但不會讓整張表看起來每一列都待填。 -->
-                            <DataGridTextColumn Header="連跨樓層數" Width="96"
-                                                Binding="{Binding SpannedFloors, UpdateSourceTrigger=LostFocus}">
-                                <DataGridTextColumn.CellStyle>
-                                    <Style TargetType="DataGridCell">
-                                        <Setter Property="ToolTip" Value="只有挑空需要填。整數；第79條之2第3項第二款「連跨樓層數在三層以下且樓地板面積在1500平方公尺以下」得免依第1項單獨區劃。留白或 0 都視為未填。" />
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding IsAtrium}" Value="False">
-                                                <Setter Property="Foreground" Value="#9AA0A6" />
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </DataGridTextColumn.CellStyle>
-                            </DataGridTextColumn>
+                            <!-- 第79條之2第3項第一款只寫給挑空，所以這欄在用途不是「挑空」時不必填。連跨樓層數與
+                                 連通區劃面積由各樓層的區劃推得，沒有欄位（垂直區劃規格決議 35）。 -->
 
                             <DataGridComboBoxColumn Header="避難層通達" Width="104"
                                                     SelectedItemBinding="{Binding LinksRefugeFloor, UpdateSourceTrigger=PropertyChanged}">

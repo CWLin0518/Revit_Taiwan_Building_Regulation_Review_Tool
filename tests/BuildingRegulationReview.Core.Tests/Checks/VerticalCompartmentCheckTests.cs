@@ -355,13 +355,18 @@ public sealed class VerticalCompartmentCheckTests
 
     /// <summary>
     /// A 區 is the 挑空, carrying whichever of 第3項's facts the test states. B 區 is given no 用途 at
-    /// all, so the only subject in these fixtures is the one 第3項 makes.
+    /// all, so the only subject in these fixtures is the one 第3項 makes. The 連通區劃面積 is stated
+    /// unless a test says otherwise, so the other facts are what each test turns on.
     /// </summary>
+    /// <summary>The source the assembler gives the traced facts (決議 35).</summary>
+    private const string Traced = "由跨樓層區劃推得";
+
     private static CompartmentAreaInputs AtriumContext(
         bool? fireResistive = true,
         bool? linksRefugeFloor = null,
         string? interiorFinish = null,
-        int? spannedFloors = null)
+        int? spannedFloors = null,
+        double? connectedArea = 900)
     {
         var zone = new List<ReviewInput>
         {
@@ -372,7 +377,9 @@ public sealed class VerticalCompartmentCheckTests
         if (interiorFinish is not null)
             zone.Add(ReviewInput.Known("zone.interiorFinish", interiorFinish, "牆與天花板：" + ReviewInputSources.InteriorFinish));
         if (spannedFloors is int floors)
-            zone.Add(ReviewInput.Known("zone.spannedFloors", floors, ReviewUnit.None, "面積：" + ReviewInputSources.SpannedFloors));
+            zone.Add(ReviewInput.Known("zone.spannedFloors", floors, ReviewUnit.None, Traced));
+        if (connectedArea is double connected)
+            zone.Add(ReviewInput.Known("zone.connectedArea", connected, ReviewUnit.SquareMeter, Traced));
 
         return new CompartmentAreaInputs(
             fireResistive is bool f
@@ -400,7 +407,10 @@ public sealed class VerticalCompartmentCheckTests
         Assert.NotNull(finding.Exemption);
     }
 
-    /// <summary>第二款：連跨樓層數在三層以下，且樓地板面積在一千五百平方公尺以下（fixture 的 A 區是 100 ㎡）。</summary>
+    /// <summary>
+    /// 第二款：連跨樓層數在三層以下，且（連通區劃合計）樓地板面積在一千五百平方公尺以下。The message
+    /// says where the 面積 went: back to the 區劃面積 rules, not to a person (決議 32).
+    /// </summary>
     [Fact]
     public void An_atrium_within_three_storeys_and_the_area_limit_is_exempt_and_manual_review()
     {
@@ -409,8 +419,35 @@ public sealed class VerticalCompartmentCheckTests
         Assert.Equal(ReviewStatus.ManualReview, finding.Status);
         Assert.Equal(AtriumExemptionClause.SecondClause, finding.Exemption!.Clause);
         Assert.Contains("符合第二款", finding.Result.Message, StringComparison.Ordinal);
+        Assert.Contains("見區劃面積結果", finding.Result.Message, StringComparison.Ordinal);
         Assert.Contains("需人工覆核", finding.Result.Message, StringComparison.Ordinal);
         Assert.Null(finding.ErrorCode);
+    }
+
+    /// <summary>
+    /// 決議 31, the reason for the change: A 區 itself is 100 ㎡, far inside 1,500 ㎡, but the floors the
+    /// 挑空 connects add up to 1,800 ㎡ — so 第二款 does not hold. Reading the 挑空's own area, as the
+    /// tool did before, would have exempted it.
+    /// </summary>
+    [Fact]
+    public void The_second_clause_is_decided_on_the_connected_total_not_on_the_atriums_own_area()
+    {
+        var finding = Only(Review(Set(), AtriumContext(linksRefugeFloor: false, spannedFloors: 3, connectedArea: 1800)));
+
+        Assert.Equal(ReviewStatus.NotApplicable, finding.Status);
+        Assert.Contains("連通區劃合計樓地板面積 1800 ㎡", finding.Result.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>A 連通區劃面積 nobody stated is a missing parameter, named as such — not 區劃未封閉.</summary>
+    [Fact]
+    public void An_atrium_with_no_connected_area_is_insufficient_data_for_a_missing_parameter()
+    {
+        var finding = Only(Review(Set(), AtriumContext(linksRefugeFloor: false, spannedFloors: 3, connectedArea: null)));
+
+        Assert.Equal(ReviewStatus.InsufficientData, finding.Status);
+        Assert.Equal(AtriumExemptionGap.ConnectedArea, finding.Exemption!.Gaps);
+        Assert.Contains("連通區劃面積", finding.Result.Message, StringComparison.Ordinal);
+        Assert.Equal(ReviewErrorCode.ParameterMissing, finding.ErrorCode);
     }
 
     /// <summary>第一款：避難層通達其直上層或直下層，且室內牆面與天花板以耐燃一級材料裝修。</summary>
@@ -498,8 +535,8 @@ public sealed class VerticalCompartmentCheckTests
                 {
                     ReviewInput.Known("zone.use", ZoneUses.Atrium, "面積：" + ReviewInputSources.ZoneUse),
                     ReviewInput.Known("zone.linksRefugeFloor", false, "面積：" + ReviewInputSources.LinksRefugeFloor),
-                    ReviewInput.Unreadable("zone.spannedFloors", "此區劃的 2 個面積填寫不一致（2、5）",
-                        "面積：" + ReviewInputSources.SpannedFloors)
+                    ReviewInput.Known("zone.connectedArea", 900, ReviewUnit.SquareMeter, Traced),
+                    ReviewInput.Unreadable("zone.spannedFloors", "挑空 2F「A 區」 周圍沒有相接的區劃", Traced)
                 }
             });
 
@@ -531,10 +568,8 @@ public sealed class VerticalCompartmentCheckTests
 
         // And the facts it read, so a person can see what the judgement rested on.
         Assert.Equal(ReviewValue.Quantity(2, ReviewUnit.None), finding.Result.Evidence.Find("zone.spannedFloors"));
-        var area = finding.Result.Evidence.Find("zone.area")!;
-        Assert.Equal(ReviewValueKind.Quantity, area.Kind);
-        Assert.Equal(ReviewUnit.SquareMeter, area.Unit);
-        Assert.Equal(100, area.Number, 6);
+        Assert.Equal(ReviewValue.Quantity(900, ReviewUnit.SquareMeter), finding.Result.Evidence.Find("zone.connectedArea"));
+        Assert.Null(finding.Result.Evidence.Find("zone.area"));
         Assert.Equal(ReviewValue.OfBoolean(true), finding.Result.Evidence.Find("building.fireResistiveConstruction"));
         Assert.Null(finding.Result.Evidence.Find("zone.linksRefugeFloor"));
     }

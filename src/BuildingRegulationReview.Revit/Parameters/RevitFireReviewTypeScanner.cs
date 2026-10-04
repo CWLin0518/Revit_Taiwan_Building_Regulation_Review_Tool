@@ -364,7 +364,6 @@ public sealed class RevitFireReviewTypeScanner
             if (Find(area, ReviewInputSources.ZoneUse) is not null) present |= FireReviewZoneParameters.Use;
             if (Find(area, ReviewInputSources.Sprinklered) is not null) present |= FireReviewZoneParameters.Sprinklered;
             if (Find(area, ReviewInputSources.FloorNumber) is not null) present |= FireReviewZoneParameters.FloorNumber;
-            if (Find(area, ReviewInputSources.SpannedFloors) is not null) present |= FireReviewZoneParameters.SpannedFloors;
             if (Find(area, ReviewInputSources.LinksRefugeFloor) is not null) present |= FireReviewZoneParameters.LinksRefugeFloor;
             if (Find(area, ReviewInputSources.CannotBeSubdivided) is not null) present |= FireReviewZoneParameters.CannotBeSubdivided;
 
@@ -382,9 +381,8 @@ public sealed class RevitFireReviewTypeScanner
                 sprinklered: YesNo(area, ReviewInputSources.Sprinklered),
                 floorNumber: Integer(area, ReviewInputSources.FloorNumber),
                 present: present,
-                // 第79條之2第3項 (垂直區劃規格 §6). Only a 挑空 fills these; on every other Area they
-                // simply sit at their Revit default, which the row reads as 未填.
-                spannedFloors: Integer(area, ReviewInputSources.SpannedFloors),
+                // 第79條之2第3項第一款 (垂直區劃規格 §6). Only a 挑空 fills it; 連跨樓層數 and 連通區劃面積
+                // are traced through the storeys, not typed (決議 35).
                 linksRefugeFloor: YesNo(area, ReviewInputSources.LinksRefugeFloor),
                 // 第79條之1 (第79條之1規格 §6). Not a required parameter either, so an Area that does
                 // not carry it reads as 未填 and the panel says so only for the six uses that need it.

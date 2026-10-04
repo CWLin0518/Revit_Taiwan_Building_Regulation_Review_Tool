@@ -113,6 +113,10 @@ public sealed class CompartmentAreaReview
 /// <item>Otherwise the facts are the zone's identity, Revit's Area as <c>zone.area</c> (the primary actual
 /// value) and the supplied building and zone inputs; the rule engine decides applicability, the limit,
 /// exemptions and missing data.</item>
+/// <item>A 挑空 that 第79條之2第3項 exempts from 單獨區劃分隔 is no longer a 垂直區劃, so the use exemption
+/// no longer covers it: its 連通區劃 goes back to 第79條 and, when it reaches the eleventh storey, 第83條
+/// (docs/regulations/vertical-compartment.md 決議 32). The facts the two atrium rules read are
+/// derived here rather than supplied.</item>
 /// <item>The measured boundary cross-checks Revit's Area. When they differ beyond tolerance a Pass or Fail is
 /// withheld and becomes ManualReview: the comparison would be made on an area the geometry does not confirm.</item>
 /// <item>Every result keeps the calculation — each Area's value, the sum, the measured value and their
@@ -174,6 +178,7 @@ public static class CompartmentAreaCheck
 
         var supplied = inputs.Building.Concat(inputs.ForZone(zone.ZoneId)).ToList();
         foreach (var input in supplied) input.ApplyTo(facts);
+        DeriveAtriumFacts(facts, supplied);
 
         var outcome = engine.Evaluate(RuleCategory.CompartmentArea, facts, context);
         var (crossCheck, difference) = CrossCheck(zone, options);
@@ -188,7 +193,10 @@ public static class CompartmentAreaCheck
             var note = string.Format(CultureInfo.InvariantCulture,
                 "Revit 面積 {0:0.##} m² 與邊界量算 {1:0.##} m² 相差 {2:0.##}%（容許 {3:0.##}%），面積來源無法確認",
                 revit, zone.GeometricAreaSquareMeters, difference * 100.0, options.CrossCheckRelativeTolerance * 100.0);
-            if (ReviewStatusText.IsComparison(status))
+            // A 挑空 that 第3項 merged into its 連通區劃 is compared on the 合計 the designer declared,
+            // not on this Area — so whether this Area agrees with its boundary has no bearing on
+            // the verdict, and withholding it would hide a 未符合 behind a 人工覆核 (決議 32).
+            if (ReviewStatusText.IsComparison(status) && !IsMergedAtrium(facts))
             {
                 message = $"區劃「{zone.Name}」：{note}，不判定{ReviewStatusText.Label(status)}，需人工覆核；請檢查區劃邊界後重新套用。" +
                           $"（依 Revit 面積的比較：{outcome.Message}）";
@@ -274,6 +282,93 @@ public static class CompartmentAreaCheck
         if (options is not null)
             yield return new ReviewEvidenceItem("area.crossCheckTolerance", ReviewValue.Quantity(options.CrossCheckRelativeTolerance, ReviewUnit.None));
     }
+
+    /// <summary>
+    /// The three facts the atrium area rules read (決議 32). Every 區劃 that is not plainly a 挑空 gets
+    /// <c>zone.atriumMerged = false</c> — set, not left out, because a missing field in an
+    /// applicability condition is 資料不足 for every 區劃 in the project. That includes a 區劃 whose
+    /// 用途 is blank or unreadable: nobody has said it is a 挑空, and the use exemption of the two
+    /// ordinary rules already reports that gap where it matters.
+    /// </summary>
+    /// <remarks>
+    /// For a 挑空 the answer is <see cref="AtriumExemptionFacts"/>'s, the same reading the 第3項
+    /// result gives, so the two can never disagree. A fact that cannot be worked out is left unset
+    /// rather than guessed: an undecided exemption, a 連通區劃面積 nobody stated, or a 最高樓層序 with
+    /// no 起始樓層序 and 連跨樓層數 behind it all become the engine's ordinary 資料不足. An input that
+    /// was read but could not be understood — the Areas of one 區劃 filled in differently — passes
+    /// its reason on, so the 區劃面積 result says why rather than only 「未設定」.
+    /// </remarks>
+    private static void DeriveAtriumFacts(RuleFacts facts, IReadOnlyList<ReviewInput> supplied)
+    {
+        if (!string.Equals(TextOf(facts, "zone.use"), ZoneUses.Atrium, StringComparison.Ordinal))
+        {
+            facts.Set(AtriumMergedField, false);
+            return;
+        }
+
+        var atrium = AtriumExemptionFacts.Read(supplied);
+        if (!atrium.Exemption.IsUndecided) facts.Set(AtriumMergedField, atrium.Exemption.Holds);
+
+        if (atrium.ConnectedAreaSquareMeters is double connected)
+            facts.Set(AtriumCompartmentAreaField, connected, ReviewUnit.SquareMeter);
+        else if (UnreadableReason(supplied, AtriumExemptionFacts.ConnectedAreaField) is string areaReason)
+            facts.MarkUnreadable(AtriumCompartmentAreaField, areaReason);
+
+        DeriveTopFloor(facts, supplied, atrium);
+    }
+
+    /// <summary>
+    /// 所跨最高樓層序 = 挑空起始樓層序 + 連跨樓層數 − 1 (決議 34). It is counted from the 挑空's own
+    /// lowest storey, never from the storey this Area sits on: a 挑空 drawn as one Area per storey
+    /// would otherwise reach 11F from its 9F Area when it really stops at 10F, and be held to
+    /// 第83條 for nothing. An Area that sits outside the range it declares is a contradiction in
+    /// the facts, and is reported as one rather than resolved either way.
+    /// </summary>
+    private static void DeriveTopFloor(RuleFacts facts, IReadOnlyList<ReviewInput> supplied, AtriumExemptionFacts atrium)
+    {
+        if (atrium.SpannedFloors is not int spanned || atrium.BaseFloor is not int baseFloor)
+        {
+            var reason = UnreadableReason(supplied, AtriumExemptionFacts.BaseFloorField) ??
+                         UnreadableReason(supplied, AtriumExemptionFacts.SpannedFloorsField);
+            if (reason is not null) facts.MarkUnreadable(AtriumTopFloorField, reason);
+            return;
+        }
+
+        var top = TopFloor(baseFloor, spanned);
+        if (facts.Find("zone.floorNumber") is { Kind: ReviewValueKind.Quantity } own && (own.Number < baseFloor || own.Number > top))
+        {
+            facts.MarkUnreadable(AtriumTopFloorField, string.Format(CultureInfo.InvariantCulture,
+                "本 Area 所在樓層序 {0} 不在挑空起始樓層序 {1} 起連跨 {2} 層的範圍（{1}～{3}）內，" +
+                "請核對各樓層區劃的防火檢討_所在樓層序，或是否有樓層尚未建立區劃",
+                own.Number, baseFloor, spanned, top));
+            return;
+        }
+
+        facts.Set(AtriumTopFloorField, top, ReviewUnit.None);
+    }
+
+    private static bool IsMergedAtrium(RuleFacts facts) =>
+        facts.Find(AtriumMergedField) is { Kind: ReviewValueKind.Boolean, Flag: true };
+
+    private static string? UnreadableReason(IEnumerable<ReviewInput> supplied, string field) =>
+        supplied.FirstOrDefault(x => string.Equals(x.Field, field, StringComparison.Ordinal)) is { IsUnreadable: true } input
+            ? input.UnreadableReason
+            : null;
+
+    /// <summary>
+    /// The highest storey a 挑空 spans, counted from its lowest storey. 樓層序 skips 0 — the storey
+    /// above B1 is 1F — so a 挑空 that starts underground and rises into the 地上 storeys gains one
+    /// when it crosses.
+    /// </summary>
+    public static double TopFloor(double floorNumber, int spannedFloors)
+    {
+        var top = floorNumber + spannedFloors - 1;
+        return floorNumber < 0 && top >= 0 ? top + 1 : top;
+    }
+
+    private const string AtriumMergedField = "zone.atriumMerged";
+    private const string AtriumTopFloorField = "zone.atriumTopFloor";
+    private const string AtriumCompartmentAreaField = "zone.atriumCompartmentArea";
 
     private static string? TextOf(RuleFacts facts, string field) =>
         facts.Find(field) is { Kind: ReviewValueKind.Text } value ? value.Text : null;
