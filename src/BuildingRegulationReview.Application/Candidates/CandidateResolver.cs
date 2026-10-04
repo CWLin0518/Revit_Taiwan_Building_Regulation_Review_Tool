@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using BuildingRegulationReview.Application.Geometry;
 using BuildingRegulationReview.Domain.Geometry;
 using BuildingRegulationReview.Domain.Reviews;
 
@@ -117,7 +118,7 @@ public static class CandidateResolver
             }
 
             var relations = measurable
-                .Select(z => RelateOpening(opening, host, host is null ? null : memberRelations[host].FirstOrDefault(r => r.ZoneId == z.ZoneId), z, options))
+                .Select(z => RelateOpening(opening, host, host is null ? null : memberRelations[host].FirstOrDefault(r => r.ZoneId == z.ZoneId), z, measurable, options))
                 .Where(r => r is not null).Select(r => r!)
                 .ToList();
             relations = ApplyLinkPolicy(opening.Source, CandidateCategories.Label(opening.Category), relations)
@@ -339,6 +340,7 @@ public static class CandidateResolver
         MemberObservation? host,
         ZoneRelation? hostRelation,
         ZoneState zone,
+        IReadOnlyList<ZoneState> zones,
         CandidateResolutionOptions options)
     {
         var label = CandidateCategories.Label(opening.Category);
@@ -382,6 +384,14 @@ public static class CandidateResolver
         if (host.IsCurtainWall || opening.Category == CandidateCategory.CurtainPanel)
         {
             if (hostRelation.Kind == ZoneRelationKind.Inside) return Interior();
+            if (host.IsCurtainWall && FacingOutside(host, location, zone, zones) is double probe)
+            {
+                return new ZoneRelation(zone.ZoneId, ZoneRelationKind.Facade,
+                    Format("{0}位於區劃「{1}」邊界的帷幕牆上，該帷幕牆外側 {2} m 處不屬於任何區劃，為建築物外牆而非區劃分隔。",
+                        label, name, Meters(probe)),
+                    measurements);
+            }
+
             return new ZoneRelation(zone.ZoneId, ZoneRelationKind.Ambiguous,
                 Format("{0}位於區劃「{1}」邊界的帷幕牆上，依 MVP 政策需人工覆核。", label, name),
                 measurements, CandidateAmbiguityKind.CurtainWallOpening);
@@ -400,6 +410,50 @@ public static class CandidateResolver
                     Format("{0}位於區劃「{1}」邊界上，但 Host 牆與此邊界的關係無法判定，需人工覆核。", label, name),
                     measurements, CandidateAmbiguityKind.HostRelationAmbiguous);
         }
+    }
+
+    /// <summary>
+    /// How far beyond the curtain wall's faces a point is probed for a zone; the same depth the
+    /// 帷幕牆區劃交接 review probes to find which side of a facade is inside.
+    /// </summary>
+    private const double FacadeProbeMm = 300.0;
+
+    /// <summary>
+    /// The probe depth, in feet, when the curtain wall at <paramref name="location"/> has
+    /// <paramref name="zone"/> on one side and no zone at all on the other — the building's outer
+    /// facade. Null when both sides, or neither, belong to a zone: an interior curtain wall between
+    /// two zones is a 區劃分隔 whose openings 第79條 does govern, and that stays a manual review.
+    /// </summary>
+    private static double? FacingOutside(MemberObservation wall, Point2D location, ZoneState zone, IReadOnlyList<ZoneState> zones)
+    {
+        var line = wall.Centerline;
+        Point2D start = line[0], end = line[1];
+        var nearest = double.PositiveInfinity;
+        for (var i = 0; i + 1 < line.Count; i++)
+        {
+            var distance = SegmentGeometry.DistanceToSegment(location, line[i], line[i + 1], out _, out _);
+            if (distance >= nearest || line[i].DistanceTo(line[i + 1]) <= GeometryTolerance.ZeroLengthFeet) continue;
+            nearest = distance;
+            start = line[i];
+            end = line[i + 1];
+        }
+
+        var length = start.DistanceTo(end);
+        if (length <= GeometryTolerance.ZeroLengthFeet) return null;
+        var nx = -(end.Y - start.Y) / length;
+        var ny = (end.X - start.X) / length;
+        var depth = ((wall.WidthFeet ?? 0) / 2.0) + PlanUnits.MillimetersToFeet(FacadeProbeMm);
+
+        // Probed from the wall's centreline, so where along its thickness the panel's point sits does not matter.
+        _ = SegmentGeometry.DistanceToSegment(location, start, end, out _, out var foot);
+        var left = new Point2D(foot.X + (nx * depth), foot.Y + (ny * depth));
+        var right = new Point2D(foot.X - (nx * depth), foot.Y - (ny * depth));
+        var leftZones = zones.Where(z => z.Shape.Contains(left)).ToList();
+        var rightZones = zones.Where(z => z.Shape.Contains(right)).ToList();
+
+        var outsideRight = leftZones.Count == 1 && leftZones[0] == zone && rightZones.Count == 0;
+        var outsideLeft = rightZones.Count == 1 && rightZones[0] == zone && leftZones.Count == 0;
+        return outsideRight || outsideLeft ? depth : (double?)null;
     }
 
     // --- policies and helpers ----------------------------------------------------------------

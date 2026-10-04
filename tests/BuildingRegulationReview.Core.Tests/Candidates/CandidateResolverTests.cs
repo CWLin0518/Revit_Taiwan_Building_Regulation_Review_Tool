@@ -37,7 +37,7 @@ public sealed class CandidateResolverTests
         Row("WN1-bottom", None, "Boundary"),
         Row("D4-on-boundary", "Boundary", None),
         Row("D5-ambiguous-host", None, "Ambiguous:HostRelationAmbiguous"),
-        Row("P1-panel", None, "Ambiguous:CurtainWallOpening"),
+        Row("P1-panel", None, "Facade"), // nothing beyond CW-right: the outer facade
         Row("N1-unhosted", "Ambiguous:NonHostedOpening", None),
         Row("D6-ghost-host", "Ambiguous:HostNotResolved", None),
         Row("D7-no-location", "Ambiguous:OpeningLocationUnknown", "Ambiguous:OpeningLocationUnknown")
@@ -89,7 +89,6 @@ public sealed class CandidateResolverTests
             "BoundaryAlongOutline|B|C3-flush",
             "HostRelationAmbiguous|B|D5-ambiguous-host",
             "OpeningLocationUnknown|B|D7-no-location",
-            "CurtainWallOpening|B|P1-panel",
             "BoundaryOffCenterline|B|W5-offset",
             "ZoneNotEnclosed|C|area-c"
         };

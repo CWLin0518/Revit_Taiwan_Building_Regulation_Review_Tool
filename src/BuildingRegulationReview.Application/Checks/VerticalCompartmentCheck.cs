@@ -229,7 +229,7 @@ public static class VerticalCompartmentCheck
 
                     findings.Add(
                         !zone.IsClear ? Withhold(set, zone, opening, requirement, engine.RuleSet, runId, newResultId())
-                        : relation.IsAmbiguous ? Unresolved(set, zone, opening, relation, requirement, engine.RuleSet, runId, newResultId())
+                        : relation.IsAmbiguous || relation.IsFacade ? Unresolved(set, zone, opening, relation, requirement, engine.RuleSet, runId, newResultId())
                         : Decide(set, zone, opening, requirement, inputs, engine, context, runId, newResultId()));
                 }
             }
@@ -354,7 +354,8 @@ public static class VerticalCompartmentCheck
     /// <summary>
     /// An opening whose relation to the 區劃 is ambiguous (帷幕牆、未寄主、連結模型…). Whether it is the
     /// 昇降機道出入口 or the 維修門 at all cannot be relied on, so no rule runs — the same MVP policy
-    /// 防火門窗 applies (P3-T03).
+    /// 防火門窗 applies (P3-T03). An opening in the outer curtain-wall facade lands here too: 第79條之2
+    /// names the 昇降機道 and 管道間 devices without saying whether a facade panel is one of them.
     /// </summary>
     private static VerticalCompartmentFinding Unresolved(
         CandidateSet set,
@@ -373,7 +374,8 @@ public static class VerticalCompartmentCheck
         var result = new ReviewResult(resultId, runId, set.PackageId, ReviewCheckTypes.VerticalCompartment,
             new[] { observation.Source.ElementUniqueId }, zone.ZoneIdText, ReviewStatus.ManualReview, null, null,
             info.RuleSetId, info.Version, $"規則集「{info.Title}」",
-            $"{Subject(observation, zone, requirement)}不檢討：{relation.Message}需人工覆核。", evidence);
+            $"{Subject(observation, zone, requirement)}不檢討：{relation.Message}" +
+            (relation.IsFacade ? "第79條之2 未明定外牆開口是否屬昇降機道或管道間之防火設備，" : string.Empty) + "需人工覆核。", evidence);
         return new VerticalCompartmentFinding(requirement, result, observation.Source.ElementUniqueId, observation.Category,
             observation.TypeUniqueId, observation.TypeName, null, null, ReviewErrorCode.CandidateAmbiguous);
     }

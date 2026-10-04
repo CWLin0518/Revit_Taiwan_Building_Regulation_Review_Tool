@@ -187,6 +187,12 @@ public static class OpeningProtectionCheck
 {
     private const string ProvidedField = "opening.providedFireProtection";
 
+    /// <summary>
+    /// Leads every message of a facade opening, so the 檢討表 search finds all of them: 「外側沒有區劃」
+    /// is an inference, not a fact the model states, and these rows are the ones to spot-check.
+    /// </summary>
+    public const string FacadeInferredTag = "【外牆推定】";
+
     public static Result<OpeningProtectionReview> Review(
         CandidateSet set,
         OpeningProtectionInputs inputs,
@@ -218,11 +224,12 @@ public static class OpeningProtectionCheck
         {
             foreach (var opening in set.OpeningsOf(zone.ZoneId))
             {
-                if (opening.RelationTo(zone.ZoneId)!.IsAmbiguous) continue;
+                var relation = opening.RelationTo(zone.ZoneId)!;
+                if (relation.IsAmbiguous) continue;
 
-                findings.Add(zone.IsClear
-                    ? Decide(set, zone, opening, inputs, engine, context, runId, newResultId())
-                    : Withhold(set, zone, opening, engine.RuleSet, runId, newResultId()));
+                findings.Add(!zone.IsClear ? Withhold(set, zone, opening, engine.RuleSet, runId, newResultId())
+                    : relation.IsFacade ? Facade(set, zone, opening, relation, engine.RuleSet, runId, newResultId())
+                    : Decide(set, zone, opening, inputs, engine, context, runId, newResultId()));
             }
         }
 
@@ -336,6 +343,39 @@ public static class OpeningProtectionCheck
             observation.TypeUniqueId, observation.TypeName, observation.HostUniqueId, null, null, null, null,
             ReviewErrorCode.CandidateZoneUnusable);
     }
+
+    /// <summary>
+    /// An opening in the building's outer curtain-wall facade (no zone beyond it). 第79條 divides the
+    /// building with 牆壁、防火門窗等防火設備 between its parts; the outer facade is not one of those
+    /// 區劃分隔, so the rule's own premise — an opening in a compartment wall — is absent and no rule
+    /// runs. The facade is reviewed where the law places it: 第79條第3項、第79條之3 at the junctions and
+    /// 第79條之4 for the rest (帷幕牆區劃交接). 第110條 (防火間隔) also reaches exterior openings and is
+    /// outside this tool, which the message says.
+    /// </summary>
+    private static OpeningProtectionFinding Facade(CandidateSet set, CandidateZone zone, OpeningCandidate opening, ZoneRelation relation, CompiledRuleSet ruleSet, Guid runId, Guid resultId)
+    {
+        var observation = opening.Observation;
+        var info = ruleSet.RuleSet;
+        var result = new ReviewResult(resultId, runId, set.PackageId, ReviewCheckTypes.OpeningProtection,
+            new[] { observation.Source.ElementUniqueId }, zone.ZoneIdText, ReviewStatus.NotApplicable, null, null,
+            info.RuleSetId, info.Version, FacadeReference,
+            $"{FacadeInferredTag}{Subject(observation)}於區劃「{zone.Name}」：{relation.Message}" +
+            "第79條之防火門窗係指區劃分隔處之開口，外牆開口不在此列；此帷幕牆改依第79條第3項、第79條之3、第79條之4" +
+            "於「帷幕牆區劃交接」檢討，本項不適用。外牆係由「帷幕牆另一側沒有任何區劃」推定，" +
+            "若另一側實為未建 Area 或屬其他工作包之室內空間，此帷幕牆即為區劃分隔，請抽查。" +
+            "外牆開口另受第110條防火間隔規定，本工具未檢討。",
+            opening.EvidenceFor(zone.ZoneId));
+        return new OpeningProtectionFinding(result, observation.Source.ElementUniqueId, observation.Category,
+            OpeningGroups.Of(observation.Category, opening.Host?.IsCurtainWall == true),
+            observation.TypeUniqueId, observation.TypeName, observation.HostUniqueId, null, null, null, null,
+            ReviewErrorCode.CandidateFacadeInferred)
+        {
+            RequiresProtection = false
+        };
+    }
+
+    private const string FacadeReference =
+        "建築技術規則建築設計施工編第79條第1項（區劃分隔）；外牆依第79條第3項、第79條之3、第79條之4檢討";
 
     private static string Subject(OpeningObservation observation) =>
         $"{CandidateCategories.Label(observation.Category)}「{observation.TypeName ?? "無 Type 名稱"}」（{observation.Source}）";

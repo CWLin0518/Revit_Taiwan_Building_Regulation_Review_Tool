@@ -1065,7 +1065,13 @@ public sealed class FireReviewIntegrationTests
     [Fact]
     public void Review_verdicts_follow_the_model_parameters()
     {
-        var run = Run(Request()).Run!;
+        var outcome = Run(Request());
+        var run = outcome.Run!;
+
+        // 外牆推定的帷幕嵌板：逐件記錄，另有一行總數提醒抽查
+        Assert.Contains(outcome.Log.Entries, e => e.Code == ReviewErrorCode.CandidateFacadeInferred && e.ElementUniqueId == "P1-panel");
+        Assert.Contains(outcome.Log.Entries, e => e.Code == ReviewErrorCode.CandidateFacadeInferred &&
+                                                  e.Severity == ReviewSeverity.Warning && e.UserMessage.Contains("1 件"));
 
         // 區劃面積：100 m² ≤ 1500 m²（A 區無灑水）與 3000 m²（B 區有灑水）
         Assert.Equal(ReviewStatus.Pass, run.Results.Single(r => r.CheckType == ReviewCheckTypes.CompartmentArea && r.ZoneId == ZoneA.ToString("D")).Status);
@@ -1078,10 +1084,10 @@ public sealed class FireReviewIntegrationTests
         // 梁自第70條起受檢，但這個 fixture 的梁沒有 Type，讀不到設計時效 → 資料不足，不是未符合
         Assert.Equal(ReviewStatus.InsufficientData, ResultOf(run, ReviewCheckTypes.FireResistance, "B1-shared", ZoneA).Status);
 
-        // 門窗：是 → 符合；否 → 未符合；帷幕嵌板與非 Hosted → 人工覆核（spec 16.3 情境 7）
+        // 門窗：是 → 符合；否 → 未符合；外牆帷幕嵌板 → 不適用（第79條之3、之4 接手）；非 Hosted → 人工覆核（spec 16.3 情境 7）
         Assert.Equal(ReviewStatus.Pass, ResultOf(run, ReviewCheckTypes.OpeningProtection, "D1-shared", ZoneA).Status);
         Assert.Equal(ReviewStatus.Fail, ResultOf(run, ReviewCheckTypes.OpeningProtection, "WN1-bottom", ZoneB).Status);
-        Assert.Equal(ReviewStatus.ManualReview, ResultOf(run, ReviewCheckTypes.OpeningProtection, "P1-panel").Status);
+        Assert.Equal(ReviewStatus.NotApplicable, ResultOf(run, ReviewCheckTypes.OpeningProtection, "P1-panel").Status);
         Assert.Equal(ReviewStatus.ManualReview, ResultOf(run, ReviewCheckTypes.OpeningProtection, "N1-unhosted").Status);
 
         var table = ReviewTable.Build(run);

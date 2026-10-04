@@ -53,7 +53,10 @@ public sealed class MemberRatingFinding
     /// <summary>What the rule engine said, or null when no rule ran (ambiguity or zone problem).</summary>
     public RuleOutcome? Outcome { get; }
 
-    /// <summary>The candidate ambiguity behind a ManualReview, when there was one.</summary>
+    /// <summary>
+    /// The candidate ambiguity behind the result, when there was one: behind a ManualReview, or behind a
+    /// verdict settled because it was the same whether or not the member bounds the zone.
+    /// </summary>
     public CandidateAmbiguity? Ambiguity { get; }
 
     /// <summary>The spec 14 code a log entry about this member carries; null for a routine verdict.</summary>
@@ -216,7 +219,14 @@ public static class FireResistanceCheck
             var member = AmbiguousMember(set, ambiguity);
             if (member is null && ambiguity.Kind != CandidateAmbiguityKind.NoPlanGeometry) continue;
 
-            var result = ambiguity.ToReviewResult(newResultId(), runId, set.PackageId, ReviewCheckTypes.FireResistance, engine.RuleSet);
+            var resultId = newResultId();
+            if (member is not null && Settled(set, member, ambiguity, inputs, engine, context, runId, resultId) is { } settled)
+            {
+                findings.Add(settled);
+                continue;
+            }
+
+            var result = ambiguity.ToReviewResult(resultId, runId, set.PackageId, ReviewCheckTypes.FireResistance, engine.RuleSet);
             var typeName = member?.Observation.TypeName ?? Text(ambiguity.Evidence.Find("source.typeName"));
             var category = member?.Category ?? CategoryOf(ambiguity.Evidence.Find("source.category"));
             findings.Add(new MemberRatingFinding(result, ambiguity.SubjectUniqueIds[0], category,
@@ -240,10 +250,11 @@ public static class FireResistanceCheck
         RuleEngine engine,
         RuleEvaluationContext context,
         Guid runId,
-        Guid resultId)
+        Guid resultId,
+        MemberCandidate? assumed = null)
     {
         var observation = member.Observation;
-        var facts = CandidateFacts.ForMember(set, member, zone.ZoneId, engine.RuleSet.Catalog);
+        var facts = CandidateFacts.ForMember(set, assumed ?? member, zone.ZoneId, engine.RuleSet.Catalog);
         var supplied = inputs.Context.Building.Concat(inputs.Context.ForZone(zone.ZoneId)).ToList();
         foreach (var input in supplied) input.ApplyTo(facts);
 
@@ -324,6 +335,91 @@ public static class FireResistanceCheck
         return new MemberRatingFinding(result, observation.Source.ElementUniqueId, observation.Category,
             observation.TypeUniqueId, observation.TypeName, null, null, null, ReviewErrorCode.CandidateZoneUnusable);
     }
+
+    /// <summary>
+    /// The geometric doubts that are only about <i>whether</i> the member bounds the zone: the Area
+    /// edge runs along a column face, or inside a wall's thickness off its centreline. Linked elements,
+    /// missing geometry and doubtful zones are doubts about the data itself and are never settled.
+    /// </summary>
+    private static bool IsBoundaryDoubt(CandidateAmbiguityKind kind) =>
+        kind == CandidateAmbiguityKind.BoundaryAlongOutline || kind == CandidateAmbiguityKind.BoundaryOffCenterline;
+
+    /// <summary>
+    /// Settles a boundary doubt when the law gives the same answer either way. The rules are evaluated
+    /// once as if the member bounds the zone (第79條：區劃牆壁一小時) and once as if it does not; only
+    /// <c>element.isCompartmentBoundary</c> differs between the two. The doubt does not matter when
+    /// <list type="bullet">
+    /// <item>both give the same verdict — e.g. a structural column, whose 第70條 rating does not depend on
+    /// the compartment at all (第79條 asks the 牆壁 for one hour, never the column); or</item>
+    /// <item>one passes and the other has no requirement — the member meets whatever applies.</item>
+    /// </list>
+    /// Otherwise it stays ManualReview: one passes and one fails, data is missing on either side (the two
+    /// sides may lack different fields), or a side is itself a manual review (composite rating, rule conflict).
+    /// </summary>
+    private static MemberRatingFinding? Settled(
+        CandidateSet set,
+        MemberCandidate member,
+        CandidateAmbiguity ambiguity,
+        FireResistanceInputs inputs,
+        RuleEngine engine,
+        RuleEvaluationContext context,
+        Guid runId,
+        Guid resultId)
+    {
+        if (!IsBoundaryDoubt(ambiguity.Kind) || ambiguity.ZoneId is not Guid zoneId) return null;
+        if (set.Zone(zoneId) is not { IsClear: true } zone) return null;
+
+        var asBoundary = Decide(set, zone, member, inputs, engine, context, runId, resultId, Assuming(member, zoneId, ZoneRelationKind.Boundary));
+        var asNot = Decide(set, zone, member, inputs, engine, context, runId, resultId, Assuming(member, zoneId, ZoneRelationKind.Inside));
+
+        MemberRatingFinding chosen;
+        string reason;
+        if (asBoundary.Status == asNot.Status && IsVerdict(asBoundary.Status))
+        {
+            chosen = asBoundary;
+            reason = "不論此構件是否構成區劃邊界，規則的結論都相同";
+        }
+        else if (asBoundary.Status == ReviewStatus.Pass && asNot.Status == ReviewStatus.NotApplicable)
+        {
+            chosen = asBoundary;
+            reason = "若構成區劃邊界則符合第79條區劃牆壁之要求，若不構成邊界則無此要求，兩種情形皆無不符";
+        }
+        else if (asNot.Status == ReviewStatus.Pass && asBoundary.Status == ReviewStatus.NotApplicable)
+        {
+            chosen = asNot;
+            reason = "兩種情形皆無不符";
+        }
+        else
+        {
+            return null;
+        }
+
+        var label = CandidateCategories.Label(member.Category);
+        var decided = chosen.Result;
+        var evidence = new ReviewEvidence(decided.Evidence.Items.Concat(new[]
+        {
+            new ReviewEvidenceItem("candidate.settledBy", ReviewValue.OfText("SameVerdictEitherWay")),
+            new ReviewEvidenceItem("candidate.verdictIfBoundary", ReviewValue.OfText(ReviewStatusText.Label(asBoundary.Status))),
+            new ReviewEvidenceItem("candidate.verdictIfNotBoundary", ReviewValue.OfText(ReviewStatusText.Label(asNot.Status)))
+        }));
+        var result = new ReviewResult(decided.ResultId, decided.RunId, decided.PackageId, decided.CheckType,
+            decided.SubjectUniqueIds, decided.ZoneId, decided.Status, decided.ActualValue, decided.RequiredValue,
+            decided.RuleId, decided.RuleVersion, decided.LegalReference,
+            $"{decided.Message}（區劃「{zone.Name}」的邊界與此{label}的關係無法由幾何判定，但{reason}，故逕行判定，免人工覆核。）",
+            evidence);
+        return new MemberRatingFinding(result, chosen.ElementUniqueId, chosen.Category, chosen.TypeUniqueId, chosen.TypeName,
+            chosen.Provided, chosen.Outcome, ambiguity, chosen.ErrorCode);
+    }
+
+    /// <summary>A verdict the law gives outright; 資料不足 and 人工覆核 are not, so two of them never settle a doubt.</summary>
+    private static bool IsVerdict(ReviewStatus status) =>
+        status is ReviewStatus.Pass or ReviewStatus.Fail or ReviewStatus.NotApplicable;
+
+    /// <summary>The member as if its relation to one zone were decided; every other relation as observed.</summary>
+    private static MemberCandidate Assuming(MemberCandidate member, Guid zoneId, ZoneRelationKind kind) =>
+        new MemberCandidate(member.Observation, member.Relations.Select(r => r.ZoneId != zoneId
+            ? r
+            : new ZoneRelation(zoneId, kind, r.Message, r.Measurements)));
 
     /// <summary>The member an ambiguity is about, when it is an ambiguous member relation.</summary>
     private static MemberCandidate? AmbiguousMember(CandidateSet set, CandidateAmbiguity ambiguity)

@@ -21,6 +21,7 @@
 | 約定 ID | 法規 | 內容 | 文件 |
 | --- | --- | --- | --- |
 | `zone-use-vocabulary` | 建築技術規則建築設計施工編第 79 條之 2 第 1 項 | `zone.use`（防火檢討_區劃用途）的議定用字，兩條區劃面積規則共用的豁免清單 | [`zone.use` 用字表](zone-use-vocabulary.md) |
+| `boundary-edge-elements` | 建築技術規則建築設計施工編第 70 條、第 79 條、第 79 條之 3、第 79 條之 4 | 區劃邊界貼柱／貼牆時結論與邊界無關則逕行判定；外牆帷幕嵌板不屬第 79 條區劃開口 | [區劃邊緣構件與開口](boundary-edge-elements.md) |
 | `building-use-groups` | 建築技術規則建築設計施工編第 3 條之 3、第 83 條第一款、第二款 | `building.use`（建築物用途類組）的正規形與寫法折疊，Ｈ－２組但書的比對 | [`building.use` 寫法正規化](building-use-groups.md) |
 
 ## 新增法規文件格式

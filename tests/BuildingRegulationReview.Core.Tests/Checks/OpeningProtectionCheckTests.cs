@@ -368,8 +368,7 @@ public sealed class OpeningProtectionCheckTests
             ["D6-ghost-host"] = CandidateAmbiguityKind.HostNotResolved,
             ["D7-no-location"] = CandidateAmbiguityKind.OpeningLocationUnknown,
             ["N1-unhosted"] = CandidateAmbiguityKind.NonHostedOpening,
-            ["D5-ambiguous-host"] = CandidateAmbiguityKind.HostRelationAmbiguous,
-            ["P1-panel"] = CandidateAmbiguityKind.CurtainWallOpening
+            ["D5-ambiguous-host"] = CandidateAmbiguityKind.HostRelationAmbiguous
         };
         foreach (var finding in review.Findings.Where(f => f.Ambiguity is not null))
         {
@@ -383,10 +382,12 @@ public sealed class OpeningProtectionCheckTests
             Assert.Equal("2024.1", finding.Result.RuleVersion);
             Assert.Equal(ReviewCheckTypes.OpeningProtection, finding.Result.CheckType);
         }
-        Assert.Equal(7, review.Findings.Count(f => f.Ambiguity is not null));
+        Assert.Equal(6, review.Findings.Count(f => f.Ambiguity is not null));
 
-        // The panel is ManualReview even though its value says 否: the policy, not the value, decides.
+        // The panel is 不適用 even though its value says 否: it sits in the outer facade, which 第79條
+        // does not divide with 防火門窗 — the facade is the curtain-wall junction review's.
         var panel = review.For("P1-panel", ZoneB)!;
+        Assert.Equal(ReviewStatus.NotApplicable, panel.Status);
         Assert.Equal(CandidateCategory.CurtainPanel, panel.Category);
         Assert.Equal(OpeningGroup.CurtainWall, panel.Group);
         Assert.Equal(CandidateCategory.Door, review.For("D8-nothing").Single().Category);
@@ -396,23 +397,50 @@ public sealed class OpeningProtectionCheckTests
     }
 
     [Fact]
-    public void A_door_in_a_curtain_wall_and_a_linked_door_are_manual_review()
+    public void A_door_in_the_outer_curtain_wall_is_not_applicable_and_a_linked_door_is_manual_review()
     {
         var curtainDoor = Opening("D-curtain", "CW-right", 20, 5);
         var linked = Opening("D-linked", "W-left", 0, 5, link: "link-instance");
-        var review = Review(Set(curtainDoor, linked), Inputs(("D-curtain", "是"), ("D-linked", "是")));
+        var review = Review(Set(curtainDoor, linked), Inputs(("D-curtain", "否"), ("D-linked", "是")));
 
+        // Nothing lies beyond CW-right: it is the building's facade, not a 區劃分隔.
         var curtain = review.For("D-curtain", ZoneB)!;
-        Assert.Equal(ReviewStatus.ManualReview, curtain.Status);
-        Assert.Equal(CandidateAmbiguityKind.CurtainWallOpening, curtain.Ambiguity!.Kind);
+        Assert.Equal(ReviewStatus.NotApplicable, curtain.Status);
+        Assert.Null(curtain.Ambiguity);
+        // An inference, so it is flagged for spot-checking: a log code and a tag the table search finds.
+        Assert.Equal(ReviewErrorCode.CandidateFacadeInferred, curtain.ErrorCode);
+        Assert.True(ReviewErrorCode.IsKnown(curtain.ErrorCode));
+        Assert.StartsWith(OpeningProtectionCheck.FacadeInferredTag, curtain.Result.Message);
+        Assert.False(curtain.RequiresProtection);
         Assert.Equal(CandidateCategory.Door, curtain.Category);
         Assert.Equal(OpeningGroup.CurtainWall, curtain.Group);
+        Assert.Contains("第79條之4", curtain.Result.LegalReference);
+        Assert.Contains("第110條", curtain.Result.Message);
+        Assert.Equal(ReviewValue.OfText("Facade"), curtain.Result.Evidence.Find("candidate.relation"));
 
         // The linked door's host is the linked wall, which the review did not read.
         var link = Assert.Single(review.For("D-linked"));
         Assert.Equal(ReviewStatus.ManualReview, link.Status);
         Assert.Equal(CandidateAmbiguityKind.LinkedElement, link.Ambiguity!.Kind);
         Assert.Equal(OpeningGroup.Door, link.Group);
+    }
+
+    [Fact]
+    public void A_panel_in_a_curtain_wall_between_two_zones_stays_manual_review()
+    {
+        // A curtain wall on the A｜B line is itself a 區劃分隔: 第79條 does govern its openings, and the
+        // tool does not yet decide them.
+        var walls = Walls.Append(Wall("CW-shared", 10, 0, 10, 10, width: 0.1, curtain: true)).ToArray();
+        var panel = Opening("P-shared", "CW-shared", 10, 7, CandidateCategory.CurtainPanel);
+        var set = CandidateResolver.Resolve(Observations(ZonesAB(), walls, new[] { panel }));
+        var review = Review(set, Inputs(("P-shared", "是")));
+
+        foreach (var zone in new[] { ZoneA, ZoneB })
+        {
+            var finding = review.For("P-shared", zone)!;
+            Assert.Equal(ReviewStatus.ManualReview, finding.Status);
+            Assert.Equal(CandidateAmbiguityKind.CurtainWallOpening, finding.Ambiguity!.Kind);
+        }
     }
 
     [Fact]

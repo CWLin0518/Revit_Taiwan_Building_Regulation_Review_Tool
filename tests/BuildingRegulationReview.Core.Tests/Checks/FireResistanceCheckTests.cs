@@ -308,25 +308,93 @@ public sealed class FireResistanceCheckTests
 
     // --- 歧義與區劃問題 ----------------------------------------------------------------------------
 
-    [Fact]
-    public void An_ambiguous_member_is_manual_review_attributed_to_the_rule_set()
-    {
-        var flush = new MemberObservation(Source("C-flush"), CandidateCategory.Column, outlines: new[] { Rect(0, 4, 0.4, 4.4) },
+    private static MemberObservation FlushColumn() =>
+        new(Source("C-flush"), CandidateCategory.Column, outlines: new[] { Rect(0, 4, 0.4, 4.4) },
             typeUniqueId: ColumnType, typeName: "C40x40", isStructural: true);
-        var finding = Only(Review(Set(ZoneAOnly(), flush), Ratings((ColumnType, "30"))));
+
+    /// <summary>A wall whose centreline is 8 cm off the zone edge at x = 0: the edge lies in its thickness.</summary>
+    private static MemberObservation OffsetWall() =>
+        new(Source("W-offset"), CandidateCategory.Wall, new[] { P(0.08, 0), P(0.08, 10) }, widthFeet: M(0.2),
+            typeUniqueId: WallType, typeName: "RC 200", isStructural: false);
+
+    [Theory]
+    [InlineData("30", ReviewStatus.Fail)]
+    [InlineData("2 hr", ReviewStatus.Pass)]
+    public void A_column_flush_with_the_boundary_is_decided_because_its_rating_does_not_depend_on_the_compartment(string provided, ReviewStatus expected)
+    {
+        // 第70條 asks the column for its rating whether or not it bounds a zone, and 第79條 asks only the
+        // 牆壁: the geometric doubt cannot change the answer, so it is not handed to a person.
+        var finding = Only(Review(Set(ZoneAOnly(), FlushColumn()), Ratings((ColumnType, provided))));
+        var result = finding.Result;
+
+        Assert.Equal(expected, result.Status);
+        Assert.Equal(ReviewValue.Quantity(120, ReviewUnit.Minute), result.RequiredValue);
+        Assert.Equal("column", result.RuleId);
+        Assert.NotNull(finding.Outcome);
+        Assert.Null(finding.ErrorCode);
+        Assert.Equal(CandidateAmbiguityKind.BoundaryAlongOutline, finding.Ambiguity!.Kind);
+        Assert.Contains("逕行判定", result.Message);
+        Assert.Equal(ReviewValue.OfText("SameVerdictEitherWay"), result.Evidence.Find("candidate.settledBy"));
+        Assert.Equal(ReviewValue.OfText("Ambiguous"), result.Evidence.Find("candidate.relation"));
+        Assert.Equal(ReviewValue.OfText("BoundaryAlongOutline"), result.Evidence.Find("candidate.ambiguity"));
+        Assert.Equal(ColumnType, finding.TypeUniqueId);
+    }
+
+    [Fact]
+    public void A_wall_that_meets_the_boundary_requirement_passes_whether_or_not_it_bounds_the_zone()
+    {
+        // Bounding: 第79條 one hour, met. Not bounding: no requirement. Either way nothing fails.
+        var finding = Only(Review(Set(ZoneAOnly(), OffsetWall()), Ratings((WallType, "60"))));
+
+        Assert.Equal(ReviewStatus.Pass, finding.Status);
+        Assert.Equal("wall", finding.Result.RuleId);
+        Assert.Equal(ReviewValue.OfText(ReviewStatusText.Label(ReviewStatus.NotApplicable)), finding.Result.Evidence.Find("candidate.verdictIfNotBoundary"));
+    }
+
+    [Theory]
+    [InlineData("30")] // bounding: Fail; not bounding: no requirement
+    [InlineData("")]   // bounding: 資料不足; not bounding: no requirement
+    public void An_ambiguous_member_whose_verdict_depends_on_the_boundary_stays_manual_review(string provided)
+    {
+        var finding = Only(Review(Set(ZoneAOnly(), OffsetWall()), Ratings((WallType, provided))));
         var result = finding.Result;
 
         Assert.Equal(ReviewStatus.ManualReview, result.Status);
-        Assert.Equal(CandidateAmbiguityKind.BoundaryAlongOutline, finding.Ambiguity!.Kind);
+        Assert.Equal(CandidateAmbiguityKind.BoundaryOffCenterline, finding.Ambiguity!.Kind);
         Assert.Equal(ReviewErrorCode.CandidateAmbiguous, finding.ErrorCode);
         Assert.Null(finding.Outcome);
-        Assert.Null(result.ActualValue);
         Assert.Null(result.RequiredValue);
         Assert.Equal("tw-bcr-fire", result.RuleId);
         Assert.Equal("2024.1", result.RuleVersion);
         Assert.Equal(ReviewCheckTypes.FireResistance, result.CheckType);
         Assert.Equal(ZoneA.ToString("D"), result.ZoneId);
-        Assert.Equal(ColumnType, finding.TypeUniqueId);
+    }
+
+    [Theory]
+    [InlineData("1hr/2hr")] // composite: 人工覆核 either way
+    [InlineData("")]        // missing: 資料不足 either way
+    public void Two_doubtful_answers_do_not_settle_a_boundary_doubt(string provided)
+    {
+        var finding = Only(Review(Set(ZoneAOnly(), FlushColumn()), Ratings((ColumnType, provided))));
+
+        Assert.Equal(ReviewStatus.ManualReview, finding.Status);
+        Assert.Equal(ReviewErrorCode.CandidateAmbiguous, finding.ErrorCode);
+        Assert.Null(finding.Outcome);
+        Assert.DoesNotContain("逕行判定", finding.Result.Message);
+        Assert.Null(finding.Result.Evidence.Find("candidate.settledBy"));
+    }
+
+    [Fact]
+    public void A_boundary_doubt_in_a_zone_whose_extent_is_in_doubt_is_not_settled()
+    {
+        var overlapping = new[]
+        {
+            Zone(ZoneA, "A 區", "area-a", Rect(0, 0, 10, 10)),
+            Zone(ZoneB, "B 區", "area-b", Rect(8, 0, 18, 10))
+        };
+        var review = Review(Set(overlapping, FlushColumn()), Ratings((ColumnType, "2 hr")));
+
+        Assert.All(review.Findings, f => Assert.Equal(ReviewStatus.ManualReview, f.Status));
     }
 
     [Fact]

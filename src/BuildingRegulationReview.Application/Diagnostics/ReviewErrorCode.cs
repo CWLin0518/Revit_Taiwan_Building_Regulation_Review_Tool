@@ -80,6 +80,7 @@ public static class ReviewErrorCode
     // 來源元素與區劃空間關係可解析（spec 11.1）
     public const string CandidateAmbiguous = "BCR-CAND-001";
     public const string CandidateZoneUnusable = "BCR-CAND-002";
+    public const string CandidateFacadeInferred = "BCR-CAND-003";
 
     // 寫回本身
     public const string WriteBackRolledBack = "BCR-WB-001";
@@ -148,6 +149,7 @@ public static class ReviewErrorCode
             { RuleSchemaInvalid, "規則格式不符合 schema" },
             { CandidateAmbiguous, "元素與區劃的空間關係無法判定" },
             { CandidateZoneUnusable, "區劃範圍無法用於檢討" },
+            { CandidateFacadeInferred, "帷幕牆外側無區劃，推定為外牆" },
             { WriteBackRolledBack, "寫回整批復原" },
             { WriteBackElementFailed, "元素寫入失敗" },
             { WriteBackElementSkipped, "元素略過未寫入" },

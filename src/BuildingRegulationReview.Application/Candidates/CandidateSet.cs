@@ -23,6 +23,14 @@ public enum ZoneRelationKind
     /// <summary>The element lies inside the zone without forming its boundary.</summary>
     Inside,
 
+    /// <summary>
+    /// An opening in a curtain wall that bounds the zone where no zone lies beyond it: the wall is the
+    /// building's outer facade, not a 區劃分隔 between two parts of the building. 第79條 does not ask
+    /// such an opening to be a 防火設備; the facade answers to 第79條之3、第79條之4 instead
+    /// (帷幕牆區劃交接). Openings only.
+    /// </summary>
+    Facade,
+
     /// <summary>The geometry does not decide it; the result is ManualReview (spec 11.0 P3-T03).</summary>
     Ambiguous
 }
@@ -151,6 +159,7 @@ public sealed class ZoneRelation
     public CandidateAmbiguityKind? Ambiguity { get; }
     public bool IsAmbiguous => Kind == ZoneRelationKind.Ambiguous;
     public bool IsBoundary => Kind == ZoneRelationKind.Boundary;
+    public bool IsFacade => Kind == ZoneRelationKind.Facade;
 }
 
 /// <summary>A wall, column, beam or floor with the zones it relates to.</summary>

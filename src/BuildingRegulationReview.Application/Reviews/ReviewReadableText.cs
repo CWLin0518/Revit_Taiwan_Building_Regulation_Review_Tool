@@ -225,6 +225,9 @@ public static class ReviewFieldText
         ["candidate.enclosedAreaCount"] = "封閉的 Area 數",
         ["candidate.otherZoneId"] = "另一個區劃編號",
         ["candidate.relation"] = "與區劃的空間關係",
+        ["candidate.settledBy"] = "空間關係無法判定但逕行判定的依據",
+        ["candidate.verdictIfBoundary"] = "假設構成區劃邊界時的結論",
+        ["candidate.verdictIfNotBoundary"] = "假設不構成區劃邊界時的結論",
         ["candidate.zoneId"] = "區劃編號",
         ["candidate.zoneName"] = "區劃名稱",
 
@@ -432,7 +435,10 @@ public static class ReviewFieldText
                 ("Boundary", "構成區劃邊界"),
                 ("Crossing", "跨越區劃邊界"),
                 ("Inside", "位於區劃內"),
+                ("Facade", "位於區劃邊界的外牆（帷幕牆）上"),
                 ("Ambiguous", "無法判定")),
+            ["candidate.settledBy"] = Map(
+                ("SameVerdictEitherWay", "不論是否構成邊界，結論相同")),
             ["candidate.ambiguity"] = Map(
                 ("BoundaryOffCenterline", "區劃邊界落在構件厚度內但不在中心線上"),
                 ("BoundaryAlongOutline", "區劃邊界沿柱面而非穿過柱心"),
