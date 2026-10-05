@@ -340,6 +340,9 @@ public static class CurtainWallJunctionCheck
 
     private static string Subject(CurtainWallJunction junction, CandidateZone zone) => junction.Kind switch
     {
+        // 室內外未定的那一列講的是整道牆，不是某一個交接處——它沒有區劃牆主體可以指名（docs §4.8）。
+        CurtainWallJunctionKind.WallToCurtainWall when junction.Doubt?.Kind == CurtainWallJunctionDoubtKind.ExposureUndecided =>
+            $"帷幕牆（{junction.CurtainWallUniqueId}）之室內外判定於區劃「{zone.Name}」",
         CurtainWallJunctionKind.WallToCurtainWall =>
             $"帷幕牆（{junction.CurtainWallUniqueId}）與區劃牆（{junction.HostUniqueId}）之交接處" +
             $"{Reference(junction)}於區劃「{zone.Name}」",

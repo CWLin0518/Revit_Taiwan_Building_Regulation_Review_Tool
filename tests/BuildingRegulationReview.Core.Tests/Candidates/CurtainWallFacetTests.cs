@@ -74,6 +74,33 @@ public sealed class CurtainWallFacetTests
         Assert.All(junctions, j => Assert.Equal("ARC", j.CurtainWallUniqueId));
     }
 
+    // --- 室內外分流（docs §4.8）：同一道弧牆一半在室內、一半在室外 --------------------------------
+
+    [Fact]
+    public void An_arc_wall_part_inside_and_part_outside_is_undecided_rather_than_put_to_a_vote()
+    {
+        // 弧牆的前半段（−90°～−45°）外側也有區劃，後半段沒有：段號跟著 grid line 走，與每一段有多少
+        // 立面無關，所以多數決會把真實存在的少數段套上錯誤的規則（審查 4-4）。整道牆交人工覆核。
+        var outside = new List<Point2D>();
+        for (var degrees = -90; degrees <= -45; degrees++) outside.Add(On(degrees, Radius + 10));
+        for (var degrees = -45; degrees >= -90; degrees--) outside.Add(On(degrees, Radius + 2000));
+
+        var set = new CurtainWallObservationSet(Package, "LVL", "1F", 0,
+            new[] { Zone(), new CurtainWallZoneObservation(OutsideZoneId, "鄰室", new[] { outside }) },
+            Arc(GlazingOnly, StoreyMm),
+            new[] { Host(-49.5) },
+            levelElevationsMm: StoreyLevels(0));
+
+        var junction = Assert.Single(Resolve(set));
+
+        Assert.Equal(CurtainWallJunctionDoubtKind.ExposureUndecided, junction.Doubt!.Kind);
+        Assert.Equal(ReviewStatus.ManualReview, junction.Doubt.Status);
+        Assert.Equal("ARC", junction.CurtainWallUniqueId);
+        Assert.Contains("分成室內與室外兩道牆", junction.Doubt.Message);
+    }
+
+    private static readonly Guid OutsideZoneId = Guid.Parse("aaaaaaaa-0000-0000-0000-00000000001f");
+
     [Fact]
     public void A_compartment_wall_meeting_the_arc_inside_a_facet_is_one_junction_with_its_projection()
     {

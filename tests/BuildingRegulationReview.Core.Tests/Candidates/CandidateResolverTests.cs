@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using BuildingRegulationReview.Application.Candidates;
+using BuildingRegulationReview.Application.Checks;
 using BuildingRegulationReview.Application.Diagnostics;
 using BuildingRegulationReview.Application.Rules;
 using BuildingRegulationReview.Domain.Geometry;
@@ -344,6 +345,170 @@ public sealed class CandidateResolverTests
 
         var partition = CandidateFacts.ForMember(set, set.Members.Single(m => m.Source.ElementUniqueId == "W3-partition"), ZoneA);
         Assert.Equal(ReviewStatus.NotApplicable, engine.Evaluate(RuleCategory.FireResistance, partition, context).Status);
+    }
+
+    // --- 室內帷幕牆（docs/regulations/curtain-wall-fire-compartment.md §4.8）---------------------
+    //
+    // The fixture's CW-right at x = 20 has 區劃 B inside it and nothing beyond: the building's 外牆,
+    // whose openings 第79條第1項 does not govern (row P1-panel above, Facade). A curtain wall on the
+    // A｜B line at x = 10 has a 區劃 on each side instead, so it is a 區劃分隔 and its openings are
+    // judged like any boundary wall's.
+
+    private static CandidateSet WithInteriorCurtainWall(params OpeningObservation[] openings)
+    {
+        var members = Members()
+            .Where(m => m.Source.ElementUniqueId != "W2-shared")
+            .Append(Wall("CW-shared", 10, 0, 10, 10, width: 0.1, curtain: true))
+            .ToList();
+
+        return CandidateResolver.Resolve(Observations(members: members, openings: openings));
+    }
+
+    [Fact]
+    public void An_interior_curtain_wall_is_classified_interior_on_the_member_candidate()
+    {
+        var member = WithInteriorCurtainWall().Members.Single(m => m.Source.ElementUniqueId == "CW-shared");
+
+        Assert.Equal(CurtainWallExposure.Interior, member.CurtainWallExposure!.Exposure);
+        Assert.Equal("Interior", member.CurtainWallExposureText);
+
+        // 證據要說出判定依據，審查者才能分辨這是量到的還是猜的。
+        var evidence = member.EvidenceFor(ZoneA);
+        Assert.Equal(ReviewValue.OfText("Interior"), evidence.Find("source.curtainWallExposure"));
+        Assert.NotNull(evidence.Find("source.curtainWallExposureReason"));
+    }
+
+    [Fact]
+    public void An_exterior_curtain_wall_is_classified_exterior_and_a_plain_wall_is_neither()
+    {
+        var set = Resolve();
+
+        Assert.Equal("Exterior", set.Members.Single(m => m.Source.ElementUniqueId == "CW-right").CurtainWallExposureText);
+
+        var plain = set.Members.Single(m => m.Source.ElementUniqueId == "W2-shared");
+        Assert.Null(plain.CurtainWallExposure);
+        Assert.Equal(MemberCandidate.NotCurtainWallText, plain.CurtainWallExposureText);
+        Assert.Null(plain.EvidenceFor(ZoneA).Find("source.curtainWallExposure"));
+    }
+
+    [Fact]
+    public void A_door_in_an_interior_curtain_wall_relates_to_both_zones_as_a_boundary()
+    {
+        var set = WithInteriorCurtainWall(Door("D-cw", "CW-shared", 10, 4));
+
+        foreach (var zone in new[] { ZoneA, ZoneB })
+        {
+            var relation = Relation(set, "D-cw", zone);
+            Assert.Equal(ZoneRelationKind.Boundary, relation!.Kind);
+            Assert.Contains("區劃分隔而非建築物外牆", relation.Message);
+        }
+    }
+
+    [Fact]
+    public void The_opening_route_and_the_member_route_classify_the_same_wall_alike()
+    {
+        // 審查 3-B：兩條路徑探的位置不同（開口在它自己的位置、構件在牆的四分之一處），判定表只有一份,
+        // 所以同一道牆兩邊必須得到同一個答案。
+        var set = WithInteriorCurtainWall(Door("D-cw", "CW-shared", 10, 4));
+
+        Assert.Equal(CurtainWallExposure.Interior,
+            set.Members.Single(m => m.Source.ElementUniqueId == "CW-shared").CurtainWallExposure!.Exposure);
+        Assert.Equal(ZoneRelationKind.Boundary, Relation(set, "D-cw", ZoneA)!.Kind);
+    }
+
+    [Fact]
+    public void A_solid_panel_in_an_interior_curtain_wall_is_not_answered_by_an_opening_rule()
+    {
+        var panel = new OpeningObservation(Source("P-solid"), CandidateCategory.CurtainPanel, "CW-shared",
+            P(10, 7), M(1.5), M(2.5), "type-panel", "實心板",
+            CurtainPanelKind.Solid);
+
+        var relation = Relation(WithInteriorCurtainWall(panel), "P-solid", ZoneA);
+
+        Assert.Equal(ZoneRelationKind.Ambiguous, relation!.Kind);
+        Assert.Equal(CandidateAmbiguityKind.CurtainPanelIsConstruction, relation.Ambiguity);
+    }
+
+    [Fact]
+    public void A_panel_of_undeclared_kind_in_an_interior_curtain_wall_is_insufficient_data()
+    {
+        var panel = new OpeningObservation(Source("P-unknown"), CandidateCategory.CurtainPanel, "CW-shared",
+            P(10, 7), M(1.5), M(2.5), "type-panel", "系統嵌板");
+
+        var relation = Relation(WithInteriorCurtainWall(panel), "P-unknown", ZoneA);
+
+        Assert.Equal(ZoneRelationKind.Ambiguous, relation!.Kind);
+        Assert.Equal(CandidateAmbiguityKind.CurtainPanelKindUndeclared, relation.Ambiguity);
+    }
+
+    [Fact]
+    public void An_opening_near_the_end_of_an_exterior_curtain_wall_is_still_a_facade()
+    {
+        // 沿牆 ±300 mm 的測站會踩出牆的兩端，但探測找的是**區劃**而不是牆，而區劃通常延伸到牆端之外,
+        // 所以三站掉一站不影響多數——這個貼在 y = 0.2 m 的開口照樣判 Facade。
+        var set = CandidateResolver.Resolve(Observations(openings: new[]
+        {
+            Door("P-corner", "CW-right", 20, 0.2, CandidateCategory.CurtainPanel)
+        }));
+
+        Assert.Equal(ZoneRelationKind.Facade, Relation(set, "P-corner", ZoneB)!.Kind);
+    }
+
+    [Fact]
+    public void A_facade_opening_facing_another_zone_is_not_on_this_zones_boundary()
+    {
+        // 外牆那一路要求「有區劃的那一側，在開口自己的位置上，就是本區劃」——這是決議 18 之前的條件
+        // 逐字。CW-right 的室內側是 B 區，所以它的嵌板與 A 區沒有邊界關係。
+        var set = CandidateResolver.Resolve(Observations(openings: new[]
+        {
+            Door("P-corner", "CW-right", 20, 5, CandidateCategory.CurtainPanel)
+        }));
+
+        Assert.Equal(ZoneRelationKind.Facade, Relation(set, "P-corner", ZoneB)!.Kind);
+        Assert.Null(Relation(set, "P-corner", ZoneA));
+    }
+
+    [Fact]
+    public void A_boundary_curtain_wall_whose_exposure_is_undecided_gets_a_manual_review_of_its_own()
+    {
+        // 審查 4-5：判不出室內外的帷幕牆，牆體時效沒有規則回答（版本 3 排除 Unknown），外牆的三項
+        // 交接規定也不適用。這一列讓那個空缺出現在檢討表上，而且**不依賴帷幕牆區劃交接那一端**——
+        // 兩端的探測輸入不同，一端判外牆、另一端判未定時，少了它整片牆的牆體時效會靜默無答案。
+        var wall = new MemberObservation(Source("CW-conflict"), CandidateCategory.Wall,
+            new[] { P(20, 0), P(20, 10) }, widthFeet: M(0.1),
+            typeUniqueId: "type-cw", typeName: "帷幕牆", isStructural: false, isCurtainWall: true,
+            curtainWallFunction: CurtainWallFunctionDeclaration.Interior);
+
+        var set = CandidateResolver.Resolve(Observations(members: new[] { wall }));
+
+        var member = set.Members.Single(m => m.Source.ElementUniqueId == "CW-conflict");
+        Assert.Equal(CurtainWallExposure.Unknown, member.CurtainWallExposure!.Exposure);
+        Assert.Equal(CurtainWallExposureReason.DeclarationConflict, member.CurtainWallExposure.Reason);
+
+        var ambiguity = Assert.Single(set.Ambiguities,
+            a => a.Kind == CandidateAmbiguityKind.CurtainWallExposureUndecided);
+
+        Assert.Equal(ZoneB, ambiguity.ZoneId);
+        Assert.Contains("CW-conflict", ambiguity.SubjectUniqueIds);
+        Assert.Contains("無法判定它是建築物外牆或室內帷幕牆", ambiguity.Message);
+        Assert.Contains("Function 改回 Exterior", ambiguity.Message);
+    }
+
+    [Fact]
+    public void A_boundary_curtain_wall_whose_exposure_is_decided_gets_no_such_row()
+    {
+        // 反面：判得出來的牆不該多出這一列。CW-right 是外牆、A｜B 線上的那片是室內。
+        Assert.DoesNotContain(Resolve().Ambiguities,
+            a => a.Kind == CandidateAmbiguityKind.CurtainWallExposureUndecided);
+        Assert.DoesNotContain(WithInteriorCurtainWall().Ambiguities,
+            a => a.Kind == CandidateAmbiguityKind.CurtainWallExposureUndecided);
+    }
+
+    [Fact]
+    public void Only_a_curtain_panel_carries_a_panel_kind()
+    {
+        Assert.Throws<ArgumentException>(() => new OpeningObservation(
+            Source("x"), CandidateCategory.Door, null, P(0, 0), curtainPanelKind: CurtainPanelKind.Glazed));
     }
 
     [Fact]

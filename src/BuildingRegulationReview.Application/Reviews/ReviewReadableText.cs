@@ -262,6 +262,8 @@ public static class ReviewFieldText
         ["shaft.requirementLabel"] = "受檢要求",
 
         ["source.category"] = "元素類別",
+        ["source.curtainWallExposure"] = "帷幕牆室內外",
+        ["source.curtainWallExposureReason"] = "室內外判定依據",
         ["source.documentUniqueId"] = "所在模型",
         ["source.elementUniqueId"] = "元素",
         ["source.hostIsCurtainWall"] = "依附主體是否為帷幕牆",
@@ -394,6 +396,12 @@ public static class ReviewFieldText
             ("Window", "窗"),
             ("CurtainPanel", "帷幕嵌板"));
 
+        var exposure = Map(
+            ("NotCurtainWall", "非帷幕牆"),
+            ("Exterior", "建築物外牆"),
+            ("Interior", "室內帷幕牆"),
+            ("Unknown", "室內外未判定"));
+
         var clause = Map(
             ("None", "不適用任一款"),
             ("FirstClause", "第一款"),
@@ -420,7 +428,12 @@ public static class ReviewFieldText
                 ("SplitByGridLine", "層間帶被 grid line 分割"),
                 ("FacadeWallOverlapsPanel", "實體外牆與帷幕嵌板重疊"),
                 ("VerticalCompartmentSpace", "連跨複數樓層之挑空帷幕牆"),
-                ("FloorNotMeetingCurtainWall", "帷幕牆穿過本層標高而無區劃樓地板與其交接")),
+                ("FloorNotMeetingCurtainWall", "帷幕牆穿過本層標高而無區劃樓地板與其交接"),
+                ("ExposureUndecided", "無法判定帷幕牆為外牆或室內")),
+
+            // 帷幕牆室內外（帷幕牆規格 §4.8）。同一份對照給規則欄位與證據欄位共用。
+            ["element.curtainWallExposure"] = exposure,
+            ["source.curtainWallExposure"] = exposure,
 
             ["shaft.requirement"] = Map(
                 ("HoistwaySmokeSeal", "昇降機道防火設備之遮煙性能"),
@@ -448,6 +461,9 @@ public static class ReviewFieldText
                 ("HostRelationAmbiguous", "開口的主體牆本身無法判定"),
                 ("HostNotResolved", "開口的主體未讀到或不是牆"),
                 ("CurtainWallOpening", "帷幕牆上的開口，改由人工覆核"),
+                ("CurtainPanelIsConstruction", "室內帷幕牆上的實心嵌板是構造而非防火設備"),
+                ("CurtainPanelKindUndeclared", "帷幕嵌板未宣告種類（實心或玻璃）"),
+                ("CurtainWallExposureUndecided", "無法判定帷幕牆為建築物外牆或室內帷幕牆"),
                 ("NonHostedOpening", "沒有主體的開口，改由人工覆核"),
                 ("OpeningLocationUnknown", "開口沒有平面位置"),
                 ("LinkedElement", "連結模型的元素，改由人工覆核"),

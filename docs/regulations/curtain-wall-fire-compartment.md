@@ -1,5 +1,11 @@
 # 防火區劃與帷幕牆交接：第 79 條、第 79-3 條、第 79-4 條
 
+> **2026-10-06 新增 §4.8：室內帷幕牆分流（決議 18、§12 步驟 18）。** 建物內部的帷幕牆不再被當成外牆
+> 檢討：幾何（沿牆三站、兩側各探 300 mm）為主、牆型別 `Function` 為輔判出 Exterior／Interior／Unknown，
+> 判室內者不產出 CW-H／CW-V／CW-O，改以第 79 條第 1 項的區劃牆壁時效與區劃邊緣開口的防火門窗檢討
+> （`tw-bcr-79-wall-rating` 升至版本 3、規則集升至 `2026.10-provisional`），判不出來者整道牆一列人工
+> 覆核。第 79 條之 2 的連跨提醒三種都照舊產出。**Revit 端尚未實機驗證。**
+>
 > 狀態：**實作中**。§12 的步驟 1–15 已完成（步驟 11、12 隨決議 13 移除），**步驟 16a–16h 全部已完成，
 > 並已於 2026-09-28 部署與實機驗證**（16c 的讀取、16d 的面板、16e 的綁定與寫入皆已驗到，
 > 但 16g 後來發現 16c 的**嵌板厚度**讀取自始無效，見 §12 的 16g 列；16f、16g、16h 三項修正已於同日
@@ -199,9 +205,13 @@
 | `CurtainSystem` | 帷幕牆 |
 | Wall Type `Function == Exterior` 且非帷幕 | 一般外牆，走既有 `FireResistanceCheck`，不進本功能 |
 
-反過來也成立、而且要明講：**帷幕牆不進 `FireResistanceCheck` 的第 79 條第 1 項區劃牆壁時效判定**。
-它在 Revit 裡是一片 `Wall`，會被收成 `MemberObservation` 並依幾何判成區劃邊界，所以那條規則必須
-自己把它排除，見 §5.5。
+**但只有「外牆」帷幕牆進本功能。** 讀取層照樣把整個樓層的帷幕牆都讀進來，室內外的分流由
+`CurtainWallJunctionResolver` 依 §4.8 判定：判為室內或室內外未定的牆不產出 CW-H／CW-V／CW-O。
+使用者在建物內建的帷幕牆因此不會再被當成外牆量突出（決議 18）。
+
+反過來也成立、而且要明講：**外牆帷幕牆不進 `FireResistanceCheck` 的第 79 條第 1 項區劃牆壁時效
+判定**。它在 Revit 裡是一片 `Wall`，會被收成 `MemberObservation` 並依幾何判成區劃邊界，所以那條規則
+必須自己把它排除；排除的條件自版本 3 起讀 §4.8 的室內外判定而非單純的「是不是帷幕牆」，見 §5.5。
 
 嵌板集合取自 `CurtainGrid.GetPanelIds()`；嵌板可能是 `Panel`（FamilyInstance）或「嵌板為牆」的 `Wall`，兩者都要能讀型別參數。
 
@@ -467,6 +477,112 @@ Revit 的圓弧帷幕牆**本身就是平面拼成的**：嵌板一律是平板�
 10 段、每段 9°）約 28 mm，遠小於 500 mm 突出與 900 mm 長度的判定尺度。突出量量的是**弦平面**外側到樓板
 或區劃牆端點，這正是嵌板實際所在的位置。
 
+### 4.8 室內外判定：外牆帷幕牆與室內帷幕牆分流（決議 18）
+
+本節第 3、4 項與第 79 條之 3 第 2 項、第 79 條之 4 問的都是**外牆**。使用者在建築物**內部**建的帷幕牆
+分隔的是兩個區劃，它是第 79 條第 1 項的區劃牆壁，不是外牆：量它的突出、量它的層間帶，都是在回答
+沒有人問過的問題。反過來，把一片真正的外牆帷幕牆當成區劃牆壁要求一小時防火時效，一片 2.5 cm 的玻璃
+永遠過不了（§5.5 的實機證據）。**判錯哪一邊都會錯，而且錯的方向相反。**
+
+決議 18 之前工具不判：§9 原本寫著「第 79 條第 3 項的對象是外牆，室內帷幕牆本來就不在適用範圍，
+**但工具不會替使用者判斷哪一片是室內的**」。本節把它判出來。
+
+#### 判定的兩個來源
+
+| 來源 | 讀什麼 | 效力 |
+| --- | --- | --- |
+| **幾何**（主） | 沿牆三站（長度的 25%、50%、75%），每站往兩側各探 `區劃探測深度`（外側面偏移 + 300 mm）找 Area 區劃 | 決定答案 |
+| **宣告**（輔） | 牆型別的 `Function`（`BuiltInParameter.FUNCTION_PARAM`） | 只收窄答案，從不覆蓋幾何 |
+
+探測與 §4.6 的外側法線定向**共用同一次取樣**（`CurtainWallJunctionResolver.Probe`），所以「哪一側是
+室外」與「這是不是外牆」兩個問題不可能對同一次探測的結果有不同的看法。
+
+#### 幾何判定表（多數決，須**嚴格多於**半數）
+
+| 多數測站的樣貌 | 判定 | 理由 |
+| --- | --- | --- |
+| 只有一側有區劃，且每站都是同一側 | **Exterior** | 另一側是建築物外部 |
+| 兩側各有一個**不同的**區劃 | **Interior** | 這道牆是區劃分隔 |
+| 兩側落在**同一個**區劃內 | **Interior** | 探測深度繞過了它：這道牆站在區劃裡面，既非外牆也非區劃邊界 |
+| 每一站兩側都找不到區劃 | **Unknown** | 這道牆不屬於任何區劃 |
+| 其餘（各站不一致、兩站分別只有相反側） | **Unknown** | 沒有一種占多數 |
+
+三站而非只取中點，理由同 §4.6：單一測站會被門口、沒建區劃的缺口、或跨兩個區劃的立面帶偏。
+「嚴格多於」而非「大於等於」：平手時取反或取正都是擲硬幣。
+
+#### `Function` 怎麼參與
+
+| 幾何 | `Function` | 結果 |
+| --- | --- | --- |
+| Interior | 任何值 | **Interior** |
+| Exterior | `Interior` | **Unknown**（`DeclarationConflict`） |
+| Exterior | 其他 | **Exterior** |
+| Unknown | `Interior` | **Interior**（`DeclaredInterior`） |
+| Unknown | 其他 | **Unknown** |
+
+**`Function = Exterior` 不具宣告效力。** 那是 Revit「帷幕牆」系統族的**預設值**：使用者在室內畫一片
+而沒去改它是常態，把它當成一句宣告會讓使用者被迫去改一個他根本沒碰過的參數。`Function = Interior`
+是使用者改過的非預設值，才算宣告——它定得下幾何定不出的案子，也足以讓一個幾何判出的外牆停下來交
+人工覆核，而不是被悄悄覆蓋掉。沒有任何一步從型別**名稱**推論室內外。
+
+#### 分流
+
+| 判定 | 帷幕牆區劃交接（CW-H／CW-V／CW-O） | 第 79 條第 1 項（區劃牆壁時效、開口防火門窗） | 第 79 條之 2 連跨 |
+| --- | --- | --- | --- |
+| **Exterior** | 照舊，一行都不改 | 不適用（`tw-bcr-79-wall-rating` 排除） | 照舊 |
+| **Interior** | **完全不產出**（非平面者另出一列，見下） | **適用**：牆體讀 `防火檢討_設計防火時效`，區劃邊緣開口讀 `防火檢討_設計防火保護` | 照舊產出 |
+| **Unknown** | 只產出一列「室內外未定」人工覆核 | **另出一列**人工覆核（`CurtainWallExposureUndecided`），見下 | 照舊產出 |
+
+`Unknown` 在**兩條管線各出一列**，這是刻意的。構件那一條路（`CandidateResolver`，驅動
+`element.curtainWallExposure`）與交接那一條路（`CurtainWallJunctionResolver`，驅動 CW 分流）的探測
+輸入並不相同——區劃形狀的來源、重疊的處理、探測深度的算法、取樣的幾何都不同——所以兩端可能一端判
+外牆、另一端判未定。若只有交接那一端會產出「室內外未定」，那個組合下整片牆的**牆體時效會靜默無
+答案**（版本 3 排除 `Unknown`，而交接端判外牆所以沒有那一列）。構件端自己產出一列，就不依賴另一端
+怎麼判。兩端都判未定時使用者看到兩列，分屬「構件防火時效」與「帷幕牆區劃交接」兩個檢討項目——
+重複列出比漏答好，這與 §9 既有的取捨一致。
+
+判為 Interior **且量不出平面**（曲面、傾斜面，或沒有定位面的 `CurtainSystem`）時另出一列
+`NonPlanarCurtainWall` 人工覆核：開口那一條路只收得到 host 是一道 `Wall` 的帷幕嵌板，所以
+`CurtainSystem` 的嵌板兩條路都走不到。這一列存在就是為了不讓它靜默消失。
+
+第 79 條之 2 的連跨提醒**不隨分流消失**（決議 18 之二）：帷幕牆穿過本層標高而本層沒有區劃樓地板與它
+交接，那是垂直空間的問題而不是外牆的問題，管道間與挑空用玻璃圍起來正是最需要這一列的情形。
+
+#### 室內帷幕牆的區劃邊緣開口怎麼判
+
+`CandidateResolver.RelateOpening` 原本把這些開口一律送人工覆核（`CurtainWallOpening`）。判定為
+Interior 且 host 關係為 `Boundary` 時改依 `防火檢討_嵌板種類`（決議 16 的同一份宣告）分三路：
+
+| 嵌板種類 | 判定 |
+| --- | --- |
+| 門、窗（`Opening`，由類別認定） | `ZoneRelationKind.Boundary`，與一般牆上的門窗同一條路，讀 `防火檢討_設計防火保護` |
+| 宣告為**玻璃** | 同上——玻璃嵌板是防火設備 |
+| 宣告為**實心** | 人工覆核（`CurtainPanelIsConstruction`）：它是構造而非防火設備，開口規則回答不了它 |
+| **未宣告** | 人工覆核（`CurtainPanelKindUndeclared`）：分不出該讀保護還是該讀時效，是資料不足 |
+
+#### 兩條管線為什麼不共用同一個判定結果
+
+`CandidateResolver` 跑在候選解析階段，`CurtainWallJunctionResolver` 跑在帷幕牆幾何讀進來之後——
+候選解析先發生，所以兩者不可能共用一個不可變的結果，除非把整條管線重排。它們共用的是
+**同一份判定表**（`CurtainWallExposureClassifier`）與**同一個失效方向**：只有正面判定為 Interior 才
+會把一個開口移出人工覆核，`Exterior` 與 `Unknown` 維持決議 18 之前的行為。因此兩邊若因探測位置不同
+而有歧見，結果只會是「照舊交人工覆核」，絕不會悄悄把一個未判定的開口變成已判定。
+
+#### 弧形帷幕牆：不做多數決
+
+每一個平面段各自判（§4.7），再合回整道牆：**全段一致才採用，不一致一律 Unknown**
+（`MixedFacets`），訊息要求使用者把該牆拆成室內與室外兩道牆分別建模。段數跟著 grid line 走，與每一段
+有多少立面無關，所以多數決會把真實存在的少數段套上錯誤的規則；而讓一道牆同時走兩套檢討，需要把
+`FacetOffsetMm` 的累積軸與 CW-H 交接帶的跨段涵蓋一起重做，屬未排入的工作。
+
+#### 證據與基準
+
+`element.curtainWallExposure`（規則欄位，值 `NotCurtainWall`／`Exterior`／`Interior`／`Unknown`，
+每一片 `Wall` 都有值）、`source.curtainWallExposure` 與 `source.curtainWallExposureReason`（證據欄位）。
+判定、判定理由與 `Function` 讀值**都進基準指紋**（`ReviewBaselineBuilder`）：判定改變就換了一套適用
+規則，一個針對外牆下的人工覆寫不能留在一道已改判為室內的牆上。**既有含帷幕牆的工作包因此會轉為
+「需更新」，相關人工覆寫需重新確認**——那是遷移的必然結果，不是誤報。
+
 ## 5. 規則集擴充
 
 ### 5.1 新增 `RuleCategory`
@@ -637,7 +753,7 @@ junction.projectionDepth >= 500 mm || (junction.continuousFireRatedLength >= 900
 
 另一個連帶結論：條文的「且該外牆構造具有同等以上防火時效」不寫成獨立條件，而是內建在 `continuousFireRatedLength` / `continuousFireRatedHeight` 的定義裡（§5.2）。這兩個量測只累計 `providedFireRating >= hostRequiredFireRating` 的嵌板，所以「90 cm 的具時效連續面」是一個量、一個門檻，剛好符合 DSL 的單一比較形式。
 
-### 5.5 帷幕牆自第 79 條第 1 項之區劃牆壁時效排除（`tw-bcr-79-wall-rating` 版本 2）
+### 5.5 外牆帷幕牆自第 79 條第 1 項之區劃牆壁時效排除（`tw-bcr-79-wall-rating` 版本 2 → 3）
 
 Revit 裡帷幕牆**就是一片 `Wall`**（`WallKind.Curtain`），所以它跟一般牆一樣被收成
 `MemberObservation`；而 `CandidateResolver.RelateLinear` 判定區劃邊界**純看幾何**——中心線沿邊界
@@ -680,6 +796,29 @@ candidate.insideLength   = 0 m
 缺漏）。這一點有守門測試，而且是這組測試裡最重要的一條：一旦組裝層漏掉這個事實，規則連自己的
 `appliesWhen` 都判不出來，**專案裡每一片邊界牆都會變成資料不足**，而且是靜默的——每片牆照樣
 有一列。測試見 `tests/BuildingRegulationReview.Core.Tests/Rules/CurtainWallBoundaryRatingTests.cs`。
+
+#### 版本 3：排除只限於**外牆**帷幕牆（決議 18）
+
+上面整段推理對一片**外牆**帷幕牆成立，而且只對它成立。使用者在建物內建的帷幕牆分隔的是兩個區劃
+（`insideLength > 0`），那正是第 79 條第 1 項的「牆壁」；把它一起排除，等於讓那道區劃牆的牆體時效
+**沒有任何規則回答**——門窗答得出來、牆本身答不出來，是個靜默的缺口。
+
+修法：`appliesWhen` 的排除條件由 `element.isCurtainWall != true` 改為
+
+```
+element.curtainWallExposure != "Exterior" && element.curtainWallExposure != "Unknown"
+```
+
+規則 `version` 由 `2` 跳到 `3`，規則集版本由 `2026.9-provisional` 跳到 `2026.10-provisional`
+（同一個模型的答案又改變了一次）。`element.curtainWallExposure` 同樣由 `CandidateFacts.ForMember`
+**無條件**設定，非帷幕牆為 `NotCurtainWall`，理由與上一段完全相同。它也**進了** `evidenceFields`：
+室內外判定是這條規則適用與否的依據，審查者必須看得到它。
+
+`Unknown` 也不適用牆體時效，但它**不是靜默略過**：§4.8 的分流會在帷幕牆區劃交接產出一列
+「室內外未定」的人工覆核，指名那道牆、說出判不出來的原因與該怎麼修。
+
+**第 70 條仍然不需要同樣的排除**：`element.isStructural == true` 已經把帷幕牆擋在外面，與它是室內
+或室外無關。
 
 ## 6. 參數需求
 
@@ -844,16 +983,27 @@ CW-V 的立面**由工具自己建立**，名稱帶著上面說的檢討圖號�
 - **交點落在帷幕牆之外時，實體外牆連續段必須與該帷幕牆相接**（決議 14）。連續段與帷幕牆之間留了縫
   （超過 `TouchToleranceMm`）時視為沒有交接處，該列不產出——工具不會替使用者橋接立面上的縫隙，理由
   與不跨越 grid line 累積相同。整條立面完全沒有帷幕牆時本來就不是第 79 條第 3 項的情形，也不產出。
-- **不屬於任何區劃的帷幕牆會整片從檢討中消失。** 所屬區劃是往室內探 300 mm 找出來的（`ZoneOf`），
-  兩側都找不到區劃時靜默丟掉該牆的 CW-H 與 CW-O。決議 15 之後，「法線方向相反」不再是這個現象的成因
-  ——外側法線已改由所屬區劃落在哪一側推定（§4.6），定位線往哪個方向畫都一樣。剩下的成因是模型真的
-  沒有在該處建 Area 區劃。**本版沒有偵測**；把「兩側都找不到所屬區劃」改判 `ManualReview` 而不是丟棄，
-  是**未決議**的擴充。
-- **兩側都有區劃的帷幕牆保留原本的法線正負**（§4.6 第 3 點）。室內的帷幕牆、或探測深度碰到鄰接區劃時
-  會落入這一種，此時 `wall.Orientation` 的正負若是反的，突出量就量在反側（`ProjectionOf` 夾成 `0`，
-  本文判成「不突出」，接著才去看但書）。定向步驟刻意不在這種情形猜測——由區劃位置決定外側是本功能唯一
-  的依據，兩側都有區劃時這個依據就沒了。第 79 條第 3 項的對象是**外牆**，室內帷幕牆本來就不在適用範圍，
-  但工具不會替使用者判斷哪一片是室內的。
+- **沿牆每一處兩側都找不到區劃的帷幕牆，仍會整片從檢討中消失。** 所屬區劃是往兩側各探 300 mm 找出來
+  的（§4.8），一個交接處必須歸屬於某個區劃才能成列，沿牆完全找不到區劃時沒有可歸屬的區劃，因此仍然
+  靜默丟掉。決議 15 之後「法線方向相反」不再是成因（§4.6），決議 18 之後「判不出室內外」也不再是成因
+  ——沿牆**任何一站**探到區劃就會產出一列「室內外未定」的人工覆核（§4.8）。剩下的成因只有一種：模型
+  真的沒有在這道牆附近建任何 Area 區劃。把這一種也報出來需要讓 resolver 回傳警告（目前只回傳
+  junction 清單），屬未排入的工作。
+- **兩側都有區劃的帷幕牆保留原本的法線正負**（§4.6 第 3 點），但它已經不進外牆的三項檢討：決議 18 把
+  這一種判為**室內帷幕牆**，CW-H／CW-V／CW-O 都不產出，改以第 79 條第 1 項的區劃牆壁時效與區劃邊緣
+  開口的防火門窗檢討（§4.8）。法線正負在這一種情形下因此不再影響任何判定——沒有突出量要量。
+- **混合的弧形帷幕牆整道交人工覆核。** 一道弧牆若前半段在室內、後半段是外牆，工具不做多數決、也不
+  分段分流，整道牆判 `Unknown` 並要求拆成兩道牆建模（§4.8）。要支援分段分流必須重做
+  `FacetOffsetMm` 的累積軸與 CW-H 交接帶的跨段涵蓋，屬未排入的工作。
+- **室內帷幕牆上的實心嵌板沒有規則回答。** 它是構造而非防火設備，第 79 條第 1 項的防火門窗規則答不了
+  它，工具交人工覆核而不判「不是防火門窗」（§4.8）。該嵌板所在的那道牆本身的時效由
+  `tw-bcr-79-wall-rating` 版本 3 回答，但那讀的是**牆型別**的時效，不是逐片嵌板的。
+- **室內的 `CurtainSystem` 的嵌板沒有被任何一條路接手，但會被報出來。** 候選讀取層只把 host 是
+  `Wall` 的帷幕嵌板收成開口（`RevitCandidateObservationReader`），`CurtainSystem` 的嵌板本來就不收；
+  而它判為室內之後也不再進 CW-O。兩條路都走不到，所以 §4.8 的分流為「室內且非平面」的牆另出一列
+  `NonPlanarCurtainWall` 人工覆核，明說「無法確認其嵌板是否已由區劃邊緣的防火門窗檢討涵蓋」。
+  `CurtainSystem` 沒有 `Function` 參數，它的室內外只能由幾何判；判為外牆時照舊走非平面那一支的
+  兩列人工覆核。室內的曲面／傾斜帷幕牆同理。
 - **CW-H 的實體外牆高程須涵蓋該交點的交接帶**，即區劃牆與帷幕牆高程的**交集**（決議 14）。只封住其中
   一段（例如區劃牆通層高、實體外牆只做 90 cm 帶）不成立，因為火焰沿立面繞行的高度就是區劃牆在該處
   與帷幕外牆相接的高度。交集之外那一段外牆面（常見是樓板邊緣的 45 cm）不由 CW-H 回答，它是第 79 條
@@ -959,6 +1109,14 @@ CW-V 的立面**由工具自己建立**，名稱帶著上面說的檢討圖號�
 | 52 | 同上，只有一段的層間嵌板時效不足 | 該列以最不利的那一段判定（連續高度 0），證據列出該段嵌板 |
 | 53 | 同上，其餘嵌板 | CW-O 整道牆一組，不因分段變成十組；`junction.id` 不重複 |
 | 54 | 同上，一道直線區劃牆沿弦割過圓弧兩次 | CW-H **兩列**：`CW-H:<牆>:<區劃牆>` 與 `CW-H:<牆>:<區劃牆>:2`，各自涵蓋自己那一帶的嵌板 |
+| 55 | 帷幕牆建在兩個區劃之間（區劃 A｜B 的分界線上） | 判 **Interior**：CW-H／CW-V／CW-O 全不產出；它的門窗與玻璃嵌板由第 79 條第 1 項的防火門窗規則判定；牆體時效由 `tw-bcr-79-wall-rating` 判定 |
+| 56 | 同 55，但該嵌板宣告為**實心** | 人工覆核（`CurtainPanelIsConstruction`）：實心嵌板是構造而非防火設備，開口規則回答不了它 |
+| 57 | 同 55，但該嵌板**未宣告種類** | 人工覆核（`CurtainPanelKindUndeclared`）：分不出該讀保護還是該讀時效 |
+| 58 | 帷幕牆只有一側有區劃（真正的外牆），`Function` 為預設的 `Exterior` 或未讀 | 判 **Exterior**：行為與決議 18 之前完全相同 |
+| 59 | 同 58，但使用者把 `Function` 改成 `Interior` | 判 **Unknown**（`DeclarationConflict`）：一列人工覆核，指出模型自相矛盾並說明兩種修法 |
+| 60 | 帷幕牆兩側探到的是**同一個**區劃（牆站在區劃內部） | 判 **Interior**（`InsideOneZone`）：不是外牆，不量突出；它也不在區劃邊界上，所以沒有開口要判 |
+| 61 | 弧形帷幕牆前半段在室內、後半段是外牆 | 判 **Unknown**（`MixedFacets`）：整道牆一列人工覆核，要求拆成兩道牆建模；不做多數決 |
+| 62 | 室內的 `CurtainSystem`（或室內的曲面／傾斜帷幕牆） | 一列 `NonPlanarCurtainWall` 人工覆核，明說無法確認其嵌板是否已由區劃邊緣的防火門窗檢討涵蓋——兩條路都走不到，不得靜默消失 |
 
 ## 11. 決議紀錄
 
@@ -977,11 +1135,28 @@ CW-V 的立面**由工具自己建立**，名稱帶著上面說的檢討圖號�
 
 | 17 | 圓弧帷幕牆怎麼量 | **依直向 grid line 拆成平面段，每段照平面帷幕牆判定，再合回一道牆**：CW-H 每個交點一列（同一處只算一次，割過兩次則兩列）、跨分界的層間帶併成一列、CW-O 整道牆一組。不在判定層改支援圓弧幾何——嵌板本來就是平板，弦平面就是構造實際所在 | §4.7、§9、§10 案例 49–54、§12 步驟 17 |
 | 16 | 帷幕嵌板分實心與玻璃兩種，各以什麼作答 | **實心嵌板以 `防火檢討_設計防火時效` 作答，時效比照牆體由模型尺寸推定；玻璃嵌板與帷幕牆門窗以 `防火檢討_設計防火保護` 作答（同玻璃窗）。** 種類由型別參數 `防火檢討_嵌板種類` 宣告，未宣告為 `InsufficientData`；一片帷幕牆兩種都有時 CW-O 產出兩列。CW-H、CW-V 完全不受影響——防火設備不供給 90 cm 但書 | §3.3、§3.4、§5.2、§5.3、§6、§9、§10 案例 40–48、§12 步驟 16 |
+| 18 | 建物內部的帷幕牆怎麼判 | **判室內外並分流**：幾何（沿牆三站、兩側各探 300 mm）為主、牆型別 `Function` 為輔且只收窄不覆蓋（`Exterior` 是系統族預設值，不具宣告效力）。判外牆者照舊走 CW-H／CW-V／CW-O；判室內者這三項完全不產出，改以第 79 條第 1 項的區劃牆壁時效（`tw-bcr-79-wall-rating` 版本 3 不再排除它）與區劃邊緣開口的防火門窗檢討；判不出來者整道牆一列人工覆核。第 79 條之 2 的連跨提醒三種都照舊產出。弧形牆各段不一致時整道牆人工覆核，不做多數決 | §4.1、§4.8、§5.5、§9、§10 案例 55–62、§12 步驟 18 |
 
 第 17 項不是解釋選擇，是**把模型讀對**：使用者 2026-10-05 回報弧形帷幕牆 257977 的 CW-H、CW-V 都停在
 人工覆核。另一條路是讓判定層支援圓弧（沿牆距離改弧長、突出量改徑向），但交點求解、突出量、共面判定、
 區劃探測、立面視圖十幾處都要改，量到的還是一個不存在的曲面——嵌板是平的。拆段讓既有的平面判定原封
 不動地套用在真實的平面上，代價只有「合回一道牆」那一層。
+
+第 18 項**既不是解釋選擇也不是實務對齊，是補上一個工具原本拒絕回答的問題**。條文一直都很清楚：
+第 79 條第 3、4 項與第 79 條之 3 第 2 項、第 79 條之 4 的對象是**外牆**，§9 自己就寫著「室內帷幕牆
+本來就不在適用範圍，但工具不會替使用者判斷哪一片是室內的」。不判的代價是**兩個方向相反的錯**：
+室內帷幕牆被當外牆量突出（要求模型做它不該做的事），而它作為區劃牆壁的一小時時效**沒有任何規則
+回答**——`tw-bcr-79-wall-rating` 版本 2 把所有帷幕牆一併排除了。
+
+修法上唯一的取捨是「幾何與宣告誰優先」。採幾何為主的理由是實測的：Revit「帷幕牆」系統族的
+`Function` 預設就是 `Exterior`，使用者在室內畫一片而沒去改它是常態，所以那個值不帶資訊；反過來
+「這道牆兩側是不是都有區劃」正是條文要分的事。但這不等於不理使用者的明確宣告——`Function` 被改成
+非預設的 `Interior` 時，它既能定下幾何定不出的案子，也足以讓一個幾何判出的外牆**停下來交人工
+覆核**，而不是被悄悄覆蓋掉。第三態因此是這一項的核心：任何猜測都要落到 `Unknown`，而 `Unknown`
+一定要在檢討表上有一列。
+
+弧形牆不做多數決也不是保守，是**段數本身不帶權重**：段的數量跟著 grid line 走，與每一段有多少立面
+無關，所以「多數段是外牆」推不出「這道牆是外牆」。
 
 第 4 項屬解釋選擇而非條文明文（第 83 條本身未規定突出或 90 cm），若個案審查機關採狹義見解，於規則集 `appliesWhen` 排除即可，不需改程式。
 
@@ -1030,6 +1205,7 @@ CW-V 的立面**由工具自己建立**，名稱帶著上面說的檢討圖號�
 | 14 | 交點落在實體外牆連續段上也判 CW-H（決議 14）：交點求解擴充到延長線、交接帶高程改為交集、未符合時塗紅實體外牆、躺在立面內的區劃牆不產出 CW-H | **已完成並實機驗證**（建置 0 警告、1637 條測試全通過；§10 案例 26–33 已釘住，含整合層的「一列且 `NotApplicable`」）。2026-09-28 與步驟 15 一併部署後重跑，使用者確認 CW-H 檢討結果無誤。**交接帶高程改為交集這一項已於同日由檢討表 CW-H 那一列逐字驗到**（`placement` Z 段 27.55 – 28，對照步驟 13 同一交接處的 27.55 – 28.45），見 16e 列的驗證證據 |
 | 15 | 外側法線改由所屬區劃推定（決議 15）：`CurtainWallJunctionResolver` 新增定向步驟，`§4.6` 的三站多數決 | **已完成並實機驗證**（建置 0 警告、1637 條測試全通過；§10 案例 34–39 已釘住，含守門測試）。2026-09-28 與步驟 14 一併部署後重跑，使用者確認 CW-H 檢討結果無誤 |
 | 17 | 圓弧帷幕牆依直向 grid line 拆成平面段（決議 17）：`CurtainWallObservation.FacetIndex`／`FacetOffsetMm`、`CurtainWallJunctionResolver` 以 `Elevation` 合回一道牆、`RevitCurtainWallGeometryReader.ReadArcCurtainWall` | **已完成**（建置 0 警告、1937 條測試全通過；§10 案例 49–54 由 `CurtainWallFacetTests` 15 條釘住，既有直牆測試一條未改）。**Revit 端尚未實機驗證**，見下方「步驟 17」 |
+| 18 | 室內帷幕牆分流（決議 18）：`CurtainWallExposureClassifier` 三態判定、`CurtainWallJunctionResolver` 非外牆改道、`CandidateResolver` 室內開口三路分流、`tw-bcr-79-wall-rating` 版本 3、`RevitWallFunctionReader` | **已完成**（建置 0 警告、測試全通過（本次新增 59 條，基線 1982 條一條未失敗）；§10 案例 55–62 由新檔 `CurtainWallExposureTests` 27 條與其餘六個測試檔的 37 條釘住）。實作前已由 codex fire protection agent 審查影響面（6 項 bug 全數處置），實作後的 code review 又抓到一個同類的靜默缺口（`FireResistanceCheck.Assuming`）並已修。**Revit 端尚未實機驗證**，見下方「步驟 18」 |
 | 16a | 決議 16 的**判定層**：`CurtainPanelKind`／`CurtainPanelKinds`、`CurtainPanelObservation.Kind`、`junction.panelKind` 與 `junction.minFireProtection` 兩個白名單欄位、`CurtainWallJunctionResolver` 把 CW-O 拆三路、`CurtainWallJunctionCheck` 寫入兩個新 fact、規則集加 `tw-bcr-79-4-curtain-wall-other-glazed`（規則集版本升至 `2026.7-provisional`） | **已完成**（建置 0 警告、1650 條測試全通過；§10 案例 40–48 已釘住）。Revit 端尚未接線 |
 | 16b | 決議 16 的**參數層**：`FireRatingDeriver` 支援 `CandidateCategory.CurtainPanel`（沿用牆壁門檻）、`FireReviewTypeRow` 的 `PanelKind` 欄位與 `CarriesRating`／`CarriesProtection` 改看種類、共享參數檔加 `防火檢討_嵌板種類`（`…0013`） | **已完成**（建置 0 警告、1672 條測試全通過）。Revit 端尚未接線 |
 | 16c | 決議 16 的**Revit 讀取層**：`RevitCurtainWallGeometryReader.ReadPanels` 分類並一律讀防火保護、`RevitFireReviewTypeScanner` 讀嵌板厚度與種類（含材料提案）、`fire-review-openings-type.txt` 加 `…0013` | **已完成**（建置 0 警告、1707 條測試全通過）。**Revit 端已於 2026-09-28 實機驗證**：型別 12611（`玻璃 1.0cm`、材料 `玻璃`）由材料提案出「玻璃」並顯示在面板上，寫入後模型讀回 `防火檢討_嵌板種類 = 玻璃`，CW-O 因此走 `tw-bcr-79-4-curtain-wall-other-glazed` 作答；`RevitFireReviewParameterWriter` 早就寫得到（依名稱查參數、`FireReviewEditKind.Text`），不必改。`FamilySymbol`（訂製嵌板族）那一條讀取路徑這個模型驗不到，仍未驗證 |
@@ -2197,3 +2373,116 @@ XAML 的繫結路徑不由編譯器檢查（markup compile 過了不表示 `{Bin
 3. CW-V：每層樓板一列（不是每段一列），檢討立面上的層間帶畫在圓弧起訖點的弦上。
 4. CW-O：257977 只有一組（玻璃那一路一列），嵌板數 = 20 扣掉交接帶涵蓋的。
 5. 讀取警告沒有「弧形帷幕牆…整道牆已略過」。
+
+### 步驟 18：室內帷幕牆分流（決議 18）
+
+**起因**（2026-10-06）：使用者回報「若我在建物內也建了 curtain wall 他也被判定進來」——建物內部的帷幕牆
+被當成外牆，套上第 79 條第 3、4 項與第 79 條之 3、之 4 的交接規定。設計見 §4.8。
+
+**實作前先由 codex fire protection agent 做影響審查**，審查請求與完整回覆留在
+`docs/agent/review-request-task1-curtain-wall-exposure.md` 與
+`docs/agent/review-reply-task1-curtain-wall-exposure.md`。審查提出 6 項 bug 與 1 項必要變更，處置如下：
+
+| 審查項 | 審查意見 | 處置 |
+| --- | --- | --- |
+| 3-A | 「單側無區劃」不足以證實外牆；`Oriented` 只累計數量、未保留區劃身分 | **部分採納**。獨立出 `CurtainWallExposureClassifier`，保留每站兩側的 `ZoneId`、要求兩側是**不同**區劃才判 Interior、同一區劃判 `InsideOneZone`、相反單側判 `Unknown`。**不採納**「單側無區劃也要人工覆核」：那是既有 `FacingOutside` 已在用且已於 Revit 驗證過的判讀，改掉會讓每一片真正的外牆帷幕牆都變成人工覆核，等於刪掉一個可用的功能 |
+| 3-B | 兩條管線演算法不同，同一片嵌板可能被反向分類 | **採納（共用判定表，不共用結果）**。判定表只有一份；候選解析跑在帷幕牆幾何讀取之前，共用一個不可變結果需重排整條管線。失效方向固定：**只有正面判定為 Interior 才會把開口移出人工覆核**，所以歧見只會退回既有行為 |
+| 3-C | §5.5 的排除不該及於室內帷幕牆 | **採納（必要變更）**。`tw-bcr-79-wall-rating` 版本 2 → 3，`appliesWhen` 改讀 `element.curtainWallExposure`；規則集 `2026.9-provisional` → `2026.10-provisional` |
+| 4-1 | `Unknown` 不得靜默消失；訊息要分辨真正原因 | **採納**。新增 `CurtainWallJunctionDoubtKind.ExposureUndecided`，訊息依 `CurtainWallExposureReason` 分四種成因並各給修法。沿牆**任一站**探到區劃就歸屬於它；完全找不到區劃的牆仍然消失（junction 必須有 ZoneId），已改寫為 §9 的新界線 |
+| 4-2 | 判定應進基準指紋 | **採納**。`exposure`、判定理由、`Function` 讀值都進構件指紋；開口指紋加 `hostFunction` 與 `panelKind` |
+| 4-3 | 「所有嵌板改走 OpeningProtectionCheck」做不到——候選層沒帶 `CurtainPanelKind` | **採納（確為 bug）**。`OpeningObservation` 新增 `PanelKind`，`RevitCandidateObservationReader` 以 `CurtainPanelKinds.Classify` 讀同一套述詞；門窗與玻璃走防火保護、實心與未宣告各自人工覆核 |
+| 4-4 | 弧牆不得多數決 | **採納（取審查allow的保守選項）**。全段一致才採用，不一致整道牆 `MixedFacets` → `Unknown`。分段分流需重做 `FacetOffsetMm` 累積軸與交接帶跨段涵蓋，列為未排入 |
+| 4-5 | 第 79 條之 2 連跨提醒不得隨分流消失 | **採納**。`NoFloorAtThisLevel` 對三種判定都照樣產出 |
+| 4-6 | fixture 預設不得讓新邏輯被繞過 | **採納**。production 預設 `NotRead`／`Unknown`；fixture 只在測 CW 規則時明給外牆幾何 |
+
+**審查未提到、實作時自己發現的覆蓋度缺口**：判為 Interior 的**非平面**帷幕牆（含沒有定位面的
+`CurtainSystem`）會整片消失——CW-O 不再產出，而它的嵌板又不會被候選讀取層收成開口（host 不是
+`Wall`）。已補一列 `NonPlanarCurtainWall` 人工覆核，明說「無法確認其嵌板是否已由區劃邊緣的防火門窗
+檢討涵蓋」。測試 `An_interior_curtain_wall_the_tool_cannot_measure_is_reported_rather_than_dropped`。
+
+#### 實作後的 code review 又抓到一個同類的靜默缺口（已修）
+
+`FireResistanceCheck.Assuming`（`FireResistanceCheck.cs:438`）為「構成邊界」與「不構成邊界」各複製
+一份 `MemberCandidate` 再各評一次規則，而那份複本**沒有把室內外判定帶過去**。於是：
+
+```
+室內帷幕牆，且區劃邊界貼著牆面而非穿過它（BoundaryAlongOutline／BoundaryOffCenterline）
+  → Assuming 的複本讀成 Unknown
+  → tw-bcr-79-wall-rating v3 兩支都評「不適用」（v3 排除 Unknown）
+  → Settled 認定「不論是否構成區劃邊界，結論都相同」，逕行判定不適用
+  → 連人工覆核都不留
+```
+
+這正是 §5.5 警告過的那種失敗——靜默、而且那片牆照樣有一列——只是走在 `FireResistanceCheck` 而不是
+`CandidateFacts`。舊版的 `element.isCurtainWall` 不受影響（它讀的是 `Observation`，`Assuming` 原封
+不動帶過去），所以這是決議 18 引入的新洞。修法是 `Assuming` 第三個引數傳 `member.CurtainWallExposure`。
+守門測試 `An_interior_curtain_wall_whose_boundary_relation_is_in_doubt_is_still_asked_for_its_rating`
+已確認「把修正還原則該測試會紅」。
+
+同一輪 review 的其餘修正：
+
+| 項目 | 問題 | 修法 |
+| --- | --- | --- |
+| `Merge` 的理由 | 各段**全部未定但原因不同**時落 `MixedFacets`，訊息說「各段判出不同的室內外結果」（事實是沒有一段判出結果）、修法說「請拆成兩道牆」（該做的是補區劃、改 Function） | 新增 `UndecidedThroughout`：逐段講出各自的原因，修法給各段修法的聯集。`MixedFacets` 收窄為「至少一段已判定且彼此矛盾」 |
+| `Merge` 的理由 | 各段**一致同意**但理由不同時，捏造 `ZonesOnBothSides`——一句模型裡沒發生過的觀測，而它會進證據 | 新增 `AgreedAcrossFacets`：結論照用，但不借用任何一段的觀測；各段理由記在 `FacetReasons` |
+| 開口訊息 | 室內判定 + host 邊界關係未定時，訊息變成「**無法判定**是外牆或室內（……**判定為室內帷幕牆**）」，前後打架，而且真正在懷疑的是 host 關係 | 按 exposure 三分支給三句話；室內那一支改說「已判定為室內帷幕牆，但區劃邊界與這道牆的關係無法由幾何判定」 |
+| `PanelKindOf` | 與幾何讀取層**不是**同一套述詞：少了「佔位嵌板視為實心」（決議 16、16h），而且宣告讀的是來源牆型別而非嵌板型別。於是佔位嵌板被判「未宣告種類」，訊息叫使用者去填一個**填不進去**的參數 | 改呼叫 `CurtainPanelTypeSubstitution.Kind`，宣告讀 `type` |
+| 外牆路徑的兩處不等價 | (a) 重疊檢查擴及兩個側翼測站——區劃在離開口 300 mm 處略有重疊的外牆開口會從 `Facade` 變人工覆核；(b) foot 測站只要求「有區劃的那一側是本區劃」，少了「另一側無區劃」 | (a) 重疊只看 foot；(b) 加上 `FacesOnly`，恰有一側且為本區劃 |
+| 兩條管線一致性 | 沒有任何東西保證 `element.curtainWallExposure` 與 CW 分流一致；最糟的組合是構件側 `Unknown` + 交接側 `Exterior`，牆體時效無人回答**且**沒有任何一列人工覆核 | 構件側判 `Unknown` 時自己產出一列 `CurtainWallExposureUndecided` 人工覆核，**不依賴另一端怎麼判**；另加兩條跨管線一致性測試（室內／外牆兩種形狀） |
+| 註解與程式不符 | `Geometry` 的註解寫「每一站都是同一側」，程式是多數決 | 改成「多數測站……而且是同一側」，並說明兩個方向為何分開數 |
+| 單站即決沒有政策 | `CurtainWallExposureOf` 可能只產出 1 個 sample，而 `Majority(1,1)` 為真 | 明寫 `MinimumStations = 1` 與理由：短到只探得到中點的牆仍是牆，拒絕分類會把一面普通外牆送進人工覆核 |
+
+**review 指出但未採納的一項**：`NoZoneEitherSide` 的 `Remedy()` 在帷幕牆區劃交接那一條路不可達
+（`zoneId == Guid.Empty` 會先 `yield break`）。它在**構件**那一條路可達（新增的
+`CurtainWallExposureUndecided` 會用到），所以不是死碼。
+
+**修改的檔案**
+
+| 檔案 | 改了什麼 |
+| --- | --- |
+| `Application/Candidates/CurtainWallExposure.cs` | 新檔：三態、`Function` 宣告、判定理由、`Verdict`、`Classifier`（含 `Merge`） |
+| `Application/Candidates/CurtainWallObservations.cs` | `CurtainWallObservation.FunctionDeclaration`，`WithReversedExteriorNormal` 帶過去 |
+| `Application/Candidates/CandidateObservations.cs` | `MemberObservation.CurtainWallFunction`、`OpeningObservation.PanelKind`／`IsSolidCurtainPanel` |
+| `Application/Candidates/CandidateSet.cs` | `MemberCandidate.CurtainWallExposure`／`CurtainWallExposureText`／`NotCurtainWallText`、兩個新 `CandidateAmbiguityKind`、構件證據加兩欄 |
+| `Application/Candidates/CandidateFacts.cs` | 每一片 `Wall` 無條件設 `element.curtainWallExposure` |
+| `Application/Candidates/CandidateResolver.cs` | `CurtainWallExposureOf`（構件）、`CurtainWallExposureAt`（開口，三站）、`InteriorCurtainWallOpening` 三路分流、`SingleZoneAt`／`Overlapping`；`FacingOutside` 由前者取代 |
+| `Application/Candidates/CurtainWallJunctionResolver.cs` | `Probe` 共用取樣、`ExposureOf`、`NonExteriorJunctions`；`ForCurtainWall` 非外牆即改道 |
+| `Application/Checks/CurtainWallJunctionInputs.cs` | `ExposureUndecided`、`Article79_4` 常數 |
+| `Application/Checks/CurtainWallJunctionCheck.cs` | `Subject` 為室內外未定那一列給專屬主旨 |
+| `Application/Checks/OpeningProtectionCheck.cs` | `inCurtainWall` 納入兩個新 ambiguity |
+| `Application/Reviews/ReviewBaselineBuilder.cs` | 構件加 `exposure`／理由／`Function`；開口加 `hostFunction`／`panelKind` |
+| `Application/Reviews/ReviewReadableText.cs` | 兩個新證據欄位標籤、`exposure` 值對照、`ExposureUndecided` 對照 |
+| `Domain/Rules/RuleFieldCatalog.cs` | `element.curtainWallExposure`（text，element 類別） |
+| `Revit/Geometry/RevitWallFunctionReader.cs` | 新檔：兩條管線共用的 `Function` 讀取 |
+| `Revit/Geometry/RevitCurtainWallGeometryReader.cs` | 直牆、弧牆各段、`Build` 都帶 `Function` |
+| `Revit/Candidates/RevitCandidateObservationReader.cs` | 帷幕牆讀 `Function`、帷幕嵌板讀 `防火檢討_嵌板種類` |
+| `Data/fire-review-rules.json` | `tw-bcr-79-wall-rating` 版本 3、規則集 `2026.10-provisional` |
+
+**測試**：建置 0 警告、**全通過**。本次新增 59 條，實作前的基線 1982 條**一條未失敗**（有 5 條因判定
+本身改變而改寫：`Case36`、`A_panel_in_a_curtain_wall_between_two_zones_stays_manual_review`、
+`CurtainWallBoundaryRatingTests` 的兩條、`FireReviewIntegrationTests` 的一條手搭事實集）。
+**不以測試總數當基線**：同一個 repo 上另有一個 session 併行在改「法規依據」區段，總數含它新增的測試。
+
+新檔 `tests/.../Candidates/CurtainWallExposureTests.cs` 22 條釘住判定表與 `Merge`；
+`CurtainWallJunctionResolverTests` 加 6 條（案例 55、58、59、61、62 與連跨存活）、
+`CurtainWallFacetTests` 加 1 條（案例 61 的弧牆版）、
+`CandidateResolverTests` 加 11 條（案例 55–57、60、兩條管線內部一致、兩條釘住外牆那一路沒變的對照，與室內外未定的那一列）、`FireResistanceCheckTests` 加 2 條（Assuming 的守門測試）、
+`OpeningProtectionCheckTests` 加 5 條、`ReviewRunValidityTests` 加 1 條（基準失效）、
+`CurtainWallBoundaryRatingTests` 加 7 條（含以**出貨規則集**端到端評估：Interior 填 60 min 判符合、
+不填判資料不足、Exterior 與 Unknown 判不適用）。
+
+**Revit 端驗證（未做）**：部署後重開 Revit——
+
+1. 既有工作包第一次按「開始檢討」會提示規則集由 `2026.9-provisional` 升到 `2026.10-provisional`，
+   勾「改用目前規則版本」後舊結果全部需更新（含帷幕牆的既有人工覆寫）。
+2. 外牆帷幕牆的 CW-H／CW-V／CW-O 三列與升版前逐欄相同（這是決議 18 不得改動的部分）。
+3. 在建物內部新建一片帷幕牆跨在兩個區劃之間，重跑：
+   - 檢討表**沒有**該牆的 CW-H／CW-V／CW-O 列；
+   - 該牆出現在「區劃牆壁防火時效」那一項（第 79 條第 1 項），讀的是它的 `防火檢討_設計防火時效`；
+   - 它上面的門窗出現在「開口防火保護」那一項，讀 `防火檢討_設計防火保護`；
+   - 未宣告 `防火檢討_嵌板種類` 的嵌板是人工覆核而非未符合。
+4. 把那片室內帷幕牆的牆型別 `Function` 改成 `Interior`，結果不變（幾何已經判對）。
+5. 把一片**外牆**帷幕牆的 `Function` 改成 `Interior`，重跑：出現一列「室內外判定」人工覆核，訊息說
+   模型自相矛盾並給兩種修法；該牆的 CW-H／CW-V／CW-O 全部消失。
+6. 證據欄位可讀：`帷幕牆室內外` 顯示「建築物外牆／室內帷幕牆／室內外未判定」，`室內外判定依據`
+   是一句中文而不是 enum 名稱。

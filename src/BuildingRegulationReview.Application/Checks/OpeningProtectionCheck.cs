@@ -257,7 +257,11 @@ public static class OpeningProtectionCheck
                 continue;
 
             var result = ambiguity.ToReviewResult(newResultId(), runId, set.PackageId, ReviewCheckTypes.OpeningProtection, engine.RuleSet);
-            var inCurtainWall = ambiguity.Kind == CandidateAmbiguityKind.CurtainWallOpening || opening?.Host?.IsCurtainWall == true;
+            var inCurtainWall =
+                ambiguity.Kind is CandidateAmbiguityKind.CurtainWallOpening
+                    or CandidateAmbiguityKind.CurtainPanelIsConstruction
+                    or CandidateAmbiguityKind.CurtainPanelKindUndeclared ||
+                opening?.Host?.IsCurtainWall == true;
             findings.Add(new OpeningProtectionFinding(result, ambiguity.SubjectUniqueIds[0], category,
                 category.HasValue ? OpeningGroups.Of(category.Value, inCurtainWall) : (OpeningGroup?)null,
                 opening?.Observation.TypeUniqueId, opening?.Observation.TypeName ?? Text(ambiguity.Evidence.Find("source.typeName")),

@@ -58,10 +58,11 @@ public sealed class OpeningProtectionCheckTests
     private static OpeningObservation Opening(
         string uid, string? host, double x, double y,
         CandidateCategory category = CandidateCategory.Door, double width = 1.0, double height = 2.1,
-        string? type = null, string? link = null) =>
+        string? type = null, string? link = null, CurtainPanelKind? panelKind = null) =>
         new(Source(uid, link), category, host, P(x, y), M(width), M(height),
             type ?? (category == CandidateCategory.Window ? WindowType : DoorType),
-            category == CandidateCategory.Window ? "FW1" : "FD1");
+            category == CandidateCategory.Window ? "FW1" : "FD1",
+            panelKind);
 
     private static OpeningObservation SharedDoor() => Opening("D-shared", "W-shared", 10, 3);
     private static OpeningObservation LeftDoor() => Opening("D-left", "W-left", 0, 5);
@@ -425,22 +426,76 @@ public sealed class OpeningProtectionCheckTests
         Assert.Equal(OpeningGroup.Door, link.Group);
     }
 
-    [Fact]
-    public void A_panel_in_a_curtain_wall_between_two_zones_stays_manual_review()
+    // --- 室內帷幕牆上的區劃邊緣開口（帷幕牆規格 §4.8）--------------------------------------------
+    //
+    // A curtain wall on the A｜B line is itself a 區劃分隔, not the building's 外牆: 第79條第1項 does
+    // govern its openings. Which of them it can answer depends on 防火檢討_嵌板種類 — 門窗 and 玻璃嵌板
+    // are 防火設備 and answer with 設計防火保護; a 實心嵌板 is construction and no opening rule reaches
+    // it; an undeclared panel is 資料不足. The 外牆 curtain wall CW-right is untouched by all of this.
+
+    private static MemberObservation[] WallsWithInteriorCurtainWall() =>
+        Walls.Where(w => w.Source.ElementUniqueId != "W-shared")
+            .Append(Wall("CW-shared", 10, 0, 10, 10, width: 0.1, curtain: true))
+            .ToArray();
+
+    private static OpeningProtectionReview ReviewOnInteriorCurtainWall(OpeningObservation opening, string protection)
     {
-        // A curtain wall on the A｜B line is itself a 區劃分隔: 第79條 does govern its openings, and the
-        // tool does not yet decide them.
-        var walls = Walls.Append(Wall("CW-shared", 10, 0, 10, 10, width: 0.1, curtain: true)).ToArray();
-        var panel = Opening("P-shared", "CW-shared", 10, 7, CandidateCategory.CurtainPanel);
-        var set = CandidateResolver.Resolve(Observations(ZonesAB(), walls, new[] { panel }));
-        var review = Review(set, Inputs(("P-shared", "是")));
+        var set = CandidateResolver.Resolve(Observations(ZonesAB(), WallsWithInteriorCurtainWall(), new[] { opening }));
+        return Review(set, Inputs((opening.Source.ElementUniqueId, protection)));
+    }
+
+    [Fact]
+    public void A_door_in_an_interior_curtain_wall_is_judged_as_a_boundary_opening()
+    {
+        var review = ReviewOnInteriorCurtainWall(Opening("D-cw", "CW-shared", 10, 3), "是");
 
         foreach (var zone in new[] { ZoneA, ZoneB })
         {
-            var finding = review.For("P-shared", zone)!;
-            Assert.Equal(ReviewStatus.ManualReview, finding.Status);
-            Assert.Equal(CandidateAmbiguityKind.CurtainWallOpening, finding.Ambiguity!.Kind);
+            var finding = review.For("D-cw", zone)!;
+            Assert.Null(finding.Ambiguity);
+            Assert.Equal(ReviewStatus.Pass, finding.Status);
+            Assert.Equal(ReviewValue.OfText("Boundary"), finding.Result.Evidence.Find("candidate.relation"));
         }
+    }
+
+    [Fact]
+    public void An_unprotected_door_in_an_interior_curtain_wall_fails_rather_than_asking_a_person()
+    {
+        var finding = ReviewOnInteriorCurtainWall(Opening("D-cw", "CW-shared", 10, 3), "否").For("D-cw", ZoneA)!;
+
+        Assert.Null(finding.Ambiguity);
+        Assert.Equal(ReviewStatus.Fail, finding.Status);
+    }
+
+    [Fact]
+    public void A_glazed_panel_in_an_interior_curtain_wall_answers_with_its_fire_protection()
+    {
+        var panel = Opening("P-glazed", "CW-shared", 10, 7, CandidateCategory.CurtainPanel, panelKind: CurtainPanelKind.Glazed);
+        var finding = ReviewOnInteriorCurtainWall(panel, "是").For("P-glazed", ZoneA)!;
+
+        Assert.Null(finding.Ambiguity);
+        Assert.Equal(ReviewValue.OfText("Boundary"), finding.Result.Evidence.Find("candidate.relation"));
+    }
+
+    [Fact]
+    public void A_solid_panel_in_an_interior_curtain_wall_is_construction_and_no_opening_rule_answers_it()
+    {
+        var panel = Opening("P-solid", "CW-shared", 10, 7, CandidateCategory.CurtainPanel, panelKind: CurtainPanelKind.Solid);
+        var finding = ReviewOnInteriorCurtainWall(panel, "是").For("P-solid", ZoneA)!;
+
+        Assert.Equal(ReviewStatus.ManualReview, finding.Status);
+        Assert.Equal(CandidateAmbiguityKind.CurtainPanelIsConstruction, finding.Ambiguity!.Kind);
+    }
+
+    [Fact]
+    public void A_panel_of_undeclared_kind_in_an_interior_curtain_wall_is_insufficient_data_not_a_guess()
+    {
+        var panel = Opening("P-unknown", "CW-shared", 10, 7, CandidateCategory.CurtainPanel);
+        var finding = ReviewOnInteriorCurtainWall(panel, "是").For("P-unknown", ZoneA)!;
+
+        Assert.Equal(ReviewStatus.ManualReview, finding.Status);
+        Assert.Equal(CandidateAmbiguityKind.CurtainPanelKindUndeclared, finding.Ambiguity!.Kind);
+        Assert.Contains(CurtainPanelKindParameters.Provided, finding.Ambiguity.Message);
     }
 
     [Fact]

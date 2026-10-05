@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using BuildingRegulationReview.Application.Checks;
 using BuildingRegulationReview.Domain.Geometry;
 
 namespace BuildingRegulationReview.Application.Candidates;
@@ -135,7 +136,8 @@ public sealed class MemberObservation
         string? typeUniqueId = null,
         string? typeName = null,
         bool? isStructural = null,
-        bool isCurtainWall = false)
+        bool isCurtainWall = false,
+        CurtainWallFunctionDeclaration curtainWallFunction = CurtainWallFunctionDeclaration.NotRead)
     {
         Source = source ?? throw new ArgumentNullException(nameof(source));
         if (!CandidateCategories.IsMember(category)) throw new ArgumentOutOfRangeException(nameof(category), "Not a member category.");
@@ -158,6 +160,8 @@ public sealed class MemberObservation
             throw new ArgumentOutOfRangeException(nameof(widthFeet), "Width must be a finite, non-negative number.");
         if (isCurtainWall && category != CandidateCategory.Wall)
             throw new ArgumentException("Only a wall can be a curtain wall.", nameof(isCurtainWall));
+        if (!Enum.IsDefined(typeof(CurtainWallFunctionDeclaration), curtainWallFunction))
+            throw new ArgumentOutOfRangeException(nameof(curtainWallFunction));
 
         Category = category;
         Centerline = new ReadOnlyCollection<Point2D>(line);
@@ -168,6 +172,7 @@ public sealed class MemberObservation
         TypeName = string.IsNullOrWhiteSpace(typeName) ? null : typeName!.Trim();
         IsStructural = isStructural;
         IsCurtainWall = isCurtainWall;
+        CurtainWallFunction = curtainWallFunction;
     }
 
     public CandidateSource Source { get; }
@@ -187,6 +192,13 @@ public sealed class MemberObservation
     public bool? IsStructural { get; }
     public bool IsCurtainWall { get; }
 
+    /// <summary>
+    /// 帷幕牆型別的 <c>Function</c>，就照讀到的樣子（docs/regulations/curtain-wall-fire-compartment.md
+    /// §4.8）。只對帷幕牆有意義；室內外的判定要連同沿牆的區劃取樣一起交給
+    /// <see cref="CurtainWallExposureClassifier"/>。
+    /// </summary>
+    public CurtainWallFunctionDeclaration CurtainWallFunction { get; }
+
     public bool HasPlanGeometry => CandidateCategories.IsLinear(Category) ? Centerline.Count >= 2 : Outlines.Count > 0;
 }
 
@@ -201,14 +213,20 @@ public sealed class OpeningObservation
         double? widthFeet = null,
         double? heightFeet = null,
         string? typeUniqueId = null,
-        string? typeName = null)
+        string? typeName = null,
+        CurtainPanelKind? curtainPanelKind = null)
     {
         Source = source ?? throw new ArgumentNullException(nameof(source));
         if (!CandidateCategories.IsOpening(category)) throw new ArgumentOutOfRangeException(nameof(category), "Not an opening category.");
         RequireSize(widthFeet, nameof(widthFeet));
         RequireSize(heightFeet, nameof(heightFeet));
+        if (curtainPanelKind is CurtainPanelKind kind && !Enum.IsDefined(typeof(CurtainPanelKind), kind))
+            throw new ArgumentOutOfRangeException(nameof(curtainPanelKind));
+        if (curtainPanelKind is not null && category != CandidateCategory.CurtainPanel)
+            throw new ArgumentException("Only a curtain panel has a 嵌板種類.", nameof(curtainPanelKind));
 
         Category = category;
+        PanelKind = curtainPanelKind;
         HostUniqueId = string.IsNullOrWhiteSpace(hostUniqueId) ? null : hostUniqueId!.Trim();
         Location = location;
         WidthFeet = widthFeet;
@@ -232,6 +250,18 @@ public sealed class OpeningObservation
     public string? TypeName { get; }
 
     public bool IsHosted => HostUniqueId is not null;
+
+    /// <summary>
+    /// 實心／玻璃／門窗, as 防火檢討_嵌板種類 declares it — only for a 帷幕嵌板, null for anything else
+    /// and for a panel nobody declared (帷幕牆規格 §3.3、決議 16). A 區劃 boundary on an interior curtain
+    /// wall needs it: 門窗 and 玻璃嵌板 answer 第79條 with 防火檢討_設計防火保護, a 實心嵌板 is a piece of
+    /// construction and answers with a rating, and an undeclared one is 資料不足 rather than a guess
+    /// (docs §4.8).
+    /// </summary>
+    public CurtainPanelKind? PanelKind { get; }
+
+    /// <summary>宣告為實心的帷幕嵌板：它是構造，不是防火設備，開口規則回答不了它.</summary>
+    public bool IsSolidCurtainPanel => PanelKind == CurtainPanelKind.Solid;
 
     private static void RequireSize(double? value, string name)
     {

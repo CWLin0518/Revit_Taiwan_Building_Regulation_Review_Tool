@@ -317,6 +317,46 @@ public sealed class FireResistanceCheckTests
         new(Source("W-offset"), CandidateCategory.Wall, new[] { P(0.08, 0), P(0.08, 10) }, widthFeet: M(0.2),
             typeUniqueId: WallType, typeName: "RC 200", isStructural: false);
 
+    // --- 室內帷幕牆走 Settled 那一條路（帷幕牆規格 §4.8）-----------------------------------------
+    //
+    // `tw-bcr-79-wall-rating` 版本 3 的 appliesWhen 讀 `element.curtainWallExposure`，而 `Settled` 會
+    // 為「構成邊界」與「不構成邊界」各評一次，兩次都用 `Assuming` 複製出來的 MemberCandidate。那份複本
+    // 若沒把室內外判定帶過去，判定會讀成 Unknown、兩次都評成「不適用」，於是 `Settled` 以「不論是否
+    // 構成邊界，結論都相同」逕行判定不適用——連人工覆核都不留。這是最糟的失敗型態：靜默，而且那片
+    // 牆照樣有一列。
+
+    /// <summary>版本 3 的 appliesWhen 逐字，用來測 `Assuming` 有沒有把室內外判定帶過去。</summary>
+    private static Rule ExposureAwareWallRule() => RatingRule("wall-v3",
+        "element.category == \"Walls\" && element.isCompartmentBoundary == true && " +
+        "element.curtainWallExposure != \"Exterior\" && element.curtainWallExposure != \"Unknown\"",
+        "element.providedFireRating >= 60 min");
+
+    /// <summary>A｜B 分界（x = 10）上的室內帷幕牆，但中心線偏 80 mm：關係落 BoundaryOffCenterline。</summary>
+    private static MemberObservation InteriorCurtainWallOffBoundary() =>
+        new(Source("CW-off"), CandidateCategory.Wall, new[] { P(10.08, 0), P(10.08, 10) }, widthFeet: M(0.2),
+            typeUniqueId: WallType, typeName: "帷幕牆", isStructural: false, isCurtainWall: true);
+
+    [Theory]
+    [InlineData("60", ReviewStatus.Pass)]
+    [InlineData("30", ReviewStatus.ManualReview)]
+    public void An_interior_curtain_wall_whose_boundary_relation_is_in_doubt_is_still_asked_for_its_rating(
+        string provided, ReviewStatus expected)
+    {
+        var set = Set(ZonesAB(), InteriorCurtainWallOffBoundary());
+        var member = set.Members.Single(m => m.Source.ElementUniqueId == "CW-off");
+
+        Assert.Equal(CurtainWallExposure.Interior, member.CurtainWallExposure!.Exposure);
+        Assert.Equal(CandidateAmbiguityKind.BoundaryOffCenterline, member.RelationTo(ZoneB)!.Ambiguity);
+
+        var finding = Review(set, Ratings((WallType, provided)), Engine(ExposureAwareWallRule()))
+            .Findings.Single(f => f.ElementUniqueId == "CW-off" && f.Result.ZoneId == ZoneB.ToString("D"));
+
+        // 關鍵在於**不是** NotApplicable：那代表 Assuming 把判定丟成 Unknown、兩支都評不適用，
+        // 於是這片室內區劃牆的第79條第1項時效被靜默免除。
+        Assert.NotEqual(ReviewStatus.NotApplicable, finding.Status);
+        Assert.Equal(expected, finding.Status);
+    }
+
     [Theory]
     [InlineData("30", ReviewStatus.Fail)]
     [InlineData("2 hr", ReviewStatus.Pass)]

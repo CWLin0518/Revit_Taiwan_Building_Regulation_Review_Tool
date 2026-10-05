@@ -434,11 +434,25 @@ public static class FireResistanceCheck
     private static bool IsVerdict(ReviewStatus status) =>
         status is ReviewStatus.Pass or ReviewStatus.Fail or ReviewStatus.NotApplicable;
 
-    /// <summary>The member as if its relation to one zone were decided; every other relation as observed.</summary>
+    /// <summary>
+    /// The member as if its relation to one zone were decided; every other relation as observed.
+    /// </summary>
+    /// <remarks>
+    /// The 室內外 classification is carried over, and it has to be: this stands in for the member in
+    /// <see cref="Decide"/>, which builds the facts, and <c>tw-bcr-79-wall-rating</c> 版本 3 reads
+    /// <c>element.curtainWallExposure</c> off it. Dropping it would read as <c>Unknown</c> — making
+    /// both branches 不適用, which <see cref="Settled"/> would then take as「不論是否構成邊界結論都
+    /// 相同」and file as 不適用 without even a 人工覆核. A 室內 curtain wall whose Area boundary runs
+    /// along its face instead of through it would silently lose its 第79條第1項 rating check
+    /// (docs/regulations/curtain-wall-fire-compartment.md §4.8).
+    /// </remarks>
     private static MemberCandidate Assuming(MemberCandidate member, Guid zoneId, ZoneRelationKind kind) =>
-        new MemberCandidate(member.Observation, member.Relations.Select(r => r.ZoneId != zoneId
-            ? r
-            : new ZoneRelation(zoneId, kind, r.Message, r.Measurements)));
+        new MemberCandidate(
+            member.Observation,
+            member.Relations.Select(r => r.ZoneId != zoneId
+                ? r
+                : new ZoneRelation(zoneId, kind, r.Message, r.Measurements)),
+            member.CurtainWallExposure);
 
     /// <summary>The member an ambiguity is about, when it is an ambiguous member relation.</summary>
     private static MemberCandidate? AmbiguousMember(CandidateSet set, CandidateAmbiguity ambiguity)

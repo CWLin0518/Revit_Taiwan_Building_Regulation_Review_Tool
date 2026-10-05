@@ -217,8 +217,11 @@ public sealed class CurtainWallObservation
         string? nonPlanarReason = null,
         string? typeName = null,
         int? facetIndex = null,
-        double facetOffsetMm = 0.0)
+        double facetOffsetMm = 0.0,
+        CurtainWallFunctionDeclaration functionDeclaration = CurtainWallFunctionDeclaration.NotRead)
     {
+        if (!Enum.IsDefined(typeof(CurtainWallFunctionDeclaration), functionDeclaration))
+            throw new ArgumentOutOfRangeException(nameof(functionDeclaration));
         if (string.IsNullOrWhiteSpace(uniqueId)) throw new ArgumentException("Curtain wall UniqueId is required.", nameof(uniqueId));
         if (facetIndex < 0) throw new ArgumentOutOfRangeException(nameof(facetIndex), "A facet index cannot be negative.");
         if (facetOffsetMm < 0 || double.IsNaN(facetOffsetMm) || double.IsInfinity(facetOffsetMm))
@@ -251,6 +254,7 @@ public sealed class CurtainWallObservation
         TypeName = string.IsNullOrWhiteSpace(typeName) ? null : typeName!.Trim();
         FacetIndex = facetIndex;
         FacetOffsetMm = facetOffsetMm;
+        FunctionDeclaration = functionDeclaration;
         if (IsFacet && !IsPlanar)
             throw new ArgumentException("A facet is a plane by construction; a facet that is not is a reading error.", nameof(nonPlanarReason));
 
@@ -308,6 +312,12 @@ public sealed class CurtainWallObservation
     public double FacetOffsetMm { get; }
 
     public bool IsFacet => FacetIndex is not null;
+
+    /// <summary>
+    /// Wall Type 的 <c>Function</c>，就照讀到的樣子（docs §4.8）。這裡只記模型宣告了什麼；室內外的
+    /// **判定**由 <see cref="CurtainWallExposureClassifier"/> 連同沿牆的區劃取樣一起做出。
+    /// </summary>
+    public CurtainWallFunctionDeclaration FunctionDeclaration { get; }
 
     /// <summary>Panels in bottom-then-left order, so a fixed model yields a fixed run.</summary>
     public IReadOnlyList<CurtainPanelObservation> Panels { get; }
@@ -381,7 +391,8 @@ public sealed class CurtainWallObservation
             NonPlanarReason,
             TypeName,
             FacetIndex,
-            FacetOffsetMm);
+            FacetOffsetMm,
+            FunctionDeclaration);
 
     public override string ToString() => FacetIndex is int facet
         ? $"{UniqueId} 第 {facet + 1} 段（{TypeName ?? "帷幕牆"}，{LengthMm:0.#} mm）"

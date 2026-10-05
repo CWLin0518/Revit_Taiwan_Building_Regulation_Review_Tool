@@ -42,6 +42,12 @@ public static class CandidateFacts
         // gap, so a rule may compare it without waiting on anything. Only a Wall can be one, and a
         // MemberObservation of any other category reports false.
         facts.Set("element.isCurtainWall", observation.IsCurtainWall);
+
+        // 同樣無條件：每一片牆都有值（非帷幕牆為 NotCurtainWall），所以 appliesWhen 讀它不會因為
+        // 缺值而把整條規則變成適用性未定（docs/regulations/curtain-wall-fire-compartment.md §4.8）。
+        if (observation.Category == CandidateCategory.Wall)
+            facts.Set("element.curtainWallExposure", member.CurtainWallExposureText);
+
         if (observation.TypeName is not null) facts.Set("element.typeName", observation.TypeName);
         if (observation.IsStructural.HasValue) facts.Set("element.isStructural", observation.IsStructural.Value);
         return facts;

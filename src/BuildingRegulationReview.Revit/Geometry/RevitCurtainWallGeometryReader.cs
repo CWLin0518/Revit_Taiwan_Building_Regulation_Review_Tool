@@ -184,7 +184,8 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
             box,
             reason,
             (wall.WallType as ElementType)?.Name,
-            warnings);
+            warnings,
+            RevitWallFunctionReader.Of(wall.WallType));
 
         if (observation is null || reason is not null) return observation;
 
@@ -194,7 +195,8 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
             ReadPanels(wall.CurtainGrid, observation, request, storey, warnings),
             ReadGridLines(wall.CurtainGrid, observation),
             null,
-            observation.TypeName);
+            observation.TypeName,
+            functionDeclaration: observation.FunctionDeclaration);
     }
 
     /// <summary>
@@ -265,7 +267,8 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
                     PlanUnits.FeetToMillimeters(box.Max.Z),
                     typeName: (wall.WallType as ElementType)?.Name,
                     facetIndex: index,
-                    facetOffsetMm: PlanUnits.FeetToMillimeters(offsetFeet));
+                    facetOffsetMm: PlanUnits.FeetToMillimeters(offsetFeet),
+                    functionDeclaration: RevitWallFunctionReader.Of(wall.WallType));
             }
             catch (Exception exception) when (exception is ArgumentException || exception is ArgumentOutOfRangeException)
             {
@@ -282,7 +285,8 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
                 null,
                 facet.TypeName,
                 facet.FacetIndex,
-                facet.FacetOffsetMm));
+                facet.FacetOffsetMm,
+                facet.FunctionDeclaration));
         }
 
         return facets;
@@ -403,7 +407,8 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
         BoundingBoxXYZ box,
         string? nonPlanarReason,
         string? typeName,
-        List<string> warnings)
+        List<string> warnings,
+        CurtainWallFunctionDeclaration functionDeclaration = CurtainWallFunctionDeclaration.NotRead)
     {
         try
         {
@@ -416,7 +421,8 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
                 PlanUnits.FeetToMillimeters(box.Min.Z),
                 PlanUnits.FeetToMillimeters(box.Max.Z),
                 nonPlanarReason: nonPlanarReason,
-                typeName: typeName);
+                typeName: typeName,
+                functionDeclaration: functionDeclaration);
         }
         catch (Exception exception) when (exception is ArgumentException || exception is ArgumentOutOfRangeException)
         {

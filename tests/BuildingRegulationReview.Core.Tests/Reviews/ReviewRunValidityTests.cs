@@ -190,6 +190,29 @@ public sealed class ReviewRunValidityTests
     }
 
     [Fact]
+    public void A_curtain_walls_exposure_is_part_of_its_fingerprint()
+    {
+        // 審查 4-2：室內外判定改變就換了一套適用規則。一個針對外牆下的人工覆寫不能留在一道已改判為
+        // 室內的牆上，所以判定與它的依據（Function、沿牆的區劃）都進基準
+        // （docs/regulations/curtain-wall-fire-compartment.md §4.8）。
+        var model = new Model();
+        model.Walls[1] = CurtainWallOf("W-shared", 10, 0, 10, 10, CurtainWallFunctionDeclaration.NotRead);
+        var run = Review(model);
+
+        // 只改牆型別的 Function、幾何一動也沒動：判定本身不變（Exterior 是系統族預設值，不具宣告
+        // 效力），但 **Function 的讀值進了基準**，所以這一片仍然轉為「需更新」。這是刻意的：判斷的
+        // 輸入變了，一個針對舊輸入下的人工覆寫該重新確認一次。
+        model.Walls[1] = CurtainWallOf("W-shared", 10, 0, 10, 10, CurtainWallFunctionDeclaration.Exterior);
+        Assert.Contains("W-shared", Check(run, model).ChangedSubjects);
+    }
+
+    private static MemberObservation CurtainWallOf(
+        string uid, double x0, double y0, double x1, double y1, CurtainWallFunctionDeclaration function) =>
+        new(Source(uid), CandidateCategory.Wall, new[] { P(x0, y0), P(x1, y1) }, widthFeet: M(0.1),
+            typeUniqueId: TypeB, typeName: TypeB, isStructural: false, isCurtainWall: true,
+            curtainWallFunction: function);
+
+    [Fact]
     public void A_changed_door_parameter_invalidates_the_door_result()
     {
         var model = new Model();

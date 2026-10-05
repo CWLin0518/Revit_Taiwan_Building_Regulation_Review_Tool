@@ -92,6 +92,19 @@ public static class CurtainWallJunctionResolver
 
         var wallZone = elevation.ZoneAtMiddle(set);
 
+        // 室內外判定（docs §4.8）。每一個平面段各自判，再合回整道牆：第79條第3、4項、第79條之3、
+        // 第79條之4 問的都是「外牆」，不是外牆就不該用這三項量它。
+        var exposure = CurtainWallExposureClassifier.Merge(
+            elevation.Facets.Select(f => ExposureOf(set, f)).ToList());
+
+        if (!exposure.IsExterior)
+        {
+            foreach (var junction in NonExteriorJunctions(set, elevation, wallZone, options, verticalCompartmentZoneIds, exposure))
+                yield return junction;
+
+            yield break;
+        }
+
         // A curved, sloped or warped wall is not measured at all: the two clauses that need a plane
         // go to 人工覆核, and only 第79條之4 — which asks nothing of geometry — is still answered.
         if (!wall.IsPlanar)
@@ -1485,20 +1498,127 @@ public static class CurtainWallJunctionResolver
     /// </summary>
     private static CurtainWallObservation Oriented(CurtainWallObservationSet set, CurtainWallObservation wall)
     {
+        var samples = Probe(set, wall);
+        var inward = samples.Count(s => s.NegativeSideZoneId is not null);
+        var outward = samples.Count(s => s.PositiveSideZoneId is not null);
+
+        return outward > inward ? wall.WithReversedExteriorNormal() : wall;
+    }
+
+    /// <summary>
+    /// The 區劃 on each side of one facet, at the same three stations 外側法線定向 uses. One probe for
+    /// both questions — which way is out, and whether this is an 外牆 at all — so the two can never
+    /// disagree about what was found where (docs §4.6, §4.8).
+    /// </summary>
+    private static IReadOnlyList<CurtainWallExposureSample> Probe(
+        CurtainWallObservationSet set,
+        CurtainWallObservation wall)
+    {
         var depth = wall.ExteriorOffsetMm + ZoneProbeMm;
-        var inward = 0;
-        var outward = 0;
+        var samples = new List<CurtainWallExposureSample>();
 
         foreach (var fraction in new[] { 0.25, 0.5, 0.75 })
         {
             var p = wall.PointAt(wall.LengthMm * fraction);
-            if (set.ZoneAt(new Point2D(p.X - (wall.ExteriorNormal.X * depth), p.Y - (wall.ExteriorNormal.Y * depth))) is not null)
-                inward++;
-            if (set.ZoneAt(new Point2D(p.X + (wall.ExteriorNormal.X * depth), p.Y + (wall.ExteriorNormal.Y * depth))) is not null)
-                outward++;
+            var negative = set.ZoneAt(new Point2D(p.X - (wall.ExteriorNormal.X * depth), p.Y - (wall.ExteriorNormal.Y * depth)));
+            var positive = set.ZoneAt(new Point2D(p.X + (wall.ExteriorNormal.X * depth), p.Y + (wall.ExteriorNormal.Y * depth)));
+            samples.Add(new CurtainWallExposureSample(negative?.ZoneId, positive?.ZoneId));
         }
 
-        return outward > inward ? wall.WithReversedExteriorNormal() : wall;
+        return samples;
+    }
+
+    /// <summary>Whether one facet is 外牆 or 室內, from its own probe and its Wall Type's Function (docs §4.8).</summary>
+    private static CurtainWallExposureVerdict ExposureOf(CurtainWallObservationSet set, CurtainWallObservation wall) =>
+        CurtainWallExposureClassifier.Classify(Probe(set, wall), wall.FunctionDeclaration);
+
+    /// <summary>
+    /// What a curtain wall that is <b>not</b> the building's 外牆 still owes this review (docs §4.8).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// No CW-H, no CW-V, no CW-O: 第79條第3、4項、第79條之3第2項 and 第79條之4 all speak of 外牆, and an
+    /// interior curtain wall is not one. Its openings are reviewed instead as any 區劃 boundary's are —
+    /// 第79條第1項之防火門窗 — which <see cref="CandidateResolver"/> routes and
+    /// <c>OpeningProtectionCheck</c> answers.
+    /// </para>
+    /// <para>
+    /// Two things survive the handover, because neither of them is about 外牆:
+    /// </para>
+    /// <list type="bullet">
+    /// <item>第79條之2's 連跨複數樓層 question. A curtain wall running past this storey with no
+    /// 區劃樓地板 meeting it is a 垂直空間 whether it stands inside the building or on its face, and a
+    /// 管道間 or 挑空 enclosed in glass is exactly the case this must not stop asking about.</item>
+    /// <item>An <see cref="CurtainWallExposure.Unknown"/> verdict, which is a 人工覆核 of its own: the
+    /// tool will not route half a wall on a guess, and it will not silently drop it either.</item>
+    /// </list>
+    /// <para>
+    /// A wall no probe found any 區劃 beside, on either side, still produces nothing — a junction has
+    /// to be filed under a 區劃 and there is none. That is the pre-existing 「不屬於任何區劃的帷幕牆」
+    /// limitation of docs §9, narrowed here to walls with no 區劃 anywhere along them rather than every
+    /// wall the tool could not classify.
+    /// </para>
+    /// </remarks>
+    private static IEnumerable<CurtainWallJunction> NonExteriorJunctions(
+        CurtainWallObservationSet set,
+        Elevation elevation,
+        CurtainWallZoneObservation? wallZone,
+        CurtainWallJunctionOptions options,
+        ISet<Guid> verticalCompartmentZoneIds,
+        CurtainWallExposureVerdict exposure)
+    {
+        var wall = elevation.First;
+
+        // 連跨只需要定位線的高程與沿牆的區劃，不需要平面可量測，所以非平面牆也照問。
+        var noFloor = NoFloorAtThisLevel(set, elevation, wallZone, options, verticalCompartmentZoneIds);
+        if (noFloor is not null) yield return noFloor;
+
+        // 整道牆沿線找到的任何一個區劃都算：少數測站找到的也算，否則「各處答案不一致」這一種
+        // 就正好沒有區劃可歸屬，而那是最需要被看到的一種。
+        var zoneId = wallZone?.ZoneId ?? exposure.ZoneIds.FirstOrDefault();
+        if (zoneId == Guid.Empty) yield break;
+
+        var panels = OfThisStorey(set, elevation.Facets.SelectMany(f => f.Panels)).Select(p => p.UniqueId).ToList();
+
+        if (exposure.IsUnknown)
+        {
+            var remedy = exposure.Remedy();
+            yield return CurtainWallJunction.Doubtful(
+                JunctionId(CurtainWallJunctionKind.WallToCurtainWall, wall.UniqueId) + ":exposure",
+                CurtainWallJunctionKind.WallToCurtainWall,
+                zoneId,
+                wall.UniqueId,
+                new CurtainWallJunctionDoubt(
+                    CurtainWallJunctionDoubtKind.ExposureUndecided,
+                    $"無法判定帷幕牆（Id {wall.UniqueId}）是建築物外牆或室內帷幕牆：{exposure.Describe()}。" +
+                    $"第79條第3、4項、{CurtainWallJunctionReferences.Article79_3}與{CurtainWallJunctionReferences.Article79_4}" +
+                    "問的都是外牆，室內外未定前這三項皆無法判定，需人工覆核" +
+                    (remedy is null ? "。" : $"；{remedy}。"),
+                    new[] { wall.UniqueId }),
+                panelUniqueIds: panels);
+
+            yield break;
+        }
+
+        // 室內、但量不出平面：弧形以外的曲面、傾斜面，以及沒有定位面的 Curtain System。開口那一條路
+        // 只收得到 host 是一道 Wall 的帷幕嵌板，所以 Curtain System 的嵌板兩條路都走不到——這一列就是
+        // 為了不讓它靜默消失。決議 18 之前它由非平面那一支答兩列（CW-H、CW-V），現在只需要一列：
+        // 外牆的那兩項對室內牆本來就不適用，要說的是「這道牆的嵌板沒有被接手」。
+        if (!wall.IsPlanar)
+        {
+            yield return CurtainWallJunction.Doubtful(
+                JunctionId(CurtainWallJunctionKind.WallToCurtainWall, wall.UniqueId) + ":interior",
+                CurtainWallJunctionKind.WallToCurtainWall,
+                zoneId,
+                wall.UniqueId,
+                new CurtainWallJunctionDoubt(
+                    CurtainWallJunctionDoubtKind.NonPlanarCurtainWall,
+                    $"帷幕牆（Id {wall.UniqueId}）判定為室內帷幕牆（{exposure.Describe()}），" +
+                    $"外牆之交接處規定不適用；但它{wall.NonPlanarReason}，" +
+                    "工具無法確認其嵌板是否已由區劃邊緣的防火門窗檢討涵蓋，需人工覆核。",
+                    new[] { wall.UniqueId }),
+                panelUniqueIds: panels);
+        }
     }
 
     private static CurtainWallZoneObservation? ZoneOf(

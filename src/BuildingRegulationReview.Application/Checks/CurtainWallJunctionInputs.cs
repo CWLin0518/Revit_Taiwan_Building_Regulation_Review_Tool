@@ -66,6 +66,9 @@ public static class CurtainWallJunctionReferences
     public const string Article83 = "第83條";
     public const string Article79_3 = "第79條之3";
 
+    /// <summary>第79條之4：其他部分外牆之半小時時效，CW-O 的法源（docs §2.3）.</summary>
+    public const string Article79_4 = "第79條之4";
+
     /// <summary>第79條之2：where a 連跨複數樓層 space is reviewed instead (docs §3.4).</summary>
     public const string Article79_2 = "建築技術規則建築設計施工編第79條之2";
 }
@@ -101,7 +104,14 @@ public enum CurtainWallJunctionDoubtKind
     /// 公差遠、樓板沒建、以屋頂建模，或其實是挑空但用途沒有標示。工具分不出是哪一種，交人工覆核，
     /// 絕不判不適用——不適用在檢討表上讀起來就是沒事（docs §3.4）.
     /// </summary>
-    FloorNotMeetingCurtainWall
+    FloorNotMeetingCurtainWall,
+
+    /// <summary>
+    /// 這道帷幕牆是室內還是室外判不出來（docs §4.8）：沿牆取樣各處答案不一致、牆型別的 Function 與幾何
+    /// 互相矛盾，或同一道弧形牆的各平面段判出不同結果。第79條第3、4項、第79條之3、第79條之4 問的都是
+    /// **外牆**，所以在室內外定下來以前這三項都答不了，整道牆交人工覆核；判成其中一邊都是猜的.
+    /// </summary>
+    ExposureUndecided
 }
 
 /// <summary>One such observation, with the elements a user has to look at.</summary>

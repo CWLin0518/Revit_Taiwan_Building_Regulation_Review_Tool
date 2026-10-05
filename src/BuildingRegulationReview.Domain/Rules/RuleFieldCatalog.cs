@@ -170,6 +170,14 @@ public sealed class RuleFieldCatalog
             // tw-bcr-79-wall-rating 把它排除，否則一片 2.5cm 厚的帷幕牆會被要求一小時防火時效
             // （docs/regulations/curtain-wall-fire-compartment.md）。
             new RuleFieldDefinition("element.isCurtainWall", boolean, "是否為帷幕牆（Revit WallKind.Curtain）", element),
+
+            // 上面那段推理只對**外牆**帷幕牆成立。使用者在建物內建的帷幕牆分隔的是兩個區劃，它就是
+            // 第79條第1項的區劃牆壁，排除它會讓那道牆的牆體時效沒有任何規則回答
+            // （docs/regulations/curtain-wall-fire-compartment.md §4.8）。所以排除條件改讀這個欄位：
+            // 每一片 Wall 都有值，不是帷幕牆就是 NotCurtainWall，帷幕牆則是 Exterior／Interior／Unknown。
+            // Unknown 不適用牆體時效，但它會在帷幕牆區劃交接拿到一列「室內外未定」的人工覆核，不是靜默略過。
+            new RuleFieldDefinition("element.curtainWallExposure", text,
+                "帷幕牆室內外（NotCurtainWall／Exterior／Interior／Unknown）", element),
             new RuleFieldDefinition("element.isStructural", boolean, "是否為結構構件", element),
             new RuleFieldDefinition("element.providedFireRating", RuleValueType.Quantity(ReviewUnit.Minute), "設計／認證防火時效", element),
 

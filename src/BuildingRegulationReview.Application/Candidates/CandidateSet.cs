@@ -53,8 +53,33 @@ public enum CandidateAmbiguityKind
     /// <summary>The opening names a host the review did not read, or a host that is not a wall.</summary>
     HostNotResolved,
 
-    /// <summary>An opening in a curtain wall. MVP policy: manual review (spec 17.1, 11.6).</summary>
+    /// <summary>
+    /// An opening in a curtain wall the tool could not place: it is neither the building's 外牆 — whose
+    /// openings 第79條第1項 does not govern — nor a 區劃分隔 whose openings it does. MVP policy: manual
+    /// review (spec 17.1, 11.6; docs/regulations/curtain-wall-fire-compartment.md §4.8).
+    /// </summary>
     CurtainWallOpening,
+
+    /// <summary>
+    /// 室內帷幕牆的區劃邊緣上，一片宣告為**實心**的嵌板（§4.8）。它是構造而非防火設備，第79條第1項的
+    /// 防火門窗規則回答不了它，交人工覆核；判「不是防火門窗」會把一片可能本來就有時效的實心板說成未符合。
+    /// </summary>
+    CurtainPanelIsConstruction,
+
+    /// <summary>
+    /// 室內帷幕牆的區劃邊緣上，一片**未宣告種類**的嵌板（<c>防火檢討_嵌板種類</c> 空白，決議 16）。
+    /// 分不出該讀防火保護還是該讀時效，是資料不足而不是未符合。
+    /// </summary>
+    CurtainPanelKindUndeclared,
+
+    /// <summary>
+    /// 一道帷幕牆判不出是建築物外牆或室內帷幕牆（§4.8）。它的牆體時效因此沒有規則回答——
+    /// <c>tw-bcr-79-wall-rating</c> 版本 3 把 <c>Unknown</c> 排除在外，而外牆的三項交接規定也不適用
+    /// 一道不確定是外牆的牆。這一列存在是為了讓那個空缺出現在檢討表上，不依賴帷幕牆區劃交接那一端
+    /// 是否也判了 <c>Unknown</c>：兩端的探測輸入不同，一端判外牆、另一端判未定時，少了這一列整片牆
+    /// 的牆體時效會靜默無答案。
+    /// </summary>
+    CurtainWallExposureUndecided,
 
     /// <summary>An opening without a host near the boundary. MVP policy: manual review (spec 11.6).</summary>
     NonHostedOpening,
@@ -165,14 +190,34 @@ public sealed class ZoneRelation
 /// <summary>A wall, column, beam or floor with the zones it relates to.</summary>
 public sealed class MemberCandidate
 {
-    public MemberCandidate(MemberObservation observation, IEnumerable<ZoneRelation> relations)
+    public MemberCandidate(
+        MemberObservation observation,
+        IEnumerable<ZoneRelation> relations,
+        CurtainWallExposureVerdict? curtainWallExposure = null)
     {
         Observation = observation ?? throw new ArgumentNullException(nameof(observation));
         Relations = CandidateOrdering.Relations(relations);
+        CurtainWallExposure = curtainWallExposure;
     }
 
     public MemberObservation Observation { get; }
     public IReadOnlyList<ZoneRelation> Relations { get; }
+
+    /// <summary>
+    /// 這道帷幕牆是建築物外牆或室內帷幕牆，連同判定依據
+    /// （docs/regulations/curtain-wall-fire-compartment.md §4.8）。只有帷幕牆有值：第79條第1項的區劃
+    /// 牆壁時效排除的是**外牆**帷幕牆，不是每一片帷幕牆。
+    /// </summary>
+    public CurtainWallExposureVerdict? CurtainWallExposure { get; }
+
+    /// <summary>規則讀的 <c>element.curtainWallExposure</c>：不是帷幕牆就是 <c>NotCurtainWall</c>.</summary>
+    public string CurtainWallExposureText => Observation.IsCurtainWall
+        ? CurtainWallExposureVerdict.Text(CurtainWallExposure?.Exposure ?? Candidates.CurtainWallExposure.Unknown)
+        : NotCurtainWallText;
+
+    /// <summary>非帷幕牆的 <c>element.curtainWallExposure</c> 值.</summary>
+    public const string NotCurtainWallText = "NotCurtainWall";
+
     public CandidateSource Source => Observation.Source;
     public CandidateCategory Category => Observation.Category;
 
@@ -185,6 +230,16 @@ public sealed class MemberCandidate
         var items = CandidateEvidence.Relation(relation).ToList();
         items.AddRange(CandidateEvidence.Source(Source, Category, Observation.TypeName));
         if (Observation.WidthFeet.HasValue) items.Add(CandidateEvidence.Length("source.width", Observation.WidthFeet.Value));
+
+        // 室內外判定與它的依據：審查者要能分辨「這道牆被判成外牆所以不要求一小時時效」是量到的還是猜的。
+        if (Observation.IsCurtainWall)
+        {
+            items.Add(new ReviewEvidenceItem("source.curtainWallExposure", ReviewValue.OfText(CurtainWallExposureText)));
+            if (CurtainWallExposure is not null)
+                items.Add(new ReviewEvidenceItem("source.curtainWallExposureReason",
+                    ReviewValue.OfText(CurtainWallExposure.Describe())));
+        }
+
         return new ReviewEvidence(items);
     }
 }

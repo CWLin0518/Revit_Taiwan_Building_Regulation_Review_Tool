@@ -30,7 +30,7 @@ namespace BuildingRegulationReview.Core.Tests.Reviews;
 public sealed class FireReviewIntegrationTests
 {
     private const string RuleSetId = "tw-bcr-fire";
-    private const string ShippedVersion = "2026.9-provisional";
+    private const string ShippedVersion = "2026.10-provisional";
 
     [Fact]
     public void Interior_finish_is_a_model_derived_wall_and_ceiling_type_fact_not_an_area_input()
@@ -356,10 +356,10 @@ public sealed class FireReviewIntegrationTests
         facts.Set("element.category", "Walls");
         facts.Set("element.isStructural", false);
         facts.Set("element.isCompartmentBoundary", true);
-        // 第79條's 區劃牆壁 requirement asks this since version 2 — an ordinary RC wall, not a 帷幕牆
-        // (see CurtainWallBoundaryRatingTests). CandidateFacts sets it for every member, so the real
+        // 第79條's 區劃牆壁 requirement asks this since version 3 — an ordinary RC wall, so 非帷幕牆
+        // (see CurtainWallBoundaryRatingTests). CandidateFacts sets it for every wall, so the real
         // pipeline always answers it; a hand-built fact set has to say so too or the rule is undecided.
-        facts.Set("element.isCurtainWall", false);
+        facts.Set("element.curtainWallExposure", MemberCandidate.NotCurtainWallText);
         facts.Set("element.providedFireRating", 60, ReviewUnit.Minute);
         facts.Set("building.fireResistiveConstruction", true);
 

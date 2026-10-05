@@ -909,24 +909,104 @@ public sealed class CurtainWallJunctionResolverTests
         Assert.Equal(600, junction.ProjectionDepthMm!.Value, 3);
     }
 
-    [Fact]
-    public void Case36_a_curtain_wall_with_a_compartment_on_both_sides_keeps_the_normal_it_was_read_with()
-    {
-        // 室內帷幕牆：兩側都探得到區劃，取反是擲硬幣。多數決必須是「嚴格多於」——改成「大於等於」
-        // 會把這片讀對的牆翻過去，600 mm 的突出當場變成 0。
-        var southZone = new CurtainWallZoneObservation(
-            Guid.Parse("bbbbbbbb-0000-0000-0000-00000000000f"), "B 區劃",
-            new[] { Rectangle(-2000, -20000, WallLengthMm + 2000, -1) });
+    // --- 室內外分流（docs §4.8）------------------------------------------------------------------
 
+    private static readonly Guid SouthZoneId = Guid.Parse("bbbbbbbb-0000-0000-0000-00000000000f");
+
+    /// <summary>A second 區劃 south of the wall, so the façade has one on each side of it.</summary>
+    private static CurtainWallZoneObservation SouthZone() =>
+        new(SouthZoneId, "B 區劃", new[] { Rectangle(-2000, -20000, WallLengthMm + 2000, -1) });
+
+    /// <summary>The same model as the CW-H cases, with a 區劃 on both sides: an interior curtain wall.</summary>
+    private static CurtainWallObservationSet InteriorSet(
+        CurtainWallFunctionDeclaration function = CurtainWallFunctionDeclaration.NotRead) =>
+        new(Package, "LVL", "1F", 0,
+            new[] { Zone(), SouthZone() },
+            new[] { Wall(Glazing(), function: function) },
+            new[] { Host(5000, beyondLineMm: OffsetMm + 600) },
+            levelElevationsMm: new[] { 0.0, StoreyMm });
+
+    [Fact]
+    public void Case36_a_curtain_wall_with_a_compartment_on_both_sides_is_interior_and_gets_no_junctions()
+    {
+        // 使用者在建物內建的帷幕牆：兩側都探得到不同的區劃。它分隔的是兩個區劃而不是室內外，所以
+        // 第79條第3、4項、第79條之3、第79條之4 都不是它的——這三項問的都是「外牆」。它的區劃邊緣
+        // 開口改由第79條第1項的防火門窗檢討，那在 CandidateResolver／OpeningProtectionCheck 那一端。
+        Assert.Empty(Resolve(InteriorSet()));
+    }
+
+    [Fact]
+    public void An_exterior_curtain_wall_is_unaffected_by_the_interior_route()
+    {
+        // 反面對照：同一道牆、同一個突出量，只少了南側那個區劃，CW-H 照樣產出且量到 600 mm。
+        var junction = Single(
+            Resolve(Set(Wall(Glazing()), hosts: new[] { Host(5000, beyondLineMm: OffsetMm + 600) })),
+            CurtainWallJunctionKind.WallToCurtainWall);
+
+        Assert.Equal(600, junction.ProjectionDepthMm!.Value, 3);
+    }
+
+    [Fact]
+    public void An_interior_curtain_wall_still_answers_the_article_79_2_question()
+    {
+        // 審查 4-5：室內帷幕牆不再套外牆的交接規定，但「穿過本層標高卻沒有樓板與它交接」是垂直空間
+        // 的問題，不是外牆的問題。管道間、挑空用玻璃圍起來正是最需要這一列的情形。
+        var set = new CurtainWallObservationSet(Package, "LVL", "2F", StoreyMm,
+            new[] { Zone(), SouthZone() },
+            new[] { Wall(Glazing(top: StoreyMm * 3), top: StoreyMm * 3) },
+            levelElevationsMm: new[] { 0.0, StoreyMm, StoreyMm * 2, StoreyMm * 3 });
+
+        var junction = Single(
+            CurtainWallJunctionResolver.Resolve(set, null, new[] { ZoneId, SouthZoneId }),
+            CurtainWallJunctionKind.FloorToCurtainWall);
+
+        Assert.Equal(CurtainWallJunctionDoubtKind.VerticalCompartmentSpace, junction.Doubt!.Kind);
+        Assert.Contains(CurtainWallJunctionReferences.Article79_2, junction.Doubt.Message);
+    }
+
+    [Fact]
+    public void A_geometric_facade_the_user_declared_interior_is_undecided_rather_than_overridden()
+    {
+        // Function = Interior 是使用者改過的非預設值，和幾何判出的外牆不能同時為真。工具不替使用者
+        // 選一邊：整道牆交人工覆核，並講出該怎麼修。
         var set = new CurtainWallObservationSet(Package, "LVL", "1F", 0,
-            new[] { Zone(), southZone },
-            new[] { Wall(Glazing()) },
+            new[] { Zone() },
+            new[] { Wall(Glazing(), function: CurtainWallFunctionDeclaration.Interior) },
             new[] { Host(5000, beyondLineMm: OffsetMm + 600) },
             levelElevationsMm: new[] { 0.0, StoreyMm });
 
         var junction = Single(Resolve(set), CurtainWallJunctionKind.WallToCurtainWall);
 
-        Assert.Equal(600, junction.ProjectionDepthMm!.Value, 3);
+        Assert.Equal(CurtainWallJunctionDoubtKind.ExposureUndecided, junction.Doubt!.Kind);
+        Assert.Equal(ReviewStatus.ManualReview, junction.Doubt.Status);
+        Assert.Contains("互相矛盾", junction.Doubt.Message);
+        Assert.DoesNotContain(Resolve(set), j => j.Kind == CurtainWallJunctionKind.CurtainPanelOther);
+    }
+
+    [Fact]
+    public void An_interior_curtain_wall_the_tool_cannot_measure_is_reported_rather_than_dropped()
+    {
+        // Curtain System 沒有定位面，它的嵌板也不會被候選讀取層收成開口（host 不是 Wall）。判為室內
+        // 之後 CW-O 不產出、開口那一條路也收不到它——兩條路都走不到，所以這一列必須存在。
+        var set = new CurtainWallObservationSet(Package, "LVL", "1F", 0,
+            new[] { Zone(), SouthZone() },
+            new[] { Wall(Array.Empty<CurtainPanelObservation>(), nonPlanarReason: "為帷幕系統（Curtain System），本版無法解析其定位面") },
+            levelElevationsMm: new[] { 0.0, StoreyMm });
+
+        var junction = Assert.Single(Resolve(set));
+
+        Assert.Equal(CurtainWallJunctionDoubtKind.NonPlanarCurtainWall, junction.Doubt!.Kind);
+        Assert.Equal(ReviewStatus.ManualReview, junction.Doubt.Status);
+        Assert.Contains("判定為室內帷幕牆", junction.Doubt.Message);
+        Assert.Contains("無法確認其嵌板", junction.Doubt.Message);
+    }
+
+    [Fact]
+    public void Function_exterior_is_the_system_family_default_and_does_not_veto_the_geometry()
+    {
+        // Revit 的「帷幕牆」系統族預設 Function = Exterior，所以它不是一句宣告：在室內畫一片而沒去改
+        // 它是常態。幾何判室內就是室內，不因這個預設值轉成矛盾而要求使用者去改一個他沒碰過的參數。
+        Assert.Empty(Resolve(InteriorSet(CurtainWallFunctionDeclaration.Exterior)));
     }
 
     [Fact]
@@ -1683,9 +1763,10 @@ public sealed class CurtainWallJunctionResolverTests
         IEnumerable<CurtainPanelObservation> panels,
         IEnumerable<CurtainGridLineObservation>? gridLines = null,
         double top = StoreyMm,
-        string? nonPlanarReason = null) =>
+        string? nonPlanarReason = null,
+        CurtainWallFunctionDeclaration function = CurtainWallFunctionDeclaration.NotRead) =>
         new("CW1", new Point2D(0, 0), new Point2D(WallLengthMm, 0), new Point2D(0, -1), OffsetMm, 0, top,
-            panels, gridLines, nonPlanarReason, "帷幕牆 1");
+            panels, gridLines, nonPlanarReason, "帷幕牆 1", functionDeclaration: function);
 
     /// <summary>A 區劃牆 reaching the curtain wall from inside; <paramref name="beyondLineMm"/> is how far south of the location line it ends.</summary>
     private static CompartmentWallObservation Host(

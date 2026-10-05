@@ -171,7 +171,13 @@ public static class ReviewBaselineBuilder
                 .Append("|type=").Append(o.TypeUniqueId ?? "-").Append('|').Append(o.TypeName ?? "-")
                 .Append("|w=").Append(Length(o.WidthFeet))
                 .Append("|structural=").Append(o.IsStructural?.ToString() ?? "-")
-                .Append("|curtain=").Append(o.IsCurtainWall).Append('\n');
+                .Append("|curtain=").Append(o.IsCurtainWall)
+                // 室內外判定改變就換了一套適用規則，所以它進基準：既有的人工覆寫必須重新確認，
+                // 不能讓一個針對外牆下的結論留在一道已改判為室內的牆上（帷幕牆規格 §4.8）。
+                // 連同宣告與理由一起記：Function 改了、或區劃補建了，都是判斷依據的變動。
+                .Append("|exposure=").Append(member.CurtainWallExposureText)
+                .Append('|').Append(member.CurtainWallExposure?.Reason.ToString() ?? "-")
+                .Append('|').Append(o.CurtainWallFunction).Append('\n');
             AppendPoints(text, "centerline", o.Centerline);
             foreach (var ring in o.Outlines) AppendPoints(text, "outline", ring);
             AppendRelations(text, member.Relations);
@@ -186,6 +192,9 @@ public static class ReviewBaselineBuilder
                 .Append("|host=").Append(o.HostUniqueId ?? "-")
                 .Append("|hostResolved=").Append(opening.HasResolvedHost)
                 .Append("|hostCurtain=").Append(opening.Host?.IsCurtainWall == true)
+                // Host 的 Function 與這片嵌板的宣告種類都進基準：兩者都會改變這個開口走哪一條規則。
+                .Append("|hostFunction=").Append(opening.Host?.CurtainWallFunction.ToString() ?? "-")
+                .Append("|panelKind=").Append(o.PanelKind?.ToString() ?? "-")
                 .Append("|type=").Append(o.TypeUniqueId ?? "-").Append('|').Append(o.TypeName ?? "-")
                 .Append("|at=").Append(Point(o.Location))
                 .Append("|w=").Append(Length(o.WidthFeet)).Append("|h=").Append(Length(o.HeightFeet)).Append('\n');

@@ -3,10 +3,12 @@ using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
 using BuildingRegulationReview.Application.Candidates;
+using BuildingRegulationReview.Application.Checks;
 using BuildingRegulationReview.Application.WriteBack;
 using BuildingRegulationReview.Domain.Common;
 using BuildingRegulationReview.Domain.Geometry;
 using BuildingRegulationReview.Revit.Geometry;
+using BuildingRegulationReview.Revit.Parameters;
 using BuildingRegulationReview.Revit.WriteBack;
 using RevitArea = Autodesk.Revit.DB.Area;
 
@@ -177,7 +179,11 @@ public sealed class RevitCandidateObservationReader
             typeUniqueId: type?.UniqueId,
             typeName: type?.Name,
             isStructural: ReadFlag(wall, BuiltInParameter.WALL_STRUCTURAL_SIGNIFICANT),
-            isCurtainWall: type?.Kind == WallKind.Curtain);
+            isCurtainWall: type?.Kind == WallKind.Curtain,
+            // 只有帷幕牆需要室內外判定，一般牆讀了也沒人問；讀了反而會讓基準指紋因無關的參數變動而過期。
+            curtainWallFunction: type?.Kind == WallKind.Curtain
+                ? RevitWallFunctionReader.Of(type)
+                : CurtainWallFunctionDeclaration.NotRead);
     }
 
     private MemberObservation ReadColumn(Element column, string documentId, double planeElevationFeet, List<string> warnings)
@@ -276,7 +282,34 @@ public sealed class RevitCandidateObservationReader
             widthFeet: ReadOpeningSize(element, type, BuiltInParameter.FAMILY_WIDTH_PARAM, BuiltInParameter.DOOR_WIDTH, BuiltInParameter.WINDOW_WIDTH, BuiltInParameter.CURTAIN_WALL_PANELS_WIDTH),
             heightFeet: ReadOpeningSize(element, type, BuiltInParameter.FAMILY_HEIGHT_PARAM, BuiltInParameter.DOOR_HEIGHT, BuiltInParameter.WINDOW_HEIGHT, BuiltInParameter.CURTAIN_WALL_PANELS_HEIGHT),
             typeUniqueId: type?.UniqueId,
-            typeName: type?.Name);
+            typeName: type?.Name,
+            curtainPanelKind: category == BuiltInCategory.OST_CurtainWallPanels
+                ? PanelKindOf(element, type)
+                : null);
+    }
+
+    /// <summary>
+    /// 一片帷幕嵌板的種類，與 <c>RevitCurtainWallGeometryReader.ReadPanels</c> 讀的是同一套述詞與同一組
+    /// 輸入（<see cref="CurtainPanelTypeSubstitution.Kind"/>、決議 16、步驟 16h）。室內帷幕牆上的區劃
+    /// 邊緣開口要靠它分路：門窗與玻璃答防火保護，實心是構造、開口規則回答不了它（docs §4.8）。
+    /// </summary>
+    /// <remarks>
+    /// 三個輸入都要與幾何讀取層一致，否則同一片嵌板在兩條路上會有兩種種類：
+    /// <list type="bullet">
+    /// <item><c>isOpening</c> 恆為 false——這個分支只收 <c>OST_CurtainWallPanels</c>，門窗走各自的類別。</item>
+    /// <item>宣告讀的是**嵌板自己的型別**，不是來源牆型別。被取代時來源牆型別上不會有
+    /// <c>防火檢討_嵌板種類</c>（那個參數只綁 Curtain Panels），而使用者若真在嵌板型別上明寫了種類，
+    /// 明寫的那句話比推論可靠（<see cref="CurtainPanelKinds.Classify"/> 的註解）。</item>
+    /// <item>佔位嵌板（保留型別、參數唯讀、指到一個牆型別）視為實心。少了這一步，它會被判成
+    /// 「未宣告種類」，而訊息會叫使用者去填一個**填不進去**的參數。</item>
+    /// </list>
+    /// </remarks>
+    private CurtainPanelKind? PanelKindOf(Element element, Element? type)
+    {
+        var source = RevitReservedPanelType.SourceWallTypeOf(_document, element, type as ElementType);
+        var declared = type?.LookupParameter(CurtainPanelKindParameters.Provided)?.AsString();
+
+        return CurtainPanelTypeSubstitution.Kind(false, element is Wall, declared, source is not null);
     }
 
     private static Point2D? Centre(BoundingBoxXYZ? box) =>
