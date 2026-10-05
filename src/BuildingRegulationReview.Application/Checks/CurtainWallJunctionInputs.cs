@@ -90,8 +90,18 @@ public enum CurtainWallJunctionDoubtKind
     /// </summary>
     FacadeWallOverlapsPanel,
 
-    /// <summary>連跨複數樓層之挑空帷幕牆：改依第79條之2垂直區劃檢討，不是本項的未符合.</summary>
-    VerticalCompartmentSpace
+    /// <summary>
+    /// 連跨複數樓層之挑空帷幕牆：改依第79條之2垂直區劃檢討，不是本項的未符合。只在帷幕牆後方的區劃
+    /// 用途標示為垂直區劃（挑空、樓梯間……）時才給——那是改依另一條檢討的正面證據.
+    /// </summary>
+    VerticalCompartmentSpace,
+
+    /// <summary>
+    /// 帷幕牆穿過本層標高，本層卻沒有區劃樓地板與它交接，而後方的區劃也不是垂直區劃：樓板退得比搜尋
+    /// 公差遠、樓板沒建、以屋頂建模，或其實是挑空但用途沒有標示。工具分不出是哪一種，交人工覆核，
+    /// 絕不判不適用——不適用在檢討表上讀起來就是沒事（docs §3.4）.
+    /// </summary>
+    FloorNotMeetingCurtainWall
 }
 
 /// <summary>One such observation, with the elements a user has to look at.</summary>
@@ -131,7 +141,9 @@ public sealed class CurtainWallJunctionDoubt
         CurtainWallJunctionDoubtKind.UnresolvedIntersection => ReviewErrorCode.CurtainWallJunctionUnresolved,
         CurtainWallJunctionDoubtKind.SplitByGridLine => ReviewErrorCode.CurtainWallJunctionSplitByGridLine,
         CurtainWallJunctionDoubtKind.FacadeWallOverlapsPanel => ReviewErrorCode.CurtainWallFacadeOverlapsPanel,
-        _ => ReviewErrorCode.CurtainWallVerticalSpace
+        CurtainWallJunctionDoubtKind.FloorNotMeetingCurtainWall => ReviewErrorCode.CurtainWallFloorNotMeeting,
+        CurtainWallJunctionDoubtKind.VerticalCompartmentSpace => ReviewErrorCode.CurtainWallVerticalSpace,
+        _ => throw new InvalidOperationException($"帷幕牆交接疑義種類 {Kind} 沒有對應的錯誤碼。")
     };
 
     public override string ToString() => $"{Kind}: {Message}";

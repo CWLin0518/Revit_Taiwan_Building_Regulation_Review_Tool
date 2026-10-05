@@ -50,17 +50,26 @@ public static class CurtainWallJunctionResolver
     /// <summary>The least number of points a spandrel band is sampled at (docs §4.3 step 2).</summary>
     private const int MinimumSamples = 3;
 
+    /// <param name="observations">What the reader read for one package.</param>
+    /// <param name="options">The constants of docs §4.4.</param>
+    /// <param name="verticalCompartmentZoneIds">
+    /// The 區劃 of this storey whose 用途 is a 第79條之2 垂直區劃 (挑空、樓梯間……). A curtain wall running
+    /// through this level with no floor meeting it is handed on to 第79條之2 only when the 區劃 behind
+    /// it is one of these; otherwise it is 人工覆核 (docs §3.4).
+    /// </param>
     public static IReadOnlyList<CurtainWallJunction> Resolve(
         CurtainWallObservationSet observations,
-        CurtainWallJunctionOptions? options = null)
+        CurtainWallJunctionOptions? options = null,
+        IEnumerable<Guid>? verticalCompartmentZoneIds = null)
     {
         if (observations is null) throw new ArgumentNullException(nameof(observations));
         options ??= CurtainWallJunctionOptions.Default;
+        var verticalZones = new HashSet<Guid>(verticalCompartmentZoneIds ?? Array.Empty<Guid>());
 
         // 弧形帷幕牆以段登錄（docs §4.7），同一個 UniqueId 的各段在這裡合回一道牆。
         var junctions = new List<CurtainWallJunction>();
         foreach (var wall in observations.CurtainWalls.GroupBy(w => w.UniqueId, StringComparer.Ordinal))
-            junctions.AddRange(ForCurtainWall(observations, wall.ToList(), options));
+            junctions.AddRange(ForCurtainWall(observations, wall.ToList(), options, verticalZones));
 
         return junctions
             .OrderBy(x => x.ZoneId)
@@ -72,7 +81,8 @@ public static class CurtainWallJunctionResolver
     private static IEnumerable<CurtainWallJunction> ForCurtainWall(
         CurtainWallObservationSet set,
         IReadOnlyList<CurtainWallObservation> facets,
-        CurtainWallJunctionOptions options)
+        CurtainWallJunctionOptions options,
+        ISet<Guid> verticalCompartmentZoneIds)
     {
         // Revit's Wall.Orientation is the location line turned −90° about Z and says nothing about
         // which side the building is on, so the side the 區劃 lies on decides it (docs §4.6, 決議 15).
@@ -86,8 +96,11 @@ public static class CurtainWallJunctionResolver
         // go to 人工覆核, and only 第79條之4 — which asks nothing of geometry — is still answered.
         if (!wall.IsPlanar)
         {
-            if (wallZone is not null)
+            // Unmeasured, the storey below's or above's wall would put the same two 人工覆核 rows in
+            // this package as in its own; it is answered there.
+            if (wallZone is not null && StandsInThisStorey(set, wall, options.JunctionSearchToleranceMm))
             {
+                var own = OfThisStorey(set, wall.Panels).ToList();
                 foreach (var kind in new[] { CurtainWallJunctionKind.WallToCurtainWall, CurtainWallJunctionKind.FloorToCurtainWall })
                 {
                     yield return CurtainWallJunction.Doubtful(
@@ -96,10 +109,10 @@ public static class CurtainWallJunctionResolver
                             CurtainWallJunctionDoubtKind.NonPlanarCurtainWall,
                             $"帷幕牆（Id {wall.UniqueId}）{wall.NonPlanarReason}，無法以平面量測交接處，需人工覆核。",
                             new[] { wall.UniqueId }),
-                        panelUniqueIds: wall.Panels.Select(p => p.UniqueId));
+                        panelUniqueIds: own.Select(p => p.UniqueId));
                 }
 
-                foreach (var all in OtherPanelJunctions(wallZone, wall, OfThisStorey(set, wall.Panels))) yield return all;
+                foreach (var all in OtherPanelJunctions(wallZone, wall, own)) yield return all;
             }
 
             yield break;
@@ -112,14 +125,14 @@ public static class CurtainWallJunctionResolver
             results.AddRange(WallJunctions(set, elevation, host, options));
         }
 
-        foreach (var floor in set.CompartmentFloors.Where(f => IsSameElevation(f.ElevationMm, set.LevelElevationMm)))
+        foreach (var floor in set.CompartmentFloors.Where(f => IsFloorOfThisLevel(set, f, options)))
         {
             foreach (var junction in Spandrels(set, elevation, floor, options))
                 results.Add(junction);
         }
 
-        var vertical = VerticalSpace(set, elevation, wallZone, options);
-        if (vertical is not null) results.Add(vertical);
+        var noFloor = NoFloorAtThisLevel(set, elevation, wallZone, options, verticalCompartmentZoneIds);
+        if (noFloor is not null) results.Add(noFloor);
 
         foreach (var junction in results) yield return junction;
 
@@ -741,38 +754,176 @@ public static class CurtainWallJunctionResolver
     }
 
     /// <summary>
-    /// 第79條之3第3項：a curtain wall that runs past the storey above with no 區劃樓地板 there is a
-    /// 連跨複數樓層 vertical space, and belongs to 第79條之2 rather than to this check (docs §3.4).
+    /// A curtain wall that runs up through this storey's level with no 區劃樓地板 meeting it there
+    /// (docs §3.4). Two answers, and only one of them says 不適用:
+    /// <list type="bullet">
+    /// <item>The 區劃 behind it is a 垂直區劃 by its 用途 — a 挑空, a 樓梯間: a 連跨複數樓層 space
+    /// (第79條之3第3項), handed on to 第79條之2. That is positive evidence the clause is another one's.</item>
+    /// <item>Anything else — a floor set back further than the search tolerance, no floor modelled, a
+    /// roof drawn as a Roof, or a 挑空 whose 用途 nobody marked — is 人工覆核, with the distance to the
+    /// nearest floor of this level when there is one. 不適用 would read as nothing wrong.</item>
+    /// </list>
+    /// <para>
+    /// Only this storey's own level is asked about, because only this storey's floors are in the
+    /// package: the floor of the level above belongs to the next package, so its absence here says
+    /// nothing. Each level a curtain wall runs past without a floor is answered by the package of that
+    /// level. A wall standing on this level (or on the one above, which the 900 mm read margin also
+    /// hands over) does not run through it; the search tolerance absorbs a base offset laid a little
+    /// below the slab to cover its edge.
+    /// </para>
     /// </summary>
-    private static CurtainWallJunction? VerticalSpace(
+    private static CurtainWallJunction? NoFloorAtThisLevel(
         CurtainWallObservationSet set,
         Elevation elevation,
         CurtainWallZoneObservation? zone,
-        CurtainWallJunctionOptions options)
+        CurtainWallJunctionOptions options,
+        ISet<Guid> verticalCompartmentZoneIds)
     {
         var wall = elevation.First;
-        var next = set.LevelElevationsMm.Where(e => e > set.LevelElevationMm + SnapMm).Cast<double?>().FirstOrDefault();
-        if (next is not double above || wall.TopElevationMm <= above + SnapMm) return null;
+        var level = set.LevelElevationMm;
+        var tolerance = options.JunctionSearchToleranceMm;
+        if (wall.BaseElevationMm >= level - tolerance || wall.TopElevationMm <= level + tolerance) return null;
 
-        // The read reaches 900 mm past the storey on either side, so the storey above's own curtain
-        // wall is in this set too. Standing on the level above, it does not run past it: that level's
-        // floor belongs to the next package, which reviews the wall with it.
-        if (wall.BaseElevationMm >= above - SnapMm) return null;
-        if (set.CompartmentFloors.Any(f => IsSameElevation(f.ElevationMm, above) && f.HasOutline &&
-                                           elevation.Facets.Any(facet => InsideSpans(facet, f, options.JunctionSearchToleranceMm).Any())))
-            return null;
+        var floors = set.CompartmentFloors.Where(f => IsFloorOfThisLevel(set, f, options) && f.HasOutline).ToList();
+        if (floors.Any(f => elevation.Facets.Any(facet => InsideSpans(facet, f, tolerance).Any()))) return null;
 
         if (zone is null) return null;
 
-        var storeys = set.LevelElevationsMm.Count(e => e > wall.BaseElevationMm + SnapMm && e < wall.TopElevationMm - SnapMm) + 1;
+        var storeys = set.LevelElevationsMm.Count(e => e > wall.BaseElevationMm + tolerance && e < wall.TopElevationMm - tolerance) + 1;
+        var levelName = string.IsNullOrWhiteSpace(set.LevelName) ? "本層" : $"本層（{set.LevelName}）";
+        var fact = $"帷幕牆（Id {wall.UniqueId}）連跨 {storeys} 個樓層且於{levelName}標高無區劃樓地板與其交接";
+        var id = JunctionId(CurtainWallJunctionKind.FloorToCurtainWall, wall.UniqueId);
+
+        // 不適用要有正面證據，而且要涵蓋整道牆：沿牆每一處後方的區劃都得是垂直區劃。一段面對挑空、
+        // 一段面對沒建樓板的辦公室，後者不能跟著前者一起轉出去。
+        var behind = Behind(set, elevation, options);
+        var ordinary = behind.Where(z => !verticalCompartmentZoneIds.Contains(z.ZoneId)).ToList();
+        if (behind.Count > 0 && ordinary.Count == 0)
+        {
+            return CurtainWallJunction.Doubtful(
+                id, CurtainWallJunctionKind.FloorToCurtainWall, zone.ZoneId, wall.UniqueId,
+                new CurtainWallJunctionDoubt(
+                    CurtainWallJunctionDoubtKind.VerticalCompartmentSpace,
+                    $"{fact}，其後之區劃「{string.Join("、", behind.Select(z => z.Name))}」為垂直區劃，" +
+                    $"屬無法逐層區劃分隔之垂直空間，改依{CurtainWallJunctionReferences.Article79_2}檢討，本項不適用。",
+                    new[] { wall.UniqueId }));
+        }
+
+        var (why, nearest) = WhyNoFloor(set, elevation, options);
+        var unmarked = ordinary.Count > 0 ? ordinary : new List<CurtainWallZoneObservation> { zone };
         return CurtainWallJunction.Doubtful(
-            JunctionId(CurtainWallJunctionKind.FloorToCurtainWall, wall.UniqueId),
-            CurtainWallJunctionKind.FloorToCurtainWall, zone.ZoneId, wall.UniqueId,
+            id, CurtainWallJunctionKind.FloorToCurtainWall, zone.ZoneId, wall.UniqueId,
             new CurtainWallJunctionDoubt(
-                CurtainWallJunctionDoubtKind.VerticalCompartmentSpace,
-                $"帷幕牆（Id {wall.UniqueId}）連跨 {storeys} 個樓層且上方樓層無區劃樓地板與其交接，" +
-                $"屬無法逐層區劃分隔之垂直空間，改依{CurtainWallJunctionReferences.Article79_2}檢討，本項不適用。",
-                new[] { wall.UniqueId }));
+                CurtainWallJunctionDoubtKind.FloorNotMeetingCurtainWall,
+                $"{fact}：{why}。無法確認層間交接是否符合{CurtainWallJunctionReferences.Article79_3}，需人工覆核；" +
+                $"若此處為挑空等垂直區劃，請將區劃「{string.Join("、", unmarked.Select(z => z.Name))}」的用途標示為垂直區劃後重新檢討。",
+                nearest is null ? new[] { wall.UniqueId } : new[] { wall.UniqueId, nearest }),
+            hostUniqueId: nearest);
+    }
+
+    /// <summary>Every 區劃 found behind the wall, probed along it at the sampling interval.</summary>
+    private static IReadOnlyList<CurtainWallZoneObservation> Behind(
+        CurtainWallObservationSet set,
+        Elevation elevation,
+        CurtainWallJunctionOptions options) =>
+        elevation.Facets
+            .SelectMany(facet => Samples(0, facet.LengthMm, options.SamplingIntervalMm).Select(at => ZoneOf(set, facet, at)))
+            .Where(z => z is not null)
+            .Select(z => z!)
+            .GroupBy(z => z.ZoneId)
+            .Select(g => g.First())
+            .OrderBy(z => z.ZoneId)
+            .ToList();
+
+    /// <summary>
+    /// What the user is told about the floors of this storey, and the floor named as the junction's
+    /// host: a floor of this level standing back further than the tolerance, failing that one whose
+    /// elevation is too far off the level, failing that a floor that does not run along the wall at
+    /// all, and failing everything the plain fact that there is none.
+    /// </summary>
+    private static (string Why, string? Floor) WhyNoFloor(
+        CurtainWallObservationSet set,
+        Elevation elevation,
+        CurtainWallJunctionOptions options)
+    {
+        var tol = options.JunctionSearchToleranceMm.ToString("0.#", CultureInfo.InvariantCulture);
+        var outlined = set.CompartmentFloors.Where(f => f.HasOutline).ToList();
+        var level = outlined.Where(f => IsFloorOfThisLevel(set, f, options)).ToList();
+
+        var setBack = level
+            .Select(f => (Floor: f, Depth: elevation.Facets.Select(facet => SetBackOf(facet, f)).Where(d => d is not null).Select(d => d!.Value).DefaultIfEmpty(double.NaN).Min()))
+            .Where(x => !double.IsNaN(x.Depth) && x.Depth > options.JunctionSearchToleranceMm)
+            .OrderBy(x => x.Depth)
+            .FirstOrDefault();
+        if (setBack.Floor is not null)
+            return ($"本層的區劃樓地板（Id {setBack.Floor.UniqueId}）邊緣退在帷幕牆定位線內側 " +
+                    $"{setBack.Depth.ToString("0", CultureInfo.InvariantCulture)} mm，超過搜尋公差 {tol} mm", setBack.Floor.UniqueId);
+
+        var offLevel = outlined
+            .Where(f => !IsFloorOfThisLevel(set, f, options))
+            .OrderBy(f => Math.Abs(f.ElevationMm - set.LevelElevationMm))
+            .FirstOrDefault();
+        if (offLevel is not null)
+            return ($"本層有區劃樓地板（Id {offLevel.UniqueId}），但其高程與本層標高相差 " +
+                    $"{Math.Abs(offLevel.ElevationMm - set.LevelElevationMm).ToString("0", CultureInfo.InvariantCulture)} mm，" +
+                    $"超過公差 {tol} mm", offLevel.UniqueId);
+
+        if (level.Count > 0)
+            return ($"本層的區劃樓地板（Id {level[0].UniqueId}）未沿帷幕牆延伸（僅觸及其端點或位於其外側）", level[0].UniqueId);
+
+        return ("本層沒有任何區劃樓地板（未建模、以屋頂建模，或樓板不在本層）", null);
+    }
+
+    /// <summary>
+    /// How far behind this facet's location line the floor's edge stands, measured only on the 區劃
+    /// side and only along the facet's own length — a floor that merely touches the wall's end or lies
+    /// outside it has no setback, and null says so. Exact: each outline edge is clipped to that strip
+    /// and the depth is linear along it, so the least is at a clipped end.
+    /// </summary>
+    private static double? SetBackOf(CurtainWallObservation wall, CompartmentFloorObservation floor)
+    {
+        double? least = null;
+        foreach (var loop in floor.OutlineLoops)
+        {
+            for (int i = 0, j = loop.Count - 1; i < loop.Count; j = i++)
+            {
+                var (u0, d0) = Local(wall, loop[j]);
+                var (u1, d1) = Local(wall, loop[i]);
+                var low = 0.0;
+                var high = 1.0;
+                if (!Clip(u0, u1, SnapMm, wall.LengthMm - SnapMm, ref low, ref high)) continue;
+                if (!Clip(d0, d1, 0.0, double.PositiveInfinity, ref low, ref high)) continue;
+
+                var depth = Math.Min(d0 + ((d1 - d0) * low), d0 + ((d1 - d0) * high));
+                if (least is null || depth < least) least = depth;
+            }
+        }
+
+        return least;
+    }
+
+    /// <summary>A plan point as (distance along the wall, distance behind its location line).</summary>
+    private static (double Along, double Behind) Local(CurtainWallObservation wall, Point2D point)
+    {
+        var dx = point.X - wall.Start.X;
+        var dy = point.Y - wall.Start.Y;
+        return ((dx * wall.Direction.X) + (dy * wall.Direction.Y),
+                -((dx * wall.ExteriorNormal.X) + (dy * wall.ExteriorNormal.Y)));
+    }
+
+    /// <summary>Narrows [low, high] of a segment's parameter to where a linear value v0 → v1 lies in [min, max].</summary>
+    private static bool Clip(double v0, double v1, double min, double max, ref double low, ref double high)
+    {
+        var dv = v1 - v0;
+        if (Math.Abs(dv) <= ParallelEpsilon)
+            return v0 >= min && v0 <= max && low <= high;
+
+        var tMin = (min - v0) / dv;
+        var tMax = double.IsPositiveInfinity(max) ? (dv > 0 ? double.PositiveInfinity : double.NegativeInfinity) : (max - v0) / dv;
+        if (tMin > tMax) (tMin, tMax) = (tMax, tMin);
+        low = Math.Max(low, tMin);
+        high = Math.Min(high, tMax);
+        return low <= high;
     }
 
     // --- CW-O：其餘嵌板（第79條之4）-------------------------------------------------------------
@@ -788,7 +939,7 @@ public static class CurtainWallJunctionResolver
         CurtainWallObservationSet set,
         IEnumerable<CurtainPanelObservation> panels)
     {
-        var next = set.LevelElevationsMm.Where(e => e > set.LevelElevationMm + SnapMm).Cast<double?>().FirstOrDefault();
+        var next = NextLevelAbove(set);
         return panels.Where(p =>
         {
             var middle = (p.BottomMm + p.TopMm) / 2.0;
@@ -1409,7 +1560,27 @@ public static class CurtainWallJunctionResolver
         }
     }
 
-    private static bool IsSameElevation(double first, double second) => Math.Abs(first - second) <= SnapMm;
+    /// <summary>
+    /// Whether a 區劃樓地板 is this storey's: within the search tolerance of its level, not exactly on
+    /// it. Every floor in the package is already one hosted on this level; a slab offset −50 mm for the
+    /// finish, or whose top is the structural level, is still this storey's floor, and losing it would
+    /// lose the CW-V row and hand the curtain wall to 人工覆核 for want of a floor.
+    /// </summary>
+    private static bool IsFloorOfThisLevel(CurtainWallObservationSet set, CompartmentFloorObservation floor, CurtainWallJunctionOptions options) =>
+        Math.Abs(floor.ElevationMm - set.LevelElevationMm) <= options.JunctionSearchToleranceMm;
+
+    /// <summary>The next level up from this storey's, or null for the top storey.</summary>
+    private static double? NextLevelAbove(CurtainWallObservationSet set) =>
+        set.LevelElevationsMm.Where(e => e > set.LevelElevationMm + SnapMm).Cast<double?>().FirstOrDefault();
+
+    /// <summary>
+    /// Whether a curtain wall stands in this storey by more than the search tolerance, rather than
+    /// being the storey below's or above's that the 900 mm read margin handed over as well.
+    /// </summary>
+    private static bool StandsInThisStorey(CurtainWallObservationSet set, CurtainWallObservation wall, double toleranceMm) =>
+        wall.TopElevationMm > set.LevelElevationMm + toleranceMm &&
+        (NextLevelAbove(set) is not double above || wall.BaseElevationMm < above - toleranceMm);
+
 
     /// <summary>CW-O 三路的 <c>junction.id</c> 尾碼（決議 16）；同一片帷幕牆最多三列，彼此不會撞號。</summary>
     private const string SolidSuffix = "solid";

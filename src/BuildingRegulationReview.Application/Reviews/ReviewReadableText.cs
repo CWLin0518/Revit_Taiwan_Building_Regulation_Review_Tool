@@ -419,7 +419,8 @@ public static class ReviewFieldText
                 ("UnresolvedIntersection", "交點無法唯一解出"),
                 ("SplitByGridLine", "層間帶被 grid line 分割"),
                 ("FacadeWallOverlapsPanel", "實體外牆與帷幕嵌板重疊"),
-                ("VerticalCompartmentSpace", "連跨複數樓層之挑空帷幕牆")),
+                ("VerticalCompartmentSpace", "連跨複數樓層之挑空帷幕牆"),
+                ("FloorNotMeetingCurtainWall", "帷幕牆穿過本層標高而無區劃樓地板與其交接")),
 
             ["shaft.requirement"] = Map(
                 ("HoistwaySmokeSeal", "昇降機道防火設備之遮煙性能"),

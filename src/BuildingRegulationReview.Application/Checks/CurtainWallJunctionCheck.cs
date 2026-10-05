@@ -343,6 +343,10 @@ public static class CurtainWallJunctionCheck
         CurtainWallJunctionKind.WallToCurtainWall =>
             $"帷幕牆（{junction.CurtainWallUniqueId}）與區劃牆（{junction.HostUniqueId}）之交接處" +
             $"{Reference(junction)}於區劃「{zone.Name}」",
+        // 沒有樓板與它交接的那一列（連跨、或交人工覆核）不能說「與區劃樓地板之層間交接處」：那正是它沒有的東西。
+        CurtainWallJunctionKind.FloorToCurtainWall when junction.Doubt?.Kind is
+                CurtainWallJunctionDoubtKind.VerticalCompartmentSpace or CurtainWallJunctionDoubtKind.FloorNotMeetingCurtainWall =>
+            $"帷幕牆（{junction.CurtainWallUniqueId}）於本層之層間交接處於區劃「{zone.Name}」",
         CurtainWallJunctionKind.FloorToCurtainWall =>
             $"帷幕牆（{junction.CurtainWallUniqueId}）與區劃樓地板（{junction.HostUniqueId}）之層間交接處於區劃「{zone.Name}」",
         _ => $"帷幕牆（{junction.CurtainWallUniqueId}）其他部分嵌板於區劃「{zone.Name}」"

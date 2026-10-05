@@ -612,17 +612,20 @@ public sealed class CurtainWallJunctionResolverTests
     [Fact]
     public void A_curtain_wall_running_past_a_storey_with_no_floor_goes_to_article_79_2()
     {
-        // 案例 17：三層連跨挑空 — 不是本項的未符合，是改依第79條之2檢討。
-        var set = new CurtainWallObservationSet(Package, "LVL", "1F", 0,
+        // 案例 17：三層連跨挑空 — 不是本項的未符合，是改依第79條之2檢討。由帷幕牆穿過、卻沒有區劃樓地板
+        // 與其交接的那一層（2F）作答：封包裡只有本層的樓板，上一層有沒有樓板在這裡看不到。後方區劃的
+        // 用途是挑空，那是轉第79條之2的正面證據。
+        var set = new CurtainWallObservationSet(Package, "LVL", "2F", StoreyMm,
             new[] { Zone() },
             new[] { Wall(Glazing(top: StoreyMm * 3), top: StoreyMm * 3) },
             levelElevationsMm: new[] { 0.0, StoreyMm, StoreyMm * 2, StoreyMm * 3 });
 
-        var junction = Single(Resolve(set), CurtainWallJunctionKind.FloorToCurtainWall);
+        var junction = Single(ResolveBehindAtrium(set), CurtainWallJunctionKind.FloorToCurtainWall);
 
         Assert.Equal(CurtainWallJunctionDoubtKind.VerticalCompartmentSpace, junction.Doubt!.Kind);
         Assert.Equal(ReviewStatus.NotApplicable, junction.Doubt.Status);
         Assert.Contains("連跨 3 個樓層", junction.Doubt.Message);
+        Assert.Contains("本層（2F）", junction.Doubt.Message);
         Assert.Contains(CurtainWallJunctionReferences.Article79_2, junction.Doubt.Message);
     }
 
@@ -645,13 +648,13 @@ public sealed class CurtainWallJunctionResolverTests
     [Fact]
     public void A_vertical_space_counts_the_storeys_from_the_curtain_walls_own_base()
     {
-        // 自 1F 起連跨三層的帷幕牆，在 2F 的封包裡讀到：跨幾層從牆底算，不從本層算。
-        var set = new CurtainWallObservationSet(Package, "LVL", "2F", StoreyMm,
+        // 自 1F 起連跨三層的帷幕牆，在 3F 的封包裡讀到：跨幾層從牆底算，不從本層算。
+        var set = new CurtainWallObservationSet(Package, "LVL", "3F", StoreyMm * 2,
             new[] { Zone() },
             new[] { Wall(Glazing(top: StoreyMm * 3), top: StoreyMm * 3) },
             levelElevationsMm: new[] { 0.0, StoreyMm, StoreyMm * 2, StoreyMm * 3 });
 
-        var junction = Single(Resolve(set), CurtainWallJunctionKind.FloorToCurtainWall);
+        var junction = Single(ResolveBehindAtrium(set), CurtainWallJunctionKind.FloorToCurtainWall);
 
         Assert.Equal(CurtainWallJunctionDoubtKind.VerticalCompartmentSpace, junction.Doubt!.Kind);
         Assert.Contains("連跨 3 個樓層", junction.Doubt.Message);
@@ -1299,7 +1302,127 @@ public sealed class CurtainWallJunctionResolverTests
     {
         var set = SetBackSlab(setBackMm: CurtainWallJunctionOptions.Default.JunctionSearchToleranceMm + pastToleranceMm);
 
-        Assert.Equal(meets, Resolve(set).Any(j => j.Kind == CurtainWallJunctionKind.FloorToCurtainWall));
+        var junction = Single(Resolve(set), CurtainWallJunctionKind.FloorToCurtainWall);
+
+        Assert.Equal(meets, !junction.IsDoubtful);
+    }
+
+    [Fact]
+    public void A_slab_set_back_past_the_tolerance_is_manual_review_never_not_applicable()
+    {
+        // 複審 C-1：這裡有 60 min 的區劃樓板，樓板與帷幕牆之間的縫正是第79條之3要管的延燒路徑。判「連跨、
+        // 不適用」會把它從檢討表上藏起來；工具量不到，就交人工覆核，並說出樓板退了多遠。
+        var set = SetBackSlab(setBackMm: 400);
+
+        var junction = Single(Resolve(set), CurtainWallJunctionKind.FloorToCurtainWall);
+
+        Assert.Equal(CurtainWallJunctionDoubtKind.FloorNotMeetingCurtainWall, junction.Doubt!.Kind);
+        Assert.Equal(ReviewStatus.ManualReview, junction.Doubt.Status);
+        Assert.Contains("400 mm", junction.Doubt.Message);
+        Assert.Contains("搜尋公差 300 mm", junction.Doubt.Message);
+        Assert.Equal("F1", junction.HostUniqueId);
+        Assert.Contains("F1", junction.Doubt.SubjectUniqueIds);
+    }
+
+    [Fact]
+    public void A_curtain_wall_running_through_a_level_with_no_floor_at_all_is_manual_review_unless_the_zone_is_vertical()
+    {
+        // 本層完全沒有區劃樓地板：可能是挑空，也可能是樓板沒建或以屋頂建模。後方區劃的用途沒有標示為
+        // 垂直區劃，就不能替使用者認定是挑空。
+        var set = new CurtainWallObservationSet(Package, "LVL", "2F", StoreyMm,
+            new[] { Zone() },
+            new[] { Wall(Glazing(top: StoreyMm * 3), top: StoreyMm * 3) },
+            levelElevationsMm: new[] { 0.0, StoreyMm, StoreyMm * 2, StoreyMm * 3 });
+
+        var junction = Single(Resolve(set), CurtainWallJunctionKind.FloorToCurtainWall);
+
+        Assert.Equal(CurtainWallJunctionDoubtKind.FloorNotMeetingCurtainWall, junction.Doubt!.Kind);
+        Assert.Equal(ReviewStatus.ManualReview, junction.Doubt.Status);
+        Assert.Contains("本層沒有任何區劃樓地板", junction.Doubt.Message);
+        Assert.Contains("A 區劃", junction.Doubt.Message);
+        Assert.Null(junction.HostUniqueId);
+    }
+
+    [Theory]
+    [InlineData(WallLengthMm, WallLengthMm + 5000, 0.0, 8000.0)]   // 樓板緊接在帷幕牆端點之外
+    [InlineData(-500.0, WallLengthMm + 500, -3000.0, -500.0)]      // 樓板在帷幕牆外側（陽台）
+    public void A_floor_that_does_not_run_along_the_curtain_wall_is_not_reported_as_a_set_back(
+        double x0, double x1, double y0, double y1)
+    {
+        // 複審 I-1：樓板只碰到帷幕牆端點或在外側時，沒有「退縮距離」可言，不能說成「退 50 mm 超過公差 300 mm」。
+        var floor = new CompartmentFloorObservation("F1", new[] { Rectangle(x0, y0, x1, y1) }, StoreyMm, 60);
+        var set = ThroughLevel(new[] { floor });
+
+        var junction = Single(Resolve(set), CurtainWallJunctionKind.FloorToCurtainWall);
+
+        Assert.Equal(CurtainWallJunctionDoubtKind.FloorNotMeetingCurtainWall, junction.Doubt!.Kind);
+        Assert.Contains("未沿帷幕牆延伸", junction.Doubt.Message);
+        Assert.DoesNotContain("退在", junction.Doubt.Message);
+    }
+
+    [Fact]
+    public void A_floor_too_far_off_the_level_is_named_with_how_far_rather_than_reported_missing()
+    {
+        // 複審 I-3(b)：有樓板、只是高程超出公差時，訊息要說出相差多少，不能說「本層沒有任何區劃樓地板」。
+        var floor = new CompartmentFloorObservation("F1",
+            new[] { Rectangle(-500, -50, WallLengthMm + 500, 8000) }, StoreyMm - 500, 60);
+
+        var junction = Single(Resolve(ThroughLevel(new[] { floor })), CurtainWallJunctionKind.FloorToCurtainWall);
+
+        Assert.Equal(CurtainWallJunctionDoubtKind.FloorNotMeetingCurtainWall, junction.Doubt!.Kind);
+        Assert.Contains("相差 500 mm", junction.Doubt.Message);
+        Assert.Equal("F1", junction.HostUniqueId);
+    }
+
+    [Fact]
+    public void A_curtain_wall_in_front_of_an_atrium_and_an_office_is_not_handed_on_as_a_whole()
+    {
+        // 複審 I-2：本層沒有樓板，帷幕牆左半段後方是挑空、右半段後方是用途未標示的辦公室。不適用要有
+        // 正面證據且涵蓋整道牆；辦公室那一段可能只是樓板沒建，整道牆交人工覆核並指名辦公室。
+        var atrium = new CurtainWallZoneObservation(ZoneId, "挑空", new[] { Rectangle(-2000, 1, 6000, 20000) });
+        var office = new CurtainWallZoneObservation(Guid.Parse("aaaaaaaa-0000-0000-0000-0000000000b0"), "辦公",
+            new[] { Rectangle(6000, 1, WallLengthMm + 2000, 20000) });
+        var set = new CurtainWallObservationSet(Package, "LVL", "2F", StoreyMm,
+            new[] { atrium, office },
+            new[] { Wall(Glazing(top: StoreyMm * 3), top: StoreyMm * 3) },
+            levelElevationsMm: new[] { 0.0, StoreyMm, StoreyMm * 2, StoreyMm * 3 });
+
+        var junction = Single(ResolveBehindAtrium(set), CurtainWallJunctionKind.FloorToCurtainWall);
+
+        Assert.Equal(CurtainWallJunctionDoubtKind.FloorNotMeetingCurtainWall, junction.Doubt!.Kind);
+        Assert.Contains("「辦公」", junction.Doubt.Message);
+    }
+
+    [Fact]
+    public void A_curtain_wall_in_front_of_an_atrium_whose_floor_meets_it_is_an_ordinary_spandrel()
+    {
+        // 後方區劃是挑空，但本層樓板與帷幕牆交接（例如挑空只開在樓板中間）：那是一般的層間交接，照樣量，
+        // 不因用途是挑空就判不適用。
+        var floor = new CompartmentFloorObservation("F1",
+            new[] { Rectangle(-500, -50, WallLengthMm + 500, 8000) }, StoreyMm, 60);
+
+        var junction = Single(ResolveBehindAtrium(ThroughLevel(new[] { floor })), CurtainWallJunctionKind.FloorToCurtainWall);
+
+        Assert.False(junction.IsDoubtful);
+    }
+
+    [Fact]
+    public void A_floor_offset_below_its_level_is_still_this_storeys_floor()
+    {
+        // 複審 C-1 第 2 點：樓板自標高偏移 -50 mm（扣面材）。它仍是本層的區劃樓地板，照樣量層間帶，
+        // 不因 1 mm 的高程比對被濾掉、再把帷幕牆誤送人工覆核。
+        var floor = new CompartmentFloorObservation("F1",
+            new[] { Rectangle(-500, -50, WallLengthMm + 500, 8000) }, StoreyMm - 50, 60);
+        var set = new CurtainWallObservationSet(Package, "LVL", "2F", StoreyMm,
+            new[] { Zone() },
+            new[] { Wall(Glazing(top: StoreyMm * 2), top: StoreyMm * 2) },
+            compartmentFloors: new[] { floor },
+            levelElevationsMm: new[] { 0.0, StoreyMm, StoreyMm * 2 });
+
+        var junction = Single(Resolve(set), CurtainWallJunctionKind.FloorToCurtainWall);
+
+        Assert.False(junction.IsDoubtful);
+        Assert.Equal("F1", junction.HostUniqueId);
     }
 
     [Fact]
@@ -1346,18 +1469,112 @@ public sealed class CurtainWallJunctionResolverTests
     }
 
     [Fact]
-    public void A_set_back_slab_on_the_storey_above_keeps_a_two_storey_curtain_wall_out_of_article_79_2()
+    public void A_set_back_slab_keeps_a_curtain_wall_running_through_its_level_out_of_article_79_2()
     {
-        // 上一層的樓板同樣退在帷幕牆內側 75 mm：它照樣與帷幕牆交接，不是連跨複數樓層的垂直空間。
-        var above = new CompartmentFloorObservation("F2",
-            new[] { Rectangle(-500, 75, WallLengthMm + 500, 8000) }, StoreyMm, 60);
+        // 本層樓板退在帷幕牆內側 75 mm：它照樣與帷幕牆交接，不是連跨複數樓層的垂直空間。
+        Assert.DoesNotContain(Resolve(SetBackSlab(setBackMm: 75)),
+            j => j.Doubt?.Kind == CurtainWallJunctionDoubtKind.VerticalCompartmentSpace);
+    }
+
+    [Fact]
+    public void A_full_height_curtain_wall_with_a_floor_at_this_level_is_not_a_vertical_space()
+    {
+        // 審查 C1：整棟通高、單一元素的帷幕牆在 2F 的封包裡。實機封包只有本層樓板、沒有上一層的 —
+        // 以前會因為找不到上一層樓板而判連跨，現在只問本層：2F 樓板與它交接，就是一般的層間交接。
+        var floor = new CompartmentFloorObservation("F2",
+            new[] { Rectangle(-500, -50, WallLengthMm + 500, 8000) }, StoreyMm, 60);
+        var set = new CurtainWallObservationSet(Package, "LVL", "2F", StoreyMm,
+            new[] { Zone() },
+            new[] { Wall(Glazing(top: StoreyMm * 4), top: StoreyMm * 4) },
+            compartmentFloors: new[] { floor },
+            levelElevationsMm: new[] { 0.0, StoreyMm, StoreyMm * 2, StoreyMm * 3, StoreyMm * 4 });
+
+        var junctions = Resolve(set);
+
+        Assert.DoesNotContain(junctions, j => j.Doubt?.Kind == CurtainWallJunctionDoubtKind.VerticalCompartmentSpace);
+        Assert.Contains(junctions, j => j.Kind == CurtainWallJunctionKind.FloorToCurtainWall && !j.IsDoubtful);
+    }
+
+    [Fact]
+    public void A_curtain_wall_starting_on_this_level_is_not_a_vertical_space_of_this_level()
+    {
+        // 自 1F 起連跨的帷幕牆在 1F 的封包裡不判連跨：它沒有穿過 1F 標高，連跨由 2F、3F 的封包作答。
         var set = new CurtainWallObservationSet(Package, "LVL", "1F", 0,
             new[] { Zone() },
-            new[] { Wall(Glazing(top: StoreyMm * 2), top: StoreyMm * 2) },
-            compartmentFloors: new[] { above },
-            levelElevationsMm: new[] { 0.0, StoreyMm, StoreyMm * 2 });
+            new[] { Wall(Glazing(top: StoreyMm * 3), top: StoreyMm * 3) },
+            levelElevationsMm: new[] { 0.0, StoreyMm, StoreyMm * 2, StoreyMm * 3 });
 
         Assert.DoesNotContain(Resolve(set), j => j.Doubt?.Kind == CurtainWallJunctionDoubtKind.VerticalCompartmentSpace);
+    }
+
+    [Fact]
+    public void A_base_offset_just_below_the_slab_is_not_running_through_the_level()
+    {
+        // 審查 I1：逐層建模、底部偏移 -50 mm 蓋住樓板邊緣的 3F 帷幕牆，在 3F 的封包裡不是穿過 3F 標高，
+        // 不論 3F 樓板在不在，都不產出任何層間的人工覆核或不適用。
+        var wall = new CurtainWallObservation("CW-3F", new Point2D(0, 0), new Point2D(WallLengthMm, 0), new Point2D(0, -1),
+            OffsetMm, StoreyMm * 2 - 50, StoreyMm * 3,
+            new[] { Glass("P-3F", 0, WallLengthMm, ProvidedFireProtection.Yes("是"), bottom: StoreyMm * 2 - 50, top: StoreyMm * 3) },
+            typeName: "帷幕牆 1");
+        var set = new CurtainWallObservationSet(Package, "LVL-3F", "3F", StoreyMm * 2,
+            new[] { Zone() }, new[] { wall }, levelElevationsMm: new[] { 0.0, StoreyMm, StoreyMm * 2, StoreyMm * 3 });
+
+        Assert.DoesNotContain(Resolve(set), j => j.Kind == CurtainWallJunctionKind.FloorToCurtainWall);
+    }
+
+    [Fact]
+    public void A_curtain_wall_hung_well_below_the_slab_is_measured_where_the_slab_meets_it()
+    {
+        // 底部偏移 -400 mm（包梁深）的帷幕牆確實穿過本層標高，但本層樓板與它交接：那是一般的層間交接，
+        // 不是人工覆核，更不是連跨。
+        var floor = new CompartmentFloorObservation("F1",
+            new[] { Rectangle(-500, -50, WallLengthMm + 500, 8000) }, StoreyMm, 60);
+        var wall = new CurtainWallObservation("CW-2F", new Point2D(0, 0), new Point2D(WallLengthMm, 0), new Point2D(0, -1),
+            OffsetMm, StoreyMm - 400, StoreyMm * 2,
+            new[] { Glass("P-2F", 0, WallLengthMm, ProvidedFireProtection.Yes("是"), bottom: StoreyMm - 400, top: StoreyMm * 2) },
+            typeName: "帷幕牆 1");
+        var set = new CurtainWallObservationSet(Package, "LVL", "2F", StoreyMm,
+            new[] { Zone() }, new[] { wall }, compartmentFloors: new[] { floor },
+            levelElevationsMm: new[] { 0.0, StoreyMm, StoreyMm * 2 });
+
+        var junction = Single(Resolve(set), CurtainWallJunctionKind.FloorToCurtainWall);
+
+        Assert.False(junction.IsDoubtful);
+    }
+
+    [Fact]
+    public void A_curved_curtain_wall_of_the_storey_below_makes_no_rows_in_this_storey()
+    {
+        // 審查 I2：1F 的曲面帷幕牆因讀取範圍放寬也交進 2F 的封包；兩列人工覆核只由 1F 產出。
+        var wall = Wall(new[] { Panel("P", 0, WallLengthMm, 30) }, nonPlanarReason: "為曲面帷幕牆");
+        var levels = new[] { 0.0, StoreyMm, StoreyMm * 2 };
+
+        IReadOnlyList<CurtainWallJunction> In(string storey, double elevation) =>
+            Resolve(new CurtainWallObservationSet(Package, "LVL-" + storey, storey, elevation,
+                new[] { Zone() }, new[] { wall }, levelElevationsMm: levels));
+
+        Assert.Empty(In("2F", StoreyMm));
+        Assert.Equal(3, In("1F", 0).Count);
+    }
+
+    [Fact]
+    public void The_top_storey_answers_for_every_panel_above_its_level()
+    {
+        // 最頂層沒有上一層：本層標高以上的嵌板都由它作答，女兒牆高度的嵌板也一樣。
+        var wall = new CurtainWallObservation("CW-top", new Point2D(0, 0), new Point2D(WallLengthMm, 0), new Point2D(0, -1),
+            OffsetMm, StoreyMm, StoreyMm * 2 + 1200,
+            new[]
+            {
+                Glass("P-top", 0, WallLengthMm, ProvidedFireProtection.Yes("是"), bottom: StoreyMm, top: StoreyMm * 2),
+                Glass("P-parapet", 0, WallLengthMm, ProvidedFireProtection.Yes("是"), bottom: StoreyMm * 2, top: StoreyMm * 2 + 1200)
+            },
+            typeName: "帷幕牆 1");
+        var set = new CurtainWallObservationSet(Package, "LVL", "RF", StoreyMm,
+            new[] { Zone() }, new[] { wall }, levelElevationsMm: new[] { 0.0, StoreyMm });
+
+        var other = Single(Resolve(set), CurtainWallJunctionKind.CurtainPanelOther);
+
+        Assert.Equal(new[] { "P-parapet", "P-top" }, other.PanelUniqueIds.OrderBy(id => id, StringComparer.Ordinal).ToArray());
     }
 
     [Fact]
@@ -1373,6 +1590,18 @@ public sealed class CurtainWallJunctionResolverTests
 
     private static IReadOnlyList<CurtainWallJunction> Resolve(CurtainWallObservationSet set) =>
         CurtainWallJunctionResolver.Resolve(set);
+
+    /// <summary>2F 的封包，一道自 1F 起連跨三層的玻璃帷幕牆穿過 2F 標高，本層的樓板由呼叫者給定。</summary>
+    private static CurtainWallObservationSet ThroughLevel(IEnumerable<CompartmentFloorObservation> floors) =>
+        new(Package, "LVL", "2F", StoreyMm,
+            new[] { Zone() },
+            new[] { Wall(Glazing(top: StoreyMm * 3), top: StoreyMm * 3) },
+            compartmentFloors: floors,
+            levelElevationsMm: new[] { 0.0, StoreyMm, StoreyMm * 2, StoreyMm * 3 });
+
+    /// <summary>The same, with the 區劃 behind the façade marked 挑空 by its 用途.</summary>
+    private static IReadOnlyList<CurtainWallJunction> ResolveBehindAtrium(CurtainWallObservationSet set) =>
+        CurtainWallJunctionResolver.Resolve(set, null, new[] { ZoneId });
 
     private static CurtainWallJunction Single(IEnumerable<CurtainWallJunction> junctions, CurtainWallJunctionKind kind) =>
         Assert.Single(junctions, j => j.Kind == kind);

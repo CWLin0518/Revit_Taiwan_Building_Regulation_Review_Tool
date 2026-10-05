@@ -9,6 +9,7 @@ using BuildingRegulationReview.Application.Abstractions;
 using BuildingRegulationReview.Application.Candidates;
 using BuildingRegulationReview.Application.Checks;
 using BuildingRegulationReview.Application.Diagnostics;
+using BuildingRegulationReview.Application.Parameters;
 using BuildingRegulationReview.Domain.Common;
 using BuildingRegulationReview.Domain.ReviewPackages;
 using BuildingRegulationReview.Domain.Reviews;
@@ -412,10 +413,24 @@ public static class FireReviewRunner
         foreach (var warning in read.Value.Warnings)
             log.Add(ReviewErrorCode.ReviewCompleted, ReviewStage.Review, ReviewSeverity.Warning, warning);
 
-        var junctions = CurtainWallJunctionResolver.Resolve(read.Value, request.JunctionOptions);
+        var junctions = CurtainWallJunctionResolver.Resolve(read.Value, request.JunctionOptions,
+            VerticalCompartmentZones(set, request.Inputs.Area));
         return CurtainWallJunctionCheck.Review(set, new CurtainWallJunctionInputs(request.Inputs.Area, junctions),
             engine, request.Context, runId, request.JunctionOptions, newId);
     }
+
+    /// <summary>
+    /// The 區劃 whose 用途 is a 第79條之2 垂直區劃, read from the same zone.use the area rules read. A 用途
+    /// that cannot be read is not one: the curtain wall in front of it goes to 人工覆核, not to 不適用.
+    /// </summary>
+    private static IEnumerable<Guid> VerticalCompartmentZones(CandidateSet set, CompartmentAreaInputs inputs) =>
+        set.Zones
+            .Where(zone => inputs.ForZone(zone.ZoneId)
+                .Any(i => string.Equals(i.Field, "zone.use", StringComparison.Ordinal) &&
+                          i is { IsUnreadable: false, Value: { Kind: ReviewValueKind.Text } text } &&
+                          ZoneUses.IsVerticalCompartment(text.Text.Trim())))
+            .Select(zone => zone.ZoneId)
+            .ToList();
 
     /// <summary>
     /// What each host must achieve, as the rules required it of that element. A host reviewed in more

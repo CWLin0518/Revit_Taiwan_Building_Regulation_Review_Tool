@@ -67,7 +67,8 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
         // top row of the storey below and the bottom row of the one above included. Those are there
         // for the bands to measure; the resolver answers 第79條之4 only for this storey's own panels.
         var margin = PlanUnits.MillimetersToFeet(request.Options.MinFireRatedRunMm);
-        var storey = (Bottom: level.Elevation - margin, Top: NextLevelElevation(level) + margin);
+        var storeyElevations = StoreyElevations(level);
+        var storey = (Bottom: level.Elevation - margin, Top: NextLevelElevation(level, storeyElevations) + margin);
 
         var curtainWalls = new List<CurtainWallObservation>();
         foreach (var wall in Collect<Wall>(BuiltInCategory.OST_Walls).Where(w => w.CurtainGrid is not null))
@@ -101,11 +102,7 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
             }
         }
 
-        var levels = new FilteredElementCollector(_document)
-            .OfClass(typeof(Level))
-            .Cast<Level>()
-            .Select(l => PlanUnits.FeetToMillimeters(l.Elevation))
-            .ToList();
+        var levels = storeyElevations.Select(PlanUnits.FeetToMillimeters).ToList();
 
         return Result.Success(new CurtainWallObservationSet(
             request.PackageId,
@@ -346,11 +343,25 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
         return Math.Abs(to.Z - from.Z) > new XYZ(to.X - from.X, to.Y - from.Y, 0).GetLength();
     }
 
-    private double NextLevelElevation(Level level) =>
+    /// <summary>
+    /// The elevations of the levels that are building storeys (Revit 的「建築樓層」), in feet, plus this
+    /// package's own level whatever it is flagged. A reference level — 結構 SL, 天花, 女兒牆頂 — is not a
+    /// storey and has no package: counted as one, the panels between it and the storey above would
+    /// belong to neither package and 第79條之4 would never be answered for them.
+    /// </summary>
+    private IReadOnlyList<double> StoreyElevations(Level level) =>
         new FilteredElementCollector(_document)
             .OfClass(typeof(Level))
             .Cast<Level>()
+            .Where(l => l.Id == level.Id || IsBuildingStorey(l))
             .Select(l => l.Elevation)
+            .ToList();
+
+    private static bool IsBuildingStorey(Level level) =>
+        level.get_Parameter(BuiltInParameter.LEVEL_IS_BUILDING_STORY)?.AsInteger() != 0;
+
+    private static double NextLevelElevation(Level level, IReadOnlyList<double> storeyElevations) =>
+        storeyElevations
             .Where(e => e > level.Elevation + SnapFeet)
             .DefaultIfEmpty(level.Elevation + PlanUnits.MillimetersToFeet(4000.0))
             .Min();

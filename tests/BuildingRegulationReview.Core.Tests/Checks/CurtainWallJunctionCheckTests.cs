@@ -309,6 +309,24 @@ public sealed class CurtainWallJunctionCheckTests
         Assert.Null(finding.ErrorCode);
     }
 
+    [Fact]
+    public void A_floor_that_does_not_meet_the_curtain_wall_is_manual_review_with_its_own_code()
+    {
+        var junction = CurtainWallJunction.Doubtful("CW-V:cw-1", CurtainWallJunctionKind.FloorToCurtainWall, ZoneA, "cw-1",
+            new CurtainWallJunctionDoubt(CurtainWallJunctionDoubtKind.FloorNotMeetingCurtainWall,
+                "本層最近的區劃樓地板邊緣距帷幕牆定位線 400 mm，超過搜尋公差 300 mm。", new[] { "cw-1", "floor-1" }),
+            hostUniqueId: "floor-1");
+
+        var finding = Single(new[] { junction });
+
+        Assert.Equal(ReviewStatus.ManualReview, finding.Status);
+        Assert.Equal(ReviewErrorCode.CurtainWallFloorNotMeeting, finding.ErrorCode);
+        // 主詞不說「與區劃樓地板之層間交接」：沒有樓板與它交接正是這一列要講的事。
+        Assert.StartsWith("帷幕牆（cw-1）於本層之層間交接處", finding.Result.Message);
+        Assert.Equal(ReviewValue.OfText("FloorNotMeetingCurtainWall"), finding.Result.Evidence.Find("junction.doubt"));
+        Assert.Null(finding.Result.Evidence.Find("junction.transferredTo"));
+    }
+
     // --- CW-O 其餘帷幕牆面（第79條之4） -------------------------------------------------------------
 
     [Theory]

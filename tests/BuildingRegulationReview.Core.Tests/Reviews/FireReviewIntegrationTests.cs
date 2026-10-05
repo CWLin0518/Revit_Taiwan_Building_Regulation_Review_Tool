@@ -1327,12 +1327,14 @@ public sealed class FireReviewIntegrationTests
         private readonly double _bandMinutes;
         private readonly Error? _failure;
         private readonly bool _split;
+        private readonly bool _throughLevel;
 
-        public CurtainWalls(double bandMinutes = 60, Error? failure = null, bool split = false)
+        public CurtainWalls(double bandMinutes = 60, Error? failure = null, bool split = false, bool throughLevel = false)
         {
             _bandMinutes = bandMinutes;
             _failure = failure;
             _split = split;
+            _throughLevel = throughLevel;
         }
 
         /// <summary>What the run asked for: the hosts, their required ratings and their clauses.</summary>
@@ -1347,6 +1349,7 @@ public sealed class FireReviewIntegrationTests
                 new[] { Loop(-2000, 1, WallMm + 2000, 20000) });
 
             if (_split) return Result.Success(Split(request, zone));
+            if (_throughLevel) return Result.Success(ThroughLevel(request, zone));
 
             // 交接帶（交點 5000 左右各 900 mm）那一段立面不鋪嵌板，改以一道實體外牆表達——決議 13
             // 起 CW-H 的但書長度只由它供給（帷幕牆規格 §4.2「建模要求」）。4000–4500 留一片實板，
@@ -1401,6 +1404,27 @@ public sealed class FireReviewIntegrationTests
         }
 
         /// <summary>
+        /// 一道自下一層起建、穿過本層標高的玻璃帷幕牆，本層沒有任何區劃樓地板與它交接（docs §3.4）。
+        /// 是挑空還是樓板沒建，只有後方區劃的用途說得出來。
+        /// </summary>
+        private static CurtainWallObservationSet ThroughLevel(CurtainWallReadRequest request, CurtainWallZoneObservation zone)
+        {
+            var wall = new CurtainWallObservation("CW-through", new Point2D(0, 0), new Point2D(WallMm, 0),
+                new Point2D(0, -1), OffsetMm, -StoreyMm, StoreyMm,
+                new[]
+                {
+                    new CurtainPanelObservation("P-through", 0, WallMm, -StoreyMm, StoreyMm,
+                        ProvidedFireRating.Missing("玻璃嵌板不填構造時效"), false, ProvidedFireProtection.Yes("是"),
+                        kind: CurtainPanelKind.Glazed)
+                },
+                typeName: "帷幕牆");
+
+            return new CurtainWallObservationSet(request.PackageId, "level-1F", "1F", 0,
+                new[] { zone }, new[] { wall },
+                levelElevationsMm: new[] { -StoreyMm, 0.0, StoreyMm });
+        }
+
+        /// <summary>
         /// 決議 16：玻璃嵌板宣告 <c>玻璃</c> 並以 <c>防火檢討_設計防火保護</c> 作答（認可之防火玻璃），
         /// 實板宣告 <c>實心</c> 並以設計防火時效作答。兩種都在這個 fixture 裡出現過。
         /// </summary>
@@ -1440,6 +1464,29 @@ public sealed class FireReviewIntegrationTests
         // A wall inside a 區劃 is no boundary and is not read as one (docs §3.1).
         Assert.DoesNotContain("W3-partition", asked.LegalReferences.Keys);
         Assert.DoesNotContain("W3-partition", asked.RequiredFireRatingMinutes.Keys);
+    }
+
+    [Theory]
+    [InlineData(ZoneUses.Atrium, ReviewStatus.NotApplicable)]
+    [InlineData(ZoneUses.Stairwell, ReviewStatus.NotApplicable)]
+    [InlineData("辦公", ReviewStatus.ManualReview)]
+    [InlineData(null, ReviewStatus.ManualReview)]
+    public void A_curtain_wall_running_through_a_level_with_no_floor_is_handed_to_article_79_2_only_behind_a_vertical_compartment(
+        string? use, ReviewStatus expected)
+    {
+        // 複審 C-1：「不適用」只給有正面證據的情況——後方區劃的用途標示為垂直區劃。用途是一般用途或沒標示時，
+        // 同一道牆可能只是樓板沒建，交人工覆核。
+        var parameters = new Parameters();
+        if (use is not null) parameters.Elements["area-a"][ReviewInputSources.ZoneUse] = ParameterReading.OfText(use);
+
+        var outcome = Run(Request(parameters: parameters, curtainWalls: new CurtainWalls(throughLevel: true)));
+        var section = outcome.Table!.Section(ReviewCheckTypes.CompartmentContinuity);
+
+        var spandrel = Assert.Single(section.Entries, e => e.JunctionKind == CurtainWallJunctionKind.FloorToCurtainWall);
+        Assert.Equal(expected, spandrel.EffectiveStatus);
+        Assert.Equal(
+            ReviewValue.OfText(expected == ReviewStatus.NotApplicable ? "VerticalCompartmentSpace" : "FloorNotMeetingCurtainWall"),
+            spandrel.Result.Evidence.Find("junction.doubt"));
     }
 
     [Fact]
