@@ -181,9 +181,18 @@ public sealed class CurtainPanelObservation
 /// laid out on its plane. Everything in millimetres, in host project coordinates.
 /// </summary>
 /// <remarks>
-/// A curved, sloped or warped wall cannot be described this way, and the adapter says so in
+/// <para>
+/// An arc curtain wall is handed over as one observation per <b>facet</b>: Revit lays flat panels
+/// between its vertical grid lines, so each stretch between two of them really is a plane, and the
+/// chord through it is that plane's location line (docs §4.7). The facets share the wall's
+/// <see cref="UniqueId"/> and are told apart by <see cref="FacetIndex"/>; the resolver puts them back
+/// together into one wall, so junction ids, CW-O rows and the review elevation still name one element.
+/// </para>
+/// <para>
+/// Any other curved, sloped or warped wall cannot be described this way, and the adapter says so in
 /// <see cref="NonPlanarReason"/> rather than flattening it into a line that would measure the wrong
 /// thing (docs §9). The resolver turns that into 人工覆核.
+/// </para>
 /// </remarks>
 public sealed class CurtainWallObservation
 {
@@ -198,9 +207,16 @@ public sealed class CurtainWallObservation
         IEnumerable<CurtainPanelObservation>? panels = null,
         IEnumerable<CurtainGridLineObservation>? gridLines = null,
         string? nonPlanarReason = null,
-        string? typeName = null)
+        string? typeName = null,
+        int? facetIndex = null,
+        double facetOffsetMm = 0.0)
     {
         if (string.IsNullOrWhiteSpace(uniqueId)) throw new ArgumentException("Curtain wall UniqueId is required.", nameof(uniqueId));
+        if (facetIndex < 0) throw new ArgumentOutOfRangeException(nameof(facetIndex), "A facet index cannot be negative.");
+        if (facetOffsetMm < 0 || double.IsNaN(facetOffsetMm) || double.IsInfinity(facetOffsetMm))
+            throw new ArgumentOutOfRangeException(nameof(facetOffsetMm), "A facet starts somewhere along the wall, never before it.");
+        if (facetIndex is null && facetOffsetMm != 0.0)
+            throw new ArgumentException("Only a facet has an offset along the wall.", nameof(facetOffsetMm));
         if (exteriorOffsetMm < 0 || double.IsNaN(exteriorOffsetMm) || double.IsInfinity(exteriorOffsetMm))
             throw new ArgumentOutOfRangeException(nameof(exteriorOffsetMm), "The offset to the outside face cannot be negative.");
         if (topElevationMm - baseElevationMm <= CurtainPanelObservation.TouchToleranceMm)
@@ -225,6 +241,10 @@ public sealed class CurtainWallObservation
         TopElevationMm = topElevationMm;
         NonPlanarReason = string.IsNullOrWhiteSpace(nonPlanarReason) ? null : nonPlanarReason!.Trim();
         TypeName = string.IsNullOrWhiteSpace(typeName) ? null : typeName!.Trim();
+        FacetIndex = facetIndex;
+        FacetOffsetMm = facetOffsetMm;
+        if (IsFacet && !IsPlanar)
+            throw new ArgumentException("A facet is a plane by construction; a facet that is not is a reading error.", nameof(nonPlanarReason));
 
         var panelList = (panels ?? Array.Empty<CurtainPanelObservation>()).ToList();
         if (panelList.Any(x => x is null)) throw new ArgumentException("The panels contain a missing entry.", nameof(panels));
@@ -265,6 +285,21 @@ public sealed class CurtainWallObservation
     public string? NonPlanarReason { get; }
 
     public bool IsPlanar => NonPlanarReason is null;
+
+    /// <summary>
+    /// Which flat stretch of an arc curtain wall this is, counted from the wall's start; null for a
+    /// straight wall, which is one plane from end to end (docs §4.7).
+    /// </summary>
+    public int? FacetIndex { get; }
+
+    /// <summary>
+    /// How far along the wall — summed over the chords of the facets before it — this facet starts.
+    /// It puts every facet's own distances on one axis, so a 交接帶 reaching past a facet's end still
+    /// finds the panels of the next one (docs §4.7). Always 0 for a straight wall.
+    /// </summary>
+    public double FacetOffsetMm { get; }
+
+    public bool IsFacet => FacetIndex is not null;
 
     /// <summary>Panels in bottom-then-left order, so a fixed model yields a fixed run.</summary>
     public IReadOnlyList<CurtainPanelObservation> Panels { get; }
@@ -336,9 +371,13 @@ public sealed class CurtainWallObservation
             Panels,
             GridLines,
             NonPlanarReason,
-            TypeName);
+            TypeName,
+            FacetIndex,
+            FacetOffsetMm);
 
-    public override string ToString() => $"{UniqueId}（{TypeName ?? "帷幕牆"}，{LengthMm:0.#} mm）";
+    public override string ToString() => FacetIndex is int facet
+        ? $"{UniqueId} 第 {facet + 1} 段（{TypeName ?? "帷幕牆"}，{LengthMm:0.#} mm）"
+        : $"{UniqueId}（{TypeName ?? "帷幕牆"}，{LengthMm:0.#} mm）";
 }
 
 /// <summary>
@@ -621,8 +660,15 @@ public sealed class CurtainWallObservationSet
         if (facadeList.Any(x => x is null)) throw new ArgumentException("Facade walls cannot contain null.", nameof(facadeWalls));
         if (zoneList.GroupBy(x => x.ZoneId).Any(g => g.Count() > 1))
             throw new ArgumentException("The same zone is listed twice.", nameof(zones));
-        if (wallList.GroupBy(x => x.UniqueId, StringComparer.Ordinal).Any(g => g.Count() > 1))
-            throw new ArgumentException("The same curtain wall is listed twice.", nameof(curtainWalls));
+        foreach (var group in wallList.GroupBy(x => x.UniqueId, StringComparer.Ordinal))
+        {
+            // 一道牆要嘛整片一筆，要嘛全部以段登錄且段號不重複（docs §4.7）。
+            var entries = group.ToList();
+            if (entries.Count > 1 && entries.Any(x => !x.IsFacet))
+                throw new ArgumentException("The same curtain wall is listed twice.", nameof(curtainWalls));
+            if (entries.GroupBy(x => x.FacetIndex).Any(g => g.Count() > 1))
+                throw new ArgumentException("The same curtain wall facet is listed twice.", nameof(curtainWalls));
+        }
         if (facadeList.GroupBy(x => x.UniqueId, StringComparer.Ordinal).Any(g => g.Count() > 1))
             throw new ArgumentException("The same facade wall is listed twice.", nameof(facadeWalls));
 
@@ -632,7 +678,7 @@ public sealed class CurtainWallObservationSet
         LevelElevationMm = levelElevationMm;
         Zones = new ReadOnlyCollection<CurtainWallZoneObservation>(zoneList);
         CurtainWalls = new ReadOnlyCollection<CurtainWallObservation>(
-            wallList.OrderBy(x => x.UniqueId, StringComparer.Ordinal).ToList());
+            wallList.OrderBy(x => x.UniqueId, StringComparer.Ordinal).ThenBy(x => x.FacetIndex ?? 0).ToList());
         CompartmentWalls = new ReadOnlyCollection<CompartmentWallObservation>(
             hostWallList.OrderBy(x => x.UniqueId, StringComparer.Ordinal).ToList());
         CompartmentFloors = new ReadOnlyCollection<CompartmentFloorObservation>(

@@ -57,9 +57,10 @@ public static class CurtainWallJunctionResolver
         if (observations is null) throw new ArgumentNullException(nameof(observations));
         options ??= CurtainWallJunctionOptions.Default;
 
+        // 弧形帷幕牆以段登錄（docs §4.7），同一個 UniqueId 的各段在這裡合回一道牆。
         var junctions = new List<CurtainWallJunction>();
-        foreach (var wall in observations.CurtainWalls)
-            junctions.AddRange(ForCurtainWall(observations, wall, options));
+        foreach (var wall in observations.CurtainWalls.GroupBy(w => w.UniqueId, StringComparer.Ordinal))
+            junctions.AddRange(ForCurtainWall(observations, wall.ToList(), options));
 
         return junctions
             .OrderBy(x => x.ZoneId)
@@ -70,14 +71,16 @@ public static class CurtainWallJunctionResolver
 
     private static IEnumerable<CurtainWallJunction> ForCurtainWall(
         CurtainWallObservationSet set,
-        CurtainWallObservation wall,
+        IReadOnlyList<CurtainWallObservation> facets,
         CurtainWallJunctionOptions options)
     {
         // Revit's Wall.Orientation is the location line turned −90° about Z and says nothing about
         // which side the building is on, so the side the 區劃 lies on decides it (docs §4.6, 決議 15).
-        wall = Oriented(set, wall);
+        // Each facet of an arc wall is oriented on its own: it is its own plane.
+        var elevation = new Elevation(facets.Select(f => Oriented(set, f)).ToList());
+        var wall = elevation.First;
 
-        var wallZone = ZoneOf(set, wall, wall.LengthMm / 2.0);
+        var wallZone = elevation.ZoneAtMiddle(set);
 
         // A curved, sloped or warped wall is not measured at all: the two clauses that need a plane
         // go to 人工覆核, and only 第79條之4 — which asks nothing of geometry — is still answered.
@@ -102,72 +105,187 @@ public static class CurtainWallJunctionResolver
             yield break;
         }
 
-        var covered = new List<PanelBand>();
         var results = new List<CurtainWallJunction>();
-
-        // 這片帷幕牆立面內的實體外牆，先投影到它自己的軸上：CW-H 的但書長度由這些牆供給（決議 13）。
-        var facades = FacadeSegments(set, wall);
 
         foreach (var host in set.CompartmentWalls)
         {
-            var junction = WallJunction(set, wall, host, options, covered, facades);
-            if (junction is not null) results.Add(junction);
+            results.AddRange(WallJunctions(set, elevation, host, options));
         }
 
         foreach (var floor in set.CompartmentFloors.Where(f => IsSameElevation(f.ElevationMm, set.LevelElevationMm)))
         {
-            foreach (var junction in Spandrels(set, wall, floor, options, covered))
+            foreach (var junction in Spandrels(set, elevation, floor, options))
                 results.Add(junction);
         }
 
-        var vertical = VerticalSpace(set, wall);
+        var vertical = VerticalSpace(set, elevation, wallZone);
         if (vertical is not null) results.Add(vertical);
 
         foreach (var junction in results) yield return junction;
 
         if (wallZone is null) yield break;
-        var rest = wall.Panels.Where(p => !covered.Any(b => b.Covers(p))).ToList();
-        foreach (var other in OtherPanelJunctions(wallZone, wall, rest)) yield return other;
+        foreach (var other in OtherPanelJunctions(wallZone, wall, elevation.Uncovered())) yield return other;
+    }
+
+    /// <summary>
+    /// One curtain wall as the resolver walks it: a straight wall is one facet, an arc wall is the flat
+    /// stretches between its vertical grid lines, in order (docs §4.7). Each facet is measured as the
+    /// plane it is; what the facets share — the stretches of façade the junctions already account for,
+    /// and the panels a 交接帶 reaching past one facet's end finds on the next — is kept here, on the
+    /// one axis <see cref="CurtainWallObservation.FacetOffsetMm"/> lays them all out on.
+    /// </summary>
+    private sealed class Elevation
+    {
+        private readonly List<PanelBand> _covered = new();
+
+        public Elevation(IReadOnlyList<CurtainWallObservation> facets)
+        {
+            Facets = facets;
+        }
+
+        public IReadOnlyList<CurtainWallObservation> Facets { get; }
+
+        public CurtainWallObservation First => Facets[0];
+
+        public double LengthMm => Facets[Facets.Count - 1].FacetOffsetMm + Facets[Facets.Count - 1].LengthMm;
+
+        /// <summary>
+        /// The 區劃 the wall as a whole belongs to: probed at the middle of its length, on whichever
+        /// facet that falls — for a straight wall exactly <c>ZoneOf(wall, LengthMm / 2)</c>.
+        /// </summary>
+        public CurtainWallZoneObservation? ZoneAtMiddle(CurtainWallObservationSet set)
+        {
+            var middle = LengthMm / 2.0;
+            var facet = Facets.LastOrDefault(f => f.FacetOffsetMm <= middle) ?? First;
+            return ZoneOf(set, facet, middle - facet.FacetOffsetMm);
+        }
+
+        /// <summary>Records a stretch one junction accounts for; <paramref name="band"/> is in <paramref name="facet"/>'s own distances.</summary>
+        public void Cover(CurtainWallObservation facet, PanelBand band) => _covered.Add(band.Shifted(facet.FacetOffsetMm));
+
+        /// <summary>The panels of every facet whose middle falls in the band, in facet then panel order.</summary>
+        public IReadOnlyList<string> PanelsIn(CurtainWallObservation facet, PanelBand band)
+        {
+            var shared = band.Shifted(facet.FacetOffsetMm);
+            return Facets
+                .SelectMany(f => f.Panels.Where(p => shared.Covers(p, f.FacetOffsetMm)))
+                .Select(p => p.UniqueId)
+                .ToList();
+        }
+
+        /// <summary>What no junction accounts for: the panels CW-O answers 第79條之4 for.</summary>
+        public IReadOnlyList<CurtainPanelObservation> Uncovered() =>
+            Facets
+                .SelectMany(f => f.Panels.Where(p => !_covered.Any(b => b.Covers(p, f.FacetOffsetMm))))
+                .ToList();
     }
 
     // --- CW-H：區劃牆與帷幕牆之水平交接（docs §4.2）--------------------------------------------
 
-    private static CurtainWallJunction? WallJunction(
+    /// <summary>
+    /// The CW-H junctions of one 區劃牆 with the wall. A straight wall has at most one; on an arc wall
+    /// every facet is asked (docs §4.7), and:
+    /// <list type="bullet">
+    /// <item>a crossing found on any facet beats an end that merely came near another — a 區劃牆 meeting
+    /// the arc at facet 5 always stops within the search tolerance of facets 4 and 6 as well, and those
+    /// near misses are not junctions;</item>
+    /// <item>crossings found on two facets at the same place along the wall — the 區劃牆 meets the arc
+    /// right at a vertical grid line — are one junction;</item>
+    /// <item>crossings at different places are different junctions: a straight 區劃牆 can cut an arc
+    /// twice (a round tower split along a diameter), and each crossing is reviewed. The first keeps the
+    /// plain id, so a straight wall's id never changes; later ones are numbered from 2.</item>
+    /// </list>
+    /// </summary>
+    private static IEnumerable<CurtainWallJunction> WallJunctions(
         CurtainWallObservationSet set,
+        Elevation elevation,
+        CompartmentWallObservation host,
+        CurtainWallJunctionOptions options)
+    {
+        var baseId = JunctionId(CurtainWallJunctionKind.WallToCurtainWall, elevation.First.UniqueId, host.UniqueId);
+        var places = new List<double>();
+        var crossed = false;
+        CurtainWallJunction? nearMiss = null;
+
+        string? IdAt(double alongWallMm)
+        {
+            if (places.Any(p => Math.Abs(p - alongWallMm) <= SnapMm)) return null;
+            places.Add(alongWallMm);
+            return places.Count == 1 ? baseId : baseId + ":" + places.Count.ToString(CultureInfo.InvariantCulture);
+        }
+
+        var found = new List<CurtainWallJunction>();
+        foreach (var facet in elevation.Facets)
+        {
+            // 這片帷幕牆立面內的實體外牆，先投影到它自己的軸上：CW-H 的但書長度由這些牆供給（決議 13）。
+            var attempt = WallJunction(set, elevation, facet, host, options, FacadeSegments(set, facet), baseId, IdAt);
+            crossed |= attempt.Crossed;
+            if (attempt.Junction is null) continue;
+            if (attempt.Junction.Doubt?.Kind == CurtainWallJunctionDoubtKind.UnresolvedIntersection)
+                nearMiss ??= attempt.Junction;
+            else
+                found.Add(attempt.Junction);
+        }
+
+        // 某一段真的有交點（即使它因為不屬任何區劃、或交接處歸別片帷幕牆而沒有產出）時，鄰段的「端點
+        // 靠近」就只是同一個交點的影子，不是一筆人工覆核。
+        if (found.Count == 0 && !crossed && nearMiss is not null) found.Add(nearMiss);
+        return found;
+    }
+
+    /// <summary>What asking one facet came to: the junction it produced, if any, and whether the 區劃牆 really crosses it.</summary>
+    private readonly struct WallAttempt
+    {
+        public static readonly WallAttempt None = new(null, false);
+
+        public WallAttempt(CurtainWallJunction? junction, bool crossed)
+        {
+            Junction = junction;
+            Crossed = crossed;
+        }
+
+        public CurtainWallJunction? Junction { get; }
+        public bool Crossed { get; }
+    }
+
+    private static WallAttempt WallJunction(
+        CurtainWallObservationSet set,
+        Elevation elevation,
         CurtainWallObservation wall,
         CompartmentWallObservation host,
         CurtainWallJunctionOptions options,
-        List<PanelBand> covered,
-        IReadOnlyList<FacadeSegment> facades)
+        IReadOnlyList<FacadeSegment> facades,
+        string nearMissId,
+        Func<double, string?> idAt)
     {
         // 躺在立面內的區劃牆不產出 CW-H（決議 14）。它不是「與帷幕牆的交接處」，它**就是**那一段
         // 外牆；它的交接處在自己的兩端，由垂直於立面的區劃牆各自產生。少了這一條，凡是與帷幕牆共面
         // 相接的實體外牆都會因兩線平行求不到交點，掉進「最近端點」的退路，回報一句「端點距帷幕牆
         // 0 mm，超過搜尋公差」的自相矛盾訊息。它仍以實體外牆身分供給別人的但書長度。
-        if (wall.IsInFacadePlane(host.Start, host.End)) return null;
+        if (wall.IsInFacadePlane(host.Start, host.End)) return WallAttempt.None;
 
         // 交接帶的高程是區劃牆與帷幕牆高程的**交集**（決議 14，docs §4.2 步驟 2）。交集之外那一段
         // 外牆面（本文件所據模型是樓板邊緣的 450 mm）是第 79 條之 3 的層間帶，由 CW-V 回答；拿區劃牆
         // 全高當門檻只會要求實體外牆往下長進樓板，那是工具逼建模配合工具。
         var bandBottom = Math.Max(host.BottomElevationMm, wall.BaseElevationMm);
         var bandTop = Math.Min(host.TopElevationMm, wall.TopElevationMm);
-        if (bandTop - bandBottom <= CurtainPanelObservation.TouchToleranceMm) return null;
+        if (bandTop - bandBottom <= CurtainPanelObservation.TouchToleranceMm) return WallAttempt.None;
 
         var crossing = FindCrossing(wall, host, options.JunctionSearchToleranceMm, facades);
-        if (crossing is null) return null;
+        if (crossing is null) return WallAttempt.None;
+        var crossed = crossing.Value.IsResolved;
 
         // 交點落在定位線之外時，連續段兩端的帷幕牆都求得到同一個交點，但一個交接處只能有一列。
-        if (crossing.Value.IsOffSegment && !Owns(set, wall, facades, crossing.Value.Along)) return null;
+        if (crossing.Value.IsOffSegment && !Owns(set, wall, facades, crossing.Value.Along)) return new WallAttempt(null, crossed);
 
-        var id = JunctionId(CurtainWallJunctionKind.WallToCurtainWall, wall.UniqueId, host.UniqueId);
         var at = crossing.Value.Along;
         var zone = ZoneOf(set, wall, at, lateral: true);
-        if (zone is null) return null;
+        if (zone is null) return new WallAttempt(null, crossed);
 
         if (!crossing.Value.IsResolved)
         {
-            return CurtainWallJunction.Doubtful(
-                id, CurtainWallJunctionKind.WallToCurtainWall, zone.ZoneId, wall.UniqueId,
+            return new WallAttempt(CurtainWallJunction.Doubtful(
+                nearMissId, CurtainWallJunctionKind.WallToCurtainWall, zone.ZoneId, wall.UniqueId,
                 new CurtainWallJunctionDoubt(
                     CurtainWallJunctionDoubtKind.UnresolvedIntersection,
                     $"區劃牆（Id {host.UniqueId}）的端點距帷幕牆（Id {wall.UniqueId}）" +
@@ -175,15 +293,19 @@ public static class CurtainWallJunctionResolver
                     $"超過搜尋公差 {options.JunctionSearchToleranceMm.ToString("0.#", CultureInfo.InvariantCulture)} mm，" +
                     "無法確定交點位置，需人工覆核區劃牆是否確實交接於帷幕牆。",
                     new[] { host.UniqueId, wall.UniqueId }),
-                hostUniqueId: host.UniqueId);
+                hostUniqueId: host.UniqueId), false);
         }
+
+        // 同一個地方已由前一段產出（交點正好在直向 grid line 上）：不重複出列，也不重複覆蓋。
+        var id = idAt(wall.FacetOffsetMm + at);
+        if (id is null) return new WallAttempt(null, true);
 
         // 交接帶：交點左右各 MinFireRatedRunMm，高程為區劃牆在該處的高程帶。它有兩個用途——CW-O
         // 要扣掉帶內的嵌板，標示層要把帶內的嵌板塗紅。帶長本身**不由這些嵌板供給**（決議 13）。
         var reach = options.MinFireRatedRunMm;
         var band = PanelBand.Horizontal(at, reach, bandBottom, bandTop);
-        covered.Add(band);
-        var panels = wall.Panels.Where(band.Covers).Select(p => p.UniqueId).ToList();
+        elevation.Cover(wall, band);
+        var panels = elevation.PanelsIn(wall, band);
 
         // 交接帶附近、且與區劃牆高程重疊的實體外牆。高程只要求「重疊」是為了先問矛盾；要計入帶長
         // 還得「涵蓋」整個高程帶，那是 FacadeRun 的事。
@@ -199,7 +321,7 @@ public static class CurtainWallJunctionResolver
         if (clash is not null)
         {
             var (panel, facade) = clash.Value;
-            return CurtainWallJunction.Doubtful(
+            return new WallAttempt(CurtainWallJunction.Doubtful(
                 id, CurtainWallJunctionKind.WallToCurtainWall, zone.ZoneId, wall.UniqueId,
                 new CurtainWallJunctionDoubt(
                     CurtainWallJunctionDoubtKind.FacadeWallOverlapsPanel,
@@ -210,12 +332,12 @@ public static class CurtainWallJunctionResolver
                     new[] { wall.UniqueId, host.UniqueId, facade.Wall.UniqueId, panel.UniqueId }),
                 hostUniqueId: host.UniqueId,
                 panelUniqueIds: panels,
-                facadeWallUniqueIds: new[] { facade.Wall.UniqueId });
+                facadeWallUniqueIds: new[] { facade.Wall.UniqueId }), true);
         }
 
         var measurement = FacadeRun(nearby, at, bandBottom, bandTop, host.RequiredFireRatingMinutes, options);
 
-        return CurtainWallJunction.WallJunction(
+        return new WallAttempt(CurtainWallJunction.WallJunction(
             id, zone.ZoneId, wall.UniqueId, host.UniqueId,
             Projection(wall, host),
             measurement.RunMm,
@@ -227,7 +349,7 @@ public static class CurtainWallJunctionResolver
             null,
             panels,
             CurtainWallJunctionPlacement.At(wall.PointAt(at), bandBottom, bandTop),
-            measurement.WallUniqueIds);
+            measurement.WallUniqueIds), true);
     }
 
     // --- CW-H 的但書：立面內的實體外牆（docs §4.2「交接處之外牆面」、決議 13）----------------------
@@ -470,38 +592,69 @@ public static class CurtainWallJunctionResolver
 
     // --- CW-V：區劃樓地板與帷幕牆之層間交接（docs §4.3）-----------------------------------------
 
+    /// <summary>One stretch of a facet that runs along the floor, with what each of its samples measured.</summary>
+    private sealed class SpandrelPart
+    {
+        public SpandrelPart(CurtainWallObservation facet, Span span, IReadOnlyList<(RunMeasurement Measurement, double At)> measurements)
+        {
+            Facet = facet;
+            Span = span;
+            Measurements = measurements;
+        }
+
+        public CurtainWallObservation Facet { get; }
+        public Span Span { get; }
+        public IReadOnlyList<(RunMeasurement Measurement, double At)> Measurements { get; }
+
+        public bool ReachesEnd => Math.Abs(Span.High - Facet.LengthMm) <= SnapMm;
+        public bool ReachesStart => Math.Abs(Span.Low) <= SnapMm;
+    }
+
     private static IEnumerable<CurtainWallJunction> Spandrels(
         CurtainWallObservationSet set,
-        CurtainWallObservation wall,
+        Elevation elevation,
         CompartmentFloorObservation floor,
-        CurtainWallJunctionOptions options,
-        List<PanelBand> covered)
+        CurtainWallJunctionOptions options)
     {
-        if (!floor.HasOutline || !wall.SpansElevation(floor.ElevationMm)) yield break;
+        if (!floor.HasOutline) yield break;
 
-        var horizontal = wall.GridLines.Where(g => g.Direction == CurtainGridLineDirection.Horizontal).ToList();
-        var index = 0;
-        foreach (var span in InsideSpans(wall, floor))
+        var parts = new List<SpandrelPart>();
+        foreach (var facet in elevation.Facets)
         {
-            var samples = Samples(span.Low, span.High, options.SamplingIntervalMm).ToList();
-            if (samples.Count == 0) continue;
+            if (!facet.SpansElevation(floor.ElevationMm)) continue;
 
-            var measurements = new List<(RunMeasurement Measurement, double At)>();
-            foreach (var at in samples)
+            var horizontal = facet.GridLines.Where(g => g.Direction == CurtainGridLineDirection.Horizontal).ToList();
+            foreach (var span in InsideSpans(facet, floor))
             {
-                var column = wall.Panels.Where(p => p.CoversAlong(at)).ToList();
-                measurements.Add((Measure(
-                    Up(column),
-                    floor.ElevationMm,
-                    floor.RequiredFireRatingMinutes,
-                    options.MinFireRatedRunMm,
-                    horizontal,
-                    wall.BaseElevationMm,
-                    wall.TopElevationMm), at));
-            }
+                var samples = Samples(span.Low, span.High, options.SamplingIntervalMm).ToList();
+                if (samples.Count == 0) continue;
 
-            var worst = RunMeasurement.Worst(measurements.Select(m => m.Measurement).ToList());
-            var worstAt = measurements.First(m => ReferenceEquals(m.Measurement, worst)).At;
+                var measurements = new List<(RunMeasurement Measurement, double At)>();
+                foreach (var at in samples)
+                {
+                    var column = facet.Panels.Where(p => p.CoversAlong(at)).ToList();
+                    measurements.Add((Measure(
+                        Up(column),
+                        floor.ElevationMm,
+                        floor.RequiredFireRatingMinutes,
+                        options.MinFireRatedRunMm,
+                        horizontal,
+                        facet.BaseElevationMm,
+                        facet.TopElevationMm), at));
+                }
+
+                parts.Add(new SpandrelPart(facet, span, measurements));
+            }
+        }
+
+        var index = 0;
+        foreach (var run in Contiguous(parts))
+        {
+            var all = run.SelectMany(p => p.Measurements.Select(m => (Part: p, m.Measurement, m.At))).ToList();
+            var worst = RunMeasurement.Worst(all.Select(m => m.Measurement).ToList());
+            var picked = all.First(m => ReferenceEquals(m.Measurement, worst));
+            var wall = picked.Part.Facet;
+            var worstAt = picked.At;
 
             var zone = ZoneOf(set, wall, worstAt);
             if (zone is null) continue;
@@ -509,7 +662,8 @@ public static class CurtainWallJunctionResolver
             var id = JunctionId(CurtainWallJunctionKind.FloorToCurtainWall, wall.UniqueId, floor.UniqueId,
                 index.ToString(CultureInfo.InvariantCulture));
             index++;
-            covered.Add(PanelBand.Vertical(span.Low, span.High, floor.ElevationMm, options.MinFireRatedRunMm));
+            foreach (var part in run)
+                elevation.Cover(part.Facet, PanelBand.Vertical(part.Span.Low, part.Span.High, floor.ElevationMm, options.MinFireRatedRunMm));
 
             if (worst.Split.Count > 0)
             {
@@ -532,8 +686,34 @@ public static class CurtainWallJunctionResolver
                 worst.MinRating,
                 worst.HasUnprotectedOpening,
                 worst.PanelUniqueIds,
-                SpandrelPlacement(wall, floor, span, options));
+                SpandrelPlacement(run[0], run[run.Count - 1], floor, options));
         }
+    }
+
+    /// <summary>
+    /// The spandrel stretches grouped into bands: on an arc wall a slab edge running past a vertical
+    /// grid line is still one 層間帶, so a stretch reaching the end of its facet joins the one starting
+    /// the next facet (docs §4.7). Stretches inside one facet are never joined — that keeps a straight
+    /// wall exactly as it was.
+    /// </summary>
+    private static IEnumerable<IReadOnlyList<SpandrelPart>> Contiguous(IReadOnlyList<SpandrelPart> parts)
+    {
+        var run = new List<SpandrelPart>();
+        foreach (var part in parts)
+        {
+            var last = run.Count == 0 ? null : run[run.Count - 1];
+            if (last is not null &&
+                !(part.Facet.IsFacet && last.Facet.IsFacet &&
+                  part.Facet.FacetIndex == last.Facet.FacetIndex + 1 && last.ReachesEnd && part.ReachesStart))
+            {
+                yield return run;
+                run = new List<SpandrelPart>();
+            }
+
+            run.Add(part);
+        }
+
+        if (run.Count > 0) yield return run;
     }
 
     /// <summary>
@@ -541,31 +721,41 @@ public static class CurtainWallJunctionResolver
     /// curtain wall itself, which is what the review view draws red (docs §7.1). Null when the wall
     /// leaves no band at this floor, e.g. a slab at its very top.
     /// </summary>
+    /// <remarks>
+    /// A band over several facets of an arc wall is placed on the chord from its first point to its
+    /// last: the review elevation looks along one direction, so that is the plane the band is drawn on
+    /// (docs §4.7).
+    /// </remarks>
     private static CurtainWallJunctionPlacement? SpandrelPlacement(
-        CurtainWallObservation wall,
+        SpandrelPart first,
+        SpandrelPart last,
         CompartmentFloorObservation floor,
-        Span span,
         CurtainWallJunctionOptions options)
     {
+        var wall = first.Facet;
         var bottom = Math.Max(wall.BaseElevationMm, floor.ElevationMm - options.MinFireRatedRunMm);
         var top = Math.Min(wall.TopElevationMm, floor.ElevationMm + options.MinFireRatedRunMm);
         if (top - bottom <= SnapMm) return null;
 
-        return CurtainWallJunctionPlacement.Band(wall.PointAt(span.Low), wall.PointAt(span.High), bottom, top);
+        return CurtainWallJunctionPlacement.Band(first.Facet.PointAt(first.Span.Low), last.Facet.PointAt(last.Span.High), bottom, top);
     }
 
     /// <summary>
     /// 第79條之3第3項：a curtain wall that runs past the storey above with no 區劃樓地板 there is a
     /// 連跨複數樓層 vertical space, and belongs to 第79條之2 rather than to this check (docs §3.4).
     /// </summary>
-    private static CurtainWallJunction? VerticalSpace(CurtainWallObservationSet set, CurtainWallObservation wall)
+    private static CurtainWallJunction? VerticalSpace(
+        CurtainWallObservationSet set,
+        Elevation elevation,
+        CurtainWallZoneObservation? zone)
     {
+        var wall = elevation.First;
         var next = set.LevelElevationsMm.Where(e => e > set.LevelElevationMm + SnapMm).Cast<double?>().FirstOrDefault();
         if (next is not double above || wall.TopElevationMm <= above + SnapMm) return null;
-        if (set.CompartmentFloors.Any(f => IsSameElevation(f.ElevationMm, above) && f.HasOutline && InsideSpans(wall, f).Any()))
+        if (set.CompartmentFloors.Any(f => IsSameElevation(f.ElevationMm, above) && f.HasOutline &&
+                                           elevation.Facets.Any(facet => InsideSpans(facet, f).Any())))
             return null;
 
-        var zone = ZoneOf(set, wall, wall.LengthMm / 2.0);
         if (zone is null) return null;
 
         var storeys = set.LevelElevationsMm.Count(e => e > set.LevelElevationMm + SnapMm && e < wall.TopElevationMm - SnapMm) + 1;
@@ -1152,14 +1342,20 @@ public static class CurtainWallJunctionResolver
         public static PanelBand Vertical(double startMm, double endMm, double at, double reachMm) =>
             new(startMm, endMm, at - reachMm, at + reachMm);
 
+        /// <summary>The same band moved <paramref name="offsetMm"/> along the wall: a facet's own distances onto the wall's (docs §4.7).</summary>
+        public PanelBand Shifted(double offsetMm) => new(StartMm + offsetMm, EndMm + offsetMm, BottomMm, TopMm);
+
         /// <summary>
         /// A panel belongs to the band when its middle is in it, not merely when it grazes it: a
         /// storey-high glazed panel that reaches into a spandrel band is still 其他部分外牆, and
         /// 第79條之4 has to be answered for it (docs §3.3).
         /// </summary>
-        public bool Covers(CurtainPanelObservation panel)
+        public bool Covers(CurtainPanelObservation panel) => Covers(panel, 0.0);
+
+        /// <summary><see cref="Covers(CurtainPanelObservation)"/> for a panel of a facet starting <paramref name="offsetMm"/> along the wall.</summary>
+        public bool Covers(CurtainPanelObservation panel, double offsetMm)
         {
-            var along = (panel.StartMm + panel.EndMm) / 2.0;
+            var along = offsetMm + ((panel.StartMm + panel.EndMm) / 2.0);
             var elevation = (panel.BottomMm + panel.TopMm) / 2.0;
             return along >= StartMm && along <= EndMm && elevation >= BottomMm && elevation <= TopMm;
         }

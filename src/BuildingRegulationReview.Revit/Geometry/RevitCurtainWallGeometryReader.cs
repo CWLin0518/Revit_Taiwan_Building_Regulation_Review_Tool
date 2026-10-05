@@ -69,10 +69,7 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
 
         var curtainWalls = new List<CurtainWallObservation>();
         foreach (var wall in Collect<Wall>(BuiltInCategory.OST_Walls).Where(w => w.CurtainGrid is not null))
-        {
-            var observation = ReadCurtainWall(wall, request, storey, warnings);
-            if (observation is not null) curtainWalls.Add(observation);
-        }
+            curtainWalls.AddRange(ReadCurtainWall(wall, request, storey, warnings));
 
         foreach (var system in CollectOfClass<CurtainSystem>())
         {
@@ -136,7 +133,7 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
 
     // --- curtain walls -----------------------------------------------------------------------
 
-    private CurtainWallObservation? ReadCurtainWall(
+    private IEnumerable<CurtainWallObservation> ReadCurtainWall(
         Wall wall,
         CurtainWallReadRequest request,
         (double Bottom, double Top) storey,
@@ -145,22 +142,37 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
         if (!(wall.Location is LocationCurve location) || location.Curve is null)
         {
             warnings.Add($"帷幕牆（Id {wall.Id}）沒有可讀的定位線，已略過。");
-            return null;
+            return Array.Empty<CurtainWallObservation>();
         }
 
         var box = wall.get_BoundingBox(null);
         if (box is null)
         {
             warnings.Add($"帷幕牆（Id {wall.Id}）沒有可讀的範圍，已略過。");
-            return null;
+            return Array.Empty<CurtainWallObservation>();
         }
 
-        if (box.Max.Z <= storey.Bottom || box.Min.Z >= storey.Top) return null;
+        if (box.Max.Z <= storey.Bottom || box.Min.Z >= storey.Top) return Array.Empty<CurtainWallObservation>();
 
-        // Only a straight wall can be described by one line and one normal; anything else goes to
-        // 人工覆核 rather than being flattened into a measurement of the wrong thing (docs §9).
-        var curve = location.Curve;
-        var reason = curve is Line ? null : "為弧形或非直線帷幕牆，本工具只支援平面帷幕牆";
+        // An arc wall is flat between its vertical grid lines, so it is read as those planes (docs §4.7).
+        if (location.Curve is Arc arc) return ReadArcCurtainWall(wall, arc, box, request, storey, warnings);
+
+        var single = ReadStraightCurtainWall(wall, location.Curve, box, request, storey, warnings);
+        return single is null ? Array.Empty<CurtainWallObservation>() : new[] { single };
+    }
+
+    private CurtainWallObservation? ReadStraightCurtainWall(
+        Wall wall,
+        Curve curve,
+        BoundingBoxXYZ box,
+        CurtainWallReadRequest request,
+        (double Bottom, double Top) storey,
+        List<string> warnings)
+    {
+        // Only a straight wall can be described by one line and one normal, and only an arc by the
+        // planes between its grid lines; anything else goes to 人工覆核 rather than being flattened
+        // into a measurement of the wrong thing (docs §9).
+        var reason = curve is Line ? null : "為非直線、非圓弧的帷幕牆（例如橢圓或不規則曲線），本工具只支援直線與圓弧帷幕牆";
         var start = curve.GetEndPoint(0);
         var end = curve.GetEndPoint(1);
 
@@ -184,6 +196,152 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
             ReadGridLines(wall.CurtainGrid, observation),
             null,
             observation.TypeName);
+    }
+
+    /// <summary>
+    /// An arc curtain wall as the flat facets Revit actually builds it from: one between each pair of
+    /// neighbouring vertical grid lines (and the wall's two ends), each with the chord through it as
+    /// its location line and only the panels standing on it (docs §4.7). The facets share the wall's
+    /// UniqueId; the resolver puts them back together.
+    /// </summary>
+    /// <remarks>
+    /// The outward normal of a facet is its chord turned −90° about Z — the same rule Revit's
+    /// <c>Wall.Orientation</c> follows for a straight wall, and as little to be trusted: the resolver
+    /// re-orients every facet from the side its 區劃 lies on (docs §4.6).
+    /// </remarks>
+    private IEnumerable<CurtainWallObservation> ReadArcCurtainWall(
+        Wall wall,
+        Arc arc,
+        BoundingBoxXYZ box,
+        CurtainWallReadRequest request,
+        (double Bottom, double Top) storey,
+        List<string> warnings)
+    {
+        var grid = wall.CurtainGrid;
+        var sweep = Sweep(arc);
+
+        // 段的分界：牆的兩端，加上每一條直向 grid line 在定位線上的位置。方向由線本身判斷，不看 U／V。
+        var cuts = new List<double> { 0.0, sweep };
+        foreach (var id in grid.GetUGridLineIds().Concat(grid.GetVGridLineIds()))
+        {
+            if (!(_document.GetElement(id) is CurtainGridLine line) || line.FullCurve is null || !IsVertical(line.FullCurve)) continue;
+            var angle = AngleAlong(arc, line.FullCurve.GetEndPoint(0));
+            if (angle > SnapAngle(arc) && angle < sweep - SnapAngle(arc)) cuts.Add(angle);
+        }
+
+        var angles = cuts.OrderBy(a => a).ToList();
+
+        // 嵌板一律依中心落在哪一段歸屬；落不到任何一段的不會被讀到，所以要講出來，不默默丟掉。
+        var stray = grid.GetPanelIds()
+            .Select(_document.GetElement)
+            .Where(e => e is not null && e.Category?.BuiltInCategory != BuiltInCategory.OST_CurtainWallMullions)
+            .Count(e => !IsOnFacet(arc, e!, angles[0] - SnapAngle(arc), angles[angles.Count - 1]));
+        if (stray > 0)
+            warnings.Add($"弧形帷幕牆（Id {wall.Id}）有 {stray} 片嵌板的中心不在任何一段上，未列入檢討，請確認該牆的嵌板。");
+
+        var facets = new List<CurtainWallObservation>();
+        var offsetFeet = 0.0;
+
+        for (var i = 0; i + 1 < angles.Count; i++)
+        {
+            var low = angles[i];
+            var high = angles[i + 1];
+            if (high - low <= SnapAngle(arc)) continue;
+
+            var start = PointAt(arc, low);
+            var end = PointAt(arc, high);
+            var direction = (end - start).Normalize();
+            var index = facets.Count;
+
+            CurtainWallObservation facet;
+            try
+            {
+                facet = new CurtainWallObservation(
+                    wall.UniqueId,
+                    ToMillimeters(start),
+                    ToMillimeters(end),
+                    new Point2D(direction.Y, -direction.X),
+                    PlanUnits.FeetToMillimeters(wall.Width / 2.0),
+                    PlanUnits.FeetToMillimeters(box.Min.Z),
+                    PlanUnits.FeetToMillimeters(box.Max.Z),
+                    typeName: (wall.WallType as ElementType)?.Name,
+                    facetIndex: index,
+                    facetOffsetMm: PlanUnits.FeetToMillimeters(offsetFeet));
+            }
+            catch (Exception exception) when (exception is ArgumentException || exception is ArgumentOutOfRangeException)
+            {
+                warnings.Add($"弧形帷幕牆（Id {wall.Id}）第 {index + 1} 段的幾何無法解析（{exception.Message}），整道牆已略過。");
+                return Array.Empty<CurtainWallObservation>();
+            }
+
+            offsetFeet += start.DistanceTo(end);
+            facets.Add(new CurtainWallObservation(
+                facet.UniqueId, facet.Start, facet.End, facet.ExteriorNormal,
+                facet.ExteriorOffsetMm, facet.BaseElevationMm, facet.TopElevationMm,
+                ReadPanels(grid, facet, request, storey, warnings, e => IsOnFacet(arc, e, low, high)),
+                ReadGridLines(grid, facet, p => IsOnFacet(arc, p, low, high)),
+                null,
+                facet.TypeName,
+                facet.FacetIndex,
+                facet.FacetOffsetMm));
+        }
+
+        return facets;
+    }
+
+    /// <summary>How far round the arc, in radians from its start, the plan point <paramref name="point"/> lies; in [0, 2π).</summary>
+    private static double AngleAlong(Arc arc, XYZ point)
+    {
+        var v = new XYZ(point.X - arc.Center.X, point.Y - arc.Center.Y, 0.0);
+        var start = arc.GetEndPoint(0) - arc.Center;
+        var angle = Math.Atan2(v.DotProduct(arc.YDirection), v.DotProduct(arc.XDirection)) -
+                    Math.Atan2(start.DotProduct(arc.YDirection), start.DotProduct(arc.XDirection));
+        while (angle < 0) angle += 2.0 * Math.PI;
+        while (angle >= 2.0 * Math.PI) angle -= 2.0 * Math.PI;
+        return angle;
+    }
+
+    private static double Sweep(Arc arc)
+    {
+        var sweep = AngleAlong(arc, arc.GetEndPoint(1));
+        return sweep <= 0.0 ? 2.0 * Math.PI : sweep;
+    }
+
+    /// <summary>The plan point <paramref name="angle"/> radians round the arc from its start.</summary>
+    private static XYZ PointAt(Arc arc, double angle)
+    {
+        var start = arc.GetEndPoint(0) - arc.Center;
+        var origin = Math.Atan2(start.DotProduct(arc.YDirection), start.DotProduct(arc.XDirection)) + angle;
+        return arc.Center + (arc.XDirection * (arc.Radius * Math.Cos(origin))) + (arc.YDirection * (arc.Radius * Math.Sin(origin)));
+    }
+
+    /// <summary>The angle a <see cref="SnapFeet"/> step along the arc subtends.</summary>
+    private static double SnapAngle(Arc arc) => SnapFeet / arc.Radius;
+
+    private static bool IsOnFacet(Arc arc, XYZ point, double from, double to)
+    {
+        var angle = AngleAlong(arc, point);
+        return angle >= from - SnapAngle(arc) && angle <= to + SnapAngle(arc);
+    }
+
+    /// <summary>A panel stands on the facet its centre falls on — a flat panel's centre is on its chord.</summary>
+    private static bool IsOnFacet(Arc arc, Element element, double from, double to)
+    {
+        var box = element.get_BoundingBox(null);
+        var centre = element.Location is LocationPoint point
+            ? point.Point
+            : box is null ? null : (box.Min + box.Max) / 2.0;
+        if (centre is null) return false;
+
+        var angle = AngleAlong(arc, centre);
+        return angle > from && angle <= to;
+    }
+
+    private static bool IsVertical(Curve curve)
+    {
+        var from = curve.GetEndPoint(0);
+        var to = curve.GetEndPoint(1);
+        return Math.Abs(to.Z - from.Z) > new XYZ(to.X - from.X, to.Y - from.Y, 0).GetLength();
     }
 
     private double NextLevelElevation(Level level) =>
@@ -261,13 +419,17 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
         CurtainWallObservation wall,
         CurtainWallReadRequest request,
         (double Bottom, double Top) storey,
-        List<string> warnings)
+        List<string> warnings,
+        Func<Element, bool>? belongs = null)
     {
         var panels = new List<CurtainPanelObservation>();
         foreach (var id in grid.GetPanelIds())
         {
             var element = _document.GetElement(id);
             if (element is null) continue;
+
+            // 弧形帷幕牆的一段只收站在它上面的嵌板（docs §4.7）。
+            if (belongs is not null && !belongs(element)) continue;
 
             // 貼在讀取範圍邊界上的嵌板要留下來，因為它就是收邊的那一片。外擴量是 MinFireRatedRunMm
             // （900 mm），與 90 cm 帶的高度同一個數：一道貼齊樓層底面的 900 mm 帶，其下方收邊嵌板的
@@ -408,7 +570,11 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
     /// The grid lines, placed on the wall's plane. Direction comes from the line itself rather than
     /// from whether Revit calls it U or V, so a wall built either way reads the same.
     /// </summary>
-    private List<CurtainGridLineObservation> ReadGridLines(CurtainGrid grid, CurtainWallObservation wall)
+    /// <remarks>
+    /// <paramref name="keepVertical"/> is asked of a vertical line's foot: an arc wall's facet keeps only
+    /// the two at its own ends, a horizontal line belongs to every facet (docs §4.7).
+    /// </remarks>
+    private List<CurtainGridLineObservation> ReadGridLines(CurtainGrid grid, CurtainWallObservation wall, Func<XYZ, bool>? keepVertical = null)
     {
         var lines = new List<CurtainGridLineObservation>();
         foreach (var id in grid.GetUGridLineIds().Concat(grid.GetVGridLineIds()))
@@ -419,6 +585,7 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
             var to = line.FullCurve.GetEndPoint(1);
             var rise = Math.Abs(to.Z - from.Z);
             var run = new XYZ(to.X - from.X, to.Y - from.Y, 0).GetLength();
+            if (rise > run && keepVertical is not null && !keepVertical(from)) continue;
 
             lines.Add(rise > run
                 ? new CurtainGridLineObservation(line.UniqueId, CurtainGridLineDirection.Vertical, wall.ParameterOf(ToMillimeters(from)))
