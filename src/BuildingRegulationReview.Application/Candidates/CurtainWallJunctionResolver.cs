@@ -99,7 +99,7 @@ public static class CurtainWallJunctionResolver
                         panelUniqueIds: wall.Panels.Select(p => p.UniqueId));
                 }
 
-                foreach (var all in OtherPanelJunctions(wallZone, wall, wall.Panels)) yield return all;
+                foreach (var all in OtherPanelJunctions(wallZone, wall, OfThisStorey(set, wall.Panels))) yield return all;
             }
 
             yield break;
@@ -118,13 +118,13 @@ public static class CurtainWallJunctionResolver
                 results.Add(junction);
         }
 
-        var vertical = VerticalSpace(set, elevation, wallZone);
+        var vertical = VerticalSpace(set, elevation, wallZone, options);
         if (vertical is not null) results.Add(vertical);
 
         foreach (var junction in results) yield return junction;
 
         if (wallZone is null) yield break;
-        foreach (var other in OtherPanelJunctions(wallZone, wall, elevation.Uncovered())) yield return other;
+        foreach (var other in OtherPanelJunctions(wallZone, wall, OfThisStorey(set, elevation.Uncovered()))) yield return other;
     }
 
     /// <summary>
@@ -624,7 +624,7 @@ public static class CurtainWallJunctionResolver
             if (!facet.SpansElevation(floor.ElevationMm)) continue;
 
             var horizontal = facet.GridLines.Where(g => g.Direction == CurtainGridLineDirection.Horizontal).ToList();
-            foreach (var span in InsideSpans(facet, floor))
+            foreach (var span in InsideSpans(facet, floor, options.JunctionSearchToleranceMm))
             {
                 var samples = Samples(span.Low, span.High, options.SamplingIntervalMm).ToList();
                 if (samples.Count == 0) continue;
@@ -747,18 +747,24 @@ public static class CurtainWallJunctionResolver
     private static CurtainWallJunction? VerticalSpace(
         CurtainWallObservationSet set,
         Elevation elevation,
-        CurtainWallZoneObservation? zone)
+        CurtainWallZoneObservation? zone,
+        CurtainWallJunctionOptions options)
     {
         var wall = elevation.First;
         var next = set.LevelElevationsMm.Where(e => e > set.LevelElevationMm + SnapMm).Cast<double?>().FirstOrDefault();
         if (next is not double above || wall.TopElevationMm <= above + SnapMm) return null;
+
+        // The read reaches 900 mm past the storey on either side, so the storey above's own curtain
+        // wall is in this set too. Standing on the level above, it does not run past it: that level's
+        // floor belongs to the next package, which reviews the wall with it.
+        if (wall.BaseElevationMm >= above - SnapMm) return null;
         if (set.CompartmentFloors.Any(f => IsSameElevation(f.ElevationMm, above) && f.HasOutline &&
-                                           elevation.Facets.Any(facet => InsideSpans(facet, f).Any())))
+                                           elevation.Facets.Any(facet => InsideSpans(facet, f, options.JunctionSearchToleranceMm).Any())))
             return null;
 
         if (zone is null) return null;
 
-        var storeys = set.LevelElevationsMm.Count(e => e > set.LevelElevationMm + SnapMm && e < wall.TopElevationMm - SnapMm) + 1;
+        var storeys = set.LevelElevationsMm.Count(e => e > wall.BaseElevationMm + SnapMm && e < wall.TopElevationMm - SnapMm) + 1;
         return CurtainWallJunction.Doubtful(
             JunctionId(CurtainWallJunctionKind.FloorToCurtainWall, wall.UniqueId),
             CurtainWallJunctionKind.FloorToCurtainWall, zone.ZoneId, wall.UniqueId,
@@ -770,6 +776,25 @@ public static class CurtainWallJunctionResolver
     }
 
     // --- CW-O：其餘嵌板（第79條之4）-------------------------------------------------------------
+
+    /// <summary>
+    /// The panels this storey answers 第79條之4 for. The read reaches 900 mm past the storey on either
+    /// side so a band is never cut short (CW-H, CW-V), which hands over the top row of the curtain wall
+    /// below and the bottom row of the one above as well; each of those is the other storey's to
+    /// answer. A panel belongs to the storey its middle is in — from this level up to, not including,
+    /// the next — so every panel is answered by exactly one package.
+    /// </summary>
+    private static IEnumerable<CurtainPanelObservation> OfThisStorey(
+        CurtainWallObservationSet set,
+        IEnumerable<CurtainPanelObservation> panels)
+    {
+        var next = set.LevelElevationsMm.Where(e => e > set.LevelElevationMm + SnapMm).Cast<double?>().FirstOrDefault();
+        return panels.Where(p =>
+        {
+            var middle = (p.BottomMm + p.TopMm) / 2.0;
+            return middle >= set.LevelElevationMm - SnapMm && (next is not double above || middle < above - SnapMm);
+        });
+    }
 
     /// <summary>
     /// 其餘嵌板依作答方式分成最多三列（決議 16）：實心讀設計防火時效，玻璃與帷幕牆門窗讀設計防火保護，
@@ -894,23 +919,24 @@ public static class CurtainWallJunctionResolver
         double low,
         double high)
     {
-        var index = -1;
-        for (var i = 0; i < slabs.Count; i++)
-        {
-            if (at < slabs[i].Low - CurtainPanelObservation.TouchToleranceMm) continue;
-            if (at > slabs[i].High + CurtainPanelObservation.TouchToleranceMm) continue;
-            index = i;
-            break;
-        }
+        var covering = Enumerable.Range(0, slabs.Count)
+            .Where(i => at >= slabs[i].Low - CurtainPanelObservation.TouchToleranceMm &&
+                        at <= slabs[i].High + CurtainPanelObservation.TouchToleranceMm)
+            .ToList();
+        if (covering.Count == 0) return RunMeasurement.Nothing;
 
-        if (index < 0) return RunMeasurement.Nothing;
-
+        // A horizontal grid line right at the slab puts two panels on it. The band may start on either
+        // side, so a qualifying one is taken over one that is not — a 玻璃 window below a solid
+        // spandrel above is measured from the spandrel, not reported as 0. When both qualify the lower
+        // is kept and the walk asks §4.5's question about the line between them.
+        var index = covering.Where(i => slabs[i].Panel.Qualifies(requiredMinutes)).DefaultIfEmpty(covering[0]).First();
         var here = slabs[index];
 
         // Nobody said what the host requires, so there is no bar for a panel to clear and no run to
-        // report. Supplying 0 here would read as 未符合 for a band nobody ever measured.
+        // report. Supplying 0 here would read as 未符合 for a band nobody ever measured. A glazed
+        // panel's blank rating is not reported either: it is not what the user has to fill in.
         if (requiredMinutes is null)
-            return new RunMeasurement(null, here.Panel.Rating, here.Panel.IsUnprotectedOpening,
+            return new RunMeasurement(null, here.Panel.IsGlazed ? null : here.Panel.Rating, here.Panel.IsUnprotectedOpening,
                 new[] { here.Panel.UniqueId }, Array.Empty<CurtainGridLineObservation>(), 0.0);
 
         var qualifies = here.Panel.Qualifies(requiredMinutes);
@@ -928,13 +954,16 @@ public static class CurtainWallJunctionResolver
                 bridged += Walk(slabs, index, requiredMinutes, minRunMm - bridged, gridLines, looked, split, forward: true);
         }
 
-        var worst = Worst(looked.Select(p => p.Rating));
+        // A declared 玻璃嵌板 has no construction rating by design (決議 16): its blank rating is not a
+        // gap the user could fill but a panel that never counts, so it is left out of the reading.
+        var worst = Worst(looked.Where(p => !p.IsGlazed).Select(p => p.Rating));
         var panelIds = looked.Select(p => p.UniqueId).ToList();
         var opening = looked.Any(p => p.IsUnprotectedOpening);
 
         // 輸入契約：any panel the measurement looked at without a readable design rating means no run
         // is supplied at all — never 0, which would read as 未符合 instead of 資料不足 (docs §12).
-        if (worst is null || !worst.IsRated)
+        // Null here means every panel looked at was glass: a run that is known, not unknown.
+        if (worst is not null && !worst.IsRated)
             return new RunMeasurement(null, worst, opening, panelIds, Array.Empty<CurtainGridLineObservation>(), bridged);
 
         if (split.Count > 0 && bridged >= minRunMm)
@@ -979,8 +1008,9 @@ public static class CurtainWallJunctionResolver
             if (!looked.Contains(neighbour.Panel)) looked.Add(neighbour.Panel);
 
             // An unreadable rating stops the walk too: whether the break is real cannot be answered,
-            // and the panel is now in `looked`, so no run will be supplied either way.
-            if (!neighbour.Panel.Rating.IsRated) break;
+            // and the panel is now in `looked`, so no run will be supplied either way. A glazed
+            // neighbour stops it as a real break: Measure leaves it out of the reading.
+            if (neighbour.Panel.IsGlazed || !neighbour.Panel.Rating.IsRated) break;
             if (!neighbour.Panel.Qualifies(requiredMinutes)) break;
 
             var line = gridLines.FirstOrDefault(g => Math.Abs(g.PositionMm - edge) <= SnapMm);
@@ -1201,16 +1231,28 @@ public static class CurtainWallJunctionResolver
         public double Length => High - Low;
     }
 
-    /// <summary>The stretches of the curtain wall that run along the floor, as distances along it.</summary>
-    private static IEnumerable<Span> InsideSpans(CurtainWallObservation wall, CompartmentFloorObservation floor)
+    /// <summary>
+    /// The stretches of the curtain wall that run along the floor, as distances along it.
+    /// <para>
+    /// A slab rarely reaches the location line itself: it usually stops a little behind the curtain
+    /// wall, with a gap the firestop fills. So the floor is asked twice — at the location line and
+    /// <paramref name="toleranceMm"/> behind it, towards the 區劃 — and a stretch the floor covers at
+    /// either counts. That is the same search tolerance CW-H extends a 區劃牆 by; a slab stopping
+    /// further back than that does not meet this curtain wall. How far the slab reaches is
+    /// <see cref="Projection(CurtainWallObservation, CompartmentFloorObservation, double)"/>'s
+    /// question, which answers 0 for one stopping behind the face.
+    /// </para>
+    /// </summary>
+    private static IEnumerable<Span> InsideSpans(CurtainWallObservation wall, CompartmentFloorObservation floor, double toleranceMm)
     {
+        var behind = new Point2D(-wall.ExteriorNormal.X * toleranceMm, -wall.ExteriorNormal.Y * toleranceMm);
         var cuts = new List<double> { 0.0, wall.LengthMm };
         foreach (var loop in floor.OutlineLoops)
         {
             for (int i = 0, j = loop.Count - 1; i < loop.Count; j = i++)
             {
-                var hit = SegmentCut(wall, loop[j], loop[i]);
-                if (hit is double u) cuts.Add(u);
+                if (SegmentCut(wall, loop[j], loop[i], wall.Start) is double u) cuts.Add(u);
+                if (SegmentCut(wall, loop[j], loop[i], Shifted(wall.Start, behind.X, behind.Y)) is double v) cuts.Add(v);
             }
         }
 
@@ -1220,11 +1262,17 @@ public static class CurtainWallJunctionResolver
             var low = ordered[i];
             var high = ordered[i + 1];
             if (high - low <= SnapMm) continue;
-            if (floor.Contains(wall.PointAt((low + high) / 2.0))) yield return new Span(low, high);
+
+            var middle = wall.PointAt((low + high) / 2.0);
+            if (floor.Contains(middle) || floor.Contains(Shifted(middle, behind.X, behind.Y)))
+                yield return new Span(low, high);
         }
     }
 
-    private static double? SegmentCut(CurtainWallObservation wall, Point2D a, Point2D b)
+    private static Point2D Shifted(Point2D point, double dx, double dy) => new(point.X + dx, point.Y + dy);
+
+    /// <summary>Where segment <paramref name="a"/>–<paramref name="b"/> crosses the wall's location line moved to start at <paramref name="start"/>.</summary>
+    private static double? SegmentCut(CurtainWallObservation wall, Point2D a, Point2D b, Point2D start)
     {
         var rx = wall.End.X - wall.Start.X;
         var ry = wall.End.Y - wall.Start.Y;
@@ -1233,8 +1281,8 @@ public static class CurtainWallJunctionResolver
         var denominator = (rx * sy) - (ry * sx);
         if (Math.Abs(denominator) <= ParallelEpsilon) return null;
 
-        var qx = a.X - wall.Start.X;
-        var qy = a.Y - wall.Start.Y;
+        var qx = a.X - start.X;
+        var qy = a.Y - start.Y;
         var t = ((qx * sy) - (qy * sx)) / denominator;
         var u = ((qx * ry) - (qy * rx)) / denominator;
         return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? t * wall.LengthMm : (double?)null;

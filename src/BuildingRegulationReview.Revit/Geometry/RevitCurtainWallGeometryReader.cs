@@ -63,7 +63,9 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
 
         // The storey, widened by the reach of a 90 cm band, so a spandrel is never cut short by where
         // the read stopped instead of by the façade. A full-height curtain wall is read in every
-        // storey it passes through, but only the panels of this one are handed over.
+        // storey it passes through, and the panels within the widened range are handed over — the
+        // top row of the storey below and the bottom row of the one above included. Those are there
+        // for the bands to measure; the resolver answers 第79條之4 only for this storey's own panels.
         var margin = PlanUnits.MillimetersToFeet(request.Options.MinFireRatedRunMm);
         var storey = (Bottom: level.Elevation - margin, Top: NextLevelElevation(level) + margin);
 

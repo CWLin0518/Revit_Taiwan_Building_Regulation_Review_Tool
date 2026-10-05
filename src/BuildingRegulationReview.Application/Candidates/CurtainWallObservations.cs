@@ -133,6 +133,12 @@ public sealed class CurtainPanelObservation
     /// <summary>玻璃嵌板或帷幕牆門窗：第79條之4 由 <see cref="Protection"/> 回答。</summary>
     public bool AnswersByProtection => Kind is CurtainPanelKind declared && !CurtainPanelKinds.AnswersByRating(declared);
 
+    /// <summary>
+    /// 宣告為玻璃的嵌板（決議 16）。它沒有構造時效可讀，所以永遠不計入 CW-V 的連續段；它的時效欄位空白
+    /// 也不算缺值——那是已知的不具時效，不是使用者漏填。
+    /// </summary>
+    public bool IsGlazed => Kind == CurtainPanelKind.Glazed;
+
     public string? TypeUniqueId { get; }
     public string? TypeName { get; }
 
@@ -157,10 +163,12 @@ public sealed class CurtainPanelObservation
     /// <summary>
     /// Whether this panel may be counted towards a continuous run: its design rating has to reach
     /// what the host requires, and it must not be an unprotected opening (docs §5.4). A required
-    /// rating of null is no licence to count it — there is nothing to compare against.
+    /// rating of null is no licence to count it — there is nothing to compare against. A glazed panel
+    /// never counts, whatever its rating field says: 防火設備不是防火時效 (docs §9, 決議 16).
     /// </summary>
     public bool Qualifies(double? requiredMinutes) =>
         !IsUnprotectedOpening &&
+        !IsGlazed &&
         Rating.IsRated &&
         requiredMinutes is double required &&
         Rating.Minutes!.Value >= required;

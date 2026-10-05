@@ -297,6 +297,18 @@ public sealed class CurtainWallJunctionCheckTests
         Assert.Equal(ReviewValue.OfText(FireRatingParameters.Provided), finding.Result.Evidence.Find("provided.parameter"));
     }
 
+    [Fact]
+    public void Case47_an_all_glass_spandrel_over_a_floor_that_does_not_project_fails()
+    {
+        // 幾何層對宣告為玻璃的層間帶供給高度 0、不供時效讀值（決議 16）：那是設計本身未設防火帶，
+        // 不是資料缺口，所以是未符合而不是資料不足。
+        var finding = Single(new[] { Spandrel(0, bandMm: 0, panelMinutes: null) });
+
+        Assert.Equal(ReviewStatus.Fail, finding.Status);
+        Assert.Equal("tw-bcr-79-3-curtain-wall-spandrel", finding.Result.RuleId);
+        Assert.Null(finding.ErrorCode);
+    }
+
     // --- CW-O 其餘帷幕牆面（第79條之4） -------------------------------------------------------------
 
     [Theory]

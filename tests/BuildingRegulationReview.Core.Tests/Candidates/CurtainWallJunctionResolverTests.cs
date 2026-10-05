@@ -627,6 +627,37 @@ public sealed class CurtainWallJunctionResolverTests
     }
 
     [Fact]
+    public void The_storey_aboves_own_curtain_wall_is_not_a_vertical_space_of_this_storey()
+    {
+        // 實機（帷幕牆 290096，FL3 → FL4）：檢討 FL2 時讀取範圍上下各放寬 900 mm，上一層那片一層高的
+        // 帷幕牆也被讀進來。它站在 FL3 上、沒有穿過 FL3，FL2 的封包裡沒有 FL3 樓板不代表它是挑空。
+        var wall = new CurtainWallObservation("CW-above", new Point2D(0, 0), new Point2D(WallLengthMm, 0), new Point2D(0, -1),
+            OffsetMm, StoreyMm * 2, StoreyMm * 3,
+            new[] { Panel("P-above", 0, WallLengthMm, 0, bottom: StoreyMm * 2, top: StoreyMm * 3) },
+            typeName: "帷幕牆 1");
+        var set = new CurtainWallObservationSet(Package, "LVL", "2F", StoreyMm,
+            new[] { Zone() }, new[] { wall },
+            levelElevationsMm: new[] { 0.0, StoreyMm, StoreyMm * 2, StoreyMm * 3 });
+
+        Assert.DoesNotContain(Resolve(set), j => j.Doubt?.Kind == CurtainWallJunctionDoubtKind.VerticalCompartmentSpace);
+    }
+
+    [Fact]
+    public void A_vertical_space_counts_the_storeys_from_the_curtain_walls_own_base()
+    {
+        // 自 1F 起連跨三層的帷幕牆，在 2F 的封包裡讀到：跨幾層從牆底算，不從本層算。
+        var set = new CurtainWallObservationSet(Package, "LVL", "2F", StoreyMm,
+            new[] { Zone() },
+            new[] { Wall(Glazing(top: StoreyMm * 3), top: StoreyMm * 3) },
+            levelElevationsMm: new[] { 0.0, StoreyMm, StoreyMm * 2, StoreyMm * 3 });
+
+        var junction = Single(Resolve(set), CurtainWallJunctionKind.FloorToCurtainWall);
+
+        Assert.Equal(CurtainWallJunctionDoubtKind.VerticalCompartmentSpace, junction.Doubt!.Kind);
+        Assert.Contains("連跨 3 個樓層", junction.Doubt.Message);
+    }
+
+    [Fact]
     public void A_storey_whose_floor_reaches_the_curtain_wall_is_not_a_vertical_space()
     {
         var set = SpandrelSet(new[]
@@ -649,6 +680,44 @@ public sealed class CurtainWallJunctionResolverTests
         Assert.Equal(0.0, junction.MinFireRating.Minutes!.Value);
         Assert.Null(junction.HostUniqueId);
         Assert.DoesNotContain("S", junction.PanelUniqueIds);
+    }
+
+    [Fact]
+    public void Every_panel_is_answered_as_other_exterior_wall_by_exactly_one_storey()
+    {
+        // 逐層建模的兩片帷幕牆（1F：0–3600、2F：3600–7200）。讀取範圍上下各放寬 900 mm，所以兩個封包
+        // 都讀得到兩片牆；第79條之4 每片嵌板只能由它所在的那一層作答一次。
+        var lower = new CurtainWallObservation("CW-1F", new Point2D(0, 0), new Point2D(WallLengthMm, 0), new Point2D(0, -1),
+            OffsetMm, 0, StoreyMm, new[] { Glass("P-1F", 0, WallLengthMm, ProvidedFireProtection.Yes("是")) }, typeName: "帷幕牆 1");
+        var upper = new CurtainWallObservation("CW-2F", new Point2D(0, 0), new Point2D(WallLengthMm, 0), new Point2D(0, -1),
+            OffsetMm, StoreyMm, StoreyMm * 2,
+            new[] { Glass("P-2F", 0, WallLengthMm, ProvidedFireProtection.Yes("是"), bottom: StoreyMm, top: StoreyMm * 2) },
+            typeName: "帷幕牆 1");
+        var levels = new[] { 0.0, StoreyMm, StoreyMm * 2 };
+
+        IEnumerable<string> OtherPanels(string storey, double elevation) =>
+            Resolve(new CurtainWallObservationSet(Package, "LVL-" + storey, storey, elevation,
+                    new[] { Zone() }, new[] { lower, upper }, levelElevationsMm: levels))
+                .Where(j => j.Kind == CurtainWallJunctionKind.CurtainPanelOther)
+                .SelectMany(j => j.PanelUniqueIds);
+
+        Assert.Equal(new[] { "P-1F" }, OtherPanels("1F", 0).ToArray());
+        Assert.Equal(new[] { "P-2F" }, OtherPanels("2F", StoreyMm).ToArray());
+    }
+
+    [Fact]
+    public void The_storey_aboves_curtain_wall_makes_no_row_at_all_in_this_storey()
+    {
+        // 實機（帷幕牆 290096）：FL2 的封包讀到 FL3 那片一層高的帷幕牆，它在 FL2 不產出任何一列。
+        var wall = new CurtainWallObservation("CW-above", new Point2D(0, 0), new Point2D(WallLengthMm, 0), new Point2D(0, -1),
+            OffsetMm, StoreyMm * 2, StoreyMm * 3,
+            new[] { Glass("P-above", 0, WallLengthMm, ProvidedFireProtection.Yes("是"), bottom: StoreyMm * 2, top: StoreyMm * 3) },
+            typeName: "帷幕牆 1");
+        var set = new CurtainWallObservationSet(Package, "LVL", "2F", StoreyMm,
+            new[] { Zone() }, new[] { wall },
+            levelElevationsMm: new[] { 0.0, StoreyMm, StoreyMm * 2, StoreyMm * 3 });
+
+        Assert.Empty(Resolve(set));
     }
 
     [Fact]
@@ -1110,7 +1179,8 @@ public sealed class CurtainWallJunctionResolverTests
 
     /// <summary>
     /// 案例 47（守門）：玻璃嵌板勾了防火保護也不供給 CW-V 的 900 mm 但書高度。第79條之3 但書要的是
-    /// 「同等以上防火時效」，防火設備不是防火時效（§9、決議 13 與 16）。
+    /// 「同等以上防火時效」，防火設備不是防火時效（§9、決議 13 與 16）。高度供給 0 而不是不供值：
+    /// 宣告為玻璃的嵌板沒有時效是已知，不是缺漏，所以樓板不突出時是未符合，不是資料不足。
     /// </summary>
     [Fact]
     public void Case47_a_protected_glazed_panel_does_not_supply_the_vertical_but_clause()
@@ -1124,8 +1194,170 @@ public sealed class CurtainWallJunctionResolverTests
 
         var junction = Single(Resolve(set), CurtainWallJunctionKind.FloorToCurtainWall);
 
-        Assert.Null(junction.ContinuousFireRatedHeightMm);
+        Assert.Equal(0.0, junction.ContinuousFireRatedHeightMm);
+        Assert.Null(junction.MinFireRating);
         Assert.Null(junction.MinFireProtection);
+    }
+
+    [Fact]
+    public void A_glazed_panel_with_a_rating_filled_in_still_does_not_count_towards_the_band()
+    {
+        // 決議 16：玻璃的時效讀值不進判定。填了 60 也不會讓玻璃供給層間帶的高度（案例 48 的 CW-V 面）。
+        var panels = new[]
+        {
+            new CurtainPanelObservation("P-glass", 0, WallLengthMm, 0, StoreyMm * 2,
+                ProvidedFireRating.Rated(60, "60"), false, ProvidedFireProtection.Yes("是"), kind: CurtainPanelKind.Glazed)
+        };
+
+        var junction = Single(Resolve(SpandrelSet(panels)), CurtainWallJunctionKind.FloorToCurtainWall);
+
+        Assert.Equal(0.0, junction.ContinuousFireRatedHeightMm);
+    }
+
+    [Fact]
+    public void A_glazed_neighbour_is_a_real_break_rather_than_a_gap_in_the_data()
+    {
+        // 樓板下 450 mm 的 60 min 實板，上方緊接玻璃：玻璃那一側是真實斷點，依實測的 450 mm 判定。
+        var set = SpandrelSet(
+            new[]
+            {
+                Panel("S-low", 0, WallLengthMm, 60, bottom: StoreyMm - 450, top: StoreyMm),
+                Panel("S-zero", 0, WallLengthMm, 0, bottom: 0, top: StoreyMm - 450),
+                Glass("G-high", 0, WallLengthMm, ProvidedFireProtection.Yes("是"), bottom: StoreyMm, top: StoreyMm * 2)
+            },
+            gridLines: new[] { Grid("G-1", CurtainGridLineDirection.Horizontal, StoreyMm) });
+
+        var junction = Single(Resolve(set), CurtainWallJunctionKind.FloorToCurtainWall);
+
+        Assert.False(junction.IsDoubtful);
+        Assert.Equal(450, junction.ContinuousFireRatedHeightMm!.Value, 3);
+        Assert.Contains("G-high", junction.PanelUniqueIds);
+    }
+
+    [Fact]
+    public void A_window_ending_at_the_slab_lets_the_spandrel_above_be_measured_from_the_slab()
+    {
+        // 最常見的配置：樓板以下是視窗玻璃，水平 grid line 正好在樓板高程，以上是 1200 mm 的 60 min
+        // 實心層間板。層間帶從實心那一側起算，不是因為下方先碰到玻璃就報 0。
+        var set = SpandrelSet(
+            new[]
+            {
+                Glass("G-window", 0, WallLengthMm, ProvidedFireProtection.Yes("是"), bottom: 0, top: StoreyMm),
+                Panel("S-spandrel", 0, WallLengthMm, 60, bottom: StoreyMm, top: StoreyMm + 1200),
+                Glass("G-above", 0, WallLengthMm, ProvidedFireProtection.Yes("是"), bottom: StoreyMm + 1200, top: StoreyMm * 2)
+            },
+            gridLines: new[]
+            {
+                Grid("G-1", CurtainGridLineDirection.Horizontal, StoreyMm),
+                Grid("G-2", CurtainGridLineDirection.Horizontal, StoreyMm + 1200)
+            });
+
+        var junction = Single(Resolve(set), CurtainWallJunctionKind.FloorToCurtainWall);
+
+        Assert.False(junction.IsDoubtful);
+        Assert.Equal(1200, junction.ContinuousFireRatedHeightMm!.Value, 3);
+        Assert.Equal(60, junction.MinFireRating!.Minutes!.Value);
+    }
+
+    [Fact]
+    public void Two_glazed_panels_meeting_at_the_slab_still_measure_zero()
+    {
+        var set = SpandrelSet(
+            new[]
+            {
+                Glass("G-low", 0, WallLengthMm, ProvidedFireProtection.Yes("是"), bottom: 0, top: StoreyMm),
+                Glass("G-high", 0, WallLengthMm, ProvidedFireProtection.Yes("是"), bottom: StoreyMm, top: StoreyMm * 2)
+            },
+            gridLines: new[] { Grid("G-1", CurtainGridLineDirection.Horizontal, StoreyMm) });
+
+        var junction = Single(Resolve(set), CurtainWallJunctionKind.FloorToCurtainWall);
+
+        Assert.Equal(0.0, junction.ContinuousFireRatedHeightMm);
+    }
+
+    [Fact]
+    public void A_slab_stopping_just_behind_the_curtain_wall_still_meets_it()
+    {
+        // 實機模型（帷幕牆 290097 × 樓板 290839）：樓板邊緣停在帷幕牆定位線內側 75 mm，中間是防火填塞的縫。
+        // 那仍是這一層的層間交接，突出量為 0，全玻璃的層間帶高度為 0 — 之前這裡一個交接都不產生，
+        // 嵌板全數落到 CW-O，以防火保護過關。
+        var set = SetBackSlab(setBackMm: 75);
+
+        var junction = Single(Resolve(set), CurtainWallJunctionKind.FloorToCurtainWall);
+
+        Assert.Equal("F1", junction.HostUniqueId);
+        Assert.Equal(0.0, junction.ProjectionDepthMm);
+        Assert.Equal(0.0, junction.ContinuousFireRatedHeightMm);
+        Assert.Contains("P-glass", junction.PanelUniqueIds);
+    }
+
+    [Theory]
+    [InlineData(-1, true)]
+    [InlineData(1, false)]
+    [InlineData(100, false)]
+    public void The_search_tolerance_is_where_a_set_back_slab_stops_meeting_the_curtain_wall(double pastToleranceMm, bool meets)
+    {
+        var set = SetBackSlab(setBackMm: CurtainWallJunctionOptions.Default.JunctionSearchToleranceMm + pastToleranceMm);
+
+        Assert.Equal(meets, Resolve(set).Any(j => j.Kind == CurtainWallJunctionKind.FloorToCurtainWall));
+    }
+
+    [Fact]
+    public void A_set_back_slab_is_found_behind_the_facade_even_when_the_normal_was_read_inwards()
+    {
+        // Revit 的 wall.Orientation 可能朝室內（決議 15）：退縮線要在定向之後才往區劃側退，否則會退到室外。
+        var floor = new CompartmentFloorObservation("F1",
+            new[] { Rectangle(-500, 75, WallLengthMm + 500, 8000) }, StoreyMm, 60);
+        var wall = new CurtainWallObservation("CW1", new Point2D(0, 0), new Point2D(WallLengthMm, 0), new Point2D(0, 1),
+            OffsetMm, 0, StoreyMm * 2,
+            new[] { Glass("P-glass", 0, WallLengthMm, ProvidedFireProtection.Yes("是"), top: StoreyMm * 2) },
+            typeName: "帷幕牆 1");
+        var set = new CurtainWallObservationSet(Package, "LVL", "2F", StoreyMm,
+            new[] { Zone() }, new[] { wall }, compartmentFloors: new[] { floor },
+            levelElevationsMm: new[] { 0.0, StoreyMm, StoreyMm * 2 });
+
+        var junction = Single(Resolve(set), CurtainWallJunctionKind.FloorToCurtainWall);
+
+        Assert.Equal(0.0, junction.ProjectionDepthMm);
+        Assert.Equal(0.0, junction.ContinuousFireRatedHeightMm);
+    }
+
+    [Fact]
+    public void A_slab_edge_running_away_from_the_curtain_wall_meets_it_only_where_it_is_within_tolerance()
+    {
+        // 樓板邊緣斜向退縮：x = 0 處貼齊定位線，x = 12000 處退 650 mm。超過 300 mm 的那一段不是交接。
+        var floor = new CompartmentFloorObservation("F1",
+            new[]
+            {
+                new[] { new Point2D(-500, 0), new Point2D(WallLengthMm, 650), new Point2D(WallLengthMm, 8000), new Point2D(-500, 8000) }
+            }, StoreyMm, 60);
+        var set = new CurtainWallObservationSet(Package, "LVL", "2F", StoreyMm,
+            new[] { Zone() },
+            new[] { Wall(new[] { Glass("P-glass", 0, WallLengthMm, ProvidedFireProtection.Yes("是"), top: StoreyMm * 2) }, top: StoreyMm * 2) },
+            compartmentFloors: new[] { floor },
+            levelElevationsMm: new[] { 0.0, StoreyMm, StoreyMm * 2 });
+
+        var junction = Single(Resolve(set), CurtainWallJunctionKind.FloorToCurtainWall);
+
+        // 邊緣 y = 650 × (x + 500) / 12500，退 300 mm 處在 x = 5269.2。
+        var placement = junction.Placement!;
+        Assert.Equal(0.0, Math.Min(placement.StartMm.X, placement.EndMm.X), 3);
+        Assert.Equal(5269.2, Math.Max(placement.StartMm.X, placement.EndMm.X), 1);
+    }
+
+    [Fact]
+    public void A_set_back_slab_on_the_storey_above_keeps_a_two_storey_curtain_wall_out_of_article_79_2()
+    {
+        // 上一層的樓板同樣退在帷幕牆內側 75 mm：它照樣與帷幕牆交接，不是連跨複數樓層的垂直空間。
+        var above = new CompartmentFloorObservation("F2",
+            new[] { Rectangle(-500, 75, WallLengthMm + 500, 8000) }, StoreyMm, 60);
+        var set = new CurtainWallObservationSet(Package, "LVL", "1F", 0,
+            new[] { Zone() },
+            new[] { Wall(Glazing(top: StoreyMm * 2), top: StoreyMm * 2) },
+            compartmentFloors: new[] { above },
+            levelElevationsMm: new[] { 0.0, StoreyMm, StoreyMm * 2 });
+
+        Assert.DoesNotContain(Resolve(set), j => j.Doubt?.Kind == CurtainWallJunctionDoubtKind.VerticalCompartmentSpace);
     }
 
     [Fact]
@@ -1295,6 +1527,22 @@ public sealed class CurtainWallJunctionResolverTests
         };
 
         return SpandrelSet(panels, required, slabEdgeMm);
+    }
+
+    /// <summary>
+    /// 一層全玻璃（宣告為玻璃、勾了防火保護）的帷幕牆跨過 3600 的樓板，樓板邊緣退在定位線內側
+    /// <paramref name="setBackMm"/>（y 向北為室內）。
+    /// </summary>
+    private static CurtainWallObservationSet SetBackSlab(double setBackMm)
+    {
+        var floor = new CompartmentFloorObservation("F1",
+            new[] { Rectangle(-500, setBackMm, WallLengthMm + 500, 8000) }, StoreyMm, 60);
+
+        return new CurtainWallObservationSet(Package, "LVL", "2F", StoreyMm,
+            new[] { Zone() },
+            new[] { Wall(new[] { Glass("P-glass", 0, WallLengthMm, ProvidedFireProtection.Yes("是"), top: StoreyMm * 2) }, top: StoreyMm * 2) },
+            compartmentFloors: new[] { floor },
+            levelElevationsMm: new[] { 0.0, StoreyMm, StoreyMm * 2 });
     }
 
     private static CurtainWallObservationSet SpandrelSet(

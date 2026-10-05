@@ -185,8 +185,10 @@ public sealed class CurtainWallFacetTests
     {
         var other = Assert.Single(Resolve(Upper(spandrelMinutes: 60)), j => j.Kind == CurtainWallJunctionKind.CurtainPanelOther);
 
+        // 樓板以下的 L 嵌板屬於 1F，由 1F 的封包作答第79條之4；2F 只答自己樓層的 H 嵌板。
         Assert.DoesNotContain(other.PanelUniqueIds, id => id.StartsWith("S", StringComparison.Ordinal));
-        Assert.Equal(FacetCount * 2, other.PanelUniqueIds.Count);
+        Assert.DoesNotContain(other.PanelUniqueIds, id => id.StartsWith("L", StringComparison.Ordinal));
+        Assert.Equal(FacetCount, other.PanelUniqueIds.Count);
     }
 
     // --- fixtures ---------------------------------------------------------------------------------
