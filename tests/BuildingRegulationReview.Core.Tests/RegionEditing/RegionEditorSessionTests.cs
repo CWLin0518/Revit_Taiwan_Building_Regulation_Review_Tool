@@ -345,6 +345,48 @@ public class RegionEditorSessionTests
     }
 
     [Fact]
+    public void SetsAZoneUseAndTakesItBackWithUndo()
+    {
+        var session = TwoRooms();
+        var zone = Succeeds(session.CreateZone("A"));
+
+        Assert.True(session.SetZoneUse(zone.Id, "管道間").IsSuccess);
+        Assert.Equal("管道間", session.Zones.Zone(zone.Id)!.Use);
+
+        Assert.True(session.Undo().IsSuccess);
+        Assert.Null(session.Zones.Zone(zone.Id)!.Use);
+    }
+
+    [Fact]
+    public void ClearingAZoneUseIsItsOwnUndoableStepAndNotTheSameAsNotChangingIt()
+    {
+        var session = TwoRooms();
+        var zone = Succeeds(session.CreateZone("A"));
+        Assert.True(session.SetZoneUse(zone.Id, "挑空").IsSuccess);
+
+        Assert.True(session.SetZoneUse(zone.Id, string.Empty).IsSuccess);
+
+        // Empty is 一般區劃, which the write-back clears; null would have been 不變更.
+        Assert.Equal(string.Empty, session.Zones.Zone(zone.Id)!.Use);
+        Assert.True(session.Undo().IsSuccess);
+        Assert.Equal("挑空", session.Zones.Zone(zone.Id)!.Use);
+    }
+
+    [Fact]
+    public void SettingTheUseAZoneAlreadyCarriesRecordsNoHistoryStep()
+    {
+        var session = TwoRooms();
+        var zone = Succeeds(session.CreateZone("A"));
+        Assert.True(session.SetZoneUse(zone.Id, "樓梯間").IsSuccess);
+
+        Assert.True(session.SetZoneUse(zone.Id, " 樓梯間 ").IsSuccess);
+
+        // One Undo, not two: the second call changed nothing, so it is not a step to walk back over.
+        Assert.True(session.Undo().IsSuccess);
+        Assert.Null(session.Zones.Zone(zone.Id)!.Use);
+    }
+
+    [Fact]
     public void DeletingAZoneReleasesItsFacesAndKeepsTheListPosition()
     {
         var session = TwoRooms();

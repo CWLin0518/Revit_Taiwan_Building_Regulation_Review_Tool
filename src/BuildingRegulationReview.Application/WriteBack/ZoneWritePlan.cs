@@ -99,7 +99,8 @@ public static class ZoneWritePlan
             placement: anchor.RepresentativePoint,
             zoneName: zone.Name,
             color: zone.Color,
-            netAreaSquareMeters: netArea);
+            netAreaSquareMeters: netArea,
+            zoneUse: zone.Use);
 
         yield return new PlannedElement(
             new ManagedElementKey(packageId, zone.Id, ManagedElementKind.AreaTag, partIndex, 0),

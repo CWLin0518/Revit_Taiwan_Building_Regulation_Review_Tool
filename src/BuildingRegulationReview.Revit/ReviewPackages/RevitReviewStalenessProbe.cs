@@ -37,7 +37,11 @@ public sealed class RevitReviewStalenessProbe
     {
         if (package is null) throw new ArgumentNullException(nameof(package));
 
-        var areaPlan = _document.GetElement(package.AreaPlanUniqueId ?? string.Empty) as ViewPlan;
+        // The same identity judgement the picker uses, not a bare `as ViewPlan`: a reference that now
+        // resolves to a floor plan or to a view template would otherwise be accepted as this
+        // package's Area Plan, and the staleness report would describe somebody else's view.
+        var referenced = _document.GetElement(package.AreaPlanUniqueId ?? string.Empty);
+        var areaPlan = RevitAreaPlanProbe.IsLiveAreaPlan(referenced) ? (ViewPlan)referenced : null;
         var changed = 0;
         var unreadable = 0;
         var managed = 0;

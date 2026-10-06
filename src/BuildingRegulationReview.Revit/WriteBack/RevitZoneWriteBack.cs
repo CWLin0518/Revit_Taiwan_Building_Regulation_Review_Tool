@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using Autodesk.Revit.DB;
+using BuildingRegulationReview.Application.Reviews;
 using BuildingRegulationReview.Application.WriteBack;
 using BuildingRegulationReview.Domain.Geometry;
 using BuildingRegulationReview.Revit.ReviewPackages;
@@ -78,6 +79,7 @@ public sealed class RevitZoneWriteBack
                 Run(plan, ApplyStage.Remove, "移除不再需要的面積與標註", step => Remove(plan, step, log));
                 Run(plan, ApplyStage.Boundaries, "建立與更新面積邊界線", step => Boundary(plan, step, log, view, level));
                 Run(plan, ApplyStage.Areas, "建立與更新面積", step => Area(plan, step, log, view));
+                ZoneUses(plan, log);
                 Run(plan, ApplyStage.Tags, "建立與更新面積標註", step => Tag(plan, step, log, view));
                 DetailCurves(plan, request, log);
                 ColorScheme(plan, request, view, log);
@@ -410,6 +412,101 @@ public sealed class RevitZoneWriteBack
     /// found or created inside this run's group, so a rollback takes it with everything else rather
     /// than leaving an empty view behind.
     /// </summary>
+    /// <summary>
+    /// Writes 防火檢討_區劃用途 onto the Areas the drafts changed it on (<see cref="ZoneUseOperations"/>),
+    /// after the Areas stage so an Area this run created can be written too.
+    /// </summary>
+    /// <remarks>
+    /// Inside the write-back's own transaction group, not through
+    /// <c>RevitFireReviewParameterWriter</c>, which opens a transaction of its own: geometry and 用途
+    /// have to share one Undo and one rollback, or a run that rolls back its elements would leave
+    /// their uses behind. Every refusal is recorded rather than swallowed — an unbound parameter is
+    /// the common one, and a run that quietly dropped it would report 套用完成 over a model where the
+    /// 第79條之2 review still sees nothing.
+    /// </remarks>
+    private void ZoneUses(ApplyPlan plan, ApplyResult.Builder log)
+    {
+        if (plan.ZoneUses.IsEmpty) return;
+
+        using (var transaction = new Transaction(_document, "設定區劃用途"))
+        {
+            transaction.Start();
+            foreach (var operation in plan.ZoneUses) ZoneUse(plan, operation, log);
+
+            if (transaction.Commit() != TransactionStatus.Committed)
+                throw new InvalidOperationException("Revit 無法提交「設定區劃用途」。");
+        }
+    }
+
+    private void ZoneUse(ApplyPlan plan, ZoneUseOperation operation, ApplyResult.Builder log)
+    {
+        var element = Find(plan, operation.Key);
+        if (element is null)
+        {
+            log.ZoneUse(ApplyOutcome.Skipped, operation, "找不到要設定的面積。", null);
+            return;
+        }
+
+        // The same last word the deletion stage gives the element itself: the Editor is modeless and
+        // the model is live, so ownership is re-checked here rather than trusted from the preview.
+        if (!ManagedElementMark.IsOwnedBy(element, plan.PackageId))
+        {
+            log.ZoneUse(ApplyOutcome.Skipped, operation, "這個面積沒有本套件的擁有權標記，不會設定用途。", element.UniqueId);
+            return;
+        }
+
+        var parameter = element.LookupParameter(ReviewInputSources.ZoneUse);
+        if (parameter is null)
+        {
+            log.ZoneUse(
+                ApplyOutcome.Failed,
+                operation,
+                $"這個面積沒有 {ReviewInputSources.ZoneUse} 參數，用途未寫入；請先執行「防火檢討參數設定」。",
+                element.UniqueId);
+            return;
+        }
+
+        if (parameter.StorageType != StorageType.String)
+        {
+            log.ZoneUse(
+                ApplyOutcome.Failed,
+                operation,
+                $"{ReviewInputSources.ZoneUse} 不是文字參數，用途未寫入。",
+                element.UniqueId);
+            return;
+        }
+
+        if (parameter.IsReadOnly)
+        {
+            log.ZoneUse(ApplyOutcome.Failed, operation, $"{ReviewInputSources.ZoneUse} 是唯讀的，用途未寫入。", element.UniqueId);
+            return;
+        }
+
+        // The preview was taken before the group opened, and the 批次設定面板 may have written since.
+        // Re-reading costs nothing and keeps 同值不重寫 true at the moment it matters.
+        if (string.Equals(parameter.AsString() ?? string.Empty, operation.TargetUse, StringComparison.Ordinal))
+        {
+            log.ZoneUse(ApplyOutcome.Skipped, operation, "這個面積的區劃用途已經是要設定的值，未重複寫入。", element.UniqueId);
+            return;
+        }
+
+        try
+        {
+            if (!parameter.Set(operation.TargetUse))
+            {
+                log.ZoneUse(ApplyOutcome.Failed, operation, "Revit 拒絕寫入這個區劃用途。", element.UniqueId);
+                return;
+            }
+        }
+        catch (RevitApplicationException exception)
+        {
+            log.ZoneUse(ApplyOutcome.Failed, operation, exception.Message, element.UniqueId);
+            return;
+        }
+
+        log.ZoneUse(ApplyOutcome.Updated, operation, null, element.UniqueId);
+    }
+
     private void DetailCurves(ApplyPlan plan, ZoneWriteBackRequest request, ApplyResult.Builder log)
     {
         var steps = plan.StepsOf(ApplyStage.DetailCurves);

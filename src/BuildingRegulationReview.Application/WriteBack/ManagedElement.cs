@@ -191,7 +191,8 @@ public sealed class PlannedElement
         string? zoneName = null,
         ZoneColor? color = null,
         double netAreaSquareMeters = 0.0,
-        string? text = null)
+        string? text = null,
+        string? zoneUse = null)
     {
         if (string.IsNullOrWhiteSpace(signature)) throw new ArgumentException("A planned element needs a signature.", nameof(signature));
         if (string.IsNullOrWhiteSpace(description)) throw new ArgumentException("A planned element needs a description.", nameof(description));
@@ -205,6 +206,7 @@ public sealed class PlannedElement
         Color = color;
         NetAreaSquareMeters = netAreaSquareMeters;
         Text = text;
+        ZoneUse = zoneUse?.Trim();
     }
 
     public ManagedElementKey Key { get; }
@@ -227,6 +229,19 @@ public sealed class PlannedElement
     /// <summary>What a 單線圖 area label shows; null for every other kind.</summary>
     public string? Text { get; }
 
+    /// <summary>
+    /// 防火檢討_區劃用途 to write onto an Area: empty for the explicit 一般區劃, null for 不變更 —
+    /// which is every kind that is not an Area, and every zone whose draft has nothing to say about
+    /// its use (see <c>ZoneDraft.Use</c>).
+    /// </summary>
+    /// <remarks>
+    /// Deliberately absent from <see cref="Signature"/>. The signature is what the staleness probe
+    /// and the apply preview compare, and 用途 is a value the 批次設定面板 may change between runs,
+    /// where a different answer is the user editing their own field rather than the tool's output
+    /// drifting. <see cref="ZoneUseOperations"/> is what carries the write instead.
+    /// </remarks>
+    public string? ZoneUse { get; }
+
     public override string ToString() => Description;
 }
 
@@ -236,7 +251,12 @@ public sealed class PlannedElement
 /// </summary>
 public sealed class ExistingManagedElement
 {
-    public ExistingManagedElement(string elementUniqueId, string keyToken, string signature, string? description = null)
+    public ExistingManagedElement(
+        string elementUniqueId,
+        string keyToken,
+        string signature,
+        string? description = null,
+        string? zoneUse = null)
     {
         if (string.IsNullOrWhiteSpace(elementUniqueId)) throw new ArgumentException("An element UniqueId is required.", nameof(elementUniqueId));
         if (string.IsNullOrWhiteSpace(keyToken)) throw new ArgumentException("A managed element needs its key token.", nameof(keyToken));
@@ -244,6 +264,7 @@ public sealed class ExistingManagedElement
         ElementUniqueId = elementUniqueId.Trim();
         KeyToken = keyToken.Trim();
         Signature = (signature ?? string.Empty).Trim();
+        ZoneUse = zoneUse?.Trim();
         HasKey = ManagedElementKey.TryParse(KeyToken, out var key);
         Key = key;
         Description = string.IsNullOrWhiteSpace(description)
@@ -256,6 +277,13 @@ public sealed class ExistingManagedElement
 
     /// <summary>What was written last time, for telling Update from Unchanged.</summary>
     public string Signature { get; }
+
+    /// <summary>
+    /// 防火檢討_區劃用途 as this Area carries it now — not from the signature, because the field
+    /// belongs to the user and the 批次設定面板 writes it too. Null for a kind that has no such
+    /// parameter, and for an Area whose parameter is not bound or does not hold text.
+    /// </summary>
+    public string? ZoneUse { get; }
 
     public string Description { get; }
 

@@ -118,9 +118,11 @@ public sealed class ApplyPlan
         IDictionary<ManagedElementKey, string> existingElementIds,
         ColorSchemeEntries colorEntries,
         IEnumerable<ApplyPreviewItem> unchanged,
-        int untouchedElementCount)
+        int untouchedElementCount,
+        ZoneUseOperations zoneUses)
     {
         PackageId = packageId;
+        ZoneUses = zoneUses;
         Steps = new ReadOnlyCollection<ApplyStep>(steps.ToList());
         Deferred = new ReadOnlyCollection<ApplyPreviewItem>(deferred.ToList());
         Warnings = new ReadOnlyCollection<string>(warnings.ToList());
@@ -178,7 +180,14 @@ public sealed class ApplyPlan
     /// <summary>Elements in the views this package does not own, which will not be touched.</summary>
     public int UntouchedElementCount { get; }
 
-    public bool IsEmpty => Steps.Count == 0;
+    /// <summary>
+    /// The 防火檢討_區劃用途 writes this run makes. They are not steps — they create and delete
+    /// nothing, and the Area they sit on is very often one the plan leaves alone — but they are
+    /// model changes all the same, which is why <see cref="IsEmpty"/> asks about them.
+    /// </summary>
+    public ZoneUseOperations ZoneUses { get; }
+
+    public bool IsEmpty => Steps.Count == 0 && ZoneUses.IsEmpty;
 
     public IReadOnlyList<ApplyStep> StepsOf(ApplyStage stage) =>
         new ReadOnlyCollection<ApplyStep>(Steps.Where(s => s.Stage == stage).ToList());
@@ -197,16 +206,30 @@ public sealed class ApplyPlan
                 group.Count()))
             .ToList());
 
-    public string Summary => IsEmpty
-        ? "沒有需要寫入模型的變更。"
-        : string.Format(
-            CultureInfo.InvariantCulture,
-            "將建立 {0} 個、更新 {1} 個、刪除 {2} 個元素；不變 {3} 個，未受管理 {4} 個不會被更動。",
-            CountOf(ApplyChangeKind.Add),
-            CountOf(ApplyChangeKind.Update),
-            CountOf(ApplyChangeKind.Delete),
-            UnchangedCount,
-            UntouchedElementCount);
+    public string Summary
+    {
+        get
+        {
+            if (IsEmpty) return "沒有需要寫入模型的變更。";
+
+            var head = Steps.Count == 0
+                ? string.Format(
+                    CultureInfo.InvariantCulture,
+                    "元素全部不變（{0} 個），未受管理 {1} 個不會被更動。",
+                    UnchangedCount,
+                    UntouchedElementCount)
+                : string.Format(
+                    CultureInfo.InvariantCulture,
+                    "將建立 {0} 個、更新 {1} 個、刪除 {2} 個元素；不變 {3} 個，未受管理 {4} 個不會被更動。",
+                    CountOf(ApplyChangeKind.Add),
+                    CountOf(ApplyChangeKind.Update),
+                    CountOf(ApplyChangeKind.Delete),
+                    UnchangedCount,
+                    UntouchedElementCount);
+
+            return ZoneUses.Summary is string uses ? head + uses : head;
+        }
+    }
 
     /// <summary>
     /// Schedules the preview. <paramref name="writableKinds"/> is what the caller's adapter can
@@ -251,7 +274,11 @@ public sealed class ApplyPlan
             existing,
             ColorSchemeEntries.From(preview),
             preview.Unchanged,
-            preview.UntouchedElementCount);
+            preview.UntouchedElementCount,
+            // Carried whatever the adapter can write: 用途 goes onto an Area, and an Area the adapter
+            // cannot create is already deferred, so the write-back simply finds no Area to write on
+            // and reports that rather than silently dropping the operation here.
+            preview.ZoneUses);
     }
 
     private static ApplyStage StageOfDelete(ManagedElementKind kind) =>

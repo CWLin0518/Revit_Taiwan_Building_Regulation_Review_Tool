@@ -51,11 +51,16 @@ public sealed class ReviewPackageSelection
     /// say. Only a deleted Area Plan earns a line: a package still awaiting one is mid-setup, and
     /// the picker's own「請先執行防火區劃設定」already covers that.
     /// </summary>
+    /// <remarks>
+    /// It says 「已不存在」, not 「已被刪除」. Deleting the view is much the commonest way to get here,
+    /// but the probe cannot tell that from a reference that no longer resolves, and a sentence that
+    /// states what the user did is one that will sometimes be wrong about it.
+    /// </remarks>
     public string? HiddenNotice => AreaPlanDeleted.Count == 0
         ? null
         : string.Format(
             CultureInfo.InvariantCulture,
-            "有 {0} 個檢討套件的 Area Plan 已被刪除，已不列出。重新執行「防火區劃設定」會為它們重建 Area Plan，並接回原有的單線圖與檢討紀錄。",
+            "有 {0} 個檢討套件的 Area Plan 已不存在（通常是被刪除了），已不列出。重新執行「防火區劃設定」會為它們重建 Area Plan，並接回原有的單線圖與檢討紀錄。",
             AreaPlanDeleted.Count);
 }
 

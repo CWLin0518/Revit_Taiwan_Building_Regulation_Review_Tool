@@ -19,13 +19,15 @@ public sealed class WrittenZoneArea
         string zoneName,
         ZoneColor color,
         IEnumerable<IReadOnlyList<Point2D>>? boundaryLoops,
-        Point2D? placement)
+        Point2D? placement,
+        string? use = null)
     {
         if (zoneId == Guid.Empty) throw new ArgumentException("Zone ID cannot be empty.", nameof(zoneId));
 
         ZoneId = zoneId;
         ZoneName = zoneName ?? throw new ArgumentNullException(nameof(zoneName));
         Color = color;
+        Use = use?.Trim();
         BoundaryLoops = new ReadOnlyCollection<IReadOnlyList<Point2D>>(
             (boundaryLoops ?? Array.Empty<IReadOnlyList<Point2D>>()).Where(l => l is not null && l.Count >= 3).ToList());
         Placement = placement;
@@ -34,6 +36,20 @@ public sealed class WrittenZoneArea
     public Guid ZoneId { get; }
     public string ZoneName { get; }
     public ZoneColor Color { get; }
+
+    /// <summary>
+    /// 防火檢討_區劃用途 as this Area carries it <em>now</em>, not as the signature records it; null
+    /// when the parameter could not be read at all, which is not the same as an unfilled one.
+    /// </summary>
+    /// <remarks>
+    /// The name and colour come from the signature because they are the tool's own record and a hand
+    /// edit of them is drift to report. 用途 is the opposite: it is the user's value, and the 批次設定
+    /// 面板 owns it just as much as the Editor does. Reading it from the signature would mean a use
+    /// set in that panel never reaches the Editor's drafts — and the next 套用 would then write the
+    /// draft's blank over it, silently taking a 管道間 back to a 一般區劃 and with it its 第79條之2
+    /// results.
+    /// </remarks>
+    public string? Use { get; }
 
     /// <summary>Outer loop and holes together; empty when Revit reports the Area as not enclosed.</summary>
     public IReadOnlyList<IReadOnlyList<Point2D>> BoundaryLoops { get; }
@@ -110,8 +126,18 @@ public static class WrittenZoneRestorer
                 continue;
             }
 
+            var use = AgreedUse(group, out var mixed);
+            if (mixed)
+            {
+                warnings.Add(string.Format(
+                    CultureInfo.CurrentCulture,
+                    "區劃「{0}」的各個面積填了不一致的區劃用途，編輯器顯示「多種用途」並原樣保留；" +
+                    "要統一它們，請在編輯器裡明確選一個用途。",
+                    first.ZoneName));
+            }
+
             var disjoint = map.ContiguousPartsOf(faceIds).Count > 1;
-            var draft = new ZoneDraft(group.Key, UniqueName(zones, first.ZoneName), first.Color, faceIds, disjoint);
+            var draft = new ZoneDraft(group.Key, UniqueName(zones, first.ZoneName), first.Color, faceIds, disjoint, use);
             var added = zones.Add(draft);
             if (added.IsFailure)
             {
@@ -124,6 +150,31 @@ public static class WrittenZoneRestorer
         }
 
         return new ZoneRestoration(zones, warnings);
+    }
+
+    /// <summary>
+    /// The 區劃用途 a zone's Areas agree on, or null for 不變更 — the same reading
+    /// <c>RevitStoreyZoneReader</c> applies to a 區劃 spread over several Areas, so a zone whose parts
+    /// were edited apart never has one part's answer picked for it.
+    /// </summary>
+    /// <remarks>
+    /// Null comes about two ways and only one is worth a warning. <paramref name="mixed"/> is the
+    /// zone whose Areas carry different uses: a real disagreement, and one the user can settle. An
+    /// Area the parameter could not be read from is the other, and it is silent — it means the model
+    /// has not had 防火檢討參數設定 run on it yet, which is every zone at once and is the write-back's
+    /// message to deliver, not a line per zone here. Both end as 不變更, so neither can lose data.
+    /// </remarks>
+    private static string? AgreedUse(IEnumerable<WrittenZoneArea> areas, out bool mixed)
+    {
+        mixed = false;
+        var uses = areas.Select(a => a.Use).ToList();
+        if (uses.Any(u => u is null)) return null;
+
+        var distinct = uses.Distinct(StringComparer.Ordinal).ToList();
+        if (distinct.Count == 1) return distinct[0];
+
+        mixed = true;
+        return null;
     }
 
     // Names are unique ignoring case, and one renamed by hand in Revit could now clash.

@@ -84,12 +84,14 @@ public sealed class ApplyPreview
         Guid packageId,
         IEnumerable<ApplyPreviewItem> items,
         int untouchedElementCount,
-        IEnumerable<string> warnings)
+        IEnumerable<string> warnings,
+        ZoneUseOperations? zoneUses = null)
     {
         PackageId = packageId;
         Items = new ReadOnlyCollection<ApplyPreviewItem>(items.ToList());
         UntouchedElementCount = untouchedElementCount;
         Warnings = new ReadOnlyCollection<string>(warnings.ToList());
+        ZoneUses = zoneUses ?? ZoneUseOperations.Empty;
 
         Added = Filter(ApplyChangeKind.Add);
         Updated = Filter(ApplyChangeKind.Update);
@@ -112,10 +114,17 @@ public sealed class ApplyPreview
 
     public IReadOnlyList<string> Warnings { get; }
 
-    /// <summary>True when applying would change nothing, which is what a second run should report.</summary>
-    public bool IsEmpty => Added.Count == 0 && Updated.Count == 0 && Deleted.Count == 0;
+    /// <summary>
+    /// The 防火檢討_區劃用途 writes this run would make. They change no element and so appear in no
+    /// row above, but they are still changes to the model and count towards <see cref="IsEmpty"/>.
+    /// </summary>
+    public ZoneUseOperations ZoneUses { get; }
 
-    public int ChangeCount => Added.Count + Updated.Count + Deleted.Count;
+    /// <summary>True when applying would change nothing, which is what a second run should report.</summary>
+    public bool IsEmpty =>
+        Added.Count == 0 && Updated.Count == 0 && Deleted.Count == 0 && ZoneUses.IsEmpty;
+
+    public int ChangeCount => Added.Count + Updated.Count + Deleted.Count + ZoneUses.Count;
 
     public IEnumerable<ApplyPreviewItem> Of(ManagedElementKind kind) => Items.Where(i => i.Kind == kind);
 
@@ -136,20 +145,39 @@ public sealed class ApplyPreview
                 CountOf(kind, ApplyChangeKind.Unchanged)))
             .ToList());
 
-    public string Summary => IsEmpty
-        ? string.Format(
-            CultureInfo.InvariantCulture,
-            "模型已經與草稿一致，套用不會變更任何元素（不變 {0} 個，未受管理 {1} 個）。",
-            Unchanged.Count,
-            UntouchedElementCount)
-        : string.Format(
-            CultureInfo.InvariantCulture,
-            "將新增 {0} 個、更新 {1} 個、刪除 {2} 個元素；不變 {3} 個，未受管理 {4} 個不會被更動。",
-            Added.Count,
-            Updated.Count,
-            Deleted.Count,
-            Unchanged.Count,
-            UntouchedElementCount);
+    public string Summary
+    {
+        get
+        {
+            if (IsEmpty)
+            {
+                return string.Format(
+                    CultureInfo.InvariantCulture,
+                    "模型已經與草稿一致，套用不會變更任何元素（不變 {0} 個，未受管理 {1} 個）。",
+                    Unchanged.Count,
+                    UntouchedElementCount);
+            }
+
+            // A 用途-only run has no element changes at all, and saying 「新增 0、更新 0、刪除 0」
+            // would read as nothing to do right next to an enabled 套用 button.
+            var head = Added.Count == 0 && Updated.Count == 0 && Deleted.Count == 0
+                ? string.Format(
+                    CultureInfo.InvariantCulture,
+                    "元素全部不變（{0} 個），未受管理 {1} 個不會被更動。",
+                    Unchanged.Count,
+                    UntouchedElementCount)
+                : string.Format(
+                    CultureInfo.InvariantCulture,
+                    "將新增 {0} 個、更新 {1} 個、刪除 {2} 個元素；不變 {3} 個，未受管理 {4} 個不會被更動。",
+                    Added.Count,
+                    Updated.Count,
+                    Deleted.Count,
+                    Unchanged.Count,
+                    UntouchedElementCount);
+
+            return ZoneUses.Summary is string uses ? head + uses : head;
+        }
+    }
 
     /// <summary>
     /// Compares the drafts against the model. <paramref name="existing"/> is everything the adapter
@@ -210,7 +238,7 @@ public sealed class ApplyPreview
                 orphan.Value.ElementUniqueId));
         }
 
-        return new ApplyPreview(packageId, items, untouched, Warn(map, zones));
+        return new ApplyPreview(packageId, items, untouched, Warn(map, zones), ZoneUseOperations.Build(planned, mine));
     }
 
     /// <summary>
@@ -227,7 +255,10 @@ public sealed class ApplyPreview
             ? new ApplyPreviewItem(ApplyChangeKind.Update, item.Key, item.Description, item.ElementUniqueId, item.ZoneName, item.Planned)
             : item),
         UntouchedElementCount,
-        Warnings);
+        Warnings,
+        // A rebuild redraws elements; it does not re-assert 用途. The operations already exclude the
+        // Areas that agree with the draft, and rewriting those would make the review stale for nothing.
+        ZoneUses);
 
     private static IEnumerable<string> Warn(PlanRegionMap map, ZoneDraftSet zones)
     {

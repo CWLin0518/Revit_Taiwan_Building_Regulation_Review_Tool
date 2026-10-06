@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
+using BuildingRegulationReview.Application.Reviews;
 using BuildingRegulationReview.Application.WriteBack;
 
 namespace BuildingRegulationReview.Revit.WriteBack;
@@ -68,8 +69,23 @@ public sealed class RevitManagedElementInventory
                 element.UniqueId,
                 token,
                 signature,
-                Describe(element)));
+                Describe(element),
+                ZoneUseOf(element)));
         }
+    }
+
+    /// <summary>
+    /// 防火檢討_區劃用途 as an Area carries it, or null for anything that is not an Area and for one
+    /// whose parameter is unbound or does not hold text. Null is 讀不到, never 空白: the preview turns
+    /// a blank into 「清除用途」 and must not be handed one the model never had.
+    /// </summary>
+    private static string? ZoneUseOf(Element element)
+    {
+        if (!(element is Autodesk.Revit.DB.Area)) return null;
+
+        var parameter = element.LookupParameter(ReviewInputSources.ZoneUse);
+        if (parameter is null || parameter.StorageType != StorageType.String) return null;
+        return parameter.AsString() ?? string.Empty;
     }
 
     private static string? Describe(Element element)

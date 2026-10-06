@@ -137,7 +137,8 @@ public sealed class ZoneVisual
         int contiguousPartCount,
         bool isActive,
         ScreenPoint? labelAnchor,
-        bool allowsDisjointParts = false)
+        bool allowsDisjointParts = false,
+        string? use = null)
     {
         if (zoneId == Guid.Empty) throw new ArgumentException("Zone ID cannot be empty.", nameof(zoneId));
         if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("A zone needs a name.", nameof(name));
@@ -155,6 +156,7 @@ public sealed class ZoneVisual
         IsActive = isActive;
         LabelAnchor = labelAnchor;
         AllowsDisjointParts = allowsDisjointParts;
+        Use = use;
     }
 
     public Guid ZoneId { get; }
@@ -176,6 +178,26 @@ public sealed class ZoneVisual
     /// the label can say the split was intended rather than leaving it looking like a mistake.
     /// </summary>
     public bool AllowsDisjointParts { get; }
+
+    /// <summary>
+    /// 防火檢討_區劃用途 this draft would write: empty for the explicit 一般區劃, null for 不變更 —
+    /// the zone whose Areas disagree, or whose parameter could not be read. See <c>ZoneDraft.Use</c>.
+    /// </summary>
+    public string? Use { get; }
+
+    /// <summary>
+    /// What the 用途 column reads. The three states have to be told apart on screen, because the
+    /// user's next click decides whether their Areas keep what they carry.
+    /// </summary>
+    public string UseText => Use switch
+    {
+        null => "多種用途",
+        "" => "一般區劃",
+        _ => Use
+    };
+
+    /// <summary>True while the 用途 column is showing a state rather than a use, so it can be dimmed.</summary>
+    public bool HasUse => !string.IsNullOrEmpty(Use);
 
     /// <summary>Where to draw the zone label, or null when the zone holds no face yet.</summary>
     public ScreenPoint? LabelAnchor { get; }

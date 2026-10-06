@@ -146,6 +146,27 @@ public sealed class ZoneDraftSet
     }
 
     /// <summary>
+    /// Sets a zone's 區劃用途, or clears it with null or blank. Two zones may share a use — unlike a
+    /// name, 用途 is not an identity, and a floor with three 管道間 is ordinary.
+    /// </summary>
+    public Result<ZoneDraftSet> SetUse(Guid zoneId, string? use)
+    {
+        if (!_byId.TryGetValue(zoneId, out var zone)) return UnknownZone<ZoneDraftSet>(zoneId);
+
+        try
+        {
+            return Result.Success(Replace(zone.WithUse(use)));
+        }
+        catch (ArgumentException exception)
+        {
+            return Result.Failure<ZoneDraftSet>(new Error(
+                "regions.zone.invalidUse",
+                $"區劃用途長度不可超過 {ZoneDraft.MaximumNameLength} 個字。",
+                exception.Message));
+        }
+    }
+
+    /// <summary>
     /// Records, or withdraws, the user's explicit confirmation that a zone may hold parts that do
     /// not touch (spec 10.3). The set only stores the answer; deciding when to ask is the Editor's.
     /// </summary>

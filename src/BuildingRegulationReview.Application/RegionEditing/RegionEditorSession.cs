@@ -416,6 +416,33 @@ public sealed class RegionEditorSession
     }
 
     /// <summary>
+    /// Sets a zone's 防火檢討_區劃用途, which the next 套用 writes onto its Areas. Blank clears it, and
+    /// setting the use a zone already carries is not an edit, so it records no history step.
+    /// </summary>
+    public Result SetZoneUse(Guid zoneId, string? use)
+    {
+        var previous = Zones.Zone(zoneId);
+        if (previous is null) return Result.Failure(UnknownZone(zoneId));
+
+        var updated = Zones.SetUse(zoneId, use);
+        if (updated.IsFailure) return Result.Failure(updated.Error);
+        if (ReferenceEquals(updated.Value.Zone(zoneId), previous)) return Result.Success();
+
+        var before = Snapshot();
+        Zones = updated.Value;
+        var now = Zones.Zone(zoneId)!.Use;
+        var label = now switch
+        {
+            null => "不變更「{0}」的區劃用途",
+            "" => "將「{0}」設為一般區劃（清除區劃用途）",
+            _ => "將「{0}」的區劃用途設為「{1}」"
+        };
+
+        _history.Record(before, string.Format(CultureInfo.InvariantCulture, label, previous.Name, now));
+        return Result.Success();
+    }
+
+    /// <summary>
     /// Deletes a 區劃 draft. Its faces go back to being unassigned; nothing in the model is touched,
     /// because the draft has not been written yet.
     /// </summary>
@@ -709,7 +736,8 @@ public sealed class RegionEditorSession
                 region.ContiguousPartCount,
                 zone.Id == ActiveZoneId,
                 anchorFace is null ? (ScreenPoint?)null : viewport.ToScreen(anchorFace.RepresentativePoint),
-                zone.AllowsDisjointParts);
+                zone.AllowsDisjointParts,
+                zone.Use);
         }
     }
 

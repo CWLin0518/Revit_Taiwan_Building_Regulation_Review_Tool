@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
 using BuildingRegulationReview.Application.RegionEditing;
+using BuildingRegulationReview.Application.Reviews;
 using BuildingRegulationReview.Application.WriteBack;
 using BuildingRegulationReview.Domain.Geometry;
 using BuildingRegulationReview.Domain.Regions;
@@ -20,6 +21,11 @@ namespace BuildingRegulationReview.Revit.WriteBack;
 /// the name and colour from the signature written beside it, not from the Area's own parameters: a
 /// user may have retyped those, but the signature is what the tool wrote and what the next
 /// write-back compares against.
+/// <para>
+/// 防火檢討_區劃用途 is the exception, and is read from the Area itself — see
+/// <see cref="WrittenZoneArea.Use"/> for why. In short, the 批次設定面板 owns that field too, and a
+/// draft that did not know what it already said would write a blank over it on the next 套用.
+/// </para>
 /// </remarks>
 public sealed class RevitWrittenZoneReader
 {
@@ -59,10 +65,23 @@ public sealed class RevitWrittenZoneReader
                 name,
                 color,
                 ReadLoops(area, options),
-                area.Location is LocationPoint location ? RevitPlanShapeReader.ToPlan(location.Point) : (Point2D?)null));
+                area.Location is LocationPoint location ? RevitPlanShapeReader.ToPlan(location.Point) : (Point2D?)null,
+                ZoneUseOf(area)));
         }
 
         return found;
+    }
+
+    /// <summary>
+    /// 防火檢討_區劃用途 as the Area carries it, or null when the parameter is not bound to Areas or
+    /// does not hold text. Null is 不變更, never 空白: an unbound parameter must not come back looking
+    /// like an empty one, or the next 套用 would write that emptiness onto every Area in the package.
+    /// </summary>
+    private static string? ZoneUseOf(RevitArea area)
+    {
+        var parameter = area.LookupParameter(ReviewInputSources.ZoneUse);
+        if (parameter is null || parameter.StorageType != StorageType.String) return null;
+        return parameter.AsString() ?? string.Empty;
     }
 
     internal static List<IReadOnlyList<Point2D>> ReadLoops(RevitArea area, SpatialElementBoundaryOptions options)

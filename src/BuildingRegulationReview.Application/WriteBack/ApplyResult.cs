@@ -273,6 +273,18 @@ public sealed class ApplyResult
         public void Failed(ApplyStep step, string reason) =>
             Record(ApplyOutcome.Failed, step, reason, step.ElementUniqueId);
 
+        /// <summary>
+        /// One 防火檢討_區劃用途 write. These are not steps — the Area they sit on is usually one the
+        /// run leaves alone — but they are recorded on the same log, so a failed use write counts
+        /// towards <see cref="FailureCount"/> and is rolled back with everything else under
+        /// <see cref="ApplyFailurePolicy.RollBackEverything"/>.
+        /// </summary>
+        public void ZoneUse(ApplyOutcome outcome, ZoneUseOperation operation, string? reason, string? elementUniqueId)
+        {
+            if (operation is null) throw new ArgumentNullException(nameof(operation));
+            _items.Add(new ApplyResultItem(outcome, operation.Key, operation.Text, reason, elementUniqueId));
+        }
+
         /// <summary>The run committed. Individual failures are on the log, not in an exception.</summary>
         public ApplyResult Complete() =>
             new ApplyResult(_packageId, _items, _notes, _manualActions, _areaFindings, null);

@@ -79,3 +79,27 @@
   看不見的東西擋住。留案，不在本次範圍。
 - 單元測試：`tests/.../ReviewPackages/ReviewPackageAvailabilityTests.cs`（10 條）。
   面板接線與 Revit 行為只能實機驗，寫成 `docs/revit-verification-checklist.md` 的 **V-28**（第 10 輪）。
+
+## 影響審查與後續修正（2026-10-06）
+
+送 codex fire protection 做影響審查（`docs/agent/review-request-task2-deleted-area-plan-packages.md`，
+回覆在 `docs/agent/review-reply-task2-deleted-area-plan-packages.md`）。結論是**支持**本方案、認定為
+必要變更，但指出兩個 bug，都已修正：
+
+1. **`RevitAreaPlanProbe.IsLiveAreaPlan` 吞掉所有例外**（本次實作造成）。`catch (Exception)` 會把文件
+   失效、API context 錯誤之類的**真實故障**一律當成 `AreaPlanDeleted`，於是畫面顯示「Area Plan 已被
+   刪除」，把故障藏在一句怪罪使用者的話後面。改為只捕捉 `ArgumentException`（Revit 無法解析的
+   UniqueId，那確實等同不存在），其餘交由命令自己的 try/catch 當故障回報。
+2. **`RevitReviewStalenessProbe.Observe` 只做 `as ViewPlan`**（既有缺口）。沒有檢查 `ViewType` 與
+   `IsTemplate`，一個現在指向樓層平面或視圖樣板的引用會被當成本套件的 Area Plan，失效報告就會描述
+   別人的視圖。改為共用同一個身分判斷 `RevitAreaPlanProbe.IsLiveAreaPlan(Element?)`。
+
+同時依審查調整措辭：說明文字由「Area Plan **已被刪除**」改為「Area Plan **已不存在（通常是被刪除了）**」。
+探測器分不出「使用者刪了視圖」與「引用失效」，而一句斷言使用者做了什麼的話，總有說錯的時候。
+
+審查另指出兩件**不在本次範圍、留案**的事，與原本就記在上面的留案一致：
+
+- `FireReviewSetupCommand` 的重複判定在孤兒套件存在時會擋住使用者，而「請先清理」沒有入口。審查建議
+  至少把來源視圖／面積配置、重複數、`PackageId` 顯示出來；**不要**改成只計 live 套件或 `First` 選一筆。
+- 「刪除後修復」只保留關聯與歷史，**不**保證舊結果仍有效（`Status` 原樣保留，可能是 `Reviewed`）。
+  區劃與檢討都要重新確認。這一點已在 V-28 第 8 項驗證。

@@ -158,6 +158,7 @@ namespace BuildingRegulationReview.RegionEditor
             zoneButtons.Children.Add(MakeButton("新增", CreateZone));
             zoneButtons.Children.Add(MakeButton("重新命名", RenameZone));
             zoneButtons.Children.Add(MakeButton("顏色", RecolorZone));
+            zoneButtons.Children.Add(MakeButton("用途", SetZoneUse));
             zoneButtons.Children.Add(MakeButton("刪除", DeleteZone));
             panel.Children.Add(zoneButtons);
 
@@ -232,6 +233,30 @@ namespace BuildingRegulationReview.RegionEditor
             if (color == null) return;
 
             Report(Run(_session.RecolorZone(zone.Id, color.Value), $"已將「{zone.Name}」改為 {color.Value.ToHex()}。"));
+        }
+
+        /// <summary>
+        /// Sets the selected 區劃's 防火檢討_區劃用途 — the 垂直開口 (管道間、挑空 and the rest) the
+        /// review needs named before 第79條之2 can judge them, and the exemption both area rules read.
+        /// The write happens at 套用 time with everything else, so this changes no model yet.
+        /// </summary>
+        private void SetZoneUse()
+        {
+            var zone = SelectedZone();
+            if (zone == null) return;
+
+            // One Revit Area per contiguous part, so that is how many fields a 清除 would empty.
+            var areaCount = zone.IsEmpty ? 0 : _session.Map.ContiguousPartsOf(zone.FaceIds).Count;
+            if (!ZoneUsePickerWindow.Ask(this, zone.Name, zone.Use, areaCount, out var use)) return;
+
+            var message = use switch
+            {
+                null => $"「{zone.Name}」的區劃用途維持不變。",
+                "" => $"已將「{zone.Name}」設為一般區劃，套用時會清除它的區劃用途。",
+                _ => $"已將「{zone.Name}」的區劃用途設為「{use}」，套用時寫入模型。"
+            };
+
+            Report(Run(_session.SetZoneUse(zone.Id, use), message));
         }
 
         private void DeleteZone()
@@ -513,16 +538,24 @@ namespace BuildingRegulationReview.RegionEditor
         /// <summary>One line of the 區劃 list: colour swatch, name, face count and draft area.</summary>
         private sealed class ZoneRow
         {
-            private ZoneRow(Guid zoneId, Brush swatch, string text)
+            private ZoneRow(Guid zoneId, Brush swatch, string text, string useText, Brush useBrush)
             {
                 ZoneId = zoneId;
                 Swatch = swatch;
                 Text = text;
+                UseText = useText;
+                UseBrush = useBrush;
             }
 
             public Guid ZoneId { get; }
             public Brush Swatch { get; }
             public string Text { get; }
+
+            /// <summary>The 用途 column: the use itself, or 一般區劃／多種用途 for the two 不變更 states.</summary>
+            public string UseText { get; }
+
+            /// <summary>Dim for a state, normal for a use the review will actually read.</summary>
+            public Brush UseBrush { get; }
 
             public static ZoneRow From(ZoneVisual zone)
             {
@@ -537,7 +570,7 @@ namespace BuildingRegulationReview.RegionEditor
 
                 var brush = new SolidColorBrush(Color.FromRgb(zone.Color.Red, zone.Color.Green, zone.Color.Blue));
                 brush.Freeze();
-                return new ZoneRow(zone.ZoneId, brush, text);
+                return new ZoneRow(zone.ZoneId, brush, text, zone.UseText, zone.HasUse ? Brushes.Black : Brushes.DimGray);
             }
 
             public static DataTemplate Template()
@@ -554,10 +587,22 @@ namespace BuildingRegulationReview.RegionEditor
                 var label = new FrameworkElementFactory(typeof(TextBlock));
                 label.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(Text)));
                 label.SetValue(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis);
+                label.SetValue(DockPanel.DockProperty, Dock.Left);
 
-                var row = new FrameworkElementFactory(typeof(StackPanel));
-                row.SetValue(StackPanel.OrientationProperty, Orientation.Horizontal);
+                // The 用途 column, docked right so it lines up down the list however long the names are.
+                var use = new FrameworkElementFactory(typeof(TextBlock));
+                use.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(UseText)));
+                use.SetBinding(TextBlock.ForegroundProperty, new System.Windows.Data.Binding(nameof(UseBrush)));
+                use.SetValue(TextBlock.TextAlignmentProperty, TextAlignment.Right);
+                use.SetValue(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis);
+                use.SetValue(WidthProperty, 72.0);
+                use.SetValue(MarginProperty, new Thickness(8, 0, 0, 0));
+                use.SetValue(DockPanel.DockProperty, Dock.Right);
+
+                var row = new FrameworkElementFactory(typeof(DockPanel));
+                row.SetValue(DockPanel.LastChildFillProperty, false);
                 row.AppendChild(swatch);
+                row.AppendChild(use);
                 row.AppendChild(label);
 
                 return new DataTemplate { VisualTree = row };

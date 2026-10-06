@@ -200,6 +200,32 @@ namespace BuildingRegulationReview.RegionEditor
                     };
                 }
             }
+
+            // 用途 changes touch no element, so they are in none of the groups above — and a run that
+            // only sets a use would otherwise show an empty list under an enabled 套用 button.
+            if (preview.ZoneUses.Count > 0)
+            {
+                yield return new TextBlock
+                {
+                    Text = string.Format(
+                        CultureInfo.CurrentUICulture,
+                        "設定區劃用途（{0} 個面積，元素本身不變）",
+                        preview.ZoneUses.Count),
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = Brushes.SteelBlue,
+                    Margin = new Thickness(0, 6, 0, 2)
+                };
+
+                foreach (var operation in preview.ZoneUses)
+                {
+                    yield return new TextBlock
+                    {
+                        Text = "　" + operation.Text,
+                        TextTrimming = TextTrimming.CharacterEllipsis,
+                        ToolTip = operation.Key.ToToken()
+                    };
+                }
+            }
         }
 
         private UIElement BuildButtons(bool canApply)
