@@ -110,8 +110,15 @@ namespace BuildingRegulationReview
 
         private static PackageChoice ChoosePackage(UIApplication application, Document document)
         {
-            var choices = new RevitReviewPackageRepository(document).GetAll()
-                .Where(package => !string.IsNullOrWhiteSpace(package.AreaPlanUniqueId))
+            // A package outlives the Area Plan it points at (it is a DataStorage), so one whose plan
+            // the user deleted would otherwise be listed with its PackageId for a label — which is
+            // the "一串代碼" the user reported. It stays in the model, recoverable by re-running
+            // 防火區劃設定; it just does not belong in a picker.
+            var selection = ReviewPackageAvailability.Partition(
+                new RevitReviewPackageRepository(document).GetAll(),
+                new RevitAreaPlanProbe(document).IsLiveAreaPlan);
+
+            var choices = selection.Available
                 .Select(package => new PackageChoice(
                     package.PackageId,
                     package.AreaPlanUniqueId,
@@ -122,13 +129,15 @@ namespace BuildingRegulationReview
 
             if (choices.Count == 0)
             {
-                TaskDialog.Show(DialogTitle, "這個專案還沒有建立 Area Plan 的檢討套件，請先執行「防火區劃設定」。");
+                TaskDialog.Show(DialogTitle, PackagePickerMessages.WithNotice(
+                    "這個專案還沒有建立 Area Plan 的檢討套件，請先執行「防火區劃設定」。",
+                    selection.HiddenNotice));
                 return null;
             }
 
             if (choices.Count == 1) return choices[0];
 
-            var picker = new PackagePickerWindow(choices);
+            var picker = new PackagePickerWindow(choices, selection.HiddenNotice);
             new WindowInteropHelper(picker).Owner = application.MainWindowHandle;
             return picker.ShowDialog() == true ? picker.Selected : null;
         }

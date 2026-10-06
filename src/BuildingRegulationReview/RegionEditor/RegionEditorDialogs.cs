@@ -108,12 +108,30 @@ namespace BuildingRegulationReview.RegionEditor
         }
     }
 
+    /// <summary>
+    /// Shared wording for the package pickers. Both「防火區劃編輯器」and「防火區劃檢討」open the
+    /// same picker and have to explain the same omissions, so the joining lives in one place.
+    /// </summary>
+    internal static class PackagePickerMessages
+    {
+        /// <summary>The message with the notice appended, or just the message when there is none.</summary>
+        internal static string WithNotice(string message, string notice) =>
+            string.IsNullOrWhiteSpace(notice)
+                ? message
+                : message + Environment.NewLine + Environment.NewLine + notice;
+    }
+
     /// <summary>Picks which review package to edit when the document holds more than one.</summary>
     internal sealed class PackagePickerWindow : Window
     {
         private readonly ListBox _list = new ListBox { DisplayMemberPath = "Label", MinHeight = 140, Margin = new Thickness(0, 8, 0, 0) };
 
-        public PackagePickerWindow(System.Collections.Generic.IEnumerable<PackageChoice> choices)
+        /// <param name="notice">
+        /// What was left out of <paramref name="choices"/> and why, shown under the list; null when
+        /// the list is everything the document holds. A package whose Area Plan the user deleted is
+        /// hidden rather than listed as a GUID, so this line is the only place that says so.
+        /// </param>
+        public PackagePickerWindow(System.Collections.Generic.IEnumerable<PackageChoice> choices, string notice = null)
         {
             Title = "選擇檢討套件";
             Width = 460;
@@ -127,6 +145,17 @@ namespace BuildingRegulationReview.RegionEditor
             var panel = new StackPanel { Margin = new Thickness(18) };
             panel.Children.Add(new TextBlock { Text = "要編輯哪一個 Area Plan 的防火區劃？", FontWeight = FontWeights.SemiBold });
             panel.Children.Add(_list);
+
+            if (!string.IsNullOrWhiteSpace(notice))
+            {
+                panel.Children.Add(new TextBlock
+                {
+                    Text = notice,
+                    TextWrapping = TextWrapping.Wrap,
+                    Opacity = 0.75,
+                    Margin = new Thickness(0, 8, 0, 0)
+                });
+            }
 
             var ok = new Button
             {
