@@ -617,11 +617,11 @@ public sealed class FireResistanceCheckTests
     }
 
     /// <summary>
-    /// 外牆帷幕牆的「不適用」指向帷幕牆的判定原則（第79條第3項、第4項、第79條之3、第79條之4），
-    /// 而不是候選規則清單的第一條——那曾讓一片帷幕牆讀起來像是依第70條「樑」檢討。
+    /// 外牆帷幕牆不列入構件防火時效：檢討表、Type 彙總都沒有它。留存的判定指向帷幕牆的判定原則
+    /// （第79條第3項、第4項、第79條之3、第79條之4），而不是候選規則清單的第一條。
     /// </summary>
     [Fact]
-    public void An_exterior_curtain_wall_is_pointed_to_the_curtain_wall_rules_not_to_a_member_rule()
+    public void An_exterior_curtain_wall_is_not_reported_and_is_left_to_the_curtain_wall_rules()
     {
         var json = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow };
         var path = Path.Combine(AppContext.BaseDirectory, "Rules", "BuiltIn", "fire-review-rules.json");
@@ -639,8 +639,15 @@ public sealed class FireResistanceCheckTests
             ReviewInput.Known("building.fireResistiveConstruction", true, "專案設定"),
             ReviewInput.Known("building.floorsAboveGround", 5, ReviewUnit.None, "專案設定")
         }, null);
-        var result = Only(Review(set, Ratings(building), new RuleEngine(loaded.Value))).Result;
+        var review = Review(set, Ratings(building), new RuleEngine(loaded.Value));
 
+        Assert.Empty(review.Findings);
+        Assert.Empty(review.Results);
+        Assert.Empty(review.Types);
+        var finding = Assert.Single(review.ExteriorCurtainWalls);
+        Assert.True(finding.IsExteriorCurtainWall);
+
+        var result = finding.Result;
         Assert.True(result.Status == ReviewStatus.NotApplicable, result.Message);
         Assert.Equal(loaded.Value.RuleSet.RuleSetId, result.RuleId);
         Assert.Equal(FireResistanceCheck.ExteriorCurtainWallReference, result.LegalReference);

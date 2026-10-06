@@ -23,8 +23,10 @@ public sealed class MemberRatingFinding
         ProvidedFireRating? provided,
         RuleOutcome? outcome,
         CandidateAmbiguity? ambiguity,
-        string? errorCode)
+        string? errorCode,
+        bool isExteriorCurtainWall = false)
     {
+        IsExteriorCurtainWall = isExteriorCurtainWall;
         Result = result;
         ElementUniqueId = elementUniqueId;
         Category = category;
@@ -61,6 +63,12 @@ public sealed class MemberRatingFinding
 
     /// <summary>The spec 14 code a log entry about this member carries; null for a routine verdict.</summary>
     public string? ErrorCode { get; }
+
+    /// <summary>
+    /// An 外牆帷幕牆 the member rules set aside: not reported as a 構件防火時效 result
+    /// (see <see cref="FireResistanceReview.ExteriorCurtainWalls"/>).
+    /// </summary>
+    public bool IsExteriorCurtainWall { get; }
 
     /// <summary>The required rating in minutes, whenever the rules could compute it.</summary>
     public double? RequiredMinutes =>
@@ -127,15 +135,31 @@ public sealed class TypeRatingSummary
 /// <summary>The 構件防火時效 results of one run.</summary>
 public sealed class FireResistanceReview
 {
-    internal FireResistanceReview(IEnumerable<MemberRatingFinding> findings, IEnumerable<TypeRatingSummary> types, IEnumerable<string> warnings)
+    internal FireResistanceReview(
+        IEnumerable<MemberRatingFinding> findings,
+        IEnumerable<MemberRatingFinding> exteriorCurtainWalls,
+        IEnumerable<TypeRatingSummary> types,
+        IEnumerable<string> warnings)
     {
         Findings = new ReadOnlyCollection<MemberRatingFinding>(findings.ToList());
+        ExteriorCurtainWalls = new ReadOnlyCollection<MemberRatingFinding>(exteriorCurtainWalls.ToList());
         Types = new ReadOnlyCollection<TypeRatingSummary>(types.ToList());
         Warnings = new ReadOnlyCollection<string>(warnings.ToList());
     }
 
-    /// <summary>One per member and zone, plus one per ambiguous member relation; zone, category, element order.</summary>
+    /// <summary>
+    /// One per member and zone, plus one per ambiguous member relation; zone, category, element order.
+    /// 外牆帷幕牆 are not among them.
+    /// </summary>
     public IReadOnlyList<MemberRatingFinding> Findings { get; }
+
+    /// <summary>
+    /// The 外牆帷幕牆, which no member rule asks a rating of: they are not 區劃牆壁, and their fire
+    /// requirements are the 帷幕牆區劃交接 check's (第79條第3項、第4項、第79條之3、第79條之4). Not
+    /// reported here, in the 檢討表 or in the Type summary. A 室內 curtain wall is a 區劃牆壁 and stays
+    /// in <see cref="Findings"/>; one whose 室內外 is undecided stays there as a 人工覆核.
+    /// </summary>
+    public IReadOnlyList<MemberRatingFinding> ExteriorCurtainWalls { get; }
 
     public IEnumerable<ReviewResult> Results => Findings.Select(x => x.Result);
 
@@ -241,8 +265,10 @@ public static class FireResistanceCheck
             .ThenBy(f => f.Category.HasValue ? (int)f.Category.Value : int.MaxValue)
             .ThenBy(f => f.ElementUniqueId, StringComparer.Ordinal)
             .ToList();
+        var reported = ordered.Where(f => !f.IsExteriorCurtainWall).ToList();
 
-        return Result.Success(new FireResistanceReview(ordered, Summarize(ordered, inputs), warnings));
+        return Result.Success(new FireResistanceReview(reported, ordered.Where(f => f.IsExteriorCurtainWall),
+            Summarize(reported, inputs), warnings));
     }
 
     private static MemberRatingFinding Decide(
@@ -321,7 +347,7 @@ public static class FireResistanceCheck
             new[] { observation.Source.ElementUniqueId }, zone.ZoneIdText, status, outcome.ActualValue, outcome.RequiredValue,
             outcome.RuleId, outcome.RuleVersion, legalReference, message, evidence);
         return new MemberRatingFinding(result, observation.Source.ElementUniqueId, observation.Category,
-            observation.TypeUniqueId, observation.TypeName, provided, outcome, null, errorCode);
+            observation.TypeUniqueId, observation.TypeName, provided, outcome, null, errorCode, exteriorCurtainWall);
     }
 
     /// <summary>
@@ -412,7 +438,7 @@ public static class FireResistanceCheck
             var interior = Decide(set, zone, member, inputs, engine, context, runId, resultId,
                 Assuming(member, zoneId, ZoneRelationKind.Inside), merged, interiorOverride: true);
             return new MemberRatingFinding(interior.Result, interior.ElementUniqueId, interior.Category, interior.TypeUniqueId,
-                interior.TypeName, interior.Provided, interior.Outcome, ambiguity, interior.ErrorCode);
+                interior.TypeName, interior.Provided, interior.Outcome, ambiguity, interior.ErrorCode, interior.IsExteriorCurtainWall);
         }
 
         var asBoundary = Decide(set, zone, member, inputs, engine, context, runId, resultId, Assuming(member, zoneId, ZoneRelationKind.Boundary));
@@ -454,7 +480,7 @@ public static class FireResistanceCheck
             $"{decided.Message}（區劃「{zone.Name}」的邊界與此{label}的關係無法由幾何判定，但{reason}，故逕行判定，免人工覆核。）",
             evidence);
         return new MemberRatingFinding(result, chosen.ElementUniqueId, chosen.Category, chosen.TypeUniqueId, chosen.TypeName,
-            chosen.Provided, chosen.Outcome, ambiguity, chosen.ErrorCode);
+            chosen.Provided, chosen.Outcome, ambiguity, chosen.ErrorCode, chosen.IsExteriorCurtainWall);
     }
 
     /// <summary>A verdict the law gives outright; 資料不足 and 人工覆核 are not, so two of them never settle a doubt.</summary>
