@@ -57,8 +57,10 @@ public sealed class ZoneAreaFinding
         RuleOutcome? outcome,
         AreaCrossCheck crossCheck,
         double? relativeDifference,
-        string? errorCode)
+        string? errorCode,
+        bool isVerticalCompartment = false)
     {
+        IsVerticalCompartment = isVerticalCompartment;
         Zone = zone;
         Result = result;
         Outcome = outcome;
@@ -85,19 +87,39 @@ public sealed class ZoneAreaFinding
     /// <summary>The spec 14 code a log entry about this zone carries; null for a routine verdict.</summary>
     public string? ErrorCode { get; }
 
-    public override string ToString() => $"{Zone.Name}: {ReviewStatusText.Label(Status)} — {Result.Message}";
+    /// <summary>
+    /// A 第79條之2 垂直區劃 its 用途 exempted from the area limits: not reported as a 區劃面積 result
+    /// (see <see cref="CompartmentAreaReview.VerticalCompartments"/>).
+    /// </summary>
+    public bool IsVerticalCompartment { get; }
+
+    public override string ToString() => $"{Zone.Name}:{ReviewStatusText.Label(Status)} — {Result.Message}";
 }
 
-/// <summary>The 區劃面積 results of one run: one per zone, in Zone ID order.</summary>
+/// <summary>
+/// The 區劃面積 results of one run: one per zone, in Zone ID order — except the 垂直區劃, which the
+/// area limits do not bind and which are not reported here at all.
+/// </summary>
 public sealed class CompartmentAreaReview
 {
     internal CompartmentAreaReview(IEnumerable<ZoneAreaFinding> findings, IEnumerable<string> warnings)
     {
-        Findings = new ReadOnlyCollection<ZoneAreaFinding>(findings.ToList());
+        var all = findings.ToList();
+        Findings = new ReadOnlyCollection<ZoneAreaFinding>(all.Where(x => !x.IsVerticalCompartment).ToList());
+        VerticalCompartments = new ReadOnlyCollection<ZoneAreaFinding>(all.Where(x => x.IsVerticalCompartment).ToList());
         Warnings = new ReadOnlyCollection<string>(warnings.ToList());
     }
 
+    /// <summary>The 區劃 the area limits were checked on — what the 檢討表 and the log show.</summary>
     public IReadOnlyList<ZoneAreaFinding> Findings { get; }
+
+    /// <summary>
+    /// The 第79條之2 垂直區劃 (樓梯間、昇降機道、管道間、昇降階梯間、未依第3項免除之挑空): exempt
+    /// from every area limit by their 用途, so their 不適用 is not reported — the 垂直區劃 check answers
+    /// for them. Kept only for what other checks read off the area rules, e.g. which 區劃 is 第83條's.
+    /// </summary>
+    public IReadOnlyList<ZoneAreaFinding> VerticalCompartments { get; }
+
     public IEnumerable<ReviewResult> Results => Findings.Select(x => x.Result);
     public IReadOnlyList<string> Warnings { get; }
 
@@ -185,8 +207,10 @@ public static class CompartmentAreaCheck
 
         var status = outcome.Status;
         var message = $"區劃「{zone.Name}」：{outcome.Message}";
-        if (outcome.Reason == RuleOutcomeReason.Exempt && ZoneUses.IsVerticalCompartment(TextOf(facts, "zone.use")))
-            message += ZoneUses.VerticalCompartmentHandoff;
+        // Exempt, not merely of a vertical 用途: a 挑空 that 第79條之2第3項 merged into its 連通區劃 is
+        // decided by the atrium rules and stays a reported 區劃面積 result.
+        var vertical = outcome.Reason == RuleOutcomeReason.Exempt && ZoneUses.IsVerticalCompartment(TextOf(facts, "zone.use"));
+        if (vertical) message += ZoneUses.VerticalCompartmentHandoff;
         var errorCode = RuleOutcomeErrorCode.For(outcome);
         if (crossCheck == AreaCrossCheck.Differs)
         {
@@ -218,7 +242,7 @@ public static class CompartmentAreaCheck
         var result = new ReviewResult(resultId, runId, set.PackageId, ReviewCheckTypes.CompartmentArea,
             zone.AreaUniqueIds, zone.ZoneIdText, status, outcome.ActualValue, outcome.RequiredValue,
             outcome.RuleId, outcome.RuleVersion, outcome.LegalReference, message, evidence);
-        return new ZoneAreaFinding(zone, result, outcome, crossCheck, difference, errorCode);
+        return new ZoneAreaFinding(zone, result, outcome, crossCheck, difference, errorCode, vertical);
     }
 
     /// <summary>

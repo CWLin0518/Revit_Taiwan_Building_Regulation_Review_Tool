@@ -470,7 +470,9 @@ public static class FireReviewRunner
     /// </remarks>
     private static IReadOnlyDictionary<string, string> HostLegalReferences(CandidateSet set, CompartmentAreaReview area, MergedAtriums merged)
     {
-        var article83 = new HashSet<Guid>(area.Findings
+        // The 垂直區劃 are not reported as area results but were still decided under a clause, and a
+        // stairwell of a 第83條 storey keeps its walls 第83條's.
+        var article83 = new HashSet<Guid>(area.Findings.Concat(area.VerticalCompartments)
             .Where(f => f.Outcome is { IsApplicabilityUndecided: false } &&
                         f.Result.LegalReference.IndexOf(CurtainWallJunctionReferences.Article83, StringComparison.Ordinal) >= 0)
             .Select(f => f.ZoneId));

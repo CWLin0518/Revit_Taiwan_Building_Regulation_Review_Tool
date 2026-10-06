@@ -49,6 +49,7 @@ public sealed class AtriumAreaReviewTests
         Assert.Equal(RuleOutcomeReason.Exempt, finding.Outcome!.Reason);
         Assert.Equal("tw-bcr-79-area", finding.Result.RuleId);
         Assert.Contains(ZoneUses.VerticalCompartmentHandoff, finding.Result.Message, StringComparison.Ordinal);
+        Assert.True(finding.IsVerticalCompartment);
     }
 
     // --- 第3項成立：連通區劃之合計面積回到第79條 --------------------------------------------------------
@@ -68,6 +69,9 @@ public sealed class AtriumAreaReviewTests
         Assert.Equal(ReviewValue.Quantity(1500, ReviewUnit.SquareMeter), finding.Result.RequiredValue);
         Assert.DoesNotContain("第83條", finding.Result.LegalReference, StringComparison.Ordinal);
         Assert.Equal(ReviewValue.OfBoolean(true), finding.Result.Evidence.Find("zone.atriumMerged"));
+
+        // No longer a 垂直區劃: its 連通區劃 total is a 區劃面積 result and is reported as one.
+        Assert.False(finding.IsVerticalCompartment);
     }
 
     /// <summary>
@@ -394,7 +398,8 @@ public sealed class AtriumAreaReviewTests
 
         var review = CompartmentAreaCheck.Review(set, inputs, new RuleEngine(Shipped()), Today, RunId);
         Assert.True(review.IsSuccess, review.IsSuccess ? string.Empty : review.Error.ToString());
-        return Assert.Single(review.Value.Findings);
+        // A 垂直區劃 is set aside rather than reported; it is still decided, and that decision is what is checked here.
+        return Assert.Single(review.Value.Findings.Concat(review.Value.VerticalCompartments));
     }
 
     private static CompiledRuleSet Shipped()

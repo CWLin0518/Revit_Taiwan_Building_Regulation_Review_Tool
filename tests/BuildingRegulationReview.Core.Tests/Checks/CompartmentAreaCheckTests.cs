@@ -74,6 +74,16 @@ public sealed class CompartmentAreaCheckTests
 
     private static ZoneAreaFinding Single(CompartmentAreaReview review) => Assert.Single(review.Findings);
 
+    /// <summary>A 垂直區劃 is not reported as a 區劃面積 result; its decision is only kept aside.</summary>
+    private static ZoneAreaFinding SetAside(CompartmentAreaReview review)
+    {
+        Assert.Empty(review.Findings);
+        Assert.Empty(review.Results);
+        var finding = Assert.Single(review.VerticalCompartments);
+        Assert.True(finding.IsVerticalCompartment);
+        return finding;
+    }
+
     private static double Number(ReviewValue? value) => Assert.IsType<ReviewValue>(value).Number;
 
     // --- 等於上限、超限 -----------------------------------------------------------------------------
@@ -251,9 +261,9 @@ public sealed class CompartmentAreaCheckTests
     // --- 豁免與不適用 -------------------------------------------------------------------------------
 
     [Fact]
-    public void An_exempt_zone_is_not_applicable_whatever_its_area()
+    public void An_exempt_vertical_compartment_is_not_reported_whatever_its_area()
     {
-        var finding = Single(Review(OneZone(9000), Inputs(use: "樓梯間")));
+        var finding = SetAside(Review(OneZone(9000), Inputs(use: "樓梯間")));
 
         Assert.Equal(ReviewStatus.NotApplicable, finding.Status);
         Assert.Equal(RuleOutcomeReason.Exempt, finding.Outcome!.Reason);
@@ -270,7 +280,7 @@ public sealed class CompartmentAreaCheckTests
     [Fact]
     public void An_exempt_vertical_compartment_is_told_which_article_takes_over()
     {
-        var finding = Single(Review(OneZone(9000), Inputs(use: "樓梯間")));
+        var finding = SetAside(Review(OneZone(9000), Inputs(use: "樓梯間")));
 
         Assert.Contains("符合豁免條件", finding.Result.Message);
         Assert.Contains(ZoneUses.VerticalCompartmentHandoff, finding.Result.Message);
@@ -384,7 +394,7 @@ public sealed class CompartmentAreaCheckTests
     [Fact]
     public void A_disagreement_does_not_change_a_result_that_is_not_a_verdict()
     {
-        var exempt = Single(Review(OneZone(1500, revitM2: 1000), Inputs(use: "樓梯間")));
+        var exempt = SetAside(Review(OneZone(1500, revitM2: 1000), Inputs(use: "樓梯間")));
         var missing = Single(Review(OneZone(1500, revitM2: 1000), Inputs(sprinklered: null)));
 
         Assert.Equal(ReviewStatus.NotApplicable, exempt.Status);
