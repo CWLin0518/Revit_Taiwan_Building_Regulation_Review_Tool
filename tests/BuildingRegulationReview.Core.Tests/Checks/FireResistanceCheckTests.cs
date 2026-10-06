@@ -615,4 +615,39 @@ public sealed class FireResistanceCheckTests
         Assert.Equal("tw-bcr-79-wall-rating", finding.Result.RuleId);
         Assert.Equal(ReviewValue.OfText("RC 200"), finding.Result.Evidence.Find("element.typeName"));
     }
+
+    /// <summary>
+    /// 外牆帷幕牆的「不適用」指向帷幕牆的判定原則（第79條第3項、第4項、第79條之3、第79條之4），
+    /// 而不是候選規則清單的第一條——那曾讓一片帷幕牆讀起來像是依第70條「樑」檢討。
+    /// </summary>
+    [Fact]
+    public void An_exterior_curtain_wall_is_pointed_to_the_curtain_wall_rules_not_to_a_member_rule()
+    {
+        var json = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow };
+        var path = Path.Combine(AppContext.BaseDirectory, "Rules", "BuiltIn", "fire-review-rules.json");
+        var loaded = RuleSetCompiler.Load(JsonSerializer.Deserialize<RuleSetDocument>(File.ReadAllText(path), json));
+        Assert.True(loaded.IsSuccess, loaded.Error.TechnicalDetail);
+
+        // A 區的西側邊界（x = 0）外面沒有區劃：沿牆只有一側有區劃，判為建築物外牆。
+        var facade = new MemberObservation(Source("CW-facade"), CandidateCategory.Wall, new[] { P(0, 0), P(0, 10) }, widthFeet: M(0.025),
+            typeUniqueId: WallType, typeName: "帷幕牆", isStructural: false, isCurtainWall: true);
+        var set = Set(ZoneAOnly(), facade);
+        Assert.Equal(CurtainWallExposure.Exterior, set.Members.Single().CurtainWallExposure!.Exposure);
+
+        var building = new CompartmentAreaInputs(new[]
+        {
+            ReviewInput.Known("building.fireResistiveConstruction", true, "專案設定"),
+            ReviewInput.Known("building.floorsAboveGround", 5, ReviewUnit.None, "專案設定")
+        }, null);
+        var result = Only(Review(set, Ratings(building), new RuleEngine(loaded.Value))).Result;
+
+        Assert.True(result.Status == ReviewStatus.NotApplicable, result.Message);
+        Assert.Equal(loaded.Value.RuleSet.RuleSetId, result.RuleId);
+        Assert.Equal(FireResistanceCheck.ExteriorCurtainWallReference, result.LegalReference);
+        Assert.DoesNotContain("第70條", result.LegalReference);
+        Assert.Contains("帷幕牆區劃交接", result.Message);
+
+        var reference = ReviewLegalReference.Parse(result.LegalReference);
+        Assert.Equal(new[] { "第79條第3項、第4項", "第79條之3", "第79條之4" }, reference.Clauses);
+    }
 }

@@ -283,7 +283,10 @@ public static class FireResistanceCheck
         var outcome = engine.Evaluate(RuleCategory.FireResistance, facts, context);
         var subject = $"{CandidateCategories.Label(observation.Category)}「{observation.TypeName ?? "無 Type 名稱"}」（{observation.Source}）於區劃「{zone.Name}」";
         var status = outcome.Status;
-        var message = $"{subject}：{outcome.Message}" + (interior ? MergedAtriums.Note : string.Empty);
+        var exteriorCurtainWall = IsExteriorCurtainWallSetAside(assumed ?? member, outcome, facts);
+        var message = (exteriorCurtainWall ? $"{subject}：{ExteriorCurtainWallNote}" : $"{subject}：{outcome.Message}") +
+                      (interior ? MergedAtriums.Note : string.Empty);
+        var legalReference = exteriorCurtainWall ? ExteriorCurtainWallReference : outcome.LegalReference;
         var errorCode = RuleOutcomeErrorCode.For(outcome);
 
         var providedGap = outcome.Gaps.FirstOrDefault(g => g.Field == ProvidedField);
@@ -316,10 +319,34 @@ public static class FireResistanceCheck
 
         var result = new ReviewResult(resultId, runId, set.PackageId, ReviewCheckTypes.FireResistance,
             new[] { observation.Source.ElementUniqueId }, zone.ZoneIdText, status, outcome.ActualValue, outcome.RequiredValue,
-            outcome.RuleId, outcome.RuleVersion, outcome.LegalReference, message, evidence);
+            outcome.RuleId, outcome.RuleVersion, legalReference, message, evidence);
         return new MemberRatingFinding(result, observation.Source.ElementUniqueId, observation.Category,
             observation.TypeUniqueId, observation.TypeName, provided, outcome, null, errorCode);
     }
+
+    /// <summary>
+    /// Where an 外牆帷幕牆's fire requirements are actually reviewed. It is not a 區劃牆壁 of 第79條第1項
+    /// — <c>tw-bcr-79-wall-rating</c> sets it aside — and its own rules are the curtain-wall ones, which
+    /// the 帷幕牆區劃交接 check answers (docs/regulations/curtain-wall-fire-compartment.md §5).
+    /// </summary>
+    public const string ExteriorCurtainWallReference =
+        "建築技術規則建築設計施工編第79條第3項、第4項；建築技術規則建築設計施工編第79條之3；" +
+        "建築技術規則建築設計施工編第79條之4（外牆帷幕牆依帷幕牆區劃交接原則檢討，不檢討構件防火時效）";
+
+    public const string ExteriorCurtainWallNote =
+        "外牆帷幕牆不是第79條第1項的區劃牆壁，不檢討構件防火時效。依帷幕牆的判定原則，其防火要求在區劃與帷幕牆的交接處：" +
+        "第79條第3項、第4項（區劃牆壁及樓地板與帷幕牆交接）、第79條之3（層間帶）、第79條之4（其他部分外牆），" +
+        "請見「帷幕牆區劃交接」檢討項目。";
+
+    /// <summary>
+    /// A 不適用 that is the 外牆帷幕牆 exclusion and nothing else: the building is 防火構造 (else
+    /// nothing would be asked of any wall) and no rule applied.
+    /// </summary>
+    private static bool IsExteriorCurtainWallSetAside(MemberCandidate member, RuleOutcome outcome, RuleFacts facts) =>
+        outcome.Reason == RuleOutcomeReason.NoRuleApplies &&
+        member.Observation.IsCurtainWall &&
+        member.CurtainWallExposure?.IsExterior == true &&
+        Equals(facts.Find("building.fireResistiveConstruction"), ReviewValue.OfBoolean(true));
 
     /// <summary>
     /// A member of a zone whose extent is in doubt (未封閉、重疊): whether it bounds the zone, and so

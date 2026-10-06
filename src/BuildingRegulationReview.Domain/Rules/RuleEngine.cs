@@ -89,6 +89,12 @@ public sealed class RuleEngine
     }
 
     /// <summary>
+    /// The 依據條文 of an outcome no rule applied to. It names the rule set by id and version, never by
+    /// its title: the title is a design note citing half the code, and every 不適用 row would show it.
+    /// </summary>
+    private string NoRuleAppliesReference => $"規則集 {RuleSet.RuleSet.RuleSetId} {RuleSet.RuleSet.Version}（所列規則均不適用，無單一依據條文）";
+
+    /// <summary>
     /// Evaluates one rule on the assumption that it applies: exemptions, then the requirement. The
     /// checks use this to compute a required value on its own (spec 11.5 "由規則引擎算出要求防火時效").
     /// </summary>
@@ -170,11 +176,16 @@ public sealed class RuleEngine
             consideredRuleIds: undecided.Select(x => x.Rule.RuleId));
     }
 
-    private static RuleOutcome NoRuleApplies(IReadOnlyList<CompiledRule> candidates, RuleFacts facts)
+    /// <summary>
+    /// None of the rules applies, so none of them is the answer's 依據: the outcome speaks for the rule
+    /// set, as <see cref="RuleOutcomeReason.NoRule"/> does. Naming the first candidate instead would
+    /// read as if, say, a wall had been reviewed under 第70條's beam rule. The severity is moot for a
+    /// 不適用 and stays the first candidate's only because an outcome must carry one.
+    /// </summary>
+    private RuleOutcome NoRuleApplies(IReadOnlyList<CompiledRule> candidates, RuleFacts facts)
     {
-        var first = candidates[0];
         return new RuleOutcome(ReviewStatus.NotApplicable, RuleOutcomeReason.NoRuleApplies,
-            first.RuleId, first.Rule.Version, first.Rule.LegalReference, first.Rule.Severity,
+            RuleSet.RuleSet.RuleSetId, RuleSet.RuleSet.Version, NoRuleAppliesReference, candidates[0].Rule.Severity,
             $"規則 {string.Join("、", candidates.Select(x => x.RuleId))} 的適用條件均不成立。",
             evidence: EvidenceOf(facts, candidates.SelectMany(x => x.AppliesWhen.Fields)),
             consideredRuleIds: candidates.Select(x => x.RuleId));

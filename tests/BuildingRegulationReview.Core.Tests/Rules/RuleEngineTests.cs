@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using BuildingRegulationReview.Application.Diagnostics;
+using BuildingRegulationReview.Application.Reviews;
 using BuildingRegulationReview.Application.Rules;
 using BuildingRegulationReview.Domain.Reviews;
 using BuildingRegulationReview.Domain.Rules;
@@ -136,6 +137,42 @@ public sealed class RuleEngineTests
         Assert.Equal(ReviewStatus.NotApplicable, outcome.Status);
         Assert.Equal(RuleOutcomeReason.NoRuleApplies, outcome.Reason);
         Assert.Equal(ReviewValue.OfBoolean(false), outcome.Evidence.Find("building.fireResistiveConstruction"));
+    }
+
+    /// <summary>No rule applied, so none of them is the 依據: the outcome speaks for the rule set, not its first candidate.</summary>
+    [Fact]
+    public void A_not_applicable_outcome_does_not_cite_the_first_rule_it_considered()
+    {
+        var engine = Engine(AreaRule());
+        var outcome = Area(engine, Zone(5000).Set("building.fireResistiveConstruction", false));
+
+        Assert.Equal(engine.RuleSet.RuleSet.RuleSetId, outcome.RuleId);
+        Assert.Equal(engine.RuleSet.RuleSet.Version, outcome.RuleVersion);
+        Assert.Equal(new[] { AreaRule().RuleId }, outcome.ConsideredRuleIds);
+    }
+
+    /// <summary>
+    /// The built-in rule set's title is a design note that cites 第70條、第83條 and a 函釋; a 不適用 row
+    /// must cite none of it — only the rule set by id and version.
+    /// </summary>
+    [Fact]
+    public void A_not_applicable_outcome_of_the_built_in_rules_cites_no_clause_and_no_letter()
+    {
+        var json = new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase };
+        var path = System.IO.Path.Combine(AppContext.BaseDirectory, "Rules", "BuiltIn", "fire-review-rules.json");
+        var loaded = RuleSetCompiler.Load(System.Text.Json.JsonSerializer.Deserialize<RuleSetDocument>(System.IO.File.ReadAllText(path), json));
+        Assert.True(loaded.IsSuccess, loaded.Error.TechnicalDetail);
+
+        var engine = new RuleEngine(loaded.Value);
+        var facts = new RuleFacts(engine.RuleSet.Catalog).Set("building.fireResistiveConstruction", false);
+        var outcome = engine.Evaluate(RuleCategory.FireResistance, facts, Today);
+
+        Assert.Equal(RuleOutcomeReason.NoRuleApplies, outcome.Reason);
+        var reference = ReviewLegalReference.Parse(outcome.LegalReference);
+        Assert.Empty(reference.Clauses);
+        Assert.Empty(reference.Letters);
+        Assert.Equal(new[] { $"規則集 {loaded.Value.RuleSet.RuleSetId} {loaded.Value.RuleSet.Version}" }, reference.Remarks);
+        Assert.Equal(new[] { "所列規則均不適用，無單一依據條文" }, reference.Gists);
     }
 
     [Fact]

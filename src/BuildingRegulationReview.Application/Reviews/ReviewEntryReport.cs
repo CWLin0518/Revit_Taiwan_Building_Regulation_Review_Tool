@@ -121,6 +121,11 @@ public static class ReviewEntryReport
             new ReviewDetailSection("檢討結果", Verdict(entry))
         };
 
+        var reference = ReviewLegalReference.Parse(entry.LegalReference);
+        sections.Add(new ReviewDetailSection("法規依據", reference.IsEmpty
+            ? new[] { new ReviewDetailLine("條文", ReviewValueText.None) }
+            : reference.Lines()));
+
         var current = Override(entry);
         if (current.Count > 0) sections.Add(new ReviewDetailSection("人工覆寫", current));
 
@@ -132,7 +137,7 @@ public static class ReviewEntryReport
         Add(sections, "相關元素（Revit 元素編號）", evidence.Where(x => Bucket(x.Field) == EvidenceBucket.Element));
         Add(sections, "量測設定", evidence.Where(x => Bucket(x.Field) == EvidenceBucket.Option));
 
-        sections.Add(new ReviewDetailSection("規則來源", Rule(table, entry)));
+        sections.Add(new ReviewDetailSection("規則來源", Rule(table, entry, reference)));
         return new ReadOnlyCollection<ReviewDetailSection>(sections);
     }
 
@@ -217,8 +222,6 @@ public static class ReviewEntryReport
         yield return new ReviewDetailLine("原因說明", ReviewFieldText.Humanize(entry.Message), emphasis: true);
         yield return new ReviewDetailLine("模型實際值", ReviewValueText.Format(entry.ActualValue));
         yield return new ReviewDetailLine("法規要求值", ReviewValueText.Format(entry.RequiredValue));
-        yield return new ReviewDetailLine("依據條文",
-            string.IsNullOrWhiteSpace(entry.LegalReference) ? ReviewValueText.None : entry.LegalReference);
     }
 
     private static IReadOnlyList<ReviewDetailLine> Override(ReviewTableEntry entry)
@@ -247,10 +250,12 @@ public static class ReviewEntryReport
                 (string.IsNullOrWhiteSpace(o.StandingReason) ? string.Empty : "　" + o.StandingReason)))
             .ToList();
 
-    private static IEnumerable<ReviewDetailLine> Rule(ReviewTable table, ReviewTableEntry entry)
+    /// <summary>Which rule produced the answer — including the notes its 依據條文 kept for the tool's own documents.</summary>
+    private static IEnumerable<ReviewDetailLine> Rule(ReviewTable table, ReviewTableEntry entry, ReviewLegalReference reference)
     {
         yield return new ReviewDetailLine("規則", entry.RuleId + "　版本 " + entry.RuleVersion);
         yield return new ReviewDetailLine("規則集", table.RuleSetId + " " + table.RuleSetVersion);
+        foreach (var note in reference.InternalNotes) yield return new ReviewDetailLine("規則註記", note);
         yield return new ReviewDetailLine("檢討時間", Time(table.Run.StartedAtUtc));
     }
 

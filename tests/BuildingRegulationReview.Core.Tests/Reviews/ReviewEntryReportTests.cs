@@ -67,7 +67,7 @@ public sealed class ReviewEntryReportTests
     public void The_sections_read_in_the_order_a_reviewer_asks_in()
     {
         Assert.Equal(
-            new[] { "檢討對象", "檢討結果", "判定依據", "相關元素（Revit 元素編號）", "量測設定", "規則來源" },
+            new[] { "檢討對象", "檢討結果", "法規依據", "判定依據", "相關元素（Revit 元素編號）", "量測設定", "規則來源" },
             Report(out _).Select(s => s.Title).ToArray());
     }
 
@@ -87,7 +87,14 @@ public sealed class ReviewEntryReportTests
         Assert.Equal("未符合", Line("檢討結果", "狀態"));
         Assert.Equal("30 分鐘", Line("檢討結果", "模型實際值"));
         Assert.Equal("60 分鐘", Line("檢討結果", "法規要求值"));
-        Assert.Equal("建築技術規則建築設計施工編第79條", Line("檢討結果", "依據條文"));
+    }
+
+    /// <summary>The citation is its own section, the 法規 named once and the 條文 on a line of its own.</summary>
+    [Fact]
+    public void The_clause_reads_as_a_citation()
+    {
+        Assert.Equal("建築技術規則建築設計施工編", Line("法規依據", "法規"));
+        Assert.Equal("第79條", Line("法規依據", "條文"));
     }
 
     /// <summary>The 原因 is the sentence the user reads first, so it holds neither a field name nor a UniqueId.</summary>
