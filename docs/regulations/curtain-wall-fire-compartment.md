@@ -2496,3 +2496,13 @@ XAML 的繫結路徑不由編譯器檢查（markup compile 過了不表示 `{Bin
    模型自相矛盾並給兩種修法；該牆的 CW-H／CW-V／CW-O 全部消失。
 6. 證據欄位可讀：`帷幕牆室內外` 顯示「建築物外牆／室內帷幕牆／室內外未判定」，`室內外判定依據`
    是一句中文而不是 enum 名稱。
+
+**實機回歸修正（2026-10-07，透過 MCP 驗證時發現）**：步驟 18 新增的 `ExposureUndecided` 沒有接上
+`CurtainWallJunctionDoubt.ErrorCode`，判定層一遇到室內外未定的帷幕牆就拋出
+「帷幕牆交接疑義種類 ExposureUndecided 沒有對應的錯誤碼。」，**整次檢討中止**（本模型 FL1、FL3 兩個工作包都跑不完）。
+單元測試只在 resolver 層斷言了疑義種類，沒有一條把這種疑義送進 `CurtainWallJunctionCheck`，所以沒有攔到。
+
+- 新增錯誤碼 `BCR-CW-007`（`CurtainWallExposureUndecided`，「無法判定帷幕牆為建築物外牆或室內帷幕牆」），
+  並補上一直缺中文名稱的 `BCR-CW-005`（「外牆與帷幕嵌板重疊」）。
+- `CurtainWallJunctionCheckTests` 加兩條：室內外未定的那一列判人工覆核並帶 BCR-CW-007；
+  **每一種** `CurtainWallJunctionDoubtKind` 的錯誤碼都在 `ReviewErrorCode` 目錄裡——以後新增疑義種類忘了接，測試就會失敗。

@@ -153,6 +153,7 @@ public sealed class CurtainWallJunctionDoubt
         CurtainWallJunctionDoubtKind.FacadeWallOverlapsPanel => ReviewErrorCode.CurtainWallFacadeOverlapsPanel,
         CurtainWallJunctionDoubtKind.FloorNotMeetingCurtainWall => ReviewErrorCode.CurtainWallFloorNotMeeting,
         CurtainWallJunctionDoubtKind.VerticalCompartmentSpace => ReviewErrorCode.CurtainWallVerticalSpace,
+        CurtainWallJunctionDoubtKind.ExposureUndecided => ReviewErrorCode.CurtainWallExposureUndecided,
         _ => throw new InvalidOperationException($"帷幕牆交接疑義種類 {Kind} 沒有對應的錯誤碼。")
     };
 

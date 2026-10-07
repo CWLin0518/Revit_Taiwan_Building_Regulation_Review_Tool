@@ -106,6 +106,7 @@ public static class ReviewErrorCode
     public const string CurtainWallVerticalSpace = "BCR-CW-004";
     public const string CurtainWallFacadeOverlapsPanel = "BCR-CW-005";
     public const string CurtainWallFloorNotMeeting = "BCR-CW-006";
+    public const string CurtainWallExposureUndecided = "BCR-CW-007";
 
     // 人工覆寫（spec 11.8）
     public const string OverrideRejected = "BCR-OVR-001";
@@ -166,7 +167,9 @@ public static class ReviewErrorCode
             { CurtainWallJunctionUnresolved, "帷幕牆與區劃的交接處無法唯一解析" },
             { CurtainWallJunctionSplitByGridLine, "交接帶被 grid line 分割" },
             { CurtainWallVerticalSpace, "連跨複數樓層之帷幕牆，改依第79條之2檢討" },
+            { CurtainWallFacadeOverlapsPanel, "外牆與帷幕嵌板重疊" },
             { CurtainWallFloorNotMeeting, "帷幕牆穿過本層標高而無區劃樓地板與其交接" },
+            { CurtainWallExposureUndecided, "無法判定帷幕牆為建築物外牆或室內帷幕牆" },
             { OverrideRejected, "人工覆寫不成立" },
             { OverrideNeedsReconfirmation, "人工覆寫需重新確認" },
             { ReviewRunUnreadable, "檢討紀錄無法讀取" },

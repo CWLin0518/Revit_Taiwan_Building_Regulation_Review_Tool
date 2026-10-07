@@ -479,6 +479,33 @@ public sealed class CurtainWallJunctionCheckTests
         Assert.Equal(ReviewErrorCode.CurtainWallJunctionUnresolved, finding.ErrorCode);
     }
 
+    [Fact]
+    public void A_curtain_wall_whose_exposure_is_undecided_is_manual_review()
+    {
+        // 實機回歸（2026-10-07）：這一種疑義曾經沒有錯誤碼，ErrorCode 拋例外，整次檢討中止。
+        var doubt = new CurtainWallJunctionDoubt(CurtainWallJunctionDoubtKind.ExposureUndecided,
+            "無法判定帷幕牆（Id cw-1）是建築物外牆或室內帷幕牆：同一道弧形牆的各平面段判出不同結果，需人工覆核。",
+            new[] { "cw-1" });
+        var finding = Single(new[]
+        {
+            CurtainWallJunction.Doubtful("j-h1:exposure", CurtainWallJunctionKind.WallToCurtainWall, ZoneA, "cw-1", doubt)
+        });
+
+        Assert.Equal(ReviewStatus.ManualReview, finding.Status);
+        Assert.Equal(ReviewErrorCode.CurtainWallExposureUndecided, finding.ErrorCode);
+        Assert.Contains("之室內外判定", finding.Result.Message);
+    }
+
+    [Fact]
+    public void Every_kind_of_doubt_has_a_catalogued_error_code()
+    {
+        foreach (CurtainWallJunctionDoubtKind kind in Enum.GetValues(typeof(CurtainWallJunctionDoubtKind)))
+        {
+            var doubt = new CurtainWallJunctionDoubt(kind, "說明");
+            Assert.True(ReviewErrorCode.IsKnown(doubt.ErrorCode), $"{kind} → {doubt.ErrorCode}");
+        }
+    }
+
     // --- 區劃範圍問題 -------------------------------------------------------------------------------
 
     [Fact]
