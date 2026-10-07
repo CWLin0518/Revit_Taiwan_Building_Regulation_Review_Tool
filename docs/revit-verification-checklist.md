@@ -117,6 +117,11 @@ V-xx 第 n 項：通過／不通過
 | V-28 | 刪掉 Area Plan 後工作包不再出現在面板，且重新設定可救回 | ⬜ | 高 | 10 | spec §8、附錄 9.5「刪除後修復」 |
 | **I. 區劃編輯器設定垂直開口（2026-10-06 新增）** | | | | | |
 | V-29 | 編輯器「用途」欄：寫入、不覆蓋批次面板、只改用途也能套用 | ⬜ | **最高** | 11 | 垂直區劃 §11、ADR 0003 |
+| **J. MCP 服務（2026-10-07 新增）** | | | | | |
+| V-30 | 重構回歸：檢討視窗與批次設定面板行為不變 | ⬜ | **最高** | 12 | ADR 0004 §3 |
+| V-31 | MCP 服務啟停、連線與「Revit 忙碌中」 | ⬜ | 高 | 12 | mcp-server.md §3、§5 |
+| V-32 | 透過 MCP 檢討：結果與視窗一致、dryRun 不留痕跡 | ⬜ ⚠️ | 高 | 12 | mcp-server.md §6 |
+| V-33 | 透過 MCP 批次設定參數：與面板寫入相同的值 | ⬜ ⚠️ | 高 | 12 | mcp-server.md §6 |
 
 ---
 
@@ -508,6 +513,76 @@ Area Plan 不在了，就重建一個並存回**同一個** `PackageId`——「
 - **已知限制**：編輯器開著時另開批次設定面板（它是 modal）改了同一個區劃的用途，再回來套用，
   編輯器裡**明確選過**的用途會覆蓋面板剛寫的值，且結果訊息裡的「原為…」會是預覽當下的舊值。
   沒有明確選過（「不變更」）則不受影響。
+
+---
+
+## 第 12 輪：MCP 服務
+
+> **出處**：`docs/adr/0004-mcp-server-for-agent-verification.md`、`docs/mcp-server.md`｜**需重新部署**（多了 `BuildingRegulationReview.Mcp.dll`）
+
+**前置**：關 Revit → `scripts/install-revit-2024.ps1` → 重開。確認部署目錄有**五個** dll。需要一個已套用過區劃、
+可以開始檢討的工作包（第 11 輪用的模型即可）。協定層（JSON、JSON-RPC、HTTP、Host／Origin 檢查）有 43 條單元測試；
+**Revit 端（派送器、工具、重構過的視窗與面板）零測試覆蓋，只能實機驗**。
+
+### ⬜ V-30 重構回歸：檢討視窗與批次設定面板
+
+這一輪把「開始檢討」的流程從視窗搬到 `FireReviewModel.RunAndSave`，把批次設定面板的列與寫入清單搬到
+`FireReviewParameterDraft`。**行為應該完全不變**——這一項先驗，因為它影響的是不用 MCP 的使用者。
+
+| # | 操作 | 預期 |
+| --- | --- | --- |
+| 1 | 開「防火區劃檢討」→ 選套件 | 前置檢查清單、規則集、上次結果與改版前相同 |
+| 2 | 按「開始檢討」 | 進度列會跑、可按取消；完成後狀態列與檢討表與改版前相同，檢討視圖有標示 |
+| 3 | 開始後立刻按「取消」 | 狀態列「檢討已取消，模型與既有檢討紀錄都沒有變更」 |
+| 4 | 只有一個套件的模型開「防火區劃檢討」 | 不跳選擇視窗，直接開 |
+| 5 | 開「防火參數批次設定」→ 改一個類型的材料、一個區劃的滅火設備、專案資訊的用途類組 → 寫入模型 | 確認視窗的三行計數與改版前相同；寫入後值正確 |
+| 6 | 面板按「依樓層推定」 | 區劃樓層序與地上層數填入，狀態列訊息與改版前相同 |
+| 7 | 專案資訊的用途類組改成 H-2 | 區劃頁「適用上限」欄立即反映（H-2 但書） |
+
+### ⬜ V-31 MCP 服務啟停、連線與「Revit 忙碌中」
+
+| # | 操作 | 預期 |
+| --- | --- | --- |
+| 1 | 不開任何模型，看功能區 | 「建築法規檢討」頁籤多一個「AI 代理」面板，按鈕「MCP 服務（已停止）」，**沒有模型時也可以按** |
+| 2 | 按下 | 對話框顯示端點 `http://127.0.0.1:8970/mcp` 與含 `--header "Authorization: Bearer …"` 的連線指令，標題寫「已複製到剪貼簿」；按鈕變「（執行中）」 |
+| 3 | 在終端機貼上剪貼簿的 `claude mcp add …`，再請 Claude 呼叫 `revit_status` | 回傳 Revit 版本、外掛版本；沒開模型時 `document` 為 null |
+| 3a | 用 `curl -X POST http://127.0.0.1:8970/mcp -d "{}"`（不帶權杖） | 回 401 |
+| 4 | 開模型後再呼叫 `revit_status` | `document.title`、`activeView` 正確 |
+| 5 | 在 Revit 開一個 modal 對話框（例如「物件型式」）不關，呼叫 `fire_review_list_packages` | 約 30 秒後回傳「Revit 忙碌中…」，**不會一直卡住**；關掉對話框再呼叫一次即正常 |
+| 6 | 再按一次 MCP 按鈕 | 服務停止；Claude 呼叫工具時連線失敗 |
+| 7 | 另一個程式佔用 8970 埠（或開兩個 Revit）後按按鈕 | 顯示「無法在 … 啟動 MCP 服務」與改連接埠的方法，Revit 不受影響 |
+| 8 | **Revit 視窗最小化或切到別的程式**時呼叫 `fire_review_list_packages` | 照常回應。若要等到 Revit 回到前景才執行，請記錄等了多久；這是 ExternalEvent 在背景時的行為，影響代理自動驗證 |
+| 9 | 只設 `BRR_MCP_AUTOSTART=1`、不設 `BRR_MCP_TOKEN`，重開 Revit | 服務**沒有**自動開啟（按鈕顯示已停止）。兩者都設時會自動開啟，用該權杖可以連線 |
+
+### ⬜ V-32 透過 MCP 檢討
+
+⚠️ 第 3 項會寫入檢討結果，先另存備份。
+
+| # | 操作 | 預期 |
+| --- | --- | --- |
+| 1 | `fire_review_check` | `readiness.items` 與視窗「開始檢討前的檢查」逐條相同；`canRun` 與視窗「開始檢討」按鈕是否可按一致 |
+| 2 | `fire_review_run` `dryRun: true` | 回傳 `outcome.kind = Completed` 與總狀態、統計。**之後在 Revit 開檢討視窗：上次結果的時間沒變、檢討視圖標示沒變**；「復原」清單沒有新項目 |
+| 3 | `fire_review_run`（不帶 dryRun） | 總狀態與統計與第 2 項相同；`saved.saved = true`、`saved.mark.summary` 與視窗的標示摘要相同 |
+| 4 | 開檢討視窗 | 看到的就是第 3 項那一次（時間、總狀態、統計一致） |
+| 5 | `fire_review_get_results` `statuses: ["Fail"]` | 只列未符合；`sections[].counts` 仍是全部項目的統計（與視窗勾掉其他狀態時的標題相同） |
+| 6 | 挑一筆 `resultId` 呼叫 `fire_review_describe_result` | `text` 與視窗選那一列後按「複製明細」的內容逐字相同 |
+| 7 | 刪掉一個區劃的 Area（造成需更新）後 `fire_review_get_results` | `isStale` 為 true，`staleReasons` 與視窗上方的「需更新」橫幅相同 |
+
+### ⬜ V-33 透過 MCP 批次設定參數
+
+⚠️ 會改參數，先另存備份。
+
+| # | 操作 | 預期 |
+| --- | --- | --- |
+| 1 | `fire_review_scan_parameters` | 類型數、區劃數與面板相同；`asks` 與面板該列可編輯的欄位一致；`derived.rating` 與面板「推定時效」欄相同 |
+| 2 | 對一個 RC 牆類型 `applyDerivedRating: true`，`dryRun: true` | `edits` 只有一筆 `防火檢討_設計防火時效`，值與面板「套用推定值」後相同；Revit 裡的值**沒有變** |
+| 3 | 同上不帶 dryRun | `written = 1`；Revit 類型屬性已更新；再開面板該列不再顯示「與推定不同」 |
+| 4 | 對一個玻璃帷幕嵌板類型送 `rating: "1h"`；對一個 RC 牆類型送 `coverCm: 3` | 兩者都不寫入，`ignored` 列出欄位與原因（面板上這兩格是灰的） |
+| 4a | 模型中有**未宣告種類**的帷幕嵌板時，只送一個區劃的 `sprinklered: true` | 只寫入那一個值；嵌板種類提案出現在 `unrequested`，**沒有**寫入。加上 `acceptProposedPanelKinds: true` 才會一起寫入 |
+| 4b | 送 `material: "鋼骨"` | 工具錯誤，訊息列出可用值 RC、SRC、SC；模型沒有變 |
+| 5 | 區劃 `sprinklered: true`、專案 `fireResistiveConstruction: true` | Revit 裡兩個 Yes/No 參數被勾起（寫 1，不是「是」字） |
+| 6 | 送一個不存在的 `typeElementId` | 工具錯誤，訊息指出是哪一個 id；模型沒有變 |
+| 7 | 第 3 項之後再跑 `fire_review_run` | 該牆類型的構件防火時效結果反映新值 |
 
 ---
 

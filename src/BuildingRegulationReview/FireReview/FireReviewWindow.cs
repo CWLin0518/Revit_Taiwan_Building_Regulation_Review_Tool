@@ -15,8 +15,6 @@ using BuildingRegulationReview.Application.Diagnostics;
 using BuildingRegulationReview.Application.ReviewPackages;
 using BuildingRegulationReview.Application.Reviews;
 using BuildingRegulationReview.Domain.Reviews;
-using BuildingRegulationReview.Domain.Rules;
-using BuildingRegulationReview.Revit.Geometry;
 
 namespace BuildingRegulationReview.FireReview
 {
@@ -194,15 +192,7 @@ namespace BuildingRegulationReview.FireReview
             var accept = _acceptUpdate.IsChecked == true;
             Post(application =>
             {
-                FireReviewScan scan;
-                try
-                {
-                    scan = FireReviewModel.Scan(application.ActiveUIDocument.Document, _packageId, accept);
-                }
-                catch (Exception exception)
-                {
-                    scan = new FireReviewScan { Failure = "讀取模型時發生錯誤：" + exception.Message };
-                }
+                var scan = FireReviewModel.TryScan(application.ActiveUIDocument.Document, _packageId, accept);
                 Dispatcher.Invoke(() => ShowScan(scan));
             });
         }
@@ -259,7 +249,7 @@ namespace BuildingRegulationReview.FireReview
         private void Start()
         {
             var scan = _scan;
-            if (_busy || scan?.Readiness == null || !scan.Readiness.CanRun || scan.Candidates == null || scan.Inputs == null) return;
+            if (_busy || !FireReviewModel.CanRun(scan)) return;
 
             _cancellation = new CancellationTokenSource();
             SetBusy(true, "檢討中…", cancellable: true);
@@ -273,22 +263,19 @@ namespace BuildingRegulationReview.FireReview
                 _status.Text = "檢討中：" + p.Message;
             });
 
-            var candidates = scan.Candidates;
             Post(application =>
             {
-                var document = application.ActiveUIDocument.Document;
-                FireReviewOutcome outcome;
-                try
+                var result = FireReviewModel.RunAndSave(application.ActiveUIDocument.Document, scan, token, progress,
+                    beforeSave: completed => Dispatcher.Invoke(() =>
+                    {
+                        AppendLog(completed.Log);
+                        _status.Text = "寫入檢討結果並標示檢討視圖…";
+                    }));
+
+                var outcome = result.Outcome;
+                if (outcome == null)
                 {
-                    var request = new FireReviewRequest(scan.Package, scan.Readiness.RuleSet,
-                        new RuleEvaluationContext(DateTime.Today, FireReviewRuleSetSource.Jurisdiction),
-                        candidates, scan.Inputs, scan.Environment, scan.PreviousRun, scan.Prescan,
-                        curtainWallReader: new RevitCurtainWallGeometryReader(document));
-                    outcome = FireReviewRunner.Run(request, token, progress);
-                }
-                catch (Exception exception)
-                {
-                    Dispatcher.Invoke(() => Finished("檢討發生錯誤：" + exception.Message, FailBrush));
+                    Dispatcher.Invoke(() => Finished(result.Failure, FailBrush));
                     return;
                 }
 
@@ -304,24 +291,8 @@ namespace BuildingRegulationReview.FireReview
 
                 Dispatcher.Invoke(() =>
                 {
-                    AppendLog(outcome.Log);
-                    _status.Text = "寫入檢討結果並標示檢討視圖…";
-                });
-
-                FireReviewSaveResult saved;
-                try
-                {
-                    saved = FireReviewModel.Save(document, outcome.Package, outcome.Run, candidates, null);
-                }
-                catch (Exception exception)
-                {
-                    saved = new FireReviewSaveResult { Saved = false, Error = exception.Message };
-                }
-
-                Dispatcher.Invoke(() =>
-                {
                     ForgetCancellation();
-                    ShowSaved(outcome, saved);
+                    ShowSaved(outcome, result.Saved);
                 });
             });
         }

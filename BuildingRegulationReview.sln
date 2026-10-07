@@ -10,6 +10,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BuildingRegulationReview.Re
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BuildingRegulationReview.Core.Tests", "tests\BuildingRegulationReview.Core.Tests\BuildingRegulationReview.Core.Tests.csproj", "{6281EF46-C102-48F3-A829-0B37B1579B44}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BuildingRegulationReview.Mcp", "src\BuildingRegulationReview.Mcp\BuildingRegulationReview.Mcp.csproj", "{9FAC6F68-F2F6-48E6-8B98-3B682ACD630B}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -32,6 +34,10 @@ Global
 		{6281EF46-C102-48F3-A829-0B37B1579B44}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{6281EF46-C102-48F3-A829-0B37B1579B44}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{6281EF46-C102-48F3-A829-0B37B1579B44}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9FAC6F68-F2F6-48E6-8B98-3B682ACD630B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9FAC6F68-F2F6-48E6-8B98-3B682ACD630B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9FAC6F68-F2F6-48E6-8B98-3B682ACD630B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9FAC6F68-F2F6-48E6-8B98-3B682ACD630B}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
 

@@ -70,6 +70,7 @@ $assemblies = @(
     'BuildingRegulationReview',
     'BuildingRegulationReview.Application',
     'BuildingRegulationReview.Domain',
+    'BuildingRegulationReview.Mcp',
     'BuildingRegulationReview.Revit'
 )
 foreach ($assembly in $assemblies) {

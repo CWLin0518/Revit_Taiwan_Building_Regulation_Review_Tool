@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using BuildingRegulationReview.Application.Candidates;
@@ -14,7 +15,9 @@ using BuildingRegulationReview.Domain.Common;
 using BuildingRegulationReview.Domain.ReviewPackages;
 using BuildingRegulationReview.Domain.Reviews;
 using BuildingRegulationReview.Domain.Rules;
+using BuildingRegulationReview.RegionEditor;
 using BuildingRegulationReview.Revit.Candidates;
+using BuildingRegulationReview.Revit.Geometry;
 using BuildingRegulationReview.Revit.ReviewPackages;
 using BuildingRegulationReview.Revit.Reviews;
 using DomainResult = BuildingRegulationReview.Domain.Common.Result;
@@ -54,13 +57,139 @@ namespace BuildingRegulationReview.FireReview
     }
 
     /// <summary>
+    /// The packages a review can start on, as the picker lists them, and what was left out and why.
+    /// </summary>
+    internal sealed class FireReviewPackageList
+    {
+        public FireReviewPackageList(IReadOnlyList<PackageChoice> choices, ReviewPackageSelection selection)
+        {
+            Choices = choices;
+            Selection = selection;
+        }
+
+        /// <summary>The packages whose Area Plan is still in the model, sorted by label.</summary>
+        public IReadOnlyList<PackageChoice> Choices { get; }
+
+        public ReviewPackageSelection Selection { get; }
+
+        /// <summary>Why some packages are not offered (their Area Plan was deleted); null when none are hidden.</summary>
+        public string HiddenNotice => Selection.HiddenNotice;
+
+        public ReviewPackage Package(Guid packageId) =>
+            Selection.Available.FirstOrDefault(package => package.PackageId == packageId);
+    }
+
+    /// <summary>
+    /// What 開始檢討 did: the outcome of the run and, when it completed, of storing it. Exactly one
+    /// of <see cref="Failure"/> and <see cref="Outcome"/> is set.
+    /// </summary>
+    internal sealed class FireReviewRunResult
+    {
+        /// <summary>Why the run never produced an outcome: the pre-check did not pass, or the run threw.</summary>
+        public string Failure { get; set; }
+
+        public FireReviewOutcome Outcome { get; set; }
+
+        /// <summary>Set only when the run completed; says whether the run reached the model.</summary>
+        public FireReviewSaveResult Saved { get; set; }
+    }
+
+    /// <summary>
     /// Everything the review does inside the Revit API context. Reading opens no transaction except to
     /// store what it learned about staleness; storing a run and marking its view is one
     /// TransactionGroup that rolls back as a whole when anything throws (spec 13.2), so the model
     /// either gains the run and its marks or stays as it was.
     /// </summary>
+    /// <remarks>
+    /// The review window and the MCP tools call the same methods here, in the same order — list the
+    /// packages, scan, run and store — so what an agent verifies is what a user's button does
+    /// (docs/adr/0004).
+    /// </remarks>
     internal static class FireReviewModel
     {
+        /// <summary>The packages the review can be started on — what「防火區劃檢討」offers in its picker.</summary>
+        public static FireReviewPackageList AvailablePackages(Document document)
+        {
+            // Same reason as the Editor's picker: a package whose Area Plan was deleted is still in
+            // the model and would be listed under its PackageId, so it is left out and explained.
+            var selection = ReviewPackageAvailability.Partition(
+                new RevitReviewPackageRepository(document).GetAll(),
+                new RevitAreaPlanProbe(document).IsLiveAreaPlan);
+
+            var choices = selection.Available
+                .Select(package => new PackageChoice(package.PackageId, package.AreaPlanUniqueId,
+                    LabelOf(document, package), package.DraftingViewUniqueId))
+                .OrderBy(choice => choice.Label, StringComparer.CurrentCulture)
+                .ToList();
+
+            return new FireReviewPackageList(choices, selection);
+        }
+
+        /// <summary><see cref="Scan"/>, with an unexpected exception turned into a scan that says what failed.</summary>
+        public static FireReviewScan TryScan(Document document, Guid packageId, bool acceptRuleSetUpdate)
+        {
+            try
+            {
+                return Scan(document, packageId, acceptRuleSetUpdate);
+            }
+            catch (Exception exception)
+            {
+                return new FireReviewScan { Failure = "讀取模型時發生錯誤：" + exception.Message };
+            }
+        }
+
+        /// <summary>
+        /// The package's latest stored run, as it was stored: no pre-scan, so nothing says whether the
+        /// model has moved since. <see cref="Scan"/> is what judges that (需更新).
+        /// </summary>
+        public static ReviewRun LatestRun(Document document, Guid packageId) =>
+            new RevitReviewRunRepository(document).GetLatest(packageId);
+
+        /// <summary>Whether <see cref="RunAndSave"/> can start on this scan: the pre-check passed and the candidates were read.</summary>
+        public static bool CanRun(FireReviewScan scan) =>
+            scan?.Readiness != null && scan.Readiness.CanRun && scan.Candidates != null && scan.Inputs != null;
+
+        /// <summary>
+        /// 開始檢討: runs the checks over what the scan read, then stores a completed run and marks the
+        /// review view. A cancelled or failed run stores nothing.
+        /// </summary>
+        /// <param name="beforeSave">Called with a completed outcome just before it is stored, so a caller can report progress.</param>
+        public static FireReviewRunResult RunAndSave(Document document, FireReviewScan scan, CancellationToken cancellation,
+            IProgress<FireReviewProgress> progress = null, Action<FireReviewOutcome> beforeSave = null)
+        {
+            if (!CanRun(scan))
+                return new FireReviewRunResult { Failure = "前置檢查尚未通過，無法開始檢討；請先依前置檢查的修正方式處理。" };
+
+            FireReviewOutcome outcome;
+            try
+            {
+                var request = new FireReviewRequest(scan.Package, scan.Readiness.RuleSet,
+                    new RuleEvaluationContext(DateTime.Today, FireReviewRuleSetSource.Jurisdiction),
+                    scan.Candidates, scan.Inputs, scan.Environment, scan.PreviousRun, scan.Prescan,
+                    curtainWallReader: new RevitCurtainWallGeometryReader(document));
+                outcome = FireReviewRunner.Run(request, cancellation, progress);
+            }
+            catch (Exception exception)
+            {
+                return new FireReviewRunResult { Failure = "檢討發生錯誤：" + exception.Message };
+            }
+
+            if (!outcome.IsCompleted) return new FireReviewRunResult { Outcome = outcome };
+
+            beforeSave?.Invoke(outcome);
+            FireReviewSaveResult saved;
+            try
+            {
+                saved = Save(document, outcome.Package, outcome.Run, scan.Candidates, null);
+            }
+            catch (Exception exception)
+            {
+                saved = new FireReviewSaveResult { Saved = false, Error = exception.Message };
+            }
+
+            return new FireReviewRunResult { Outcome = outcome, Saved = saved };
+        }
+
         public static FireReviewScan Scan(Document document, Guid packageId, bool acceptRuleSetUpdate)
         {
             var watch = Stopwatch.StartNew();

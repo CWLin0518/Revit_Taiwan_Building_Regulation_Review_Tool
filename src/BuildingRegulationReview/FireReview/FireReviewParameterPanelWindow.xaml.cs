@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Globalization;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -23,26 +22,23 @@ namespace BuildingRegulationReview.FireReview
     /// </remarks>
     public partial class FireReviewParameterPanelWindow : Window
     {
-        private readonly ObservableCollection<FireReviewTypeRowViewModel> _rows =
-            new ObservableCollection<FireReviewTypeRowViewModel>();
-
-        private readonly ObservableCollection<FireReviewZoneRowViewModel> _zones =
-            new ObservableCollection<FireReviewZoneRowViewModel>();
-
+        private readonly FireReviewParameterDraft _draft;
+        private readonly ObservableCollection<FireReviewTypeRowViewModel> _rows;
+        private readonly ObservableCollection<FireReviewZoneRowViewModel> _zones;
         private readonly FireReviewProjectViewModel _project;
-        private FloorNumbering _floors;
+        private readonly FloorNumbering _floors;
 
         internal FireReviewParameterPanelWindow(FireReviewParameterSet set, string viewName)
         {
             InitializeComponent();
             if (set == null) throw new ArgumentNullException(nameof(set));
 
-            foreach (var row in set.Types.Rows) _rows.Add(new FireReviewTypeRowViewModel(row));
+            _draft = new FireReviewParameterDraft(set);
+            _rows = _draft.Rows;
             Grid.ItemsSource = _rows;
 
-            _floors = set.Floors;
-            foreach (var zone in set.Zones)
-                _zones.Add(new FireReviewZoneRowViewModel(zone, _floors.For(zone.LevelId)));
+            _floors = _draft.Floors;
+            _zones = _draft.Zones;
             ZoneGrid.ItemsSource = _zones;
 
             if (!_floors.IsEmpty)
@@ -52,9 +48,9 @@ namespace BuildingRegulationReview.FireReview
             }
             DeriveFloorsButton.IsEnabled = !_floors.IsEmpty;
 
-            if (set.Project != null)
+            if (_draft.Project != null)
             {
-                _project = new FireReviewProjectViewModel(set.Project);
+                _project = _draft.Project;
                 ProjectPanel.DataContext = _project;
                 _project.PropertyChanged += (_, e) =>
                 {
@@ -179,11 +175,7 @@ namespace BuildingRegulationReview.FireReview
         /// shows accounts for 第83條's Ｈ－２組 proviso as soon as that box changes. Display only —
         /// the value is written from the project row, once, and never from a zone.
         /// </summary>
-        private void PushBuildingUse()
-        {
-            if (_project == null) return;
-            foreach (var zone in _zones) zone.BuildingUse = _project.BuildingUse;
-        }
+        private void PushBuildingUse() => _draft.PushBuildingUse();
 
         private void FillZones_OnClick(object sender, RoutedEventArgs e)
         {
@@ -221,29 +213,21 @@ namespace BuildingRegulationReview.FireReview
         {
             CommitEdit();
 
-            if (_floors.IsEmpty)
+            var derived = _draft.DeriveFloors();
+            if (derived == null)
             {
                 MessageBox.Show(this, "模型中沒有樓層可以判斷樓層序。", Title);
                 return;
             }
 
-            var filled = 0;
-            var unknown = new List<string>();
-            foreach (var zone in _zones)
-            {
-                if (zone.DerivedFloorNumber.HasValue) { zone.ApplyDerivedFloorNumber(); filled++; }
-                else unknown.Add(zone.DisplayName);
-            }
-
             ZoneGrid.Items.Refresh();
 
-            if (_project != null) _project.FloorsAboveGround = _floors.FloorsAboveGround.ToString(CultureInfo.InvariantCulture);
-
+            var unknown = derived.UnknownZones;
             var missing = unknown.Count == 0
                 ? ""
                 : $"；{unknown.Count} 個區劃讀不到所屬樓層（{string.Join("、", unknown.Take(3))}{(unknown.Count > 3 ? "…" : "")}）";
 
-            StatusText.Text = $"已依樓層填入 {filled} 個區劃的樓層序，地上層數帶入 {_floors.FloorsAboveGround}{missing}。" +
+            StatusText.Text = $"已依樓層填入 {derived.Filled} 個區劃的樓層序，地上層數帶入 {derived.FloorsAboveGround}{missing}。" +
                               " 請核對上方的推定說明後再寫入模型。";
         }
 
@@ -251,37 +235,29 @@ namespace BuildingRegulationReview.FireReview
         {
             CommitEdit();
 
-            var typeEdits = _rows.SelectMany(r => r.Edits()).ToList();
-            var zoneEdits = _zones.SelectMany(z => z.Edits()).ToList();
-            var projectEdits = _project == null
-                ? new List<FireReviewParameterEdit>()
-                : _project.Edits().ToList();
-
-            var edits = typeEdits.Concat(zoneEdits).Concat(projectEdits).ToList();
-            if (edits.Count == 0)
+            var batch = _draft.CollectEdits();
+            var edits = batch.All;
+            if (batch.IsEmpty)
             {
                 MessageBox.Show(this, "沒有任何變更需要寫入。", Title);
                 return;
             }
 
             var lines = new List<string>();
-            if (typeEdits.Count > 0)
+            if (batch.TypeEdits.Count > 0)
             {
-                var types = _rows.Count(r => r.IsDirty);
-                var instances = _rows.Where(r => r.IsDirty).Sum(r => r.Source.ProjectInstanceCount);
-                lines.Add($"・構件類型：{typeEdits.Count} 個值，影響 {types} 個類型、專案中共 {instances} 個實體");
+                lines.Add($"・構件類型：{batch.TypeEdits.Count} 個值，影響 {batch.DirtyTypes.Count} 個類型、專案中共 {batch.AffectedInstances} 個實體");
 
                 // 提案是工具猜的，留著不動也會被寫入（決議 16、D3），所以在確認視窗裡點名它有幾列——
                 // 使用者為了別的欄位按下寫入時，不該順手替自己宣告了嵌板種類卻不知道。
-                var proposed = _rows.Count(r => r.PanelKindIsProposed);
-                if (proposed > 0)
-                    lines.Add($"　其中 {proposed} 個帷幕嵌板類型的「嵌板種類」是工具由材料提案、您未修改的值");
+                if (batch.ProposedPanelKindCount > 0)
+                    lines.Add($"　其中 {batch.ProposedPanelKindCount} 個帷幕嵌板類型的「嵌板種類」是工具由材料提案、您未修改的值");
             }
 
-            if (zoneEdits.Count > 0) lines.Add($"・區劃：{zoneEdits.Count} 個值，影響 {_zones.Count(z => z.IsDirty)} 個區劃");
-            if (projectEdits.Count > 0) lines.Add($"・專案資訊：{projectEdits.Count} 個值");
+            if (batch.ZoneEdits.Count > 0) lines.Add($"・區劃：{batch.ZoneEdits.Count} 個值，影響 {batch.DirtyZoneCount} 個區劃");
+            if (batch.ProjectEdits.Count > 0) lines.Add($"・專案資訊：{batch.ProjectEdits.Count} 個值");
 
-            var warning = typeEdits.Count > 0
+            var warning = batch.TypeEdits.Count > 0
                 ? "\n\n構件類型是類型參數，變更會套用到專案中所有同類型的實體，不只目前視圖。"
                 : "";
 

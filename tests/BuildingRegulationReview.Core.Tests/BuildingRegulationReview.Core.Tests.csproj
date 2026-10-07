@@ -32,6 +32,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\BuildingRegulationReview.Domain\BuildingRegulationReview.Domain.csproj" />
     <ProjectReference Include="..\..\src\BuildingRegulationReview.Application\BuildingRegulationReview.Application.csproj" />
+    <ProjectReference Include="..\..\src\BuildingRegulationReview.Mcp\BuildingRegulationReview.Mcp.csproj" />
   </ItemGroup>
 </Project>
 

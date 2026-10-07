@@ -1,14 +1,11 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Windows.Interop;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
-using BuildingRegulationReview.Application.ReviewPackages;
 using BuildingRegulationReview.FireReview;
 using BuildingRegulationReview.RegionEditor;
-using BuildingRegulationReview.Revit.ReviewPackages;
 
 namespace BuildingRegulationReview
 {
@@ -70,29 +67,20 @@ namespace BuildingRegulationReview
 
         private static PackageChoice ChoosePackage(UIApplication application, Document document)
         {
-            // Same reason as the Editor's picker: a package whose Area Plan was deleted is still in
-            // the model and would be listed under its PackageId, so it is left out and explained.
-            var selection = ReviewPackageAvailability.Partition(
-                new RevitReviewPackageRepository(document).GetAll(),
-                new RevitAreaPlanProbe(document).IsLiveAreaPlan);
-
-            var choices = selection.Available
-                .Select(package => new PackageChoice(package.PackageId, package.AreaPlanUniqueId,
-                    FireReviewModel.LabelOf(document, package), package.DraftingViewUniqueId))
-                .OrderBy(choice => choice.Label, StringComparer.CurrentCulture)
-                .ToList();
+            var packages = FireReviewModel.AvailablePackages(document);
+            var choices = packages.Choices;
 
             if (choices.Count == 0)
             {
                 TaskDialog.Show(DialogTitle, PackagePickerMessages.WithNotice(
                     "這個專案還沒有建立 Area Plan 的檢討套件，請先執行「防火區劃設定」與「防火區劃編輯器」。",
-                    selection.HiddenNotice));
+                    packages.HiddenNotice));
                 return null;
             }
 
             if (choices.Count == 1) return choices[0];
 
-            var picker = new PackagePickerWindow(choices, selection.HiddenNotice);
+            var picker = new PackagePickerWindow(choices, packages.HiddenNotice);
             new WindowInteropHelper(picker).Owner = application.MainWindowHandle;
             return picker.ShowDialog() == true ? picker.Selected : null;
         }
