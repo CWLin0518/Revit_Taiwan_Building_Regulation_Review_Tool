@@ -1,5 +1,7 @@
 param(
     [switch]$SkipBuild,
+    # Leave Claude Code's configuration alone (the bridge is still installed).
+    [switch]$SkipClaudeRegistration,
     [switch]$WaitForRevit,
     [int]$WaitTimeoutSeconds = 1200
 )
@@ -7,6 +9,8 @@ param(
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $projectFile = Join-Path $projectRoot 'src\BuildingRegulationReview\BuildingRegulationReview.csproj'
+$bridgeProjectFile = Join-Path $projectRoot 'src\BuildingRegulationReview.McpBridge\BuildingRegulationReview.McpBridge.csproj'
+$bridgeOutputDirectory = Join-Path $projectRoot 'src\BuildingRegulationReview.McpBridge\bin\Release\net48'
 $outputDirectory = Join-Path $projectRoot 'src\BuildingRegulationReview\bin\Release\net48'
 $installDirectory = Join-Path $env:APPDATA 'Autodesk\Revit\Addins\2024\BuildingRegulationReview'
 $manifestPath = Join-Path (Split-Path -Parent $installDirectory) 'BuildingRegulationReview.addin'
@@ -63,6 +67,10 @@ if (-not $SkipBuild) {
     if ($LASTEXITCODE -ne 0) {
         throw 'Build failed.'
     }
+    & $dotnet build $bridgeProjectFile -c Release
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Bridge build failed.'
+    }
 }
 
 New-Item -ItemType Directory -Path $installDirectory -Force | Out-Null
@@ -111,6 +119,34 @@ foreach ($file in $dataFiles) {
     Copy-Item -LiteralPath $file.FullName -Destination $destination -Force
 }
 
+# The MCP bridge an agent launches over stdio (docs/mcp-server.md section 3). Claude Code keeps it running,
+# so its files may be locked even with Revit closed. Windows lets a running file be renamed though, so
+# a locked one is moved aside and the new one copied in; the running bridge keeps its old copy until
+# the agent restarts it, and the leftovers are swept on the next install.
+$bridgeTarget = Join-Path $installDirectory 'McpBridge'
+New-Item -ItemType Directory -Path $bridgeTarget -Force | Out-Null
+Get-ChildItem -LiteralPath $bridgeTarget -Filter '*.old-*' -File -ErrorAction SilentlyContinue |
+    ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
+$bridgeFiles = Get-ChildItem -LiteralPath $bridgeOutputDirectory -File -ErrorAction SilentlyContinue |
+    Where-Object { $_.Extension -in '.exe', '.dll', '.pdb', '.config' }
+if (-not ($bridgeFiles | Where-Object Name -eq 'BuildingRegulationReview.McpBridge.exe')) {
+    throw "Missing build output: $bridgeOutputDirectory\BuildingRegulationReview.McpBridge.exe"
+}
+foreach ($file in $bridgeFiles) {
+    $destination = Join-Path $bridgeTarget $file.Name
+    if (Test-Path -LiteralPath $destination) {
+        try {
+            Remove-Item -LiteralPath $destination -Force
+        }
+        catch {
+            Rename-Item -LiteralPath $destination -NewName ('{0}.old-{1:yyyyMMddHHmmss}' -f $file.Name, (Get-Date))
+            Write-Host "  $($file.Name) is in use by a running bridge; moved aside (the running one keeps working until the agent restarts it)."
+        }
+    }
+    Copy-Item -LiteralPath $file.FullName -Destination $destination -Force
+}
+$bridgePath = Join-Path $bridgeTarget 'BuildingRegulationReview.McpBridge.exe'
+
 $assemblyPath = Join-Path $installDirectory 'BuildingRegulationReview.dll'
 $manifestTemplate = Get-Content (Join-Path $projectRoot 'BuildingRegulationReview.addin') -Raw
 $manifestTemplate.Replace('__ASSEMBLY_PATH__', $assemblyPath) |
@@ -129,4 +165,12 @@ Get-ChildItem -LiteralPath $installDirectory -File -Recurse |
 
 Write-Host ''
 Write-Host "Installed Revit 2024 add-in: $manifestPath"
-Write-Host 'Restart Revit 2024 to load the add-in.'
+Write-Host "Installed MCP bridge: $bridgePath"
+
+if (-not $SkipClaudeRegistration) {
+    Write-Host ''
+    & (Join-Path $PSScriptRoot 'register-claude-mcp.ps1') -BridgePath $bridgePath
+}
+
+Write-Host ''
+Write-Host 'Restart Revit 2024 to load the add-in. Its MCP service starts by itself (set BRR_MCP_AUTOSTART=0 to turn that off).'

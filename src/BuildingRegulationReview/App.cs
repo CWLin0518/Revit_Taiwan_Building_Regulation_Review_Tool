@@ -74,13 +74,9 @@ namespace BuildingRegulationReview
                 };
                 _mcpButton = (PushButton)panel.AddItem(data);
 
-                // Started unattended only with a token the agent's configuration already knows: a
-                // random one would be shown to nobody.
-                if (RevitMcpHost.AutoStartRequested && !McpHost.TokenIsConfigured)
-                {
-                    Trace.TraceWarning($"建築技術規則檢討 MCP 未自動啟動：自動啟動需要同時設定 {RevitMcpHost.TokenVariable}。");
-                }
-                else if (RevitMcpHost.AutoStartRequested)
+                // The random token needs no one to see it: the server announces it to the bridge through
+                // the endpoint file in the user's profile (docs/mcp-server.md §3).
+                if (RevitMcpHost.AutoStartRequested)
                 {
                     try
                     {

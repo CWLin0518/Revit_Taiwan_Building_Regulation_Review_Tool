@@ -1,7 +1,10 @@
 using System;
+using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 using System.Reflection;
 using System.Security.Cryptography;
+using BuildingRegulationReview.Mcp.Bridge;
 using BuildingRegulationReview.Mcp.FireReview;
 using BuildingRegulationReview.Mcp.Protocol;
 using BuildingRegulationReview.Mcp.Tools;
@@ -10,9 +13,10 @@ using BuildingRegulationReview.Mcp.Transport;
 namespace BuildingRegulationReview.Mcp
 {
     /// <summary>
-    /// The add-in's MCP server: the tool modules, the protocol and the loopback HTTP endpoint, started
-    /// and stopped from the ribbon. Off until the user turns it on (or <c>BRR_MCP_AUTOSTART=1</c>),
-    /// because while it runs any local process can drive the open model.
+    /// The add-in's MCP server: the tool modules, the protocol and the loopback HTTP endpoint. Starts
+    /// with Revit unless <c>BRR_MCP_AUTOSTART=0</c>, and can be switched off from the ribbon. While it
+    /// runs it announces its endpoint and token in <see cref="McpEndpointFile"/> (the user's
+    /// <c>%LOCALAPPDATA%</c>), which is how the stdio bridge an agent launches finds it.
     /// </summary>
     internal sealed class RevitMcpHost : IDisposable
     {
@@ -60,7 +64,7 @@ namespace BuildingRegulationReview.Mcp
 
         /// <summary>
         /// The bearer token every request must carry: <c>BRR_MCP_TOKEN</c> when set, otherwise a random
-        /// one for this Revit session, shown in the dialog that starts the server.
+        /// one for this Revit session, handed to the bridge through the endpoint file.
         /// </summary>
         public string Token { get; }
 
@@ -73,16 +77,22 @@ namespace BuildingRegulationReview.Mcp
 
         public string Endpoint => $"http://127.0.0.1:{Port}/mcp";
 
-        /// <summary>The one-line Claude Code command that connects to this server, token included.</summary>
-        public string ClaudeCodeCommand =>
-            $"claude mcp add --transport http {ServerName} {Endpoint} --header \"Authorization: Bearer {Token}\"";
+        /// <summary>Where the bridge is installed next to the add-in, for the command the ribbon button copies.</summary>
+        public static string BridgePath =>
+            Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? string.Empty,
+                "McpBridge", "BuildingRegulationReview.McpBridge.exe");
 
+        /// <summary>The one-line Claude Code command that registers the bridge for every project.</summary>
+        public static string ClaudeCodeBridgeCommand =>
+            $"claude mcp add --scope user {ServerName} -- \"{BridgePath}\"";
+
+        /// <summary>On unless <c>BRR_MCP_AUTOSTART</c> is <c>0</c> or <c>false</c>.</summary>
         public static bool AutoStartRequested
         {
             get
             {
-                var value = Environment.GetEnvironmentVariable(AutoStartVariable);
-                return value == "1" || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
+                var value = Environment.GetEnvironmentVariable(AutoStartVariable)?.Trim();
+                return !(value == "0" || string.Equals(value, "false", StringComparison.OrdinalIgnoreCase));
             }
         }
 
@@ -93,12 +103,40 @@ namespace BuildingRegulationReview.Mcp
             var listener = new McpHttpListener(_server.Handle, Port, bearerToken: Token);
             listener.Start();
             _listener = listener;
+            Announce();
         }
 
         public void Stop()
         {
-            _listener?.Stop();
+            if (_listener == null) return;
+            _listener.Stop();
             _listener = null;
+            Withdraw();
+        }
+
+        /// <summary>Tells the bridge where to connect. Failing to write only costs the bridge; the server still runs.</summary>
+        private void Announce()
+        {
+            try
+            {
+                McpEndpointFile.Write(McpEndpointFile.DefaultEndpointPath,
+                    new McpEndpoint(Endpoint, Token, CurrentProcessId, DateTime.UtcNow, Version));
+            }
+            catch (Exception exception) when (exception is IOException || exception is UnauthorizedAccessException)
+            {
+                Trace.TraceWarning("建築技術規則檢討 MCP 端點檔寫入失敗，bridge 將無法自動連線：" + exception.Message);
+            }
+        }
+
+        private static void Withdraw() =>
+            McpEndpointFile.DeleteIfOwnedBy(McpEndpointFile.DefaultEndpointPath, CurrentProcessId);
+
+        private static int CurrentProcessId
+        {
+            get
+            {
+                using (var process = Process.GetCurrentProcess()) return process.Id;
+            }
         }
 
         public void Dispose() => Stop();

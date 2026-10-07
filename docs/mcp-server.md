@@ -12,7 +12,11 @@
 
 ```text
 AI 代理（Claude Code …）
-   │  HTTP POST  http://127.0.0.1:8970/mcp   （JSON-RPC 2.0，MCP Streamable HTTP）
+   │  stdio（JSON-RPC 2.0，一行一則）
+   ▼
+BuildingRegulationReview.McpBridge.exe（net48，代理啟動；Revit 沒開也連得上）
+   │  每次請求先讀 %LOCALAPPDATA%\BuildingRegulationReview\Mcp\endpoint.json（端點＋權杖）
+   │  HTTP POST  http://127.0.0.1:8970/mcp   （MCP Streamable HTTP，Bearer 權杖）
    ▼
 ┌──────────────────────────────── Revit 程序 ────────────────────────────────┐
 │ BuildingRegulationReview.Mcp（netstandard2.0，不參考 Revit）               │
@@ -68,6 +72,9 @@ MCP 工具只是薄殼，做三件事：讀參數、呼叫 use case、把結果�
 | `src/BuildingRegulationReview.Mcp/Protocol/McpServer.cs` | JSON-RPC 分派、協定版本協商、工具錯誤轉換、最近 20 筆呼叫紀錄 |
 | `src/BuildingRegulationReview.Mcp/Tools/` | `IMcpTool`、`IMcpToolModule`、`McpToolResult`、`McpToolException`、`McpToolArguments`、`JsonSchema`、`McpToolRegistry` |
 | `src/BuildingRegulationReview.Mcp/Transport/McpHttpListener.cs` | loopback HTTP 端點 |
+| `src/BuildingRegulationReview.Mcp/Bridge/` | `McpEndpointFile`（端點檔）、`HttpMcpUpstream`、`McpStdioBridge`（stdio 那一端的全部邏輯，Core.Tests 測） |
+| `src/BuildingRegulationReview.McpBridge/` | bridge exe：只有 stdin／stdout 接線與每 3 秒一次的 `Poll` |
+| `scripts/register-claude-mcp.ps1` | 把 bridge 註冊為 Claude Code 使用者層級的 stdio MCP（安裝腳本會呼叫） |
 | `src/BuildingRegulationReview/Mcp/RevitMcpHost.cs` | 伺服器名稱、連接埠、`instructions`、註冊模組 |
 | `src/BuildingRegulationReview/Mcp/RevitMcpDispatcher.cs` | ExternalEvent 佇列、忙碌偵測、逾時取消 |
 | `src/BuildingRegulationReview/Mcp/RevitMcpTool.cs` | 在 Revit 執行的工具基底：`RequireProject`、`WithDryRun` |
@@ -77,49 +84,52 @@ MCP 工具只是薄殼，做三件事：讀參數、呼叫 use case、把結果�
 | `src/BuildingRegulationReview/Mcp/FireReview/FireReviewJson.cs` | 套件、前置檢查、檢討表、明細、參數列轉 JSON |
 | `tests/BuildingRegulationReview.Core.Tests/Mcp/` | JSON、協定、HTTP 端點的單元測試 |
 
-部署時多一個 `BuildingRegulationReview.Mcp.dll`，`scripts/install-revit-2024.ps1` 已經加入。
+部署時多一個 `BuildingRegulationReview.Mcp.dll`，以及 `McpBridge\` 資料夾（bridge exe），`scripts/install-revit-2024.ps1` 都已經處理。
 
 ---
 
 ## 3. 啟動與連線
 
-### 3.1 在 Revit 開啟服務
+### 3.1 一次設定，之後自動連線
 
-Ribbon「建築法規檢討 › AI 代理 › **MCP 服務**」。按一下就啟動，再按一下就停止。按鈕文字會顯示目前狀態。沒有開模型時也可以按。
+```text
+scripts\install-revit-2024.ps1
+  ├─ 部署外掛與 McpBridge\BuildingRegulationReview.McpBridge.exe
+  └─ scriptsegister-claude-mcp.ps1
+       claude mcp add --scope user building-regulation-review -- "<安裝目錄>\McpBridge\BuildingRegulationReview.McpBridge.exe"
+       （同時移除舊版留下、寫死權杖的 HTTP 設定）
+```
+
+之後：
+
+- **Revit**：外掛載入時 MCP 服務**自動啟動**，把端點與這次的隨機權杖寫進
+  `%LOCALAPPDATA%\BuildingRegulationReview\Mcp\endpoint.json`；服務停止或 Revit 關閉時刪掉（只刪自己寫的）。
+- **Claude Code**：每個工作階段啟動時自己把 bridge 帶起來。bridge 自己回答 `initialize`，所以**先開 Claude、後開 Revit 也連得上**。
+- **bridge**：每個請求都重讀端點檔，所以 Revit 重開、權杖換新、改連接埠都**不必改代理設定、也不必重開 Claude**。
+  每 3 秒向 Revit 要一次工具清單，有變化就送 `notifications/tools/list_changed`，代理會自動重新列出工具。
+- Revit 沒開時呼叫工具，回傳的是工具錯誤（`isError`），說明要開 Revit、看 MCP 按鈕；Revit 開好後直接再呼叫即可。
+- 工具清單快取在同一個資料夾的 `tools-cache.json`。從沒連上過 Revit 時，清單只有一個說明用的 `revit_status`，連上後自動換成完整清單。
 
 | 環境變數 | 預設 | 作用 |
 | --- | --- | --- |
-| `BRR_MCP_PORT` | `8970` | 連接埠（1024–65535） |
-| `BRR_MCP_TOKEN` | 未設 | 固定的存取權杖。未設時，每次開啟 Revit 會隨機產生一組，只在按鈕的對話框中顯示 |
-| `BRR_MCP_AUTOSTART` | 未設 | 設為 `1` 時，Revit 啟動就自動開啟服務（適合讓代理自動驗證的工作機）。**必須同時設定 `BRR_MCP_TOKEN`**，否則不會自動開啟，因為隨機權杖不會有人看到 |
+| `BRR_MCP_PORT` | `8970` | 連接埠（1024–65535）。端點檔會寫實際的連接埠，bridge 不必另外設定 |
+| `BRR_MCP_TOKEN` | 未設 | 固定權杖。未設時每次開 Revit 隨機產生一組，經端點檔交給 bridge |
+| `BRR_MCP_AUTOSTART` | 未設（＝自動啟動） | 設為 `0` 或 `false` 時，Revit 啟動不自動開服務，要按 Ribbon 的按鈕 |
 
-連接埠被占用（例如同時開了兩個 Revit）時，按鈕會顯示錯誤並說明怎麼改連接埠，外掛的其他功能不受影響。
+Ribbon「建築法規檢討 › AI 代理 › **MCP 服務**」仍可手動停止／啟動；啟動時的對話框會把 bridge 的註冊指令複製到剪貼簿，
+給沒跑安裝腳本的機器用。連接埠被占用（例如同時開了兩個 Revit）時，第二個 Revit 的服務不會啟動，也不會覆蓋第一個的端點檔。
 
-### 3.2 連線
+### 3.2 其他 client
 
-每個請求都要帶 `Authorization: Bearer <權杖>`，否則回 401。按下按鈕時，對話框會顯示已含權杖的 Claude Code 指令，並**自動複製到剪貼簿**：
+任何支援 stdio 的 MCP client 都可以直接啟動 bridge exe。只支援 HTTP 的 client 仍可直連 `http://127.0.0.1:8970/mcp`，
+權杖從端點檔讀（`Authorization: Bearer <token>`）；但那樣每次 Revit 重開都要更新權杖，這正是 bridge 要解決的問題。
 
-```bash
-claude mcp add --transport http building-regulation-review http://127.0.0.1:8970/mcp --header "Authorization: Bearer <權杖>"
-```
+**請調高 client 的工具逾時。** 一次呼叫最多可能是排隊 30 秒加上執行 10 分鐘（bridge 對 `tools/call` 等 12 分鐘）。
+Claude Code 可以用環境變數 `MCP_TOOL_TIMEOUT`（毫秒）設定，例如 `720000`。client 逾時並不會取消 Revit 端的工作：
+如果代理在逾時後重試 `fire_review_run`，會排進第二次執行。
 
-使用固定權杖（`BRR_MCP_TOKEN`）時，可以寫在專案的 `.mcp.json`，權杖從環境變數展開，不必寫進檔案：
-
-```json
-{
-  "mcpServers": {
-    "building-regulation-review": {
-      "type": "http",
-      "url": "http://127.0.0.1:8970/mcp",
-      "headers": { "Authorization": "Bearer ${BRR_MCP_TOKEN}" }
-    }
-  }
-}
-```
-
-**請調高 client 的工具逾時。** 一次呼叫最多可能是排隊 30 秒加上執行 10 分鐘，Claude Code 可以用環境變數 `MCP_TOOL_TIMEOUT`（毫秒）設定，例如 `720000`。client 逾時並不會取消 Revit 端的工作：如果代理在逾時後重試 `fire_review_run`，會排進第二次執行。
-
-連上之後，代理看到的工具名稱會加上伺服器名稱作為前綴，例如 `mcp__building-regulation-review__fire_review_run`。這個伺服器可以和其他 Revit MCP（例如 REVIT_MCP_study 的 `revit-mcp`）同時使用，兩邊的工具不會衝突。
+連上之後，代理看到的工具名稱會加上伺服器名稱作為前綴，例如 `mcp__building-regulation-review__fire_review_run`。
+這個伺服器可以和其他 Revit MCP（例如 REVIT_MCP_study 的 `revit-mcp`）同時使用，兩邊的工具不會衝突。
 
 ---
 
@@ -230,7 +240,9 @@ HTTP 200 application/json
 - **每個請求都要帶 Bearer 權杖**。loopback 是同一台機器上所有工作階段共用的，例如遠端桌面伺服器上其他使用者的程序，或本機開發伺服器上的網頁，都連得到 127.0.0.1；沒有權杖就無法操作。權杖比對採固定時間，比對時間不會透露權杖內容。
 - 同時最多 8 條連線，超過的回 503。
 - 依 MCP 規格防 DNS rebinding：`Host` 不是 `127.0.0.1`／`localhost`，或 `Origin` 不是 loopback 時，一律回 403。瀏覽器裡的網頁沒辦法操作 Revit。
-- 預設關閉，由使用者在 Ribbon 開啟。**服務開著的時候，本機任何程序都能讀寫開啟中的模型**，對話框會明白提醒這一點。
+- 預設隨 Revit 自動啟動（`BRR_MCP_AUTOSTART=0` 可關）。權杖寫在 `%LOCALAPPDATA%` 的端點檔，**其他 Windows 帳號讀不到，
+  同一個帳號的程序讀得到**——這和以前把權杖放在對話框、剪貼簿、`~/.claude.json` 的範圍相同。**服務開著的時候，
+  本帳號的程序可以讀寫開啟中的模型**，啟動對話框會明白提醒這一點。
 - 改模型的工具標有 `destructiveHint`／`readOnlyHint`，client 可以據此要求使用者確認。
 - 人工覆寫（Override／Reconfirm／Withdraw）需要理由與簽核人，不開放給 MCP。
 

@@ -119,7 +119,7 @@ V-xx 第 n 項：通過／不通過
 | V-29 | 編輯器「用途」欄：寫入、不覆蓋批次面板、只改用途也能套用 | ⬜ | **最高** | 11 | 垂直區劃 §11、ADR 0003 |
 | **J. MCP 服務（2026-10-07 新增）** | | | | | |
 | V-30 | 重構回歸：檢討視窗與批次設定面板行為不變 | ⬜ | **最高** | 12 | ADR 0004 §3 |
-| V-31 | MCP 服務啟停、連線與「Revit 忙碌中」 | ⬜ | 高 | 12 | mcp-server.md §3、§5 |
+| V-31 | MCP 服務自動啟動、bridge 自動連線與「Revit 忙碌中」（2026-10-07 改版） | ⬜ | 高 | 12 | mcp-server.md §3、§5 |
 | V-32 | 透過 MCP 檢討：結果與視窗一致、dryRun 不留痕跡 | ⬜ ⚠️ | 高 | 12 | mcp-server.md §6 |
 | V-33 | 透過 MCP 批次設定參數：與面板寫入相同的值 | ⬜ ⚠️ | 高 | 12 | mcp-server.md §6 |
 
@@ -539,20 +539,27 @@ Area Plan 不在了，就重建一個並存回**同一個** `PackageId`——「
 | 6 | 面板按「依樓層推定」 | 區劃樓層序與地上層數填入，狀態列訊息與改版前相同 |
 | 7 | 專案資訊的用途類組改成 H-2 | 區劃頁「適用上限」欄立即反映（H-2 但書） |
 
-### ⬜ V-31 MCP 服務啟停、連線與「Revit 忙碌中」
+### ⬜ V-31 MCP 服務自動啟動、bridge 自動連線與「Revit 忙碌中」
+
+> 2026-10-07 改版：改由 stdio bridge 連線、服務預設自動啟動（ADR 0004 修訂、`docs/mcp-server.md` §3）。
+> 舊版「按按鈕 → 複製含權杖的 HTTP 指令」那一套已經取代，本項依新版改寫。
+> 安裝腳本已於 2026-10-07 執行：部署目錄多了 `McpBridge\`，`~/.claude.json` 的使用者層級設定已改成 stdio bridge，舊的 HTTP 權杖設定已移除。
 
 | # | 操作 | 預期 |
 | --- | --- | --- |
-| 1 | 不開任何模型，看功能區 | 「建築法規檢討」頁籤多一個「AI 代理」面板，按鈕「MCP 服務（已停止）」，**沒有模型時也可以按** |
-| 2 | 按下 | 對話框顯示端點 `http://127.0.0.1:8970/mcp` 與含 `--header "Authorization: Bearer …"` 的連線指令，標題寫「已複製到剪貼簿」；按鈕變「（執行中）」 |
-| 3 | 在終端機貼上剪貼簿的 `claude mcp add …`，再請 Claude 呼叫 `revit_status` | 回傳 Revit 版本、外掛版本；沒開模型時 `document` 為 null |
-| 3a | 用 `curl -X POST http://127.0.0.1:8970/mcp -d "{}"`（不帶權杖） | 回 401 |
-| 4 | 開模型後再呼叫 `revit_status` | `document.title`、`activeView` 正確 |
-| 5 | 在 Revit 開一個 modal 對話框（例如「物件型式」）不關，呼叫 `fire_review_list_packages` | 約 30 秒後回傳「Revit 忙碌中…」，**不會一直卡住**；關掉對話框再呼叫一次即正常 |
-| 6 | 再按一次 MCP 按鈕 | 服務停止；Claude 呼叫工具時連線失敗 |
-| 7 | 另一個程式佔用 8970 埠（或開兩個 Revit）後按按鈕 | 顯示「無法在 … 啟動 MCP 服務」與改連接埠的方法，Revit 不受影響 |
-| 8 | **Revit 視窗最小化或切到別的程式**時呼叫 `fire_review_list_packages` | 照常回應。若要等到 Revit 回到前景才執行，請記錄等了多久；這是 ExternalEvent 在背景時的行為，影響代理自動驗證 |
-| 9 | 只設 `BRR_MCP_AUTOSTART=1`、不設 `BRR_MCP_TOKEN`，重開 Revit | 服務**沒有**自動開啟（按鈕顯示已停止）。兩者都設時會自動開啟，用該權杖可以連線 |
+| 1 | **Revit 不開**，開一個新的 Claude Code 工作階段，`/mcp` 看 `building-regulation-review` | 顯示**已連線**（不是 401、不是失敗）；工具清單有 `revit_status` 等（有快取時是完整清單，從沒連上過時只有一個 `revit_status`） |
+| 2 | 同上，請 Claude 呼叫 `revit_status` | 回傳工具錯誤，訊息「無法連線到 Revit 的建築技術規則檢討外掛…不必重新啟動代理程式」 |
+| 3 | **不重開 Claude**，開 Revit 2024（不開模型） | 功能區按鈕顯示「MCP 服務（執行中）」；`%LOCALAPPDATA%\BuildingRegulationReview\Mcp\endpoint.json` 出現 |
+| 4 | 回到同一個 Claude 工作階段，再呼叫 `revit_status` | 正常回傳 Revit 版本、外掛版本，`document` 為 null；若第 1 項只有一個工具，此時完整清單已自動出現（list_changed） |
+| 5 | 開模型後再呼叫 `revit_status` | `document.title`、`activeView` 正確 |
+| 6 | **關掉 Revit 再重開**（權杖會換新），不動 Claude，再呼叫 `fire_review_list_packages` | 照常回應（bridge 讀到新的端點檔）。**這一項就是本次改版要解決的問題** |
+| 6a | 用 `curl -X POST http://127.0.0.1:8970/mcp -d "{}"`（不帶權杖） | 回 401（權杖仍然必要） |
+| 7 | 在 Revit 開一個 modal 對話框（例如「物件型式」）不關，呼叫 `fire_review_list_packages` | 約 30 秒後回傳「Revit 忙碌中…」，**不會一直卡住**；關掉對話框再呼叫一次即正常 |
+| 8 | 按 MCP 按鈕停止服務 | 對話框說已停止；`endpoint.json` 被刪除；Claude 呼叫工具得到「無法連線…」的工具錯誤（不是斷線） |
+| 9 | 再按一次按鈕啟動 | 對話框顯示端點，並把 `claude mcp add --scope user building-regulation-review -- "…McpBridge.exe"` 複製到剪貼簿；Claude 不用重開即可再呼叫 |
+| 10 | 開第二個 Revit | 第二個的服務不啟動（連接埠被佔用），**`endpoint.json` 仍指向第一個**；關掉第二個 Revit 後檔案也還在 |
+| 11 | **Revit 視窗最小化或切到別的程式**時呼叫 `fire_review_list_packages` | 照常回應。若要等到 Revit 回到前景才執行，請記錄等了多久；這是 ExternalEvent 在背景時的行為，影響代理自動驗證 |
+| 12 | 設 `BRR_MCP_AUTOSTART=0` 後重開 Revit | 按鈕顯示已停止、沒有 `endpoint.json`；按一下才啟動 |
 
 ### ⬜ V-32 透過 MCP 檢討
 

@@ -45,11 +45,11 @@ namespace BuildingRegulationReview.Mcp
 
             App.RefreshMcpButton();
 
-            // A TaskDialog's text cannot be selected, and a 48-character token is not something to retype.
+            // A TaskDialog's text cannot be selected, and nobody should retype an install path.
             var copied = false;
             try
             {
-                System.Windows.Clipboard.SetText(host.ClaudeCodeCommand);
+                System.Windows.Clipboard.SetText(RevitMcpHost.ClaudeCodeBridgeCommand);
                 copied = true;
             }
             catch (Exception)
@@ -59,12 +59,13 @@ namespace BuildingRegulationReview.Mcp
 
             var dialog = new TaskDialog(DialogTitle)
             {
-                MainInstruction = copied ? "MCP 服務已啟動（連線指令已複製到剪貼簿）" : "MCP 服務已啟動",
+                MainInstruction = "MCP 服務已啟動",
                 MainContent = $"端點：{host.Endpoint}\n\n" +
-                              "只接受本機、帶正確權杖的連線。服務執行期間，持有權杖的 AI 代理程式可以讀取並修改目前開啟的模型。\n\n" +
-                              $"Claude Code 連線指令（已含權杖，請勿外流）：\n{host.ClaudeCodeCommand}" +
-                              (host.TokenIsConfigured ? string.Empty : "\n\n這個權杖只在本次 Revit 工作階段有效，重開 Revit 後要重新設定。"),
-                FooterText = $"同時設定環境變數 {RevitMcpHost.TokenVariable}（固定權杖）與 {RevitMcpHost.AutoStartVariable}=1，可在 Revit 啟動時自動開啟服務。"
+                              "只接受本機、帶正確權杖的連線。權杖已寫入本使用者的端點檔，AI 代理透過 bridge 自動取得，不必手動設定。" +
+                              "服務執行期間，代理程式可以讀取並修改目前開啟的模型。\n\n" +
+                              "Claude Code 只需設定一次（安裝腳本已代為設定；" + (copied ? "指令已複製到剪貼簿" : "指令如下") + "）：\n" +
+                              RevitMcpHost.ClaudeCodeBridgeCommand,
+                FooterText = $"MCP 服務預設隨 Revit 自動啟動；不要自動啟動時，設定環境變數 {RevitMcpHost.AutoStartVariable}=0。"
             };
             dialog.Show();
             return Result.Succeeded;

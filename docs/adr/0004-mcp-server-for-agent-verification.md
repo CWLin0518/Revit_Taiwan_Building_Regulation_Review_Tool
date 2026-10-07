@@ -85,3 +85,24 @@ Use case ───┤
 - `dotnet build BuildingRegulationReview.sln --configuration Debug`
 - `dotnet test tests/BuildingRegulationReview.Core.Tests/BuildingRegulationReview.Core.Tests.csproj --filter "FullyQualifiedName~Core.Tests.Mcp"`
 - 在 Revit 開啟 MCP 服務後，依 `docs/mcp-server.md`「驗證流程範例」執行一次。
+
+## 修訂（2026-10-07）：加一層 stdio bridge，預設自動啟動
+
+**原因**：實際使用後，決策 1 的兩個預設讓連線每次都要人工處理——每次開 Revit 權杖都換新，寫在
+Claude Code 設定裡的那一組就失效（HTTP 401）；Claude 先於 Revit 啟動時連線失敗，之後不會自己重連，
+只能重開 Claude。使用者要的是像 `REVIT_MCP_study` 那樣「開了就連得上」。
+
+**改成**：
+
+- 新增 `BuildingRegulationReview.McpBridge.exe`（net48，邏輯在 `BuildingRegulationReview.Mcp/Bridge`）。
+  代理以 stdio 啟動它；它自己回答 `initialize`／`ping`，其餘轉給外掛的 HTTP 端點，
+  並在工具清單變化時送 `notifications/tools/list_changed`。這推翻了「脈絡」表中「不另寫 stdio 伺服器」的那一列：
+  當初的顧慮是多一個程序要部署與保持版本一致，現在由安裝腳本一起部署到外掛資料夾、版本隨外掛走；
+  而 bridge 不碰 Revit API，外掛仍是唯一的 MCP 實作，決策 3、4 不變。
+- 外掛啟動服務時把端點與權杖寫進 `%LOCALAPPDATA%\BuildingRegulationReview\Mcp\endpoint.json`，停止時刪除。
+  權杖仍是每個工作階段隨機產生、仍是每個請求必帶——只是交付管道從「對話框＋剪貼簿＋貼進設定檔」
+  改成「同一帳號才讀得到的檔案」，暴露範圍不比原本大（原本的設定檔 `~/.claude.json` 一樣是同一帳號可讀）。
+- 服務**預設隨 Revit 啟動**（`BRR_MCP_AUTOSTART=0` 可關），自動啟動不再要求固定權杖。
+  原本「預設關閉」是為了讓使用者決定；使用者已明確要求自動連線，關閉的方法也保留。
+
+詳見 `docs/mcp-server.md` §3。測試：`McpStdioBridgeTests`（含真的走 HTTP 的一條）。
