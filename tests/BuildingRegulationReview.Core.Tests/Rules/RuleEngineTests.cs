@@ -171,8 +171,11 @@ public sealed class RuleEngineTests
         var reference = ReviewLegalReference.Parse(outcome.LegalReference);
         Assert.Empty(reference.Clauses);
         Assert.Empty(reference.Letters);
-        Assert.Equal(new[] { $"規則集 {loaded.Value.RuleSet.RuleSetId} {loaded.Value.RuleSet.Version}" }, reference.Remarks);
-        Assert.Equal(new[] { "所列規則均不適用，無單一依據條文" }, reference.Gists);
+        // 這句不是條文句，所以整句當一條補充說明保留，不再被切成假的「檢討重點」（B-01）。
+        Assert.Equal(new[] { outcome.LegalReference }, reference.Remarks);
+        Assert.Empty(reference.Gists);
+        Assert.Contains($"規則集 {loaded.Value.RuleSet.RuleSetId} {loaded.Value.RuleSet.Version}", reference.Remarks.Single());
+        Assert.DoesNotContain(reference.Lines(), l => l.Label is "函釋" or "檢討重點");
     }
 
     [Fact]

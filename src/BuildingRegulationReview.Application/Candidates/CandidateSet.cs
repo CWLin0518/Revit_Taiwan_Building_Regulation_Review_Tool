@@ -388,7 +388,7 @@ public sealed class CandidateAmbiguity
         if (ruleSet is null) throw new ArgumentNullException(nameof(ruleSet));
         var set = ruleSet.RuleSet;
         return new ReviewResult(resultId, runId, packageId, checkType, SubjectUniqueIds, ZoneId?.ToString("D"),
-            ReviewStatus.ManualReview, null, null, set.RuleSetId, set.Version, $"規則集「{set.Title}」",
+            ReviewStatus.ManualReview, null, null, set.RuleSetId, set.Version, set.FallbackLegalReference,
             Message, Evidence);
     }
 

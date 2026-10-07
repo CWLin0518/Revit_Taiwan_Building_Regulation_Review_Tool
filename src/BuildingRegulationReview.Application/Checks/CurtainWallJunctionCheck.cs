@@ -311,7 +311,7 @@ public static class CurtainWallJunctionCheck
         var info = ruleSet.RuleSet;
         var result = new ReviewResult(resultId, runId, set.PackageId, ReviewCheckTypes.CompartmentContinuity,
             junction.SubjectUniqueIds, zone.ZoneIdText, doubt.Status, null, null,
-            info.RuleSetId, info.Version, $"規則集「{info.Title}」",
+            info.RuleSetId, info.Version, info.FallbackLegalReference,
             $"{Subject(junction, zone)}：{doubt.Message}", evidence);
         return new CurtainWallJunctionFinding(junction, result, null, doubt.ErrorCode);
     }
@@ -331,7 +331,7 @@ public static class CurtainWallJunctionCheck
         var info = ruleSet.RuleSet;
         var result = new ReviewResult(resultId, runId, set.PackageId, ReviewCheckTypes.CompartmentContinuity,
             junction.SubjectUniqueIds, zone.ZoneIdText, ReviewStatus.ManualReview, null, null,
-            info.RuleSetId, info.Version, $"規則集「{info.Title}」",
+            info.RuleSetId, info.Version, info.FallbackLegalReference,
             $"{Subject(junction, zone)}不檢討：區劃「{zone.Name}」的範圍有問題（{string.Join("、", zone.Problems)}），" +
             "無法確認區劃邊界與帷幕牆的關係，需人工覆核。",
             evidence);

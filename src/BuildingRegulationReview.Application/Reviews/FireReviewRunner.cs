@@ -410,8 +410,9 @@ public static class FireReviewRunner
             RequiredRatings(rating, references.Keys), references, request.BareNumberUnit, request.JunctionOptions));
         if (read.IsFailure) return Result.Failure<CurtainWallJunctionReview>(read.Error);
 
+        // 幾何讀取器講的是它讀到什麼，不是「檢討完成」（驗證清單 B-03）。
         foreach (var warning in read.Value.Warnings)
-            log.Add(ReviewErrorCode.ReviewCompleted, ReviewStage.Review, ReviewSeverity.Warning, warning);
+            log.Add(ReviewErrorCode.CurtainWallReaderWarning, ReviewStage.Review, ReviewSeverity.Warning, warning);
 
         var junctions = CurtainWallJunctionResolver.Resolve(read.Value, request.JunctionOptions,
             VerticalCompartmentZones(set, request.Inputs.Area));

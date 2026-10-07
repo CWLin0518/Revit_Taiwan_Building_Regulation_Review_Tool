@@ -1,5 +1,6 @@
 using System.Linq;
 using BuildingRegulationReview.Application.Reviews;
+using BuildingRegulationReview.Domain.Rules;
 using Xunit;
 
 namespace BuildingRegulationReview.Core.Tests.Reviews;
@@ -81,6 +82,51 @@ public sealed class ReviewLegalReferenceTests
         Assert.Equal("第79條第1項", Line(reference, "條文"));
         Assert.Equal("區劃分隔", Line(reference, "檢討重點"));
         Assert.Equal("外牆依第79條第3項、第79條之3、第79條之4檢討", Line(reference, "補充說明"));
+    }
+
+    /// <summary>
+    /// B-01: a 疑義／人工覆核 row cites no 條文, and what it says instead must read as the one sentence
+    /// it is — not as a 函釋 or a 檢討重點 the splitting would invent.
+    /// </summary>
+    [Fact]
+    public void The_rule_set_fallback_reads_as_one_line()
+    {
+        var reference = ReviewLegalReference.Parse(
+            RuleSet.FallbackLegalReferenceOf("tw-bcr-fire", "2026.10-provisional"));
+
+        var line = Assert.Single(reference.Lines());
+        Assert.Equal("補充說明", line.Label);
+        Assert.Equal("依規則集 tw-bcr-fire 2026.10-provisional 判定（本列無個別條文）", line.Value);
+        Assert.DoesNotContain(reference.Lines(), l => l.Label is "函釋" or "檢討重點" or "法規" or "條文");
+        Assert.Empty(reference.Clauses);
+        Assert.Empty(reference.Letters);
+        Assert.Empty(reference.Gists);
+        Assert.False(reference.IsProvisional);
+    }
+
+    /// <summary>
+    /// B-01, the other half: the rule set's own title is a design note hundreds of words long that
+    /// happens to name 條文 and a 函釋. Dropped in here it must stay one 補充說明 rather than be carved
+    /// into a citation it never was.
+    /// </summary>
+    [Fact]
+    public void A_long_explanation_is_not_carved_into_a_citation()
+    {
+        const string title =
+            "建築技術規則建築設計施工編 防火構造與防火區劃（暫定示意規則：條文、版本與生效日期待確認）。" +
+            "第70條主要構造規則列於優先序 20、第79條防火區劃規則列於優先序 10；" +
+            "「其他類似部分」無法逐一列舉，清單外的用字一律不豁免。挑空另有例外：" +
+            "依內政部106年9月27日內授營建管字第1060814830號函，其連通區劃之合計樓地板面積回到第79條檢討" +
+            "（`tw-bcr-83-area-atrium`，優先序 30）；詳見 docs/regulations/vertical-compartment.md 決議 31～33。";
+
+        var reference = ReviewLegalReference.Parse(title);
+
+        Assert.Empty(reference.Letters);
+        Assert.Empty(reference.Gists);
+        Assert.Empty(reference.Clauses);
+        Assert.Null(reference.Code);
+        Assert.Equal(new[] { title }, reference.Remarks.ToArray());
+        Assert.Equal(new[] { "補充說明" }, reference.Lines().Select(l => l.Label).ToArray());
     }
 
     [Fact]

@@ -34,6 +34,10 @@ public sealed class ReviewLegalReference
     /// <summary>Notes that point into the tool's own documents rather than into the law.</summary>
     private static readonly string[] InternalMarkers = { "決議", "規格", "spec", "docs", "§" };
 
+    /// <summary>What a 條文 looks like where one is cited: 「第79條之3」, 「第83條第1款至第4款」.</summary>
+    private static readonly Regex ClauseStart = new Regex(
+        @"^第[〇一二三四五六七八九十百千零\d]+條", RegexOptions.CultureInvariant);
+
     private ReviewLegalReference(
         string? code, IList<string> clauses, IList<string> letters, IList<string> remarks,
         IList<string> gists, bool provisional, IList<string> internalNotes)
@@ -72,6 +76,15 @@ public sealed class ReviewLegalReference
 
     public static ReviewLegalReference Parse(string? text)
     {
+        // Taking a sentence apart at 「；」 and 「，」 only reads as 法規依據 when the sentence is a
+        // citation to begin with. Anything else — a rule set's own explanation, the sentence a row
+        // with no 條文 carries — is kept whole as one 補充說明 rather than carved into a 函釋 and a
+        // 檢討重點 it never was (驗證清單 B-01).
+        var whole = (text ?? string.Empty).Trim();
+        if (whole.Length > 0 && !IsCitation(whole))
+            return new ReviewLegalReference(null, new List<string>(), new List<string>(),
+                new List<string> { whole }, new List<string>(), false, new List<string>());
+
         string? code = null;
         var clauses = new List<string>();
         var letters = new List<string>();
@@ -139,6 +152,23 @@ public sealed class ReviewLegalReference
         foreach (var remark in Remarks) lines.Add(new ReviewDetailLine("補充說明", remark));
         if (IsProvisional) lines.Add(new ReviewDetailLine("備註", ProvisionalNote));
         return lines;
+    }
+
+    /// <summary>
+    /// True when the sentence opens the way a citation of this tool's rules does: the 法規 followed by
+    /// a 條文, or a 函釋. Judged on the first 「；」 segment, because that is where every rule of the
+    /// shipped set puts its citation; what follows may be a 函釋 or a remark.
+    /// </summary>
+    private static bool IsCitation(string text)
+    {
+        var first = SplitTopLevel(text, '；').FirstOrDefault();
+        if (first is null) return false;
+
+        var (body, _) = TrailingNote(first);
+        if (body.StartsWith(BuildingCode, StringComparison.Ordinal))
+            return ClauseStart.IsMatch(body.Substring(BuildingCode.Length).TrimStart('：', ' ').Trim());
+
+        return Letter.IsMatch(body);
     }
 
     private static void Append(List<string> list, string value)

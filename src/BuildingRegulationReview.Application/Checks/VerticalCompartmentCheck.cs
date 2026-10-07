@@ -368,7 +368,7 @@ public static class VerticalCompartmentCheck
         var info = ruleSet.RuleSet;
         var result = new ReviewResult(resultId, runId, set.PackageId, ReviewCheckTypes.VerticalCompartment,
             new[] { observation.Source.ElementUniqueId }, zone.ZoneIdText, ReviewStatus.ManualReview, null, null,
-            info.RuleSetId, info.Version, $"規則集「{info.Title}」",
+            info.RuleSetId, info.Version, info.FallbackLegalReference,
             $"{Subject(observation, zone, requirement)}不檢討：{relation.Message}" +
             (relation.IsFacade ? "第79條之2 未明定外牆開口是否屬昇降機道或管道間之防火設備，" : string.Empty) + "需人工覆核。", evidence);
         return new VerticalCompartmentFinding(requirement, result, observation.Source.ElementUniqueId, observation.Category,
@@ -397,7 +397,7 @@ public static class VerticalCompartmentCheck
         var info = ruleSet.RuleSet;
         var result = new ReviewResult(resultId, runId, set.PackageId, ReviewCheckTypes.VerticalCompartment,
             new[] { observation.Source.ElementUniqueId }, zone.ZoneIdText, ReviewStatus.ManualReview, null, null,
-            info.RuleSetId, info.Version, $"規則集「{info.Title}」",
+            info.RuleSetId, info.Version, info.FallbackLegalReference,
             $"{Subject(observation, zone, requirement)}不檢討：區劃「{zone.Name}」的範圍有問題" +
             $"（{string.Join("、", zone.Problems)}），無法確認開口與區劃的關係，需人工覆核。",
             evidence);

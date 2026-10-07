@@ -60,7 +60,7 @@ public sealed class RuleEngine
 
         if (candidates.Count == 0)
             return new RuleOutcome(ReviewStatus.ManualReview, RuleOutcomeReason.NoRule,
-                RuleSet.RuleSet.RuleSetId, RuleSet.RuleSet.Version, $"規則集「{RuleSet.RuleSet.Title}」", RuleSeverity.Error,
+                RuleSet.RuleSet.RuleSetId, RuleSet.RuleSet.Version, RuleSet.RuleSet.FallbackLegalReference, RuleSeverity.Error,
                 $"規則集 {RuleSet.RuleSet.RuleSetId} {RuleSet.RuleSet.Version} 沒有 {context.Jurisdiction} 於 {context.ReviewDate:yyyy-MM-dd} 生效的 {category} 規則，需人工覆核。",
                 consideredRuleIds: Array.Empty<string>());
 

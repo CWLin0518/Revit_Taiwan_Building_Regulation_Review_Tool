@@ -390,7 +390,8 @@ V-xx 第 n 項：通過／不通過
 
 1. 開批次面板「區劃」分頁。
    - ✔ Area 的「室內裝修等級」欄、批次填入與寫回都**已移除**。
-   - ✔ 十一層以上區劃的「適用上限」在檢討前顯示**需由模型推導**。
+   - ✔ 十一層以上區劃的「適用上限」在檢討前顯示**需由模型推導**，逐字為
+     `第83條 上限待檢討時由模型牆面／天花板耐燃等級推導`（B-09 修正後，2026-10-07）。
 2. 讓區劃內的牆、天花板類型填不同等級，跑檢討。
    - ✔ `zone.interiorFinish` 取的是該區劃**最弱**的牆面或天花板系統。
 3. 讓其中一個必要表面**缺參數**、**未填**、或填**白名單以外的值**，各跑一次。
@@ -742,27 +743,28 @@ Area Plan 不在了，就重建一個並存回**同一個** `PackageId`——「
 
 V-11 第 1 項列的四種「適用上限」字串，在 V-12（步驟 9，室內裝修等級改由牆／天花板類型推導）之後**已不可能全部出現在面板**：
 
-- `ZoneAreaLimits.ForZone`（面板與 MCP 都走這一支）對 `floorNumber >= 11` 且非垂直區劃的區劃，一律回 `Unknown(ZoneAreaLimitGap.InteriorFinish)`。
-- 實測：把區劃 322274（FL3「13 區劃 1」）的樓層序改成 11，`limit` 逐字為 **`未填模型牆面／天花板耐燃等級，無法判定上限`**（同時 `derivedFloorNumber: 3` ≠ `floorNumber: 11`，即 P18 的黃底條件）。
+- `ZoneAreaLimits.ForZone`（面板與 MCP 都走這一支）對 `floorNumber >= 11` 且非垂直區劃的區劃，不讀裝修等級。
+- 實測（修 B-09 前）：把區劃 322274（FL3「13 區劃 1」）的樓層序改成 11，`limit` 逐字為 `未填模型牆面／天花板耐燃等級，無法判定上限`（同時 `derivedFloorNumber: 3` ≠ `floorNumber: 11`，即 P18 的黃底條件）。
+  **B-09 修正後**（2026-10-07）這一格改為 **`第83條 上限待檢討時由模型牆面／天花板耐燃等級推導`**（`ZoneAreaLimit.FinishComesFromModel`），不再說「未填」；重新部署後要以這一句重驗。
 - 因此 `第83條 上限 400 m²` 與 `第83條 上限 100 m²（裝修等級非放寬條件）` **只會出現在檢討結果，不會出現在面板的「適用上限」欄**。
 - V-11 第 1 項第三種字串寫的是 `未填裝修等級、用途類組、滅火設備，無法判定上限`，現行標籤已改成 `模型牆面／天花板耐燃等級`（`ZoneAreaLimits.Labels`），字串也已不同。
 - V-11 第 2 項的狀態列字串「待填裝修等級 N 個十一層以上區劃」**在程式碼中不存在**（`grep` 無命中）。裝修等級已不由面板填，這一項應作廢。
 
-**建議**：V-11 第 1 項改成只驗面板可能出現的兩種（`第79條 上限 1500/3000 m²`、`未填模型牆面／天花板耐燃等級，無法判定上限`），第 83 條那兩種移到「跑檢討後看結果」去驗；第 2 項刪除。
+**建議**：V-11 第 1 項改成只驗面板可能出現的兩種（`第79條 上限 1500/3000 m²`、`第83條 上限待檢討時由模型牆面／天花板耐燃等級推導`——B-09 修正後的字串），第 83 條那兩種移到「跑檢討後看結果」去驗；第 2 項刪除。
 
 ### 本輪發現的程式問題
 
 | # | 嚴重度 | 問題 | 位置 | 逐字／證據 |
 | --- | --- | --- | --- | --- |
-| B-01 | 🔴 高 | 疑義／人工覆核列的「法規依據」整段錯亂。這些列沒有個別條文，程式用 `規則集「{info.Title}」` 當 `legalReference`，而規則集的 `title` 是一整段 2,468 bytes 的說明文；`ReviewLegalReference.Parse` 再把它按「；」「，」切碎，錯標成「函釋」「檢討重點」「補充說明」 | 產生：`CandidateSet.cs:391`、`CompartmentAreaCheck.cs:270`、`CurtainWallJunctionCheck.cs:314,334`、`FireResistanceCheck.cs:392`、`OpeningProtectionCheck.cs:382`、`VerticalCompartmentCheck.cs:371,400`、`RuleEngine.cs:63`；解析：`ReviewLegalReference.Parse` | FL2 `9acfca97-…` 明細【法規依據】：「函釋：「其他類似部分」無法逐一列舉，清單外的用字一律不豁免。挑空另有例外：…」「檢討重點：\`tw-bcr-83-area-atrium\`，優先序 30」「補充說明：規則集「建築技術規則建築設計施工編 防火構造與防火區劃（暫定示意規則…」（共 4 條補充說明）。**檢討視窗明細與「複製明細」都看得到** |
-| B-02 | 🟡 中 | 帷幕牆被當成區劃牆 host 傳入時，警告訊息說「不是牆或樓板」——帷幕牆就是牆，訊息誤導使用者去找不存在的問題。本輪 FL2 一次檢討就出現 **64 條**（上一輪紀錄是 7 條） | `RevitCurtainWallGeometryReader.cs:100`（`case Wall wall when wall.CurtainGrid is null` 不命中 → 落到 `default`） | 「呼叫端指定的區劃元素（UniqueId 8aa1a01a-…-00046974）不是牆或樓板，已略過。」（對象 289140、289141、289142…都是帷幕牆） |
-| B-03 | 🟡 中 | 幾何讀取器的警告全部掛在 `BCR-RUN-003`，而這個碼的定義是 **`ReviewCompleted`／「檢討完成」**。日誌於是出現 64 條 severity=Warning、code 寫「檢討完成」的列 | `FireReviewRunner.cs:414、516`（`log.Add(ReviewErrorCode.ReviewCompleted, …, ReviewSeverity.Warning, warning)`）；碼定義在 `ReviewErrorCode.cs:126`、說明在 `:183` | 日誌 code 統計：`BCR-RUN-003 x64`（全為 Warning） |
+| B-01 | 🔴 高 | 疑義／人工覆核列的「法規依據」整段錯亂。這些列沒有個別條文，程式用 `規則集「{info.Title}」` 當 `legalReference`，而規則集的 `title` 是一整段 2,468 bytes 的說明文；`ReviewLegalReference.Parse` 再把它按「；」「，」切碎，錯標成「函釋」「檢討重點」「補充說明」 | 產生：`CandidateSet.cs:391`、`CompartmentAreaCheck.cs:270`、`CurtainWallJunctionCheck.cs:314,334`、`FireResistanceCheck.cs:392`、`OpeningProtectionCheck.cs:382`、`VerticalCompartmentCheck.cs:371,400`、`RuleEngine.cs:63`；解析：`ReviewLegalReference.Parse` | FL2 `9acfca97-…` 明細【法規依據】：「函釋：「其他類似部分」無法逐一列舉，清單外的用字一律不豁免。挑空另有例外：…」「檢討重點：\`tw-bcr-83-area-atrium\`，優先序 30」「補充說明：規則集「建築技術規則建築設計施工編 防火構造與防火區劃（暫定示意規則…」（共 4 條補充說明）。**檢討視窗明細與「複製明細」都看得到** **✅ 2026-10-07 已修（commit 待補）** |
+| B-02 | 🟡 中 | 帷幕牆被當成區劃牆 host 傳入時，警告訊息說「不是牆或樓板」——帷幕牆就是牆，訊息誤導使用者去找不存在的問題。本輪 FL2 一次檢討就出現 **64 條**（上一輪紀錄是 7 條） | `RevitCurtainWallGeometryReader.cs:100`（`case Wall wall when wall.CurtainGrid is null` 不命中 → 落到 `default`） | 「呼叫端指定的區劃元素（UniqueId 8aa1a01a-…-00046974）不是牆或樓板，已略過。」（對象 289140、289141、289142…都是帷幕牆） **✅ 2026-10-07 已修（commit 待補）** |
+| B-03 | 🟡 中 | 幾何讀取器的警告全部掛在 `BCR-RUN-003`，而這個碼的定義是 **`ReviewCompleted`／「檢討完成」**。日誌於是出現 64 條 severity=Warning、code 寫「檢討完成」的列 | `FireReviewRunner.cs:414、516`（`log.Add(ReviewErrorCode.ReviewCompleted, …, ReviewSeverity.Warning, warning)`）；碼定義在 `ReviewErrorCode.cs:126`、說明在 `:183` | 日誌 code 統計：`BCR-RUN-003 x64`（全為 Warning） **✅ 2026-10-07 已修（commit 待補）** |
 | B-04 | 🟡 中 | `fire_review_run` 的 `log` 沒有上限，整包回傳代理讀不了。本輪實測：`limit: 2`、`checkType: FireResistance`、`statuses: ["Fail"]` 仍回 **55,891 字元**；另一次 `limit: 3` 回 **62,377 字元**，其中 `log` 單獨就 **91,685 bytes**（101 筆） | `FireReviewMcpTools.AddLog`（`FireReviewMcpTools.cs:183-187`）無筆數上限 | 工具呼叫直接失敗：「result (62,377 characters) exceeds maximum allowed tokens.」 |
 | B-05 | 🟡 中 | `dryRun: true` 時仍回 `saved.saved: true` 與完整的 `saved.mark.summary`，讀起來像真的存了（實際整批已復原） | `FireReviewMcpTools.cs:314`（`result["saved"] = FireReviewJson.Saved(run.Saved)` 不分 dryRun） | 本輪 dryRun 回傳：`dryRun: True`、`saved.saved: True`、`mark.summary: 檢討視圖標示完成：新增 0、更新 20、刪除 0、略過 0、失敗 0` |
-| B-06 | 🟡 中 | 明細【相關元素（**Revit 元素編號**）】段的欄標籤寫「… UniqueId」，值卻是 ElementId——同一段裡自相矛盾。四個 rule field 在 `ReviewReadableText.Labels` 都沒有可讀標籤，因此退回 `RuleFieldCatalog` 的原始名稱 | `RuleFieldCatalog.cs:186`（`opening.hostUniqueId`）、`:202`（`junction.curtainWallUniqueId`）、`:203`（`junction.hostUniqueId`）、`:218`（`shaft.elementUniqueId`） | FL2 `957019fc-…` 明細逐字：「【相關元素（Revit 元素編號）】　帷幕牆 UniqueId：289140　區劃牆或區劃樓地板 UniqueId：289414　交接帶內嵌板：289354、289355」 |
+| B-06 | 🟡 中 | 明細【相關元素（**Revit 元素編號**）】段的欄標籤寫「… UniqueId」，值卻是 ElementId——同一段裡自相矛盾。四個 rule field 在 `ReviewReadableText.Labels` 都沒有可讀標籤，因此退回 `RuleFieldCatalog` 的原始名稱 | `RuleFieldCatalog.cs:186`（`opening.hostUniqueId`）、`:202`（`junction.curtainWallUniqueId`）、`:203`（`junction.hostUniqueId`）、`:218`（`shaft.elementUniqueId`） | FL2 `957019fc-…` 明細逐字：「【相關元素（Revit 元素編號）】　帷幕牆 UniqueId：289140　區劃牆或區劃樓地板 UniqueId：289414　交接帶內嵌板：289354、289355」 **✅ 2026-10-07 已修（commit 待補）** |
 | B-07 | 🟡 中 | 面板狀態列「待填結構材料 N 列」「待填 SC 被覆厚度 N 列」與 MCP 的 `onlyNeedingAttention` 都只比 `Derivation.Kind`，漏了 `SupportsDerivation` 判斷，於是把**玻璃嵌板**算進去。`FireReviewTypeTable.AwaitingMaterial`（`:389`）有加這個判斷，註解還明寫「A 玻璃 panel is not one of them」——兩邊行為不一致 | `FireReviewParameterPanelWindow.xaml.cs:295、298`；`FireReviewMcpTools.cs:453-456`（`NeedsAttention`） | `onlyNeedingAttention: true` 把 12611（`系統面板1：玻璃 1.0cm`，已宣告「玻璃」、`asks.material: false`）列為待處理，`derived.basis` 還寫「未填 結構材料（RC／SRC／SC），無法判定適用條文。」——而面板那一格是停用的，使用者無從填 |
 | B-08 | 🟢 低 | `fire_review_check` 同時回 `ruleSet` 與 `readiness.ruleSet`，整段 2,468 bytes 的 `title` 重複兩次 | `FireReviewMcpTools` 的 `ScanSummary`／`FireReviewJson.Readiness` | 單次 `fire_review_check` 回傳即含兩份相同的規則集說明文 |
-| B-09 | 🟢 低 | ≥11 層區劃的「適用上限」寫「**未填**模型牆面／天花板耐燃等級」，但面板已沒有這一欄可填（等級改由檢討時推導）。叫使用者去填一個填不了的東西 | `ZoneAreaLimits.Description`（`:146`）＋ `ForZone`（`:189-193`） | 實測逐字：`未填模型牆面／天花板耐燃等級，無法判定上限` |
+| B-09 | 🟢 低 | ≥11 層區劃的「適用上限」寫「**未填**模型牆面／天花板耐燃等級」，但面板已沒有這一欄可填（等級改由檢討時推導）。叫使用者去填一個填不了的東西 | `ZoneAreaLimits.Description`（`:146`）＋ `ForZone`（`:189-193`） | 實測逐字：`未填模型牆面／天花板耐燃等級，無法判定上限` **✅ 2026-10-07 已修（commit 待補）** |
 
 ## 已完成紀錄
 

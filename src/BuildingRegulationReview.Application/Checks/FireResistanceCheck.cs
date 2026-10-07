@@ -389,7 +389,7 @@ public static class FireResistanceCheck
         var info = ruleSet.RuleSet;
         var result = new ReviewResult(resultId, runId, set.PackageId, ReviewCheckTypes.FireResistance,
             new[] { observation.Source.ElementUniqueId }, zone.ZoneIdText, ReviewStatus.ManualReview, null, null,
-            info.RuleSetId, info.Version, $"規則集「{info.Title}」",
+            info.RuleSetId, info.Version, info.FallbackLegalReference,
             $"{CandidateCategories.Label(observation.Category)}「{observation.TypeName ?? "無 Type 名稱"}」（{observation.Source}）" +
             $"不檢討防火時效：區劃「{zone.Name}」的範圍有問題（{string.Join("、", zone.Problems)}），無法確認構件與區劃的關係，需人工覆核。",
             evidence);

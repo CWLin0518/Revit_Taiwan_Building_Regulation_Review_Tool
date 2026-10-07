@@ -47,6 +47,19 @@ public sealed class RuleSet
     public string SchemaVersion => CurrentSchemaVersion;
     public IReadOnlyList<Rule> Rules { get; }
 
+    /// <summary>
+    /// The 法規依據 of a result no individual rule decided — an ambiguity a check answers itself, or
+    /// the engine's NoRule outcome. Such a row cites no 條文, so it says exactly that instead of
+    /// standing in the title: <see cref="Title"/> is a design note of several hundred words, and a
+    /// reader of 法規依據 taken apart by <c>ReviewLegalReference</c> would see it mislabelled as
+    /// 函釋 and 檢討重點 (驗證清單 B-01).
+    /// </summary>
+    public static string FallbackLegalReferenceOf(string ruleSetId, string version) =>
+        $"依規則集 {ruleSetId?.Trim()} {version?.Trim()} 判定（本列無個別條文）";
+
+    /// <summary>This set's <see cref="FallbackLegalReferenceOf"/>.</summary>
+    public string FallbackLegalReference => FallbackLegalReferenceOf(RuleSetId, Version);
+
     public Rule? Find(string ruleId) =>
         ruleId is not null && _byId.TryGetValue(ruleId.Trim(), out var rule) ? rule : null;
 

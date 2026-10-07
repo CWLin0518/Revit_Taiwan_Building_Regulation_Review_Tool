@@ -82,6 +82,7 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
 
         var compartmentWalls = new List<CompartmentWallObservation>();
         var compartmentFloors = new List<CompartmentFloorObservation>();
+        var curtainWallHosts = new List<ElementId>();
         foreach (var uniqueId in hosts)
         {
             switch (_document.GetElement(uniqueId))
@@ -89,6 +90,12 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
                 case Wall wall when wall.CurtainGrid is null:
                     var read = ReadCompartmentWall(wall, request, warnings);
                     if (read is not null) compartmentWalls.Add(read);
+                    break;
+                // A 帷幕牆 named among the hosts is the other side of a junction, not a 區劃牆: the loop
+                // above already read it as one of `curtainWalls`, so nothing is skipped here and one
+                // summary line replaces a warning per wall (驗證清單 B-02).
+                case Wall curtainWall:
+                    curtainWallHosts.Add(curtainWall.Id);
                     break;
                 case Element floor when floor.Category?.BuiltInCategory == BuiltInCategory.OST_Floors:
                     compartmentFloors.Add(ReadCompartmentFloor(floor, request, warnings));
@@ -101,6 +108,8 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
                     break;
             }
         }
+
+        if (curtainWallHosts.Count > 0) warnings.Add(CurtainWallHostNotice(curtainWallHosts));
 
         var levels = storeyElevations.Select(PlanUnits.FeetToMillimeters).ToList();
 
@@ -116,6 +125,20 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
             ReadFacadeWalls(curtainWalls, request, storey, warnings),
             levels,
             warnings));
+    }
+
+    /// <summary>
+    /// The one line that answers for every 帷幕牆 named among the hosts (驗證清單 B-02). It says what
+    /// became of them — read as 帷幕牆, which is what they are — rather than calling them something
+    /// that is neither 牆 nor 樓板, and it names a few ids rather than all of them.
+    /// </summary>
+    private static string CurtainWallHostNotice(IReadOnlyList<ElementId> ids)
+    {
+        const int shown = 5;
+        var listed = string.Join("、", ids.Take(shown).Select(id => id.ToString()));
+        var rest = ids.Count > shown ? $" 等 {ids.Count} 個" : string.Empty;
+        return $"呼叫端指定的區劃元素中有 {ids.Count} 個是帷幕牆（Id {listed}{rest}）；" +
+               "帷幕牆是交接的另一方，已以帷幕牆身分讀取，不另作為區劃牆。";
     }
 
     // --- zones -------------------------------------------------------------------------------

@@ -330,6 +330,54 @@ public sealed class ZoneAreaLimitTests
         Assert.Equal(1500, shown.SquareMeters);
     }
 
+    // --- 面板路徑：十一層以上的裝修等級由模型推導 -------------------------------------------------
+
+    /// <summary>
+    /// B-09. 裝修等級 left the panel in V-12 步驟 9: it is derived from the modelled walls and ceilings
+    /// when the review runs. So the cell must not call it 未填 — there is no box to fill, and the
+    /// reader would go looking for one that does not exist.
+    /// </summary>
+    [Theory]
+    [InlineData(11, null)]
+    [InlineData(22, "辦公")]
+    [InlineData(11, ZoneUses.Auditorium)]
+    public void From_the_eleventh_storey_up_the_panel_says_the_grade_comes_from_the_model(int floorNumber, string? use)
+    {
+        var shown = ZoneAreaLimit.ForZone(floorNumber, true, "B-2", use);
+
+        Assert.Equal("第83條 上限待檢討時由模型牆面／天花板耐燃等級推導", shown.Description);
+        Assert.True(shown.FinishComesFromModel);
+        Assert.DoesNotContain("未填", shown.Description, StringComparison.Ordinal);
+        Assert.Null(shown.SquareMeters);
+        Assert.False(shown.IsKnown);
+        Assert.False(shown.IsExempt);
+    }
+
+    /// <summary>
+    /// 限制條件: only the panel path changes. The review path reads a grade it really has, and every
+    /// number and sentence it produces stays exactly as it was.
+    /// </summary>
+    [Fact]
+    public void The_review_path_still_names_the_grade_it_was_given()
+    {
+        Assert.Equal("第83條 上限 400 m²", ZoneAreaLimit.For(11, false, InteriorFinishGrades.ClassOne, "H-2").Description);
+        Assert.Equal("第83條 上限 100 m²（裝修等級非放寬條件）", ZoneAreaLimit.For(11, false, "耐燃二級", "B-2").Description);
+        Assert.Equal("未填模型牆面／天花板耐燃等級、用途類組、滅火設備，無法判定上限",
+            ZoneAreaLimit.For(11, null, null, null).Description);
+        Assert.False(ZoneAreaLimit.For(11, false, InteriorFinishGrades.ClassOne, "H-2").FinishComesFromModel);
+    }
+
+    /// <summary>A 垂直區劃 of the eleventh storey needs no grade at all, so it still reads 免適用.</summary>
+    [Fact]
+    public void An_exempt_zone_of_the_eleventh_storey_is_untouched_by_the_derived_grade()
+    {
+        var shown = ZoneAreaLimit.ForZone(11, false, "B-2", ZoneUses.Atrium);
+
+        Assert.True(shown.IsExempt);
+        Assert.False(shown.FinishComesFromModel);
+        Assert.Equal("第83條 免適用（第79條之2 垂直區劃）" + ZoneAreaLimit.AtriumNote, shown.Description);
+    }
+
     private static RuleFacts Facts(
         int floorNumber,
         bool? sprinklered,

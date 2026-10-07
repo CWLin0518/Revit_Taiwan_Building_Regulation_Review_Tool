@@ -108,6 +108,13 @@ public static class ReviewErrorCode
     public const string CurtainWallFloorNotMeeting = "BCR-CW-006";
     public const string CurtainWallExposureUndecided = "BCR-CW-007";
 
+    /// <summary>
+    /// A warning the Revit 帷幕牆 geometry reader hands back about what it read (驗證清單 B-03). It is
+    /// the reader speaking about the model, not a judgement of a 交接處, so it carries its own code
+    /// rather than riding on <see cref="ReviewCompleted"/>.
+    /// </summary>
+    public const string CurtainWallReaderWarning = "BCR-CW-008";
+
     // 人工覆寫（spec 11.8）
     public const string OverrideRejected = "BCR-OVR-001";
     public const string OverrideNeedsReconfirmation = "BCR-OVR-002";
@@ -170,6 +177,7 @@ public static class ReviewErrorCode
             { CurtainWallFacadeOverlapsPanel, "外牆與帷幕嵌板重疊" },
             { CurtainWallFloorNotMeeting, "帷幕牆穿過本層標高而無區劃樓地板與其交接" },
             { CurtainWallExposureUndecided, "無法判定帷幕牆為建築物外牆或室內帷幕牆" },
+            { CurtainWallReaderWarning, "帷幕牆幾何讀取警告" },
             { OverrideRejected, "人工覆寫不成立" },
             { OverrideNeedsReconfirmation, "人工覆寫需重新確認" },
             { ReviewRunUnreadable, "檢討紀錄無法讀取" },

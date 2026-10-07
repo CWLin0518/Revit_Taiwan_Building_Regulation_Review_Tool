@@ -232,7 +232,12 @@ public static class ReviewFieldText
         ["candidate.zoneId"] = "區劃編號",
         ["candidate.zoneName"] = "區劃名稱",
 
+        // 相關元素 shows ElementIds, so a label there says what the element is and leaves out the
+        // UniqueId the rule field is named after (驗證清單 B-06). The names the rule authors read stay
+        // as they are in RuleFieldCatalog.
         ["junction.id"] = "交接處編號",
+        ["junction.curtainWallUniqueId"] = "帷幕牆",
+        ["junction.hostUniqueId"] = "區劃牆或區劃樓地板",
         ["junction.panelCount"] = "交接帶內嵌板數",
         ["junction.panels"] = "交接帶內嵌板",
         ["junction.facadeWallUniqueIds"] = "交接處實體外牆",
@@ -241,6 +246,8 @@ public static class ReviewFieldText
         ["junction.doubtReason"] = "無法判定的原因",
         ["junction.doubtSubjects"] = "相關元素",
         ["junction.transferredTo"] = "改依哪一條檢討",
+
+        ["opening.hostUniqueId"] = "Host 牆",
 
         ["option.junctionSearchTolerance"] = "交接搜尋容許距離",
         ["option.samplingInterval"] = "取樣間距",
@@ -259,6 +266,7 @@ public static class ReviewFieldText
 
         ["rule.gaps"] = "規則尚缺的資料",
 
+        ["shaft.elementUniqueId"] = "受檢防火設備（門窗或嵌板）",
         ["shaft.requirementLabel"] = "受檢要求",
 
         ["source.category"] = "元素類別",

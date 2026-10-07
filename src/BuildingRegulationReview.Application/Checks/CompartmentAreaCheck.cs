@@ -267,7 +267,7 @@ public static class CompartmentAreaCheck
         var info = ruleSet.RuleSet;
         var result = new ReviewResult(resultId, runId, set.PackageId, ReviewCheckTypes.CompartmentArea,
             zone.AreaUniqueIds.Concat(ambiguities.SelectMany(a => a.SubjectUniqueIds)), zone.ZoneIdText,
-            ReviewStatus.ManualReview, null, null, info.RuleSetId, info.Version, $"規則集「{info.Title}」",
+            ReviewStatus.ManualReview, null, null, info.RuleSetId, info.Version, info.FallbackLegalReference,
             $"區劃「{zone.Name}」不檢討面積：{reasons}", evidence);
         return new ZoneAreaFinding(zone, result, null, AreaCrossCheck.NotComparable, null, ReviewErrorCode.CandidateZoneUnusable);
     }

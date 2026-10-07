@@ -72,8 +72,10 @@ public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
         bool finishUnrecognised,
         bool exempt,
         bool needsArticle79_1Confirmation = false,
-        bool atrium = false)
+        bool atrium = false,
+        bool finishFromModel = false)
     {
+        FinishComesFromModel = finishFromModel;
         SquareMeters = squareMeters;
         Clause = clause;
         Gaps = gaps;
@@ -120,6 +122,17 @@ public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
     /// </summary>
     public bool IsAtrium { get; }
 
+    /// <summary>
+    /// True when 第83條 decides but the panel has no 裝修等級 to decide with, because the grade is
+    /// derived from the modelled walls and ceilings when the review runs (V-12 步驟 9). Not a box
+    /// anyone can fill, so the cell says where the grade comes from instead of calling it 未填
+    /// (驗證清單 B-09).
+    /// </summary>
+    public bool FinishComesFromModel { get; }
+
+    /// <summary>What the 適用上限 cell shows while the grade is still the model's to say.</summary>
+    public const string FinishFromModelNote = "上限待檢討時由模型牆面／天花板耐燃等級推導";
+
     /// <summary>What the 適用上限 cell adds for a 挑空; see <see cref="IsAtrium"/>.</summary>
     public const string AtriumNote = "（第79條之2第3項免除成立時，改以連通區劃面積檢討）";
 
@@ -140,6 +153,7 @@ public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
         get
         {
             if (IsExempt) return $"{Clause} 免適用（第79條之2 垂直區劃）" + (IsAtrium ? AtriumNote : "");
+            if (FinishComesFromModel) return $"{Clause} {FinishFromModelNote}";
 
             var pending = NeedsArticle79_1Confirmation ? Article79_1Pending : "";
             if (Gaps != ZoneAreaLimitGap.None)
@@ -189,9 +203,11 @@ public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
     {
         // The grade is derived during review from the modelled walls and ceilings. The batch panel
         // no longer pretends an Area carries that fact, so it can only show the Article 79 limit —
-        // unless the 用途 exempts the 區劃, which needs no grade at all.
+        // unless the 用途 exempts the 區劃, which needs no grade at all. From the eleventh storey up
+        // the cell therefore says the grade is the model's to say, not that a box is 未填: there is
+        // no such box any more (驗證清單 B-09).
         return floorNumber >= 11 && !ZoneUses.IsVerticalCompartment(use)
-            ? Unknown(ZoneAreaLimitGap.InteriorFinish)
+            ? AwaitingModelDerivedFinish()
             : For(floorNumber, sprinklered, null, buildingUse, use);
     }
 
@@ -207,7 +223,14 @@ public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
     /// number or the gaps changes — that is the point of 決議 11.
     /// </summary>
     private ZoneAreaLimit AwaitingArticle79_1Confirmation() =>
-        new(SquareMeters, Clause, Gaps, FinishUnrecognised, IsExempt, true);
+        new(SquareMeters, Clause, Gaps, FinishUnrecognised, IsExempt, true, IsAtrium, FinishComesFromModel);
+
+    /// <summary>
+    /// 第83條 with the grade left to the review. The limit itself stays unknown — the panel cannot
+    /// name a number — but nothing here is waiting on a person, so see <see cref="FinishComesFromModel"/>.
+    /// </summary>
+    private static ZoneAreaLimit AwaitingModelDerivedFinish() =>
+        new(null, "第83條", ZoneAreaLimitGap.InteriorFinish, false, false, finishFromModel: true);
 
     private static ZoneAreaLimit Article79(bool? sprinklered) =>
         sprinklered is null
@@ -261,7 +284,8 @@ public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
         FinishUnrecognised == other.FinishUnrecognised &&
         IsExempt == other.IsExempt &&
         NeedsArticle79_1Confirmation == other.NeedsArticle79_1Confirmation &&
-        IsAtrium == other.IsAtrium;
+        IsAtrium == other.IsAtrium &&
+        FinishComesFromModel == other.FinishComesFromModel;
 
     public override bool Equals(object? obj) => obj is ZoneAreaLimit other && Equals(other);
 
@@ -275,6 +299,7 @@ public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
             hash = (hash * 397) ^ (FinishUnrecognised ? 1 : 0);
             hash = (hash * 397) ^ (IsExempt ? 1 : 0);
             hash = (hash * 397) ^ (IsAtrium ? 1 : 0);
+            hash = (hash * 397) ^ (FinishComesFromModel ? 1 : 0);
             return (hash * 397) ^ (NeedsArticle79_1Confirmation ? 1 : 0);
         }
     }

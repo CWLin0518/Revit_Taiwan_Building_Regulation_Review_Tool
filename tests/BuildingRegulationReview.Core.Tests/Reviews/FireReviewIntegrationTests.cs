@@ -1328,13 +1328,16 @@ public sealed class FireReviewIntegrationTests
         private readonly Error? _failure;
         private readonly bool _split;
         private readonly bool _throughLevel;
+        private readonly string? _warning;
 
-        public CurtainWalls(double bandMinutes = 60, Error? failure = null, bool split = false, bool throughLevel = false)
+        public CurtainWalls(double bandMinutes = 60, Error? failure = null, bool split = false,
+            bool throughLevel = false, string? warning = null)
         {
             _bandMinutes = bandMinutes;
             _failure = failure;
             _split = split;
             _throughLevel = throughLevel;
+            _warning = warning;
         }
 
         /// <summary>What the run asked for: the hosts, their required ratings and their clauses.</summary>
@@ -1374,7 +1377,8 @@ public sealed class FireReviewIntegrationTests
 
             return Result.Success(new CurtainWallObservationSet(request.PackageId, "level-1F", "1F", 0,
                 new[] { zone }, new[] { wall }, new[] { host }, facadeWalls: new[] { facade },
-                levelElevationsMm: new[] { 0.0, StoreyMm }));
+                levelElevationsMm: new[] { 0.0, StoreyMm },
+                warnings: _warning is null ? null : new[] { _warning }));
         }
 
         /// <summary>
@@ -1526,6 +1530,26 @@ public sealed class FireReviewIntegrationTests
         Assert.Equal(ReviewValue.Quantity(0.9, ReviewUnit.Meter), evidence.Find("junction.continuousFireRatedLength"));
         Assert.Equal(ReviewValue.OfText("W-facade"), evidence.Find("junction.facadeWallUniqueIds"));
         Assert.Equal(ReviewValue.OfText("CW-H:CW-split-left:W1-bottom"), evidence.Find("junction.id"));
+    }
+
+    /// <summary>
+    /// B-03: what the 帷幕牆 reader says about the model it read is its own warning. Logging it under
+    /// 「檢討完成」 made the log read as a run that finished sixty-four times over.
+    /// </summary>
+    [Fact]
+    public void A_warning_from_the_curtain_wall_reader_carries_its_own_code()
+    {
+        const string warning = "呼叫端指定的區劃元素中有 2 個是帷幕牆（Id 289140、289141）；" +
+                               "帷幕牆是交接的另一方，已以帷幕牆身分讀取，不另作為區劃牆。";
+        var outcome = Run(Request(curtainWalls: new CurtainWalls(warning: warning)));
+
+        var entry = Assert.Single(outcome.Log.Entries, e => e.UserMessage == warning);
+        Assert.Equal(ReviewErrorCode.CurtainWallReaderWarning, entry.Code);
+        Assert.Equal("BCR-CW-008", entry.Code);
+        Assert.Equal(ReviewSeverity.Warning, entry.Severity);
+        Assert.Equal("帷幕牆幾何讀取警告", ReviewErrorCode.Describe(entry.Code));
+        Assert.DoesNotContain(outcome.Log.Entries,
+            e => e.UserMessage == warning && e.Code == ReviewErrorCode.ReviewCompleted);
     }
 
     [Fact]

@@ -1,5 +1,6 @@
 using BuildingRegulationReview.Application.Reviews;
 using BuildingRegulationReview.Domain.Reviews;
+using BuildingRegulationReview.Domain.Rules;
 using Xunit;
 
 namespace BuildingRegulationReview.Core.Tests.Reviews;
@@ -97,6 +98,22 @@ public sealed class ReviewReadableTextTests
         Assert.Equal("交接帶內嵌板數", ReviewFieldText.Label("junction.panelCount"));
         Assert.Equal("讀取的參數", ReviewFieldText.Label("provided.parameter"));
         Assert.Equal("Revit 標示面積", ReviewFieldText.Label("area.revit"));
+    }
+
+    /// <summary>
+    /// B-06: 相關元素 shows ElementIds, so no label in that section may promise a UniqueId. The rule
+    /// authors' own names still say UniqueId — they are read in <c>RuleFieldCatalog</c>, not here.
+    /// </summary>
+    [Theory]
+    [InlineData("opening.hostUniqueId", "Host 牆")]
+    [InlineData("junction.curtainWallUniqueId", "帷幕牆")]
+    [InlineData("junction.hostUniqueId", "區劃牆或區劃樓地板")]
+    [InlineData("shaft.elementUniqueId", "受檢防火設備（門窗或嵌板）")]
+    public void An_element_field_is_labelled_without_the_words_UniqueId(string field, string label)
+    {
+        Assert.Equal(label, ReviewFieldText.Label(field));
+        Assert.DoesNotContain("UniqueId", ReviewFieldText.Label(field));
+        Assert.Contains("UniqueId", RuleFieldCatalog.Default.Find(field)!.Description);
     }
 
     /// <summary>A rule field describes itself in the catalog, so the panel never repeats the wording.</summary>

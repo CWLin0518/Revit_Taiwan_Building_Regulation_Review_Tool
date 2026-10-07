@@ -424,7 +424,9 @@ public sealed class CompartmentAreaCheckTests
             Assert.Null(finding.Outcome);
             Assert.Equal(ReviewErrorCode.CandidateZoneUnusable, finding.ErrorCode);
             Assert.Equal("tw-bcr-fire", finding.Result.RuleId);
-            Assert.Equal("規則集「防火區劃」", finding.Result.LegalReference);
+            // 本列沒有個別條文，所以依據寫的是規則集的 id 與版本，不是規則集那段說明文（B-01）。
+            Assert.Equal("依規則集 tw-bcr-fire 2024.1 判定（本列無個別條文）", finding.Result.LegalReference);
+            Assert.DoesNotContain("防火區劃", finding.Result.LegalReference);
             Assert.Null(finding.Result.ActualValue);
             Assert.Contains("互相重疊", finding.Result.Message);
             Assert.Equal(ReviewValue.OfText("ZonesOverlap"), finding.Result.Evidence.Find("zone.problems"));
