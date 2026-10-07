@@ -62,9 +62,11 @@
 - `ExposureUndecided` 修正（`BCR-CW-007`）與 MCP bridge 已於 2026-10-07 部署（安裝腳本輸出：`BuildingRegulationReview.dll` 10:57:46、`McpBridge\BuildingRegulationReview.McpBridge.exe` 10:57:00），重開 Revit 即生效。
 - 2026-10-07 MCP 驗證用的模型：`C:\Users\User\Desktop\建築防火檢討\建築防火檢討1.rvt`，三個工作包
   FL1（未檢討過）、FL2（已檢討）、FL3（規則集 `2026.9-provisional`，已失效）。
-- ⚠️ **部署的 dll 落後 HEAD（2026-10-07 下午起）**：目前 Revit 載入的是 `23f36ff` 的 dll（14:55 部署），
-  其後的 C-01 修正只在原始碼裡。看畫面的驗證項（B-07 面板側、V-30、V-31）驗的是**已部署**的這一版，
-  C-01 的日誌碼要等下次部署才驗得到。建議順序：先驗完看畫面的項目 → 關 Revit 部署 → 重開做最後驗證。
+- ✅ **2026-10-07 19:55 已部署 HEAD `1ce981d`（含 C-01）**：`scripts\install-revit-2024.ps1 -SkipClaudeRegistration`
+  在 Revit 關閉後執行，五個 dll 時間戳 19:55:10～19:55:13，建置零警告零錯誤。
+  安裝腳本也自動清掉了上一輪的兩個 `McpBridge\*.old-20261007145525`（改為本輪的 `*.old-20261007195515`），所以那兩個檔**不需要人工刪**。
+  在此之前看畫面驗過的項目（B-07 面板側、V-31 第 2～6、6a、8 項）驗的是 `23f36ff`；
+  C-01 的日誌碼、V-30 全部、以及 FL2／FL3 重跑要在這一版上驗。
 
 ### 目前的環境狀態（2026-10-04）
 
@@ -154,7 +156,7 @@ V-xx 第 n 項：通過／不通過
 | V-29 | 編輯器「用途」欄：寫入、不覆蓋批次面板、只改用途也能套用 | ⬜ | **最高** | 11 | 垂直區劃 §11、ADR 0003 |
 | **J. MCP 服務（2026-10-07 新增）** | | | | | |
 | V-30 | 重構回歸：檢討視窗與批次設定面板行為不變 | ⬜ | **最高** | 12 | ADR 0004 §3 |
-| V-31 | MCP 服務自動啟動、bridge 自動連線與「Revit 忙碌中」（2026-10-07 改版） | 🟡 第 2～6、6a、8（後半）項 2026-10-07 | 高 | 12 | mcp-server.md §3、§5 |
+| V-31 | MCP 服務自動啟動、bridge 自動連線與「Revit 忙碌中」（2026-10-07 改版） | 🟡 第 1～3、5、6、6a、8（後半）項 2026-10-07 | 高 | 12 | mcp-server.md §3、§5 |
 | V-32 | 透過 MCP 檢討：結果與視窗一致、dryRun 不留痕跡 | 🟡 ⚠️ MCP 端 2026-10-07（第 7 項機制已驗） | 高 | 12 | mcp-server.md §6 |
 | V-33 | 透過 MCP 批次設定參數：與面板寫入相同的值 | 🟡 ⚠️ 第 3、5、7 項實寫 2026-10-07 | 高 | 12 | mcp-server.md §6 |
 
@@ -760,6 +762,19 @@ Revit 於 15:01:04 重新啟動（不開新的 Claude 工作階段）後已驗�
   `logLimit`、`limit` 預設仍顯示 50）。因為新預設是伺服器端套用的，不傳參數即生效，
   驗證不受影響；但代理若要用新參數，必須在 Revit 開著之後重連一次。
 
+**2026-10-07 19:55 部署後驗證紀錄（HEAD `1ce981d`，Revit 關閉期間）**
+
+- **第 1 項：通過（本輪新驗）。** 這個 Claude Code 工作階段是在 **Revit 已關閉**（`endpoint.json` 不存在，
+  工作管理員只有 `RevitAccelerator.exe`）之後才啟動的，等於清單要求的「新工作階段 ＋ Revit 不開」。
+  `building-regulation-review` **顯示已連線**（不是 401、不是失敗），工具清單是**完整的 8 個**：
+  `revit_status`、`fire_review_list_packages`、`fire_review_check`、`fire_review_run`、
+  `fire_review_get_results`、`fire_review_describe_result`、`fire_review_scan_parameters`、`fire_review_set_parameters`。
+  符合「有快取時是完整清單」那一支（`%LOCALAPPDATA%\BuildingRegulationReview\Mcp\tools-cache.json` 14,439 bytes，15:01 寫入）。
+- 第 2 項：**再次通過**，工具錯誤訊息與 14:55 那次逐字相同。
+- 第 8 項後半：**再次通過**。使用者自己關掉 Revit 後，
+  `%LOCALAPPDATA%\BuildingRegulationReview\Mcp\` 只剩 `tools-cache.json`，`endpoint.json` 已被刪除。
+- 第 4、5、7、9、10、11、12 項仍待驗（要重開 Revit）。
+
 ### ⬜ V-32 透過 MCP 檢討
 
 ⚠️ 第 3 項會寫入檢討結果，先另存備份。
@@ -980,8 +995,9 @@ FL3 的唯一差異：區劃 322274「13 區劃 1」的防火區劃面積由「�
 
 #### 仍須人工看畫面（MCP 讀不到）
 
-- **V-31 第 1 項**：須在 **Revit 未開**時用**新的** Claude Code 工作階段 `/mcp` 看連線狀態與工具清單數量。本輪 Revit 已開，未驗到。
-- **V-31 第 7、9、10、11、12 項**、**V-30 全部 7 項**。
+- ~~**V-31 第 1 項**~~ **✅ 2026-10-07 19:55 已驗**：本工作階段就是在 Revit 關閉後啟動的新階段，
+  已連線且工具清單完整 8 個（見 V-31 的驗證紀錄）。
+- **V-31 第 4、7、9、10、11、12 項**、**V-30 全部 7 項**。
 - **B-07 面板側**：批次設定面板狀態列「待填結構材料 N 列」應由 3 列變 **2 列**（MCP 端已證實只剩 2 個類型）。
 - ~~**B-01 明細側**~~ **✅ 2026-10-07 17:25 已驗**：對 FL1（`c42c34fd`）跑了一次**非 dryRun** 的
   `fire_review_run`（新 runId `1507f93d`，標示新增 0／更新 4／刪除 0／失敗 0）。新結果三列人工覆核的
