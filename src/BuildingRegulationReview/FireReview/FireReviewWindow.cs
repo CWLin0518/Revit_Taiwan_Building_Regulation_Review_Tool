@@ -23,9 +23,11 @@ namespace BuildingRegulationReview.FireReview
     /// cancel button, and the review table (spec 11.7) — expand, locate, clause, manual override.
     /// </summary>
     /// <remarks>
-    /// Modeless. Anything that touches the model goes through <see cref="Post"/>, which runs on
-    /// Revit's API context; the checks themselves run on a worker thread over data already read
-    /// (spec 15), which is what makes the cancel button live while they run.
+    /// Modeless. Anything that touches the model goes through <see cref="Post"/>, which runs the
+    /// posted handler on Revit's API context — and that context is the WPF UI thread. So while a
+    /// review is under way the window neither repaints nor responds: the cancel button is
+    /// <c>IsEnabled</c>, but it cannot actually be clicked, and the queued progress callbacks only
+    /// play once the review has returned, which is why <see cref="_runGeneration"/> drops them.
     /// </remarks>
     internal sealed class FireReviewWindow : Window
     {
@@ -93,6 +95,15 @@ namespace BuildingRegulationReview.FireReview
 
         private CancellationTokenSource _cancellation;
         private bool _busy;
+
+        /// <summary>
+        /// Which run the window is on. <see cref="SetBusy"/> bumps it whenever a run starts or ends, and
+        /// the progress callback in <see cref="Start"/> ignores any report from an older generation: a
+        /// review holds the UI thread, so its reports are only delivered after it has finished, and by
+        /// then they would paint over the completion message and refill the progress bar. Both the bump
+        /// and the test only ever run on the UI thread, so no <c>Interlocked</c>/<c>volatile</c> is needed.
+        /// </summary>
+        private int _runGeneration;
 
         /// <summary>Set while 清除篩選 resets the controls, so the tree is rebuilt once rather than per control.</summary>
         private bool _filterChanging;
@@ -243,8 +254,9 @@ namespace BuildingRegulationReview.FireReview
         /// <summary>
         /// Runs the review and stores it. It all happens in Revit's API context, like the pre-scan: the
         /// 帷幕牆區劃交接 step reads the curtain walls while the run is under way (帷幕牆規格 §8), and the
-        /// Revit API may only be read there. Cancelling still works — the token is set from the UI
-        /// thread and the run tests it at every safe point.
+        /// Revit API may only be read there. The run does test the token at every safe point, but it
+        /// holds the UI thread while it does, so the cancel button cannot be clicked: in practice
+        /// cancelling only lands while the run is still queued on the <c>ExternalEvent</c>.
         /// </summary>
         private void Start()
         {
@@ -252,12 +264,15 @@ namespace BuildingRegulationReview.FireReview
             if (_busy || !FireReviewModel.CanRun(scan)) return;
 
             _cancellation = new CancellationTokenSource();
-            SetBusy(true, "檢討中…", cancellable: true);
+            SetBusy(true, "檢討中…（視窗在檢討期間不會回應，請稍候）", cancellable: true);
             var token = _cancellation.Token;
+            var generation = _runGeneration;
 
-            // Created on the UI thread, so its callbacks come back to the UI thread by themselves.
+            // Created on the UI thread, so its callbacks come back to the UI thread by themselves — but
+            // only once the run hands that thread back, so reports that outlived their run are dropped.
             var progress = new Progress<FireReviewProgress>(p =>
             {
+                if (generation != _runGeneration) return;
                 _progress.Maximum = p.Total;
                 _progress.Value = p.Completed;
                 _status.Text = "檢討中：" + p.Message;
@@ -778,6 +793,9 @@ namespace BuildingRegulationReview.FireReview
 
         private void SetBusy(bool busy, string message, Brush brush = null, bool cancellable = false)
         {
+            // Entering or leaving a run starts a new generation, so progress reports queued by the run
+            // that is ending are ignored when they finally reach the UI thread.
+            _runGeneration++;
             _busy = busy;
             if (message != null)
             {
