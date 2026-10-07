@@ -185,8 +185,8 @@ HTTP 200 application/json
 | `fire_review_list_packages` | R | 可檢討的套件（`packageId`、名稱、狀態、規則集） |
 | `fire_review_scan_parameters` | R | 批次設定面板的內容：類型、區劃、專案資訊，每列的 `values`、`asks`、`derived`、`missingParameters` |
 | `fire_review_set_parameters` | W | 用面板的規則寫入參數，只寫與模型不同的值，整批一個交易；支援 `dryRun` |
-| `fire_review_check` | U | 前置掃描與前置檢查：`readiness.items`（Blocking／Warning／Info＋修正方式）、`canRun`、上次結果是否需更新 |
-| `fire_review_run` | W | 開始檢討：檢查 → 檢討 → 儲存 → 標示檢討視圖；支援 `dryRun`；回傳總狀態、統計與篩選後的項目 |
+| `fire_review_check` | U | 前置掃描與前置檢查：`readiness.items`（Blocking／Warning／Info＋修正方式）、`canRun`、上次結果是否需更新；日誌筆數用 `logLimit` |
+| `fire_review_run` | W | 開始檢討：檢查 → 檢討 → 儲存 → 標示檢討視圖；支援 `dryRun`；回傳總狀態、統計與篩選後的項目；日誌筆數用 `logLimit` |
 | `fire_review_get_results` | U | 最近一次的檢討表，並依目前模型標示需更新（`checkFreshness`，預設 true）；可篩選 |
 | `fire_review_describe_result` | U | 單一項目的完整明細，內容與視窗「複製明細」相同（`checkFreshness` 預設 false） |
 
@@ -194,18 +194,22 @@ HTTP 200 application/json
 
 `checkFreshness=true` 會重跑一次前置掃描，大模型可能要數十秒。逐項查看明細時，用預設的 false 直接讀取儲存的結果會快很多，但不會標示需更新；需要「與視窗逐字相同」時，再設為 true。
 
+`fire_review_scan_parameters` 的 `onlyNeedingAttention` 與「待填」的定義一律跟著面板：**面板那一格是停用的，就不算待填**。例如已宣告「玻璃」的帷幕嵌板不以防火時效作答，所以它不會被列為待填結構材料，`derived.basis` 也會說明這一列為什麼不做尺寸推定，而不是叫人去填一個填不到的欄位。
+
 ### 6.1 共用參數
 
 - `packageId`：省略時，如果專案只有一個套件就自動選它；有多個套件時，回傳工具錯誤並附上套件清單。
-- 篩選（`run`、`get_results`）：`statuses`（`Fail`／`Pending`／`Pass`／`NotApplicable`）、`checkType`（`CompartmentArea`、`AreaExemption`、`FireResistance`、`OpeningProtection`、`CompartmentContinuity`、`VerticalCompartment`）、`search`、`staleOnly`、`limit`。**統計永遠計算全部項目**，篩選只決定列出哪些項目，和視窗的篩選列相同。
-- `dryRun`：照常執行後整批復原。回傳內容和實際執行時相同，模型與 Revit 的復原清單都不會改變。
+- 篩選（`run`、`get_results`）：`statuses`（`Fail`／`Pending`／`Pass`／`NotApplicable`）、`checkType`（`CompartmentArea`、`AreaExemption`、`FireResistance`、`OpeningProtection`、`CompartmentContinuity`、`VerticalCompartment`）、`search`、`staleOnly`、`limit`。**統計永遠計算全部項目**，篩選只決定列出哪些項目，和視窗的篩選列相同。`limit` 預設值：`run` 20 筆（它的回傳還帶著規則集、前置檢查與日誌）、`get_results` 100 筆；超過時 `matchedCount` 與 `truncated` 照樣說出全部有幾筆。
+- `logLimit`（`check`、`run`，即會回 `log` 的工具）：日誌最多回幾筆，**預設 20**，`0` 表示只回統計不回 `entries`，上限 2000。一次檢討的日誌可以上百筆、每筆好幾百字，整包回傳會超過 client 一次能讀的上限，所以預設只給依嚴重度排序後最重要的前幾筆。`log.total`、`log.errors`、`log.warnings` 永遠是全部的實情，`log.listed` 是這次列出的筆數，被截斷時 `log.truncated` 為 `true`；要看全部就把 `logLimit` 開大。
+- `dryRun`：照常執行後整批復原，模型與 Revit 的復原清單都不會改變。檢討與寫入的**計算結果**和實際執行時相同，唯一的差別是回傳會把「沒有留下任何東西」這件事說出來：`fire_review_run` 的 `saved.saved` 為 `false`、`saved.rolledBack` 為 `true`、`saved.note` 說明已整批復原（`saved.mark.summary` 仍是實際算出的標示結果，可以用來比對），`fire_review_set_parameters` 的 `committed` 為 `false`；訊息開頭都是「〔試跑，已復原〕」。
 
 ### 6.2 回傳值的慣例
 
 - 狀態同時提供兩種：列舉名稱（例如 `"status": "Fail"`，方便比對），以及中文標籤（例如 `"statusText": "未符合"`，方便報告）。
 - 元素同時提供 `uniqueIds` 與 `elementIds`。`elementIds` 可以直接交給其他 Revit 工具使用。
 - 項目超過 `limit` 時，會回傳 `truncated: true`，並附上 `matchedCount`。
-- 日誌依嚴重度排序，最多 100 筆，並附上 `errors`、`warnings` 的筆數。
+- 日誌依嚴重度遞減排序，最多 `logLimit` 筆（預設 20），並附上 `total`、`errors`、`warnings`、`listed` 與 `truncated`。**筆數上限只影響列出哪幾筆，統計永遠是全部。**
+- **同一段內容只回一次。** 規則集的說明文（`ruleSet.title` 有兩千多字）只放在回傳的頂層 `ruleSet`；`readiness` 不再重複一份，它用 `needsRuleSetConfirmation` 與 `ruleSetChanges` 表達前置檢查關心的事。
 
 ### 6.3 `fire_review_set_parameters` 的值
 

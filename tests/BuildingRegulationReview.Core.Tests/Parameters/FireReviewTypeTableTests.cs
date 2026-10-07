@@ -362,6 +362,54 @@ public sealed class FireReviewTypeTableTests
     }
 
     /// <summary>
+    /// 「待填結構材料」是一個述詞，不是一句 <c>Derivation.Kind == MaterialMissing</c>。推定對每一列都跑，
+    /// 玻璃嵌板照樣回 MaterialMissing，但它不由時效作答、面板那一格是停用的，算進去就是叫使用者去填一個
+    /// 填不到的格子（決議 16、B-07）。面板狀態列、MCP 的 onlyNeedingAttention 與這張表讀的都是這個。
+    /// </summary>
+    [Fact]
+    public void A_glazed_curtain_panel_is_not_waiting_on_a_structural_material()
+    {
+        var glass = Row("T-glass", CandidateCategory.CurtainPanel, dimensionCm: 1, material: null,
+            panelKind: CurtainPanelKinds.GlazedText);
+
+        Assert.Equal(FireRatingDerivationKind.MaterialMissing, glass.Derivation.Kind);
+        Assert.False(glass.SupportsDerivation);
+        Assert.False(glass.AwaitsMaterial);
+        Assert.False(glass.AwaitsCover);
+
+        var wall = Row("T-wall", CandidateCategory.Wall, material: null);
+        Assert.True(wall.AwaitsMaterial);
+        Assert.False(wall.AwaitsCover);
+
+        var table = new FireReviewTypeTable(new[] { glass, wall });
+        Assert.Equal(new[] { "T-wall" }, table.AwaitingMaterial.Select(r => r.TypeUniqueId));
+    }
+
+    /// <summary>Same reading for 防火被覆厚度: only a row that will actually be asked for one is waiting on it.</summary>
+    [Fact]
+    public void Only_a_row_that_is_asked_for_a_cover_waits_on_one()
+    {
+        var steel = Row("T-sc", CandidateCategory.Wall, material: "SC", coverCm: null);
+        Assert.Equal(FireRatingDerivationKind.CoverMissing, steel.Derivation.Kind);
+        Assert.True(steel.AwaitsCover);
+        Assert.False(steel.AwaitsMaterial);
+
+        var glazedSteel = Row("T-glazed-sc", CandidateCategory.CurtainPanel, material: "SC", coverCm: null,
+            panelKind: CurtainPanelKinds.GlazedText);
+        Assert.Equal(FireRatingDerivationKind.CoverMissing, glazedSteel.Derivation.Kind);
+        Assert.False(glazedSteel.AwaitsCover);
+
+        // 還沒宣告種類的嵌板也不算：要先知道它是構造還是防火設備，才知道它該不該填材料。
+        var undeclared = Row("T-panel", CandidateCategory.CurtainPanel, material: null);
+        Assert.Equal(FireRatingDerivationKind.MaterialMissing, undeclared.Derivation.Kind);
+        Assert.False(undeclared.AwaitsMaterial);
+
+        var table = new FireReviewTypeTable(new[] { steel, glazedSteel, undeclared });
+        Assert.Equal(new[] { "T-sc" }, table.AwaitingCover.Select(r => r.TypeUniqueId));
+        Assert.Empty(table.AwaitingMaterial);
+    }
+
+    /// <summary>
     /// An undeclared panel derives nothing either: it has not said yet whether it is 構造 or 防火設備,
     /// and the kind is the question to answer first.
     /// </summary>

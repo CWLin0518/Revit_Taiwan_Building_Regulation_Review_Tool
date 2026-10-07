@@ -226,6 +226,15 @@ public sealed class FireReviewTypeRow
     public FireRatingDerivation Derivation =>
         FireRatingDeriver.Derive(Category, ParsedMaterial, DimensionMeters, CoverMeters);
 
+    /// <summary>
+    /// 這一列在等 結構材料 才推得出時效。玻璃嵌板不算——它不由時效作答，不會被問結構材料（決議 16）。
+    /// 判斷本身在 <see cref="FireRatingDerivationGaps"/>，面板狀態列與 MCP 讀的是同一個。
+    /// </summary>
+    public bool AwaitsMaterial => FireRatingDerivationGaps.AwaitsMaterial(SupportsDerivation, Derivation);
+
+    /// <summary>這一列是 SC，在等 防火被覆厚度；同樣不含不由時效作答的列。</summary>
+    public bool AwaitsCover => FireRatingDerivationGaps.AwaitsCover(SupportsDerivation, Derivation);
+
     /// <summary>The derived rating differs from what the Type already holds, so applying it would change something.</summary>
     public bool WouldChangeRating
     {
@@ -378,15 +387,13 @@ public sealed class FireReviewTypeTable
     public IReadOnlyList<FireReviewTypeRow> Derivable => Rows.Where(r => r.WouldChangeRating).ToList();
 
     /// <summary>Rows that need 防火被覆厚度 before SC can be rated at all.</summary>
-    public IReadOnlyList<FireReviewTypeRow> AwaitingCover =>
-        Rows.Where(r => r.SupportsDerivation && r.Derivation.Kind == FireRatingDerivationKind.CoverMissing).ToList();
+    public IReadOnlyList<FireReviewTypeRow> AwaitingCover => Rows.Where(r => r.AwaitsCover).ToList();
 
     /// <summary>
     /// Rows whose 結構材料 is blank or unrecognised. A 玻璃 panel is not one of them — it never answers
     /// by 時效, so it is not waiting on a material it will never be asked for (決議 16).
     /// </summary>
-    public IReadOnlyList<FireReviewTypeRow> AwaitingMaterial =>
-        Rows.Where(r => r.SupportsDerivation && r.Derivation.Kind == FireRatingDerivationKind.MaterialMissing).ToList();
+    public IReadOnlyList<FireReviewTypeRow> AwaitingMaterial => Rows.Where(r => r.AwaitsMaterial).ToList();
 
     /// <summary>
     /// 帷幕嵌板 that have not declared 實心 or 玻璃 yet (決議 16). Until they do, CW-O cannot decide

@@ -145,6 +145,27 @@ public sealed class FireRatingDerivation
 }
 
 /// <summary>
+/// 「這一列還在等使用者填哪一個輸入」的唯一判斷。
+/// </summary>
+/// <remarks>
+/// 單看 <see cref="FireRatingDerivation.Kind"/> 是不夠的：推定對每一列都跑，玻璃嵌板、還沒宣告種類的
+/// 帷幕嵌板與佔位嵌板列照樣會回 <see cref="FireRatingDerivationKind.MaterialMissing"/>，但它們不由
+/// 防火時效作答（或整列唯讀），面板那一格是停用的。把 <c>supportsDerivation</c> 一起算進來，才不會叫
+/// 使用者去填一個填不到的格子（決議 16）。面板狀態列、MCP 的 <c>onlyNeedingAttention</c> 與
+/// <c>FireReviewTypeTable.AwaitingMaterial</c>／<c>AwaitingCover</c> 都走這裡，三處才不會各給一個答案。
+/// </remarks>
+public static class FireRatingDerivationGaps
+{
+    /// <summary>這一列在等 結構材料（RC／SRC／SC）。</summary>
+    public static bool AwaitsMaterial(bool supportsDerivation, FireRatingDerivation? derivation) =>
+        supportsDerivation && derivation?.Kind == FireRatingDerivationKind.MaterialMissing;
+
+    /// <summary>這一列是 SC，在等 防火被覆厚度。</summary>
+    public static bool AwaitsCover(bool supportsDerivation, FireRatingDerivation? derivation) =>
+        supportsDerivation && derivation?.Kind == FireRatingDerivationKind.CoverMissing;
+}
+
+/// <summary>
 /// 結構材料＋斷面尺寸 → 防火時效, strictly as 建築技術規則建築設計施工編第三章第三節 writes it. Every
 /// threshold below carries the clause it came from; nothing is interpolated between them.
 /// </summary>

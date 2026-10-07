@@ -271,13 +271,42 @@ namespace BuildingRegulationReview.FireReview
             }
         }
 
+        /// <summary>
+        /// 這一列在等 結構材料／防火被覆厚度 嗎。判斷在 <see cref="FireRatingDerivationGaps"/>，與
+        /// <c>FireReviewTypeTable.AwaitingMaterial</c> 和 MCP 的 <c>onlyNeedingAttention</c> 同一個，
+        /// 只是讀的是這一列**目前輸入**的值而不是模型裡的值（B-07）。
+        /// </summary>
+        public bool AwaitsMaterial => FireRatingDerivationGaps.AwaitsMaterial(SupportsDerivation, Derivation);
+
+        public bool AwaitsCover => FireRatingDerivationGaps.AwaitsCover(SupportsDerivation, Derivation);
+
         /// <summary>The clause, or the reason nothing was derived — the panel's 依據 column.</summary>
         public string DerivedBasis
         {
             get
             {
                 var derived = Derivation;
-                return derived.HasRating ? $"{derived.LegalReference}｜{derived.Explanation}" : derived.Explanation;
+                if (derived.HasRating) return $"{derived.LegalReference}｜{derived.Explanation}";
+
+                // 推不出來的理由只有在這一列真的會被問到那個輸入時才算理由。玻璃嵌板、還沒宣告種類的
+                // 嵌板與佔位嵌板列都不由時效作答（或整列唯讀），對它們說「未填結構材料」就是叫使用者
+                // 去填一個面板停用、MCP 也拒寫的格子（決議 16、B-07）。
+                return SupportsDerivation ? derived.Explanation : NotDerivedHere ?? derived.Explanation;
+            }
+        }
+
+        /// <summary>為什麼這一列根本不做尺寸推定；不是這種情形時回 null，由推定自己的說明作答。</summary>
+        private string NotDerivedHere
+        {
+            get
+            {
+                if (IsSubstituted)
+                    return $"這一列是 Revit 的保留嵌板型別，參數唯讀；時效由來源牆型別「{SubstitutionSource}」供給。";
+                if (IsCurtainPanel && TypedPanelKind is null)
+                    return "未宣告嵌板種類（實心／玻璃），還無法判定這一列是否以防火時效作答。";
+                if (IsCurtainPanel && TypedPanelKind == CurtainPanelKind.Glazed)
+                    return "玻璃嵌板以防火門窗作答，不由結構材料與斷面尺寸推定防火時效。";
+                return null;
             }
         }
 
@@ -390,6 +419,8 @@ namespace BuildingRegulationReview.FireReview
         {
             Raise(nameof(DerivedText));
             Raise(nameof(DerivedBasis));
+            Raise(nameof(AwaitsMaterial));
+            Raise(nameof(AwaitsCover));
             Raise(nameof(CanApplyDerived));
             Raise(nameof(RatingDiffers));
             Raise(nameof(MissingParameters));

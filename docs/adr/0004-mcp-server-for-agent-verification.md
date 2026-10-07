@@ -68,9 +68,15 @@ Use case ───┤
 
 ### 5. 改模型的工具都提供 `dryRun`
 
-`dryRun=true` 時，工作照常執行，然後把整個 `TransactionGroup` 復原：工作本身能看到自己寫入的結果，所以回傳內容與實際執行時完全一樣，但模型保持原狀。驗證時代理可以先用 dryRun 跑一次。
+`dryRun=true` 時，工作照常執行，然後把整個 `TransactionGroup` 復原：工作本身能看到自己寫入的結果，所以**計算結果**與實際執行時完全一樣，但模型保持原狀。驗證時代理可以先用 dryRun 跑一次。
+
+唯一刻意不一樣的是「有沒有存進去」這件事：工作自己看得見它寫的東西，照抄就會回「已儲存」，而那一批在工具回傳前就被復原了。所以回傳裡說的是模型的實情——`fire_review_run` 的 `saved.saved` 為 `false`、`saved.rolledBack` 為 `true`，`fire_review_set_parameters` 的 `committed` 為 `false`，訊息開頭是「〔試跑，已復原〕」。領域物件本身不動（`FireReviewSaveResult.Saved` 仍是 true），只有呈現層把它講清楚。
 
 工具附上 MCP annotations（`readOnlyHint`、`destructiveHint`），讓 client 判斷是否要先請使用者確認。
+
+### 6. 回傳要能被讀完
+
+代理的 client 一次呼叫能讀的內容有上限，超過就整包讀不到——連「有幾個錯誤」都看不到。所以體積大的東西一律「統計照全部算、內容只給一部分、而且說出自己被截斷了」：檢討項目用 `limit`／`matchedCount`／`truncated`，日誌用 `logLimit`（預設 20）／`total`／`listed`／`truncated`（取樣規則在 `ReviewLogDigest`，由 Core.Tests 守著）。同一段內容也不重複放兩次，例如規則集的說明文只在回傳的頂層出現一次。
 
 ## 後果
 

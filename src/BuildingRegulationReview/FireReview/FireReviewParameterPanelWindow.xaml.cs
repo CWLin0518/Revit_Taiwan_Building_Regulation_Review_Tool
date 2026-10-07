@@ -292,10 +292,13 @@ namespace BuildingRegulationReview.FireReview
             var kinds = _rows.Count(r => r.AwaitsPanelKind);
             if (kinds > 0) parts.Add($"待宣告嵌板種類 {kinds} 列");
 
-            var awaiting = _rows.Count(r => r.Derivation.Kind == FireRatingDerivationKind.MaterialMissing);
+            // AwaitsMaterial／AwaitsCover 才是這兩個數字的定義（FireRatingDerivationGaps，與
+            // FireReviewTypeTable.AwaitingMaterial、MCP 的 onlyNeedingAttention 同一個）：只比
+            // Derivation.Kind 會把玻璃嵌板算進來，而它那一格是停用的，使用者無從填（決議 16、B-07）。
+            var awaiting = _rows.Count(r => r.AwaitsMaterial);
             if (awaiting > 0) parts.Add($"待填結構材料 {awaiting} 列");
 
-            var cover = _rows.Count(r => r.Derivation.Kind == FireRatingDerivationKind.CoverMissing);
+            var cover = _rows.Count(r => r.AwaitsCover);
             if (cover > 0) parts.Add($"待填 SC 被覆厚度 {cover} 列");
 
             var sprinklers = _zones.Count(z => string.IsNullOrEmpty(z.Sprinklered));

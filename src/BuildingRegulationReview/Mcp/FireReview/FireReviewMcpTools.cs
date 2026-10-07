@@ -180,9 +180,25 @@ namespace BuildingRegulationReview.Mcp.FireReview
             return new ReviewTableFilter(bands, checkType, arguments.OptionalString("search"), arguments.OptionalBool("staleOnly", false));
         }
 
-        private static JsonObject AddLog(JsonObject result, params Application.Diagnostics.ReviewLog[] logs)
+        /// <summary>
+        /// 一次檢討的日誌可以有上百筆、每筆好幾百字，整包回傳會超過代理一次能讀的上限，連統計都看不到。
+        /// 所以回傳的筆數由呼叫端決定，預設只給最重要的前
+        /// <see cref="Application.Diagnostics.ReviewLogDigest.DefaultLimit"/> 筆（B-04）。
+        /// </summary>
+        private const string LogLimitDescription =
+            "日誌最多回傳幾筆（依嚴重度遞減取前幾筆）。0＝只回統計不回 entries。" +
+            "log.total、log.errors、log.warnings 永遠是全部的實情，被截斷時 log.truncated 為 true；" +
+            "要看全部就把這個值開大。";
+
+        private static JsonObject LogLimitSchema() => JsonSchema.Integer(
+            LogLimitDescription, 0, 2000, Application.Diagnostics.ReviewLogDigest.DefaultLimit);
+
+        private static int LogLimit(McpToolArguments arguments) =>
+            arguments.OptionalInt("logLimit", Application.Diagnostics.ReviewLogDigest.DefaultLimit, 0, 2000);
+
+        private static JsonObject AddLog(JsonObject result, int logLimit, params Application.Diagnostics.ReviewLog[] logs)
         {
-            result["log"] = FireReviewJson.Log(logs.Where(log => log != null).SelectMany(log => log.Entries));
+            result["log"] = FireReviewJson.Log(logs.Where(log => log != null).SelectMany(log => log.Entries), logLimit);
             return result;
         }
 
@@ -232,7 +248,8 @@ namespace BuildingRegulationReview.Mcp.FireReview
             {
                 ["packageId"] = PackageIdSchema(),
                 ["acceptRuleSetUpdate"] = JsonSchema.Boolean(
-                    "套件鎖定的規則集版本與外掛目前的不同時，是否改用目前版本（視窗的「改用目前規則版本」勾選框）。舊結果與人工覆寫會標示為需更新。", false)
+                    "套件鎖定的規則集版本與外掛目前的不同時，是否改用目前版本（視窗的「改用目前規則版本」勾選框）。舊結果與人工覆寫會標示為需更新。", false),
+                ["logLimit"] = LogLimitSchema()
             });
 
             public override McpToolAnnotations Annotations => McpToolAnnotations.Updates;
@@ -254,7 +271,7 @@ namespace BuildingRegulationReview.Mcp.FireReview
                     ["isStale"] = scan.StoredTable.IsStale,
                     ["staleReasons"] = JsonValue.Array(scan.StoredTable.StaleReasons)
                 };
-                return McpToolResult.Success(AddLog(result, scan.Log), scan.Readiness.Message);
+                return McpToolResult.Success(AddLog(result, LogLimit(arguments), scan.Log), scan.Readiness.Message);
             }
         }
 
@@ -268,15 +285,24 @@ namespace BuildingRegulationReview.Mcp.FireReview
             public override string Description =>
                 "與視窗的「開始檢討」相同：前置掃描 → 前置檢查 → 檢討防火區劃面積、區劃面積免除、構件防火時效、防火門窗、" +
                 "帷幕牆區劃交接與垂直區劃 → 儲存結果並標示檢討視圖。前置檢查未通過時不執行，回傳必須修正的項目。" +
-                "dryRun=true 時照常計算並回傳結果，但結束後整批復原，模型（含檢討紀錄與標示）完全不變——驗證時建議先用。" +
+                "dryRun=true 時照常計算並回傳結果，但結束後整批復原，模型（含檢討紀錄與標示）完全不變——驗證時建議先用；" +
+                "此時 saved.saved 為 false、saved.rolledBack 為 true，saved.mark.summary 仍是實際算出的標示結果。" +
                 "回傳總狀態、各檢討項目統計與依篩選列出的項目；完整表格可再用 fire_review_get_results。";
 
             public override JsonObject InputSchema => JsonSchema.Object(FilterSchemaProperties(new JsonObject
             {
                 ["packageId"] = PackageIdSchema(),
                 ["acceptRuleSetUpdate"] = JsonSchema.Boolean("規則集版本不同時是否改用目前版本（同 fire_review_check）。", false),
-                ["dryRun"] = JsonSchema.Boolean("只計算不留下任何變更。", false)
-            }, defaultLimit: 50));
+                ["dryRun"] = JsonSchema.Boolean("只計算不留下任何變更。", false),
+                ["logLimit"] = LogLimitSchema()
+            }, defaultLimit: RunEntryLimit));
+
+            /// <summary>
+            /// 這個工具的回傳本來就帶著規則集、前置檢查、統計與日誌，項目再預設給五十筆就讀不完了。
+            /// 看完整表格有 fire_review_get_results（預設 100 筆）；這裡預設少一點，要多再自己開大。
+            /// matchedCount 與 truncated 照舊說出全部有幾筆（B-04）。
+            /// </summary>
+            private const int RunEntryLimit = 20;
 
             public override McpToolAnnotations Annotations => new McpToolAnnotations(readOnly: false, destructive: false, idempotent: false);
 
@@ -289,7 +315,8 @@ namespace BuildingRegulationReview.Mcp.FireReview
                 var accept = arguments.OptionalBool("acceptRuleSetUpdate", false);
                 var dryRun = arguments.OptionalBool("dryRun", false);
                 var filter = Filter(arguments);
-                var limit = arguments.OptionalInt("limit", 50, 0, 2000);
+                var limit = arguments.OptionalInt("limit", RunEntryLimit, 0, 2000);
+                var logLimit = LogLimit(arguments);
 
                 return WithDryRun(document, dryRun, "防火區劃檢討", () =>
                 {
@@ -299,22 +326,24 @@ namespace BuildingRegulationReview.Mcp.FireReview
 
                     if (!FireReviewModel.CanRun(scan))
                     {
-                        AddLog(result, scan.Log);
+                        AddLog(result, logLimit, scan.Log);
                         return McpToolResult.Failure(scan.Readiness.Message, result);
                     }
 
                     var run = FireReviewModel.RunAndSave(document, scan, cancellation);
                     if (run.Outcome == null)
                     {
-                        AddLog(result, scan.Log);
+                        AddLog(result, logLimit, scan.Log);
                         return McpToolResult.Failure(run.Failure, result);
                     }
 
                     result["outcome"] = FireReviewJson.Outcome(run.Outcome);
-                    result["saved"] = FireReviewJson.Saved(run.Saved);
+                    // dryRun 時 saved.saved 回 false：整批在這個呼叫回傳之前就被復原了（B-05）。下面的
+                    // 失敗判斷讀的是領域物件 run.Saved.Saved，不是這個 JSON，所以試跑仍然走 Success。
+                    result["saved"] = FireReviewJson.Saved(run.Saved, rolledBack: dryRun);
                     if (run.Outcome.Table != null)
                         result["result"] = FireReviewJson.Table(run.Outcome.Table, filter, limit, includeGroups: false);
-                    AddLog(result, scan.Log, run.Outcome.Log, run.Saved?.Log);
+                    AddLog(result, logLimit, scan.Log, run.Outcome.Log, run.Saved?.Log);
 
                     if (!run.Outcome.IsCompleted) return McpToolResult.Failure(run.Outcome.Message, result);
                     if (run.Saved != null && !run.Saved.Saved)
@@ -450,10 +479,14 @@ namespace BuildingRegulationReview.Mcp.FireReview
                     $"類型 {draft.Rows.Count} 個、區劃 {draft.Zones.Count} 個；可推定時效 {draft.Rows.Count(r => r.CanApplyDerived)} 列。");
             }
 
+            /// <remarks>
+            /// 待填材料／被覆走 <c>AwaitsMaterial</c>／<c>AwaitsCover</c>（<c>FireRatingDerivationGaps</c>），
+            /// 與面板狀態列和 <c>FireReviewTypeTable.AwaitingMaterial</c> 同一個判斷。只比
+            /// <c>Derivation.Kind</c> 會把已宣告玻璃的帷幕嵌板列為待處理，而它那一格是停用的（決議 16、B-07）。
+            /// </remarks>
             private static bool NeedsAttention(FireReviewTypeRowViewModel row) =>
                 row.MissingParameters.Length > 0 || row.AwaitsPanelKind || row.RatingDiffers ||
-                row.Derivation.Kind == FireRatingDerivationKind.MaterialMissing ||
-                row.Derivation.Kind == FireRatingDerivationKind.CoverMissing;
+                row.AwaitsMaterial || row.AwaitsCover;
         }
 
         private sealed class SetParametersTool : RevitMcpTool

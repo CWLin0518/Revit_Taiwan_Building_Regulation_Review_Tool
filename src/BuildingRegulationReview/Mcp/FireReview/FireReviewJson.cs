@@ -67,18 +67,23 @@ namespace BuildingRegulationReview.Mcp.FireReview
                 ["message"] = report.Message,
                 ["needsRuleSetConfirmation"] = report.NeedsRuleSetConfirmation,
                 ["ruleSetChanges"] = report.RuleSetChanges,
-                ["ruleSet"] = RuleSet(report.RuleSet?.RuleSet),
+                // 規則集只回一份：頂層的 ruleSet。它的 title 是一整段兩千多字的說明文，前置檢查這裡再
+                // 放一份只是把同一段話送兩次；needsRuleSetConfirmation 與 ruleSetChanges 已經說完前置
+                // 檢查關心的事（B-08）。
                 ["items"] = items
             };
         }
 
-        /// <summary>The log, warnings and errors first, cut at <paramref name="limit"/> entries with the cut said out loud.</summary>
-        public static JsonObject Log(IEnumerable<ReviewLogEntry> entries, int limit = 100)
+        /// <summary>
+        /// The log, warnings and errors first, cut at <paramref name="limit"/> entries with the cut said
+        /// out loud. <c>total</c>、<c>errors</c>、<c>warnings</c> always count every entry, so a reader
+        /// can tell from a trimmed log how much it is not seeing (B-04).
+        /// </summary>
+        public static JsonObject Log(IEnumerable<ReviewLogEntry> entries, int limit = ReviewLogDigest.DefaultLimit)
         {
-            var all = entries.Where(e => e != null).ToList();
-            var ordered = all.OrderByDescending(e => e.Severity).ToList();
+            var digest = ReviewLogDigest.Of(entries, limit);
             var list = new JsonArray();
-            foreach (var entry in ordered.Take(limit))
+            foreach (var entry in digest.Entries)
             {
                 list.Add(new JsonObject
                 {
@@ -95,10 +100,11 @@ namespace BuildingRegulationReview.Mcp.FireReview
 
             return new JsonObject
             {
-                ["errors"] = all.Count(e => e.Severity == ReviewSeverity.Error),
-                ["warnings"] = all.Count(e => e.Severity == ReviewSeverity.Warning),
-                ["total"] = all.Count,
-                ["truncated"] = all.Count > limit,
+                ["errors"] = digest.Errors,
+                ["warnings"] = digest.Warnings,
+                ["total"] = digest.Total,
+                ["listed"] = digest.Entries.Count,
+                ["truncated"] = digest.Truncated,
                 ["entries"] = list
             };
         }
@@ -258,12 +264,21 @@ namespace BuildingRegulationReview.Mcp.FireReview
             };
         }
 
-        public static JsonValue Saved(FireReviewSaveResult saved)
+        /// <summary>
+        /// 寫入的結果。<paramref name="rolledBack"/> 是 dryRun：那一批寫入在工具回傳前就被整個
+        /// <c>TransactionGroup</c> 復原了，所以 <c>saved</c> 回 false 才是模型的實情——領域物件
+        /// <c>FireReviewSaveResult.Saved</c> 仍然是 true（它看得見自己寫進去的東西），判斷流程讀的也還是
+        /// 它，這裡只負責不讓代理把試跑讀成「已存檔」（B-05）。<c>mark.summary</c> 照舊保留：標示確實算過
+        /// 一遍，那串數字是驗證要比對的。
+        /// </summary>
+        public static JsonValue Saved(FireReviewSaveResult saved, bool rolledBack = false)
         {
             if (saved == null) return JsonValue.Null;
             return new JsonObject
             {
-                ["saved"] = saved.Saved,
+                ["saved"] = saved.Saved && !rolledBack,
+                ["rolledBack"] = rolledBack,
+                ["note"] = rolledBack ? "試跑：計算與標示都已整批復原，模型未變更。" : null,
                 ["error"] = saved.Error,
                 ["mark"] = saved.Mark == null ? JsonValue.Null : new JsonObject
                 {
