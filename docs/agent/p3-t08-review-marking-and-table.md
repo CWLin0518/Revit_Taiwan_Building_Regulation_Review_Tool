@@ -20,7 +20,7 @@
     - `Summary`：套用前的範圍摘要（spec 15）。
   - `RecordedElementOverride`（元素、run、原始狀態、套用狀態）與 `ReviewOverrideRestore.Decide`：目前顯示等於工具套用的 → 恢復原始；使用者已改 → 保留使用者修改（`BCR-MARK-003`）；元素已刪 → 只刪紀錄。
   - `ReviewMarkupResult`／`ReviewMarkupItem`：新增／更新／刪除／略過／失敗數量（spec 15）。
-- Application 其他：`ManagedOutputKind.ReviewView`（token `reviewview`）、`ReviewOutputNaming.ReviewView` → `{AreaScheme}_{SourceFloorPlan}_防火檢討`；錯誤碼 `BCR-MARK-001` 檢討視圖無法標示、`BCR-MARK-002` 未符合項目未標示、`BCR-MARK-003` 保留使用者修改的元素顯示。
+- Application 其他：`ManagedOutputKind.ReviewView`（token `reviewview`）、`ReviewOutputNaming.ReviewView` → `{AreaScheme}_{SourceFloorPlan}_防火檢討`；錯誤碼 `BCR-MARK-001` 檢討視圖無法標示、`BCR-MARK-002` 未符合項目未標示、`BCR-MARK-003` 保留使用者修改的元素顯示、`BCR-MARK-004` 檢討視圖已標示（驗證清單 C-01：標示摘要不再與檢討摘要同碼）。
 - Revit `Reviews/`：
   - `RevitReviewViewMarker`：
     - `FindView`：以 `ManagedOutputKey(ReviewView)` 標記找回檢討視圖（改名不失聯）。沒有時複製來源平面圖（`ViewDuplicateOption.Duplicate`，不帶註解），命名用 `MakeUnique`。

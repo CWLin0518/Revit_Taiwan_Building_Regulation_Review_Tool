@@ -11,7 +11,7 @@
 - Application `Reviews`：`ReviewInputSources`（欄位 → `BCR_*` 參數目錄、規則實際需要的參數）、`ReviewParameterSnapshot`＋`ReviewInputAssembler`
   （參數值 → 三類檢查輸入，不猜測）、`ReviewReadiness`（spec 11.1 前置檢查，阻擋／提醒＋修正方式）、`FireReviewRunner`
   （三類一次執行、安全點取消、覆寫沿用、套件 Reviewed＋鎖定規則版本、日誌）、`ReviewPerformance`（spec 15 目標與診斷）、
-  `StoredRunInspection`（重開模型時判定失效並暫停覆寫）。錯誤碼 `BCR-PRE-001/002`、`BCR-ENV-001`、`BCR-RUN-002/003/004`、`BCR-PERF-001`。
+  `StoredRunInspection`（重開模型時判定失效並暫停覆寫）。錯誤碼 `BCR-PRE-001/002`、`BCR-ENV-001`、`BCR-RUN-002/003/004/005/006/007/008`、`BCR-OVR-003/004`、`BCR-PERF-001/002`。
 - Domain：`ReviewPackage.WithReviewRun`。
 - Revit：`RevitReviewParameterReader`、`RevitReviewEnvironmentReader`（唯讀）。
 - 外掛：內建暫定規則 `Data/fire-review-rules.json`（`tw-bcr-fire 2026.0-provisional`）、`FireReviewRuleSetSource`、`FireReviewModel`

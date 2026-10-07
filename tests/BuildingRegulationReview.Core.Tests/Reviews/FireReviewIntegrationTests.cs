@@ -72,8 +72,9 @@ public sealed class FireReviewIntegrationTests
 
     private static CandidateSet Set(
         IEnumerable<MemberObservation>? members = null,
-        IEnumerable<OpeningObservation>? openings = null) =>
-        CandidateResolver.Resolve(Observations(Zones().Take(2), members ?? Members(), openings ?? Openings()));
+        IEnumerable<OpeningObservation>? openings = null,
+        IEnumerable<ZoneObservation>? zones = null) =>
+        CandidateResolver.Resolve(Observations(zones ?? Zones().Take(2), members ?? Members(), openings ?? Openings()));
 
     /// <summary>The fixed model plus a 帷幕嵌板 whose Type carries 設計防火時效 (docs §10 案例 20).</summary>
     private static IReadOnlyList<OpeningObservation> WithPanelType() => Openings()
@@ -148,9 +149,10 @@ public sealed class FireReviewIntegrationTests
         IEnumerable<MemberObservation>? members = null,
         IEnumerable<OpeningObservation>? openings = null,
         ICurtainWallGeometryReader? curtainWalls = null,
-        ReviewModelFacts? model = null)
+        ReviewModelFacts? model = null,
+        IEnumerable<ZoneObservation>? zones = null)
     {
-        var set = Set(members, openings);
+        var set = Set(members, openings, zones);
         var inputs = ReviewInputAssembler.Assemble(set, (parameters ?? new Parameters()).Snapshot(), model: model);
         return new FireReviewRequest(package ?? Package(), rules ?? Rules(), Today, set, inputs, Environment(), previous,
             TimeSpan.FromSeconds(1), curtainWallReader: curtainWalls);
@@ -1548,8 +1550,11 @@ public sealed class FireReviewIntegrationTests
         Assert.Equal("BCR-CW-008", entry.Code);
         Assert.Equal(ReviewSeverity.Warning, entry.Severity);
         Assert.Equal("帷幕牆幾何讀取警告", ReviewErrorCode.Describe(entry.Code));
+
+        // The reader's warning is not one of the checks' own warnings either (驗證清單 C-01): those are
+        // ReviewCheckWarning, and logging this message under both codes would double it.
         Assert.DoesNotContain(outcome.Log.Entries,
-            e => e.UserMessage == warning && e.Code == ReviewErrorCode.ReviewCompleted);
+            e => e.UserMessage == warning && e.Code == ReviewErrorCode.ReviewCheckWarning);
     }
 
     [Fact]
@@ -2265,6 +2270,12 @@ public sealed class FireReviewIntegrationTests
         var entry = Assert.Single(log.Build().Entries);
         Assert.Equal(ReviewSeverity.Info, entry.Severity);
         Assert.Contains("prescan=3000ms", entry.TechnicalDetail);
+
+        // 驗證清單 C-01: a run that met its targets is still a 效能 entry, so a maintainer comparing runs
+        // filters on BCR-PERF-* and gets the fast ones too — it is not the 檢討摘要.
+        Assert.Equal(ReviewErrorCode.ReviewPerformance, entry.Code);
+        Assert.Equal("BCR-PERF-002", entry.Code);
+        Assert.Equal("效能紀錄", ReviewErrorCode.Describe(entry.Code));
     }
 
     [Fact]
@@ -2280,6 +2291,7 @@ public sealed class FireReviewIntegrationTests
         slowReview.AppendTo(log);
         var entry = Assert.Single(log.Build().Entries);
         Assert.Equal(ReviewErrorCode.PerformanceExceeded, entry.Code);
+        Assert.Equal("BCR-PERF-001", entry.Code);
         Assert.Equal(ReviewSeverity.Warning, entry.Severity);
         Assert.Contains("FireResistance=31000ms", entry.TechnicalDetail);
     }
@@ -2304,6 +2316,283 @@ public sealed class FireReviewIntegrationTests
         Assert.Equal(TimeSpan.FromSeconds(1), outcome.Performance.Prescan);
         Assert.Equal(7, outcome.Performance.Stages.Count);
     }
+
+    // --- C-01：日誌的五類項目各有自己的碼 ---------------------------------------------------------
+
+    /// <summary>
+    /// C-01: 「未符合」is a verdict about the building, which the 檢討表 already counts. Recorded as a log
+    /// warning it drowned out the data problems — a missing parameter, geometry that could not be read —
+    /// that <see cref="ReviewLogDigest"/> samples by descending severity, and it told a reader nothing
+    /// about whether the tool itself had trouble. It is now its own code at Info.
+    /// </summary>
+    [Fact]
+    public void A_failing_result_of_its_own_is_the_finding_code_and_no_warning()
+    {
+        var outcome = Run(Request(parameters: WithWallRating("30 min")));
+        var wall = ResultOf(outcome.Run!, ReviewCheckTypes.FireResistance, "W1-bottom", ZoneA);
+        Assert.Equal(ReviewStatus.Fail, wall.Status);
+
+        var entry = Assert.Single(outcome.Log.Entries, e => Mentions(e, wall));
+        Assert.Equal(ReviewErrorCode.ReviewFinding, entry.Code);
+        Assert.Equal("BCR-RUN-005", entry.Code);
+        Assert.Equal(ReviewSeverity.Info, entry.Severity);
+        Assert.Equal("檢討結果", ReviewErrorCode.Describe(entry.Code));
+        Assert.Equal("W1-bottom", entry.ElementUniqueId);
+
+        // 未符合 never reaches log.warnings, however many of them there are.
+        Assert.All(outcome.Log.Entries.Where(e => e.Code == ReviewErrorCode.ReviewFinding),
+            e => Assert.Equal(ReviewSeverity.Info, e.Severity));
+    }
+
+    /// <summary>
+    /// C-01: a result that carries a code of its own keeps that code and is a warning, whatever status it
+    /// ended up with — the code means a check could not read its input, which is the tool's trouble and
+    /// not a verdict. This one is a 未符合 on the shipped rules, so the Fail branch is reachable and not
+    /// defensive dead code: 決議 32 lets a 挑空 merged into its 連通區劃 keep its verdict even when its own
+    /// Area disagrees with the boundary, which is where <c>AreaDisagrees</c> survives on a Fail
+    /// (<c>CompartmentAreaCheck</c>'s else branch), and a 挑空 topping out at 11F is held to
+    /// <c>tw-bcr-83-area-atrium</c>, whose ceiling at 耐燃一級 outside H-2 is 200 ㎡ — the fixture's 900 ㎡
+    /// 連通區劃 clears it easily. 第79條之2第3項 still merges it: 第一款 asks only for 避難層通達 and
+    /// 耐燃一級裝修 and has no area ceiling of its own.
+    /// </summary>
+    [Fact]
+    public void A_result_that_carries_its_own_code_keeps_it_and_is_a_warning()
+    {
+        var parameters = AtriumParameters();
+        parameters.Elements["area-a"][ReviewInputSources.FloorNumber] = ParameterReading.OfInteger(11);
+        // 第83條's ceiling is read off the 裝修等級 and the 用途類組; 耐燃一級 also settles 第3項's 第一款,
+        // which has no area ceiling of its own, so the 挑空 is merged however large its 連通區劃 is.
+        parameters.Elements["area-a"][ReviewInputSources.InteriorFinish] = ParameterReading.OfText(InteriorFinishGrades.ClassOne);
+        parameters.Project[ReviewInputSources.BuildingUse] = ParameterReading.OfText("A-1");
+        var zones = new[] { AtriumAreaLargerThanItsBoundary(130), Zones()[1] };
+
+        var outcome = Run(Request(parameters: parameters, zones: zones, model: AtriumStoreysToppingOutAt11F()));
+
+        Assert.True(outcome.IsCompleted, outcome.Message);
+        var area = ResultOf(outcome.Run!, ReviewCheckTypes.CompartmentArea, "area-a", ZoneA);
+        Assert.Equal(ReviewStatus.Fail, area.Status);
+        Assert.Equal("tw-bcr-83-area-atrium", area.RuleId);
+        Assert.Contains("面積來源無法確認", area.Message, StringComparison.Ordinal);
+
+        var entry = Assert.Single(outcome.Log.Entries, e => Mentions(e, area));
+        Assert.Equal(ReviewErrorCode.AreaDisagrees, entry.Code);
+        Assert.Equal("BCR-AREA-001", entry.Code);
+        Assert.Equal(ReviewSeverity.Warning, entry.Severity);
+    }
+
+    /// <summary>
+    /// C-01, the half that the earlier 「只有未符合才升級」 wording silently dropped: every code a check
+    /// hands a result means it could not read something, and none of those states is ever 未符合 — 缺參數
+    /// lands on 資料不足, 複合時效 on 人工覆核. Tying the warning to Fail therefore left every real data
+    /// problem at Info, which is exactly what <see cref="ReviewLogDigest"/> drops first.
+    /// </summary>
+    [Fact]
+    public void A_missing_parameter_is_a_warning_even_though_it_is_never_a_failure()
+    {
+        var parameters = new Parameters();
+        parameters.Elements["D1-shared"].Remove(FireProtectionParameters.Provided);
+        var outcome = Run(Request(parameters: parameters));
+
+        var door = ResultOf(outcome.Run!, ReviewCheckTypes.OpeningProtection, "D1-shared", ZoneA);
+        Assert.Equal(ReviewStatus.InsufficientData, door.Status);
+
+        var entry = Assert.Single(outcome.Log.Entries, e => Mentions(e, door));
+        Assert.Equal(ReviewErrorCode.ParameterMissing, entry.Code);
+        Assert.Equal(ReviewSeverity.Warning, entry.Severity);
+        Assert.Contains(outcome.Log.Entries.Where(e => e.Severity == ReviewSeverity.Warning),
+            e => e.Code == ReviewErrorCode.ParameterMissing);
+    }
+
+    /// <summary>
+    /// C-01: a warning one of the six checks raised about its own inputs is a real 工具警告 — here, the
+    /// inputs name a 區劃 the package no longer holds. It belongs in log.warnings, which is exactly why
+    /// it must not share a code with the 檢討摘要.
+    /// </summary>
+    [Fact]
+    public void A_checks_own_warning_is_a_tool_warning_with_its_own_code()
+    {
+        var parameters = new Parameters();
+        parameters.Elements["area-c"] = new Dictionary<string, ParameterReading>
+        {
+            [ReviewInputSources.Sprinklered] = ParameterReading.OfYesNo(0),
+            [ReviewInputSources.ZoneUse] = ParameterReading.OfText("辦公"),
+            [ReviewInputSources.FloorNumber] = ParameterReading.OfInteger(1)
+        };
+
+        // The inputs were assembled while C 區 was still in the package; the run sees only A and B.
+        var inputs = ReviewInputAssembler.Assemble(Set(zones: Zones()), parameters.Snapshot());
+        var outcome = Run(new FireReviewRequest(Package(), Rules(), Today, Set(), inputs, Environment(),
+            prescanElapsed: TimeSpan.FromSeconds(1)));
+
+        Assert.True(outcome.IsCompleted, outcome.Message);
+        var entry = Assert.Single(outcome.Log.Entries, e => e.UserMessage.Contains("不在此工作包中", StringComparison.Ordinal));
+        Assert.Equal(ReviewErrorCode.ReviewCheckWarning, entry.Code);
+        Assert.Equal("BCR-RUN-006", entry.Code);
+        Assert.Equal(ReviewSeverity.Warning, entry.Severity);
+        Assert.Equal("檢討項目警告", ReviewErrorCode.Describe(entry.Code));
+        Assert.Contains(outcome.Log.Entries.Where(e => e.Severity == ReviewSeverity.Warning),
+            e => e.Code == ReviewErrorCode.ReviewCheckWarning);
+    }
+
+    /// <summary>C-01: 未檢討 is not 檢討完成, and a reader filtering the log has to be able to tell.</summary>
+    [Fact]
+    public void A_check_that_was_not_run_says_so_under_its_own_code()
+    {
+        var outcome = Run(Request());
+
+        var entry = Assert.Single(outcome.Log.Entries,
+            e => e.UserMessage.Contains("帷幕牆區劃交接未檢討", StringComparison.Ordinal));
+        Assert.Equal(ReviewErrorCode.ReviewCheckNotRun, entry.Code);
+        Assert.Equal("BCR-RUN-007", entry.Code);
+        Assert.Equal(ReviewSeverity.Info, entry.Severity);
+        Assert.Equal("檢討項目未執行", ReviewErrorCode.Describe(entry.Code));
+    }
+
+    /// <summary>C-01: 垂直區劃's four requirement rows are one check's summary, not the run's.</summary>
+    [Fact]
+    public void A_checks_group_summary_is_not_the_run_summary()
+    {
+        var outcome = Run(Request(parameters: ShaftParameters(), openings: ShaftDoorOnly()));
+
+        var entry = Assert.Single(outcome.Log.Entries,
+            e => e.UserMessage.StartsWith("垂直區劃（第79條之2）：", StringComparison.Ordinal));
+        Assert.Equal(ReviewErrorCode.ReviewCheckSummary, entry.Code);
+        Assert.Equal("BCR-RUN-008", entry.Code);
+        Assert.Equal(ReviewSeverity.Info, entry.Severity);
+        Assert.Equal("檢討項目摘要", ReviewErrorCode.Describe(entry.Code));
+    }
+
+    /// <summary>
+    /// C-01: 沿用, 需重新確認 and 不再沿用 are three different answers, so they are three codes. Sharing one
+    /// code between 沿用 and 不再沿用 put lines in the log whose code read 「人工覆寫沿用」 while their own
+    /// message read 「不再沿用」 — the same code-to-event mismatch C-01 set out to remove.
+    /// </summary>
+    [Fact]
+    public void The_three_carry_over_outcomes_are_three_codes()
+    {
+        var first = Run(Request(parameters: WithWallRating("30 min")), prefix: 1).Run!;
+        var wall = ResultOf(first, ReviewCheckTypes.FireResistance, "W1-bottom", ZoneA);
+        var overridden = ReviewOverrides.Apply(first, wall.ResultId, ReviewStatus.ManualReview, "外包防火被覆待技師簽證", "王技師", Now,
+            newId: () => Guid.Parse("99999999-0000-0000-0000-000000000002")).Value;
+
+        var same = Run(Request(parameters: WithWallRating("30 min"), previous: overridden), prefix: 2);
+        var kept = Assert.Single(same.Log.Entries, e => e.Code.StartsWith("BCR-OVR-", StringComparison.Ordinal));
+        Assert.Equal(ReviewErrorCode.OverrideCarriedOver, kept.Code);
+        Assert.Equal("BCR-OVR-003", kept.Code);
+        Assert.Equal(ReviewSeverity.Info, kept.Severity);
+        Assert.Equal("人工覆寫沿用", ReviewErrorCode.Describe(kept.Code));
+        Assert.Contains("沿用", kept.UserMessage, StringComparison.Ordinal);
+
+        var moved = Run(Request(parameters: WithWallRating("45 min"), previous: same.Run), prefix: 3);
+        var reconfirm = Assert.Single(moved.Log.Entries, e => e.Code.StartsWith("BCR-OVR-", StringComparison.Ordinal));
+        Assert.Equal(ReviewErrorCode.OverrideNeedsReconfirmation, reconfirm.Code);
+        Assert.Equal("BCR-OVR-002", reconfirm.Code);
+        Assert.Equal(ReviewSeverity.Warning, reconfirm.Severity);
+
+        // 「1hr/2hr」 is a composite nobody can resolve for the tool, so the rerun computes 人工覆核 by
+        // itself — exactly what the override said, so there is nothing left for it to override.
+        var settled = Run(Request(parameters: WithWallRating("1hr/2hr"), previous: overridden), prefix: 4);
+        Assert.Equal(ReviewStatus.ManualReview,
+            ResultOf(settled.Run!, ReviewCheckTypes.FireResistance, "W1-bottom", ZoneA).Status);
+        var dropped = Assert.Single(settled.Log.Entries, e => e.Code.StartsWith("BCR-OVR-", StringComparison.Ordinal));
+        Assert.Equal(ReviewErrorCode.OverrideDropped, dropped.Code);
+        Assert.Equal("BCR-OVR-004", dropped.Code);
+        Assert.Equal(ReviewSeverity.Info, dropped.Severity);
+        Assert.Equal("人工覆寫不再沿用", ReviewErrorCode.Describe(dropped.Code));
+        Assert.Contains("不再沿用", dropped.UserMessage, StringComparison.Ordinal);
+        Assert.NotEqual(ReviewErrorCode.OverrideCarriedOver, dropped.Code);
+    }
+
+    /// <summary>
+    /// C-01, the regression: BCR-RUN-003 means 檢討完成 and nothing else. It used to be the code that eight
+    /// different kinds of entry rode on, so a log of 800 lines said the review had finished 800 times.
+    /// Between them the two runs below reach all seven of those call sites that live in the core runner —
+    /// no one run can, because 未檢討 (RUN-007) only happens without a 帷幕牆 reader and the reader's own
+    /// warning (CW-008) only with one — and each is pinned by name, so moving any of them back onto
+    /// BCR-RUN-003 fails here rather than passing unnoticed because that call site was off this run's
+    /// path. The eighth, BCR-MARK-004, is the 標示摘要 in the Revit add-in and out of this project's reach.
+    /// </summary>
+    [Fact]
+    public void Only_the_run_summary_carries_the_completed_code()
+    {
+        var first = Run(Request(parameters: WithWallRating("30 min")), prefix: 1).Run!;
+        var wall = ResultOf(first, ReviewCheckTypes.FireResistance, "W1-bottom", ZoneA);
+        var overridden = ReviewOverrides.Apply(first, wall.ResultId, ReviewStatus.ManualReview, "外包防火被覆待技師簽證", "王技師", Now,
+            newId: () => Guid.Parse("99999999-0000-0000-0000-000000000003")).Value;
+
+        // Run A: a 未符合 with no code of its own, a result that carries one, the 帷幕牆 reader's warning,
+        // a carried-over override, the performance line and the summary.
+        var read = Run(Request(parameters: WithWallRating("30 min"), previous: overridden,
+            curtainWalls: new CurtainWalls(warning: "呼叫端指定的區劃元素中有 1 個是帷幕牆。")), prefix: 2);
+
+        Assert.True(read.IsCompleted, read.Message);
+        Assert.True(read.Log.Entries.Count > 10, "the run should produce a log worth filtering");
+        foreach (var code in new[]
+                 {
+                     ReviewErrorCode.ReviewFinding, ReviewErrorCode.CurtainWallReaderWarning,
+                     ReviewErrorCode.OverrideCarriedOver, ReviewErrorCode.ReviewPerformance
+                 })
+            Assert.Contains(read.Log.Entries, e => e.Code == code);
+        AssertTheSummaryIsTheOnlyCompletedEntry(read);
+
+        // Run B: no reader at all (RUN-007), a 管道間 whose 維修門 makes 垂直區劃 report its four rows
+        // (RUN-008), and inputs that still name C 區 after it left the package (RUN-006).
+        var shaft = ShaftParameters();
+        shaft.Elements["area-c"] = new Dictionary<string, ParameterReading>
+        {
+            [ReviewInputSources.Sprinklered] = ParameterReading.OfYesNo(0),
+            [ReviewInputSources.ZoneUse] = ParameterReading.OfText("辦公"),
+            [ReviewInputSources.FloorNumber] = ParameterReading.OfInteger(1)
+        };
+        var inputs = ReviewInputAssembler.Assemble(Set(openings: ShaftDoorOnly(), zones: Zones()), shaft.Snapshot());
+        var unread = Run(new FireReviewRequest(Package(), Rules(), Today, Set(openings: ShaftDoorOnly()), inputs,
+            Environment(), prescanElapsed: TimeSpan.FromSeconds(1)), prefix: 5);
+
+        Assert.True(unread.IsCompleted, unread.Message);
+        foreach (var code in new[]
+                 {
+                     ReviewErrorCode.ReviewCheckNotRun, ReviewErrorCode.ReviewCheckSummary,
+                     ReviewErrorCode.ReviewCheckWarning
+                 })
+            Assert.Contains(unread.Log.Entries, e => e.Code == code);
+        AssertTheSummaryIsTheOnlyCompletedEntry(unread);
+    }
+
+    private static void AssertTheSummaryIsTheOnlyCompletedEntry(FireReviewOutcome outcome)
+    {
+        var summary = Assert.Single(outcome.Log.Entries, e => e.Code == ReviewErrorCode.ReviewCompleted);
+        Assert.StartsWith("檢討完成（規則集 ", summary.UserMessage, StringComparison.Ordinal);
+        Assert.Equal("檢討完成", ReviewErrorCode.Describe(summary.Code));
+        Assert.All(outcome.Log.Entries, e => Assert.True(ReviewErrorCode.IsKnown(e.Code), e.Code));
+    }
+
+    /// <summary>
+    /// The same three storeys as <see cref="AtriumStoreys"/>, moved up so the 挑空 tops out at 11F: the
+    /// 挑空 and its 所在區劃 on 11F, one 區劃 under both on 10F. 連跨 2 層 from 10F, so 所跨最高樓層序 is 11
+    /// and 第83條's 區劃面積 rule takes over from 第79條's (決議 34).
+    /// </summary>
+    private static ReviewModelFacts AtriumStoreysToppingOutAt11F() =>
+        ReviewModelFacts.None.WithStoreys(new StoreyZoneMap(new[]
+        {
+            new StoreyZone(PackageId, ZoneA, "level-1F", 10, "11F", "A 區", ZoneUses.Atrium, 11,
+                PlanUnits.SquareMetersToSquareFeet(100), new[] { Rect(0, 0, 10, 10) }, new[] { "area-a" }),
+            new StoreyZone(PackageId, ZoneB, "level-1F", 10, "11F", "B 區", "辦公", 11,
+                PlanUnits.SquareMetersToSquareFeet(300), new[] { Rect(10, 0, 20, 10) }, new[] { "area-b" }),
+            new StoreyZone(LowerPackageId, LowerZoneId, "level-below", 0, "10F", "大廳", "辦公", 10,
+                PlanUnits.SquareMetersToSquareFeet(600), new[] { Rect(0, 0, 20, 10) }, new[] { "area-1f" })
+        }));
+
+    /// <summary>The 挑空 A 區, whose Revit Area no longer agrees with the boundary that encloses it.</summary>
+    private static ZoneObservation AtriumAreaLargerThanItsBoundary(double revitSquareMeters) =>
+        new(ZoneA, "A 區", new[]
+        {
+            new ZonePartObservation("area-a", new[] { Rect(0, 0, 10, 10) },
+                PlanUnits.SquareMetersToSquareFeet(revitSquareMeters))
+        });
+
+    /// <summary>The log entry that reports one result, found by the ResultId its technical detail names.</summary>
+    private static bool Mentions(ReviewLogEntry entry, ReviewResult result) =>
+        entry.TechnicalDetail?.Contains(result.ResultId.ToString("D"), StringComparison.Ordinal) == true;
 
     // --- domain ---------------------------------------------------------------------------------
 

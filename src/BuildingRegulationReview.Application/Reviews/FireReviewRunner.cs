@@ -220,7 +220,7 @@ public sealed class ReviewPerformance
         }
         else
         {
-            log.Add(ReviewErrorCode.ReviewCompleted, ReviewStage.Review, ReviewSeverity.Info,
+            log.Add(ReviewErrorCode.ReviewPerformance, ReviewStage.Review, ReviewSeverity.Info,
                 "效能：" + Summary + "。", technicalDetail: StageDetail);
         }
     }
@@ -396,7 +396,7 @@ public static class FireReviewRunner
         var set = request.Candidates;
         if (request.CurtainWallReader is null || request.Package.AreaPlanUniqueId is null)
         {
-            log.Add(ReviewErrorCode.ReviewCompleted, ReviewStage.Review, ReviewSeverity.Info,
+            log.Add(ReviewErrorCode.ReviewCheckNotRun, ReviewStage.Review, ReviewSeverity.Info,
                 request.CurtainWallReader is null
                     ? "本次檢討沒有讀取帷幕牆幾何，帷幕牆區劃交接未檢討。"
                     : "這個工作包沒有 Area Plan，無法讀取帷幕牆幾何，帷幕牆區劃交接未檢討。");
@@ -514,7 +514,7 @@ public static class FireReviewRunner
                      .Concat(rating.Warnings).Concat(opening.Warnings).Concat(junction.Warnings)
                      .Concat(shaft.Warnings)
                      .Distinct(StringComparer.Ordinal))
-            log.Add(ReviewErrorCode.ReviewCompleted, ReviewStage.Review, ReviewSeverity.Warning, warning);
+            log.Add(ReviewErrorCode.ReviewCheckWarning, ReviewStage.Review, ReviewSeverity.Warning, warning);
 
         // 垂直區劃規格 §7: all four rows are logged even when a row is empty, because a 管道間 whose
         // 維修門 was never modelled — or a storey with no 挑空 — reads the same as a row that was not
@@ -522,7 +522,7 @@ public static class FireReviewRunner
         // rather than 第1項 alone (§7.3).
         if (shaft.Findings.Count > 0)
         {
-            log.Add(ReviewErrorCode.ReviewCompleted, ReviewStage.Review, ReviewSeverity.Info,
+            log.Add(ReviewErrorCode.ReviewCheckSummary, ReviewStage.Review, ReviewSeverity.Info,
                 "垂直區劃（第79條之2）：" + string.Join("；", shaft.Groups.Select(g =>
                     $"{g.Label} {g.DeviceCount} 件{ReviewStatusText.Label(g.Status)}")) + "。");
         }
@@ -544,8 +544,14 @@ public static class FireReviewRunner
         foreach (var (result, code, element) in findings)
         {
             if (code is null && result.Status != ReviewStatus.Fail) continue;
-            log.Add(code ?? ReviewErrorCode.ReviewCompleted, ReviewStage.Review,
-                result.Status == ReviewStatus.Fail ? ReviewSeverity.Warning : ReviewSeverity.Info,
+
+            // 驗證清單 C-01：log.warnings 要回答的是「工具有沒有遇到麻煩」，判定的統計則由檢討表負責。
+            // 結果自己帶錯誤碼，就是某個檢查在抱怨它讀到的輸入（缺參數、時效讀不出來、幾何歧義、面積
+            // 來源無法確認），那才是工具的麻煩，不論它最後判成資料不足、人工覆核還是未符合，一律升為
+            // Warning，ReviewLogDigest 依嚴重度取樣的前 20 筆才會先端出它們。沒有自己錯誤碼的（只會在
+            // Fail 時走到這裡）純粹是判定，記 Info——否則幾百筆未符合會把上面那些資料問題全部擠掉。
+            log.Add(code ?? ReviewErrorCode.ReviewFinding, ReviewStage.Review,
+                code is not null ? ReviewSeverity.Warning : ReviewSeverity.Info,
                 $"{ReviewTable.Title(result.CheckType)}「{ReviewStatusText.Label(result.Status)}」：{result.Message}",
                 elementUniqueId: element,
                 technicalDetail: $"Result {result.ResultId:D}; Rule {result.RuleId} v{result.RuleVersion}; Zone {result.ZoneId}");
@@ -556,11 +562,18 @@ public static class FireReviewRunner
     {
         foreach (var entry in report.Entries)
         {
-            log.Add(entry.Outcome == OverrideCarryOverOutcome.NeedsReconfirmation
-                    ? ReviewErrorCode.OverrideNeedsReconfirmation
-                    : ReviewErrorCode.ReviewCompleted,
-                ReviewStage.Review,
-                entry.Outcome == OverrideCarryOverOutcome.NeedsReconfirmation ? ReviewSeverity.Warning : ReviewSeverity.Info,
+            // 驗證清單 C-01：三種結局三個碼。Kept 與 Dropped 共用一個碼時，日誌會出現「碼寫沿用、訊息寫
+            // 不再沿用」的列——那正是 C-01 要消滅的錯配。每個結局逐一列出、剩下的丟例外，是為了讓將來
+            // 新增結局時當場炸開，而不是默默掛到某個語意不符的碼上。
+            var (code, severity) = entry.Outcome switch
+            {
+                OverrideCarryOverOutcome.Kept => (ReviewErrorCode.OverrideCarriedOver, ReviewSeverity.Info),
+                OverrideCarryOverOutcome.NeedsReconfirmation => (ReviewErrorCode.OverrideNeedsReconfirmation, ReviewSeverity.Warning),
+                OverrideCarryOverOutcome.Dropped => (ReviewErrorCode.OverrideDropped, ReviewSeverity.Info),
+                _ => throw new InvalidOperationException($"人工覆寫沿用結局 {entry.Outcome} 沒有對應的錯誤碼。")
+            };
+
+            log.Add(code, ReviewStage.Review, severity,
                 $"人工覆寫（{entry.Previous.OverriddenBy}：{ReviewStatusText.Label(entry.Previous.OverriddenStatus)}）" +
                 OutcomeText(entry.Outcome) + "：" + entry.Message,
                 technicalDetail: $"Override {entry.Previous.OverrideId:D} -> Result {entry.NewResultId?.ToString("D") ?? "-"}");

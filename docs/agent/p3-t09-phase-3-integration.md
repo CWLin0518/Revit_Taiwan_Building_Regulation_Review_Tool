@@ -34,10 +34,12 @@ spec 第 11 節與 16.3 的逐條對照見 `docs/agent/phase-3-acceptance.md`。
   - 依序跑區劃面積 → 構件防火時效 → 防火門窗 → baseline 與覆寫沿用；每一步之間是安全點，檢查 `CancellationToken` 並回報 `FireReviewProgress`。
   - 取消 → 不產生 run、套件不變（`BCR-RUN-002`）；任一檢查拒絕 → 整批 Failed，不存半套結果。
   - 完成 → `ReviewRun.Complete(…, baseline)`；前次 Completed run 有覆寫時 `ReviewOverrides.CarryOver`；套件 `WithReviewRun`（Reviewed、鎖定規則集／版本、LastReviewRunId，BoundaryRevision 不動）。
-  - 日誌：檢查警告、帶錯誤碼的結果（含元素 UniqueId）、覆寫沿用／需重新確認、檢討摘要（`BCR-RUN-003`）、效能。
-  - `ReviewPerformance`（spec 15）：5,000 個候選以內前置掃描 10 秒、檢討 30 秒；超過 5,000 按比例放寬；超標 → `BCR-PERF-001` 警告並附各階段毫秒數。
+  - 日誌五類，每一類都有自己的碼（驗證清單 C-01）：檢查警告（`BCR-RUN-006`）／檢查項目未執行（`BCR-RUN-007`）／檢查項目摘要（`BCR-RUN-008`）、結果（含元素 UniqueId；檢查給了自己的錯誤碼就用那個碼，否則 `BCR-RUN-005`）、覆寫沿用（`BCR-OVR-003`）／需重新確認（`BCR-OVR-002`）／不再沿用（`BCR-OVR-004`）、檢討摘要（`BCR-RUN-003`，整次檢討只有這一筆）、效能（`BCR-PERF-001`／`BCR-PERF-002`）。
+    - severity 的依據是「這一筆是不是工具遇到的麻煩」，不是判定好壞：結果自己帶錯誤碼就是某個檢查在抱怨它讀到的輸入（缺參數、時效讀不出來、幾何歧義、面積來源無法確認），不論最後判成資料不足、人工覆核或未符合，一律 Warning；沒有自己錯誤碼的結果純粹是判定（實務上就是未符合），記 Info，由檢討表負責統計。這樣 `ReviewLogDigest` 依嚴重度取樣的前 20 筆才會先端出資料問題，而不是被幾百筆未符合擠滿——反過來綁在「未符合」上等於沒有任何資料問題進得了 warnings，因為所有會賦碼的分支結論都是資料不足／人工覆核／不適用，從來不是未符合。
+    - 刻意的例外：檢討摘要（`BCR-RUN-003`）仍依 `Verdict == Fail ? Warning : Info`。它整次檢討只有一筆，不會淹沒任何東西；維持 Warning 是為了保證它不被幾百筆 Info 從 digest 的前 20 筆擠出去——這一筆是整份日誌的入口，不是「工具健康度」的一部分。
+  - `ReviewPerformance`（spec 15）：5,000 個候選以內前置掃描 10 秒、檢討 30 秒；超過 5,000 按比例放寬；超標 → `BCR-PERF-001` 警告並附各階段毫秒數，未超標 → `BCR-PERF-002` 效能紀錄。
 - `StoredRunInspection.cs`：重開模型時以目前 baseline 判定最新 run（`ReviewRunValidity`）、暫停失效結果上的覆寫、Reviewed → Stale，回傳要不要寫回。
-- `ReviewErrorCode`：`BCR-PRE-001/002`、`BCR-ENV-001`、`BCR-RUN-002/003/004`、`BCR-PERF-001`。
+- `ReviewErrorCode`：`BCR-PRE-001/002`、`BCR-ENV-001`、`BCR-RUN-002/003/004/005/006/007/008`、`BCR-OVR-003/004`、`BCR-PERF-001/002`。
 
 ### Domain
 

@@ -118,21 +118,94 @@ public static class ReviewErrorCode
     // 人工覆寫（spec 11.8）
     public const string OverrideRejected = "BCR-OVR-001";
     public const string OverrideNeedsReconfirmation = "BCR-OVR-002";
-    public const string ReviewRunUnreadable = "BCR-RUN-001";
+
+    /// <summary>
+    /// A 人工覆寫 the next run carried over unchanged — same rule version, same evidence, same computed
+    /// status — so it still decides its result without being reconfirmed (spec 11.8、驗證清單 C-01). It is
+    /// a statement about an override, not about the run that finished, so it carries its own code rather
+    /// than riding on <see cref="ReviewCompleted"/>: a user asking「我上次的覆寫還在嗎」filters on this,
+    /// and its siblings <see cref="OverrideNeedsReconfirmation"/> and <see cref="OverrideDropped"/> are
+    /// useless as filters if only one of the three outcomes is named.
+    /// </summary>
+    public const string OverrideCarriedOver = "BCR-OVR-003";
+
+    /// <summary>
+    /// A 人工覆寫 the next run stopped carrying over, for either of the two reasons
+    /// <see cref="Reviews.OverrideCarryOverOutcome.Dropped"/> covers: the new run has no matching result
+    /// at all, or it already computes by itself what the override said, so there is nothing left to
+    /// override. Neither is anything for the user to act on, hence Info — but the line says
+    /// 「不再沿用」, so it cannot share <see cref="OverrideCarriedOver"/>'s code, whose description reads
+    /// 「人工覆寫沿用」: a code whose name contradicts its own message is the very mismatch 驗證清單 C-01
+    /// set out to remove.
+    /// </summary>
+    public const string OverrideDropped = "BCR-OVR-004";
 
     // 檢討視圖標示（spec 11.4 第 4 點、11.5 第 6 點、11.6 第 4 點）
     public const string ReviewMarkRefused = "BCR-MARK-001";
     public const string ReviewMarkSkipped = "BCR-MARK-002";
     public const string ReviewMarkUserChangeKept = "BCR-MARK-003";
 
+    /// <summary>
+    /// The 檢討視圖 was marked, and this is what was drawn on it (驗證清單 C-01). Marking happens after
+    /// the review is already decided and stored, so「標示完成」and「檢討完成」are two different events
+    /// in the same log: giving the mark its own code keeps
+    /// <see cref="ReviewCompleted"/> to the one 檢討摘要 entry, and pairs this line with
+    /// <see cref="ReviewMarkRefused"/>, which is what the same line says when the mark rolled back.
+    /// </summary>
+    public const string ReviewMarkCompleted = "BCR-MARK-004";
+
     // 前置檢查、執行、取消與效能（spec 11.1、13.2、15）
     public const string ReviewNotReady = "BCR-PRE-001";
     public const string ReviewReady = "BCR-PRE-002";
     public const string EnvironmentLimited = "BCR-ENV-001";
+    public const string ReviewRunUnreadable = "BCR-RUN-001";
     public const string ReviewCancelled = "BCR-RUN-002";
     public const string ReviewCompleted = "BCR-RUN-003";
     public const string ReviewSaveRolledBack = "BCR-RUN-004";
+
+    /// <summary>
+    /// One 檢討結果 recorded in the log, where no check handed the result a code of its own
+    /// (驗證清單 C-01). Without a code the result is a plain verdict about the building — in practice a
+    /// 未符合 — so it is neither <see cref="ReviewCompleted"/> nor a warning, and is always logged at Info:
+    /// the 檢討表 counts it, and the log merely repeats it beside the element's UniqueId. A result that
+    /// does carry a code keeps that code and is a warning instead, because such a code is a check saying
+    /// it could not read its input. That split is what lets a reader separate「判定」from
+    /// 「工具遇到的麻煩」without reading all eight hundred messages.
+    /// </summary>
+    public const string ReviewFinding = "BCR-RUN-005";
+
+    /// <summary>
+    /// A warning one of the six checks raised about what it could and could not review
+    /// (驗證清單 C-01). It is the check speaking about its own inputs — an unreadable 用途, a 區劃 it had
+    /// to leave out — so it is a real 工具警告 and belongs in <c>log.warnings</c>, which is exactly why
+    /// it must not share a code with the 檢討摘要 <see cref="ReviewCompleted"/> writes once per run.
+    /// </summary>
+    public const string ReviewCheckWarning = "BCR-RUN-006";
+
+    /// <summary>
+    /// A check that was not run at all, with the reason (驗證清單 C-01): no 帷幕牆 geometry reader was
+    /// supplied, or the package has no Area Plan to read one from. 未檢討 is not 檢討完成 — a reader who
+    /// sees this code knows the 檢討表 row is empty by design rather than because nothing was found.
+    /// </summary>
+    public const string ReviewCheckNotRun = "BCR-RUN-007";
+
+    /// <summary>
+    /// One check's own group summary — today only 垂直區劃（第79條之2）'s four requirement rows
+    /// (驗證清單 C-01). It reads like the run summary but is not one: it says nothing about whether the
+    /// review finished, so <see cref="ReviewCompleted"/> stays the single entry that marks the end of
+    /// the run and this line is filtered apart from it.
+    /// </summary>
+    public const string ReviewCheckSummary = "BCR-RUN-008";
+
     public const string PerformanceExceeded = "BCR-PERF-001";
+
+    /// <summary>
+    /// The spec 15 timing of a run that stayed within its targets (驗證清單 C-01). It is the same
+    /// measurement <see cref="PerformanceExceeded"/> reports, only without the complaint, so it is the
+    /// 效能 class of log entry and not the 檢討摘要 one: a maintainer comparing runs filters on
+    /// <c>BCR-PERF-*</c> and must get the fast runs too.
+    /// </summary>
+    public const string ReviewPerformance = "BCR-PERF-002";
 
     private static readonly IReadOnlyDictionary<string, string> Descriptions =
         new ReadOnlyDictionary<string, string>(new Dictionary<string, string>(StringComparer.Ordinal)
@@ -180,17 +253,25 @@ public static class ReviewErrorCode
             { CurtainWallReaderWarning, "帷幕牆幾何讀取警告" },
             { OverrideRejected, "人工覆寫不成立" },
             { OverrideNeedsReconfirmation, "人工覆寫需重新確認" },
-            { ReviewRunUnreadable, "檢討紀錄無法讀取" },
+            { OverrideCarriedOver, "人工覆寫沿用" },
+            { OverrideDropped, "人工覆寫不再沿用" },
             { ReviewMarkRefused, "檢討視圖無法標示" },
             { ReviewMarkSkipped, "未符合項目未標示" },
             { ReviewMarkUserChangeKept, "保留使用者修改的元素顯示" },
+            { ReviewMarkCompleted, "檢討視圖已標示" },
             { ReviewNotReady, "前置檢查未通過" },
             { ReviewReady, "前置檢查" },
             { EnvironmentLimited, "模型條件超出 MVP 範圍" },
+            { ReviewRunUnreadable, "檢討紀錄無法讀取" },
             { ReviewCancelled, "檢討已取消" },
             { ReviewCompleted, "檢討完成" },
             { ReviewSaveRolledBack, "檢討結果寫入已整批復原" },
-            { PerformanceExceeded, "超出效能目標" }
+            { ReviewFinding, "檢討結果" },
+            { ReviewCheckWarning, "檢討項目警告" },
+            { ReviewCheckNotRun, "檢討項目未執行" },
+            { ReviewCheckSummary, "檢討項目摘要" },
+            { PerformanceExceeded, "超出效能目標" },
+            { ReviewPerformance, "效能紀錄" }
         });
 
     /// <summary>Every code this tool can emit, for the documentation and for the tests that pin it.</summary>

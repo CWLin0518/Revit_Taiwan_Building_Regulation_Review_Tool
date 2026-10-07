@@ -375,7 +375,7 @@ namespace BuildingRegulationReview.FireReview
                             log.Add(item.Outcome == ApplyOutcome.Failed ? ReviewErrorCode.ReviewMarkRefused : ReviewErrorCode.ReviewMarkSkipped,
                                 ReviewStage.Review, ReviewSeverity.Warning, item.Text, item.ElementUniqueId);
                         }
-                        log.Add(mark.IsRolledBack ? ReviewErrorCode.ReviewMarkRefused : ReviewErrorCode.ReviewCompleted, ReviewStage.Review,
+                        log.Add(mark.IsRolledBack ? ReviewErrorCode.ReviewMarkRefused : ReviewErrorCode.ReviewMarkCompleted, ReviewStage.Review,
                             mark.IsRolledBack ? ReviewSeverity.Warning : ReviewSeverity.Info, mark.Summary,
                             suggestion: mark.IsRolledBack ? "檢討結果已儲存；可在檢討表按「重新標示」再試一次。" : null);
                     }
