@@ -46,6 +46,16 @@ public sealed class ReviewInputSource
         Hosts = new ReadOnlyCollection<ReviewParameterHost>(hosts);
     }
 
+    private ReviewInputSource(ReviewInputSource other, bool blankIsDeclaredValue)
+    {
+        Field = other.Field;
+        ParameterName = other.ParameterName;
+        Level = other.Level;
+        Label = other.Label;
+        Hosts = other.Hosts;
+        BlankIsDeclaredValue = blankIsDeclaredValue;
+    }
+
     /// <summary>The whitelisted rule field, e.g. <c>zone.sprinklered</c>.</summary>
     public string Field { get; }
 
@@ -56,6 +66,31 @@ public sealed class ReviewInputSource
     public string Label { get; }
 
     public IReadOnlyList<ReviewParameterHost> Hosts { get; }
+
+    /// <summary>
+    /// 參數綁著、但每一個宿主都留空時，這個欄位要不要當成「已宣告的空值」而不是「沒填」。
+    /// 預設 false，而且必須預設 false：<c>element.providedFireRating</c>、<c>zone.interiorFinish</c>
+    /// 這類欄位留空時唯一安全的解讀就是資料不足——把空白讀成「沒有時效」「沒有耐燃等級」會讓一個
+    /// 根本還沒填的模型判出「未符合」或更糟的「符合」。所以這是逐欄位開啟的例外，不是通則。
+    /// </summary>
+    /// <remarks>
+    /// 只有 <c>zone.use</c> 帶這個標記。區劃用途是自由文字，而且批次面板與 MCP 工具說明都明文把
+    /// 「留空」定義成「一般區劃」——使用者是用留空在回答，不是漏填。再加上面積規則的豁免清單是封閉的
+    /// ——<see cref="Parameters.ZoneUses.VerticalCompartments"/> 那五種垂直區劃，而且只有那五種：
+    /// 第79條之1 的六個用字刻意不在任何一條面積規則的豁免清單裡（ZoneUses §3.6 的註解），它們只決定
+    /// 哪個區劃拿到第79條之1的人工覆核——所以用途空白時「這個區劃是不是垂直區劃」這件事是
+    /// **確定為否**，不是不知道。
+    /// 少了這個標記，第79條／第83條的面積規則會因為 <c>zone.use == "挑空"</c> 這類豁免比不到事實而
+    /// 評成 Unknown，<see cref="Domain.Rules.RuleEngine"/> 便在面積超限時把未符合改報成資料不足
+    /// （引擎那層的保守是刻意的，不該為此放寬），於是「照規定留空」的一般區劃超限時永遠不會說未符合。
+    /// </remarks>
+    public bool BlankIsDeclaredValue { get; }
+
+    /// <summary>
+    /// 這個來源的複本，但空白算一個已宣告的值。寫成複本而不是建構子參數，是為了讓登錄表上那一行
+    /// 自己說出例外在哪裡，也避免 <c>params hosts</c> 之前多一個布林參數讓每個呼叫端都要改。
+    /// </summary>
+    internal ReviewInputSource DeclaringBlankAsValue() => new ReviewInputSource(this, true);
 
     public override string ToString() => $"{Field} ← {ParameterName}";
 }
@@ -134,7 +169,9 @@ public static class ReviewInputSources
         new ReviewInputSource("building.fireResistiveConstruction", FireResistiveConstruction, ReviewParameterLevel.Instance, "是否為防火構造建築物", ReviewParameterHost.ProjectInformation),
         new ReviewInputSource("building.use", BuildingUse, ReviewParameterLevel.Instance, "建築物用途類組", ReviewParameterHost.ProjectInformation),
         new ReviewInputSource("building.floorsAboveGround", FloorsAboveGround, ReviewParameterLevel.Instance, "地上層數", ReviewParameterHost.ProjectInformation),
-        new ReviewInputSource("zone.use", ZoneUse, ReviewParameterLevel.Instance, "區劃用途", ReviewParameterHost.Areas),
+        // 唯一帶 BlankIsDeclaredValue 的欄位：留空就是「一般區劃」這個明確宣告（見該屬性的 remarks）。
+        new ReviewInputSource("zone.use", ZoneUse, ReviewParameterLevel.Instance, "區劃用途", ReviewParameterHost.Areas)
+            .DeclaringBlankAsValue(),
         new ReviewInputSource("zone.sprinklered", Sprinklered, ReviewParameterLevel.Instance, "是否設有自動滅火設備", ReviewParameterHost.Areas),
         new ReviewInputSource("zone.floorNumber", FloorNumber, ReviewParameterLevel.Instance, "所在樓層序", ReviewParameterHost.Areas),
         new ReviewInputSource("zone.interiorFinish", InteriorFinish, ReviewParameterLevel.Type, "室內裝修耐燃等級", ReviewParameterHost.Walls, ReviewParameterHost.Ceilings),

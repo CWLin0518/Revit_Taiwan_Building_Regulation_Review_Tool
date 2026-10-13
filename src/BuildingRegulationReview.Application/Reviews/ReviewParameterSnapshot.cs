@@ -179,6 +179,11 @@ public sealed class ReviewInputAssembly
 /// says 資料不足), and a value that cannot be understood is <see cref="ReviewInput.Unreadable"/> with
 /// the reason, never false or zero (spec 11.3, spec 18 item 5).
 /// </summary>
+/// <remarks>
+/// 「空白＝沒有供應」有一個逐欄位開啟的例外：<see cref="ReviewInputSource.BlankIsDeclaredValue"/>。
+/// 只有 <c>zone.use</c> 帶它，因為留空是面板與 MCP 工具說明都明文定義的「一般區劃」答案。其餘欄位
+/// （<c>element.providedFireRating</c>、<c>zone.interiorFinish</c>…）空白時一律維持資料不足。
+/// </remarks>
 public static class ReviewInputAssembler
 {
     public static ReviewInputAssembly Assemble(
@@ -444,7 +449,22 @@ public static class ReviewInputAssembler
         var sourceText = "面積：" + source.ParameterName;
         var readings = zone.AreaUniqueIds
             .Select(uid => snapshot.Element(uid, source.ParameterName)).ToList();
-        if (readings.Count == 0 || readings.All(r => !r.HasValue)) return null;
+        if (readings.Count == 0 || readings.All(r => !r.HasValue))
+        {
+            // 參數綁著、而且這個區劃的每一個面積都留空時，帶 BlankIsDeclaredValue 的欄位（只有
+            // zone.use）回一個**已知的空字串**，不是 null。否則事實集裡根本沒有 zone.use，第79條／
+            // 第83條的豁免 `zone.use == "挑空"` 便評成 Unknown，RuleEngine 在面積超限時就把未符合
+            // 改報成「資料不足：zone.use 未設定」——照規定留空的一般區劃永遠不會被說未符合。
+            //
+            // 條件逐項都是必要的：只要有一筆是 Absent（參數沒綁在 Areas 上）就維持 null，那是真的
+            // 不知道，資料不足才對；型別限文字，是因為空字串只在自由文字欄位上代表一個答案。
+            // 這個分支也維持了 ZoneAreaLimits.ZoneAreaLimit 註解立的不變量：面板說「未填」的欄位，
+            // 要正好是引擎會報資料不足的欄位——面板對用途空白的區劃顯示的是有數字的上限，一個未填都沒有。
+            return source.BlankIsDeclaredValue && field.Type.IsText &&
+                   readings.Count > 0 && readings.All(r => r.Kind == ParameterReadingKind.Empty)
+                ? ReviewInput.Known(field.Name, string.Empty, sourceText + "（未填，即一般區劃）")
+                : null;
+        }
 
         var inputs = readings.Select(r => Convert(field, r, sourceText)).ToList();
         var first = inputs[0];

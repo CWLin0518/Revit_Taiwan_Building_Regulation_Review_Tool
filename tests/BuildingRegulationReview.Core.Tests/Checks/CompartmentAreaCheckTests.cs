@@ -307,6 +307,122 @@ public sealed class CompartmentAreaCheckTests
         Assert.DoesNotContain("第79條之2", finding.Result.Message);
     }
 
+    // --- 區劃用途留空＝一般區劃（C-06）------------------------------------------------------------
+    //
+    // 這一組必須走 ReviewInputAssembler，不能用上面的 Inputs()：缺陷就在「參數綁著但每個面積都留空」
+    // 這個讀值經過 ZoneInput 的那一刻——以前它整個欄位都不進事實集，於是面積規則的豁免
+    // `zone.use == "挑空"` 評成 Unknown，RuleEngine 在超限時把未符合改報成資料不足。手刻 ReviewInput
+    // 的測試無論怎麼寫都看不到這一段，所以斷言的層級是「跑完整個區劃面積檢討後的狀態」。
+
+    /// <summary>
+    /// 一個區劃用途讀值照 Revit 讀到的樣子（沒有這個參數／有但空白／填了字）組出來的檢討輸入。
+    /// 防火構造與自動滅火設備一併給齊，否則 <see cref="AreaRule"/> 連 appliesWhen 都判不出來。
+    /// </summary>
+    private static CompartmentAreaInputs AssembledInputs(CandidateSet set, ParameterReading zoneUse, int? floorNumber = null)
+    {
+        var area = new Dictionary<string, ParameterReading>(StringComparer.Ordinal)
+        {
+            [ReviewInputSources.ZoneUse] = zoneUse,
+            [ReviewInputSources.Sprinklered] = ParameterReading.OfYesNo(0)
+        };
+        if (floorNumber is int floor) area[ReviewInputSources.FloorNumber] = ParameterReading.OfInteger(floor);
+
+        return ReviewInputAssembler.Assemble(set, new ReviewParameterSnapshot(
+            new[]
+            {
+                new KeyValuePair<string, ReviewParameterHost>(ReviewInputSources.FireResistiveConstruction, ReviewParameterHost.ProjectInformation),
+                new KeyValuePair<string, ReviewParameterHost>(ReviewInputSources.ZoneUse, ReviewParameterHost.Areas),
+                new KeyValuePair<string, ReviewParameterHost>(ReviewInputSources.Sprinklered, ReviewParameterHost.Areas),
+                new KeyValuePair<string, ReviewParameterHost>(ReviewInputSources.FloorNumber, ReviewParameterHost.Areas)
+            },
+            new Dictionary<string, ParameterReading>(StringComparer.Ordinal)
+            {
+                [ReviewInputSources.FireResistiveConstruction] = ParameterReading.OfYesNo(1)
+            },
+            new Dictionary<string, IReadOnlyDictionary<string, ParameterReading>>(StringComparer.Ordinal)
+            {
+                ["area-a"] = area
+            })).Area;
+    }
+
+    /// <summary>
+    /// 批次面板明文把「用途留空」定義成一般區劃，面板自己的 use 欄位就是留空。那樣的區劃超限時要說
+    /// 未符合，不能說資料不足——未符合被藏在資料不足後面，使用者看到的是「去補一個本來就不該填的欄位」。
+    /// </summary>
+    [Fact]
+    public void A_blank_zone_use_is_a_general_compartment_so_exceeding_the_limit_fails()
+    {
+        var set = OneZone(1500.5);
+        var finding = Single(Review(set, AssembledInputs(set, ParameterReading.Empty)));
+
+        Assert.Equal(ReviewStatus.Fail, finding.Status);
+        Assert.DoesNotContain("無法確認是否符合豁免條件", finding.Result.Message);
+        Assert.DoesNotContain("zone.use 未設定", finding.Result.Message);
+
+        // 空白是一個已知事實，不是缺漏：證據上看得到它，審查者才知道引擎是憑什麼說不豁免。
+        Assert.Equal(ReviewValue.OfText(string.Empty), finding.Result.Evidence.Find("zone.use"));
+    }
+
+    /// <summary>用途留空而且沒超限時仍然符合：這個修正不該把原本會過的區劃弄成別的狀態。</summary>
+    [Fact]
+    public void A_blank_zone_use_within_the_limit_still_passes()
+    {
+        var set = OneZone(1500);
+
+        Assert.Equal(ReviewStatus.Pass, Single(Review(set, AssembledInputs(set, ParameterReading.Empty))).Status);
+    }
+
+    /// <summary>
+    /// 填了垂直區劃以外的任何字，答案要與留空一致：兩次只差這一個欄位，判定卻不同就是 C-06 的現象。
+    /// </summary>
+    [Fact]
+    public void A_zone_use_that_is_not_a_vertical_compartment_answers_the_same_as_a_blank_one()
+    {
+        var set = OneZone(1500.5);
+        var typed = Single(Review(set, AssembledInputs(set, ParameterReading.OfText("辦公室"))));
+        var blank = Single(Review(set, AssembledInputs(set, ParameterReading.Empty)));
+
+        Assert.Equal(ReviewStatus.Fail, typed.Status);
+        Assert.Equal(ReviewStatus.Fail, blank.Status);
+    }
+
+    /// <summary>
+    /// 同一件事在**出貨規則集**上也要成立。合成的 AreaRule() 只有一階，而出貨的是兩階：
+    /// tw-bcr-83-area 讀 zone.floorNumber，沒填會停在 UndecidedApplicability，所以「留空用途＋超限
+    /// → 未符合」只在樓層序已填時成立。這條釘住的就是實機（MCP）會走的那條路徑。
+    /// </summary>
+    [Fact]
+    public void The_shipped_rules_also_fail_a_blank_use_over_the_limit()
+    {
+        var json = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow };
+        var path = Path.Combine(AppContext.BaseDirectory, "Rules", "BuiltIn", "fire-review-rules.json");
+        var loaded = RuleSetCompiler.Load(JsonSerializer.Deserialize<RuleSetDocument>(File.ReadAllText(path), json));
+        Assert.True(loaded.IsSuccess, loaded.IsSuccess ? string.Empty : loaded.Error.ToString());
+
+        var set = OneZone(1500.5);
+        var finding = Single(Review(set, AssembledInputs(set, ParameterReading.Empty, floorNumber: 3),
+            new RuleEngine(loaded.Value)));
+
+        Assert.Equal(ReviewStatus.Fail, finding.Status);
+        Assert.DoesNotContain("無法確認是否符合豁免條件", finding.Result.Message);
+        Assert.Equal("tw-bcr-79-area", finding.Result.RuleId);
+    }
+
+    /// <summary>
+    /// 界線：面積上**沒有** 防火檢討_區劃用途 這個參數時，用途是真的不知道，超限仍然是資料不足。
+    /// 「空白有意義」只對綁著卻留空成立；把沒綁也讀成空字串，等於拿一個沒人宣告過的答案去排除豁免。
+    /// </summary>
+    [Fact]
+    public void An_unbound_zone_use_parameter_is_still_insufficient_data_when_the_limit_is_exceeded()
+    {
+        var set = OneZone(1500.5);
+        var finding = Single(Review(set, AssembledInputs(set, ParameterReading.Absent)));
+
+        Assert.Equal(ReviewStatus.InsufficientData, finding.Status);
+        Assert.Contains("無法確認是否符合豁免條件", finding.Result.Message);
+        Assert.Contains("zone.use 未設定", finding.Result.Message);
+    }
+
     [Fact]
     public void An_undecidable_exemption_only_matters_when_the_limit_is_exceeded()
     {

@@ -235,6 +235,15 @@ public static class FireResistanceCheck
                 var relation = member.RelationTo(zone.ZoneId)!;
                 if (relation.IsAmbiguous) continue;
 
+                // 室內外未定的帷幕牆在區劃邊界上：這一列改由下面的 ambiguity 迴圈產出人工覆核
+                // （CandidateResolver 已為每一個 boundary 關係登了 CurtainWallExposureUndecided）。
+                // 不在這裡跳過的話，tw-bcr-79-wall-rating 版本 3 的 appliesWhen 明文排除 Unknown，
+                // 這一輪只會得到 NoRuleApplies，於是同一個構件×區劃會同時出現「不適用」與「人工覆核」
+                // 兩列，而規格要的是一列（docs/regulations/curtain-wall-fire-compartment.md §4.8
+                // 的分流表：室內外未定時「另出一列人工覆核（CurtainWallExposureUndecided）」；§5.5
+                // 版本 3 則是三分流的出處：外牆不列入、室內照常列出、室內外未定仍是一列人工覆核）。
+                if (IsExposureUndecidedBoundary(set, member, relation, inputs, merged)) continue;
+
                 findings.Add(zone.IsClear
                     ? Decide(set, zone, member, inputs, engine, context, runId, newResultId(), merged: merged)
                     : Withhold(set, zone, member, engine.RuleSet, runId, newResultId()));
@@ -243,7 +252,7 @@ public static class FireResistanceCheck
 
         foreach (var ambiguity in set.Ambiguities)
         {
-            var member = AmbiguousMember(set, ambiguity);
+            var member = AmbiguousMember(set, ambiguity) ?? ExposureUndecidedMember(set, ambiguity, inputs, merged);
             if (member is null && ambiguity.Kind != CandidateAmbiguityKind.NoPlanGeometry) continue;
 
             var resultId = newResultId();
@@ -429,6 +438,16 @@ public static class FireResistanceCheck
         MergedAtriums merged)
     {
         if (!IsBoundaryDoubt(ambiguity.Kind) || ambiguity.ZoneId is not Guid zoneId) return null;
+
+        // 室內外未定的帷幕牆不能走這條路。tw-bcr-79-wall-rating 版本 3 的 appliesWhen 排除 Unknown，
+        // 所以「假設它構成邊界」與「假設它不構成」兩支都評成不適用，下面的「不論是否構成區劃邊界，
+        // 規則的結論都相同」便把一個**真正的空缺**讀成一致的答案，逕行判定不適用——連人工覆核都不留。
+        // 這正是 Assuming 的 remarks 寫下要防的那個機制，只是那裡防的是判定被複本丟掉，這裡是判定
+        // 本來就判不出來。回 null 讓那一列保持 ambiguity 自己的人工覆核（此時 AmbiguousMember 找得到
+        // 它，kind 是 BoundaryOffCenterline／BoundaryAlongOutline，訊息講的是邊界存疑而不是室內外；
+        // 那不是最精準的說法，但比一列靜默的不適用好得多，而且使用者修邊界時室內外通常跟著判得出來）。
+        if (member.CurtainWallExposure?.IsUnknown == true) return null;
+
         if (set.Zone(zoneId) is not { IsClear: true } zone) return null;
 
         // A line on the face of an atrium's railing is in doubt only about whether it bounds; between
@@ -506,6 +525,93 @@ public static class FireResistanceCheck
                 ? r
                 : new ZoneRelation(zoneId, kind, r.Message, r.Measurements)),
             member.CurtainWallExposure);
+
+    /// <summary>
+    /// 室內外未定的帷幕牆與某區劃的 boundary 關係，而且「問室內外」確實是這一列唯一缺的答案：
+    /// 主迴圈不為它作答，由 ambiguity 迴圈出那一列人工覆核。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// skip（主迴圈）與查找（<see cref="ExposureUndecidedMember"/>）兩端共用這個述詞，不是為了少寫
+    /// 一次：兩端的條件一旦有一邊寬一邊嚴，那一列就會兩邊落空（主迴圈跳掉、ambiguity 迴圈又比不到）
+    /// 而靜默消失，或兩邊都收而出兩列。共用讓「跳掉幾列就補回幾列」成為結構保證。
+    /// </para>
+    /// <para>
+    /// 只認 boundary，是因為 <see cref="CandidateResolver"/> 只為 boundary 關係登
+    /// <see cref="CandidateAmbiguityKind.CurtainWallExposureUndecided"/>；facade 關係沒有那一列，
+    /// 跳掉就真的是靜默略過了。
+    /// </para>
+    /// <para>
+    /// 後三個條件是護欄：它們成立時，這一列本來就只會是「無規則適用」的不適用，換成人工覆核才是
+    /// 淨賺。它們不成立時，原本那一列講的是**別的、而且更可執行的**事，不能被「問室內外」蓋掉——
+    /// </para>
+    /// <list type="bullet">
+    /// <item>區劃範圍有問題（未封閉／重疊）時原本走 <see cref="Withhold"/>。因果方向是區劃形狀決定
+    /// 室內外判定（<c>CandidateResolver.CurtainWallExposureOf</c> 量的就是區劃），所以區劃壞掉時
+    /// 「判不出室內外」只是症狀，「先去修區劃邊界」才是病因；而且 errorCode 會從
+    /// <c>CandidateZoneUnusable</c> 變成帷幕牆的那一個，構件防火時效這張表從此看不到區劃壞掉的線索。</item>
+    /// <item>非防火構造建築物：六條 FireResistance 規則的 appliesWhen 全都以
+    /// <c>building.fireResistiveConstruction == true</c> 開頭，第79條對這棟樓根本不適用，每一列都該是
+    /// 不適用。這與 <see cref="IsExteriorCurtainWallSetAside"/> 要求同一個事實為 true 是同一道護欄，
+    /// 兩者必須對稱。</item>
+    /// <item>防火構造沒填：原本走 UndecidedApplicability 的資料不足，訊息指名「要填防火構造」。那是
+    /// 未填模型最常見的狀態，也是使用者真正能動手的那個 gap，不能換成一個他無從下手的室內外問題。</item>
+    /// <item>merged 挑空的內部線（決議 37）：那條線兩種假設下都是內部，原本出不適用加
+    /// <c>MergedAtriums.Note</c>。這一條目前是**防禦性**的：<c>MergedAtriums.IsInterior</c> 要求沿線
+    /// 每一處都是「挑空｜連通區劃」，那正是幾何判 Interior 的條件，而室內外判定在幾何判 Interior 時
+    /// 不會回 Unknown。兩者是各自取樣的兩套實作（深度與間距都不同），所以留著這一條，讓它們在病態
+    /// 模型上答案分歧時仍然是挑空那一列勝出，而不是突然冒出一個室內外問題。</item>
+    /// </list>
+    /// </remarks>
+    private static bool IsExposureUndecidedBoundary(
+        CandidateSet set,
+        MemberCandidate member,
+        ZoneRelation relation,
+        FireResistanceInputs inputs,
+        MergedAtriums merged) =>
+        relation.IsBoundary &&
+        member.Observation.IsCurtainWall &&
+        member.CurtainWallExposure?.IsUnknown == true &&
+        set.Zone(relation.ZoneId) is { IsClear: true } &&
+        IsFireResistiveConstruction(inputs, relation.ZoneId) &&
+        !merged.IsInterior(member);
+
+    /// <summary>
+    /// <c>building.fireResistiveConstruction</c> 已知為 true，讀法與規則引擎看到的完全一致。
+    /// </summary>
+    /// <remarks>
+    /// 主迴圈那個時點 facts 還沒建（<see cref="Decide"/> 才建），所以不能像
+    /// <see cref="IsExteriorCurtainWallSetAside"/> 那樣 <c>facts.Find</c>，只能從輸入讀。為了語意相同，
+    /// 這裡照 <see cref="Decide"/> 建 facts 的順序串接 building 與該區劃的輸入並取**最後**一筆——
+    /// <c>RuleFacts.Set</c> 後蓋前，所以最後一筆才是引擎會看到的值。未填（找不到）與讀不懂
+    /// （<c>IsUnreadable</c>）都回 false：那兩種情形原本各有自己更可執行的那一列。
+    /// </remarks>
+    private static bool IsFireResistiveConstruction(FireResistanceInputs inputs, Guid zoneId) =>
+        inputs.Context.Building.Concat(inputs.Context.ForZone(zoneId))
+            .LastOrDefault(i => string.Equals(i.Field, "building.fireResistiveConstruction", StringComparison.Ordinal))
+            is { IsUnreadable: false } supplied &&
+        Equals(supplied.Value, ReviewValue.OfBoolean(true));
+
+    /// <summary>
+    /// <see cref="CandidateAmbiguityKind.CurtainWallExposureUndecided"/> 所指的那道帷幕牆。
+    /// </summary>
+    /// <remarks>
+    /// 這個 ambiguity 掛在**boundary** 關係上，不是 Ambiguous 關係，而 <see cref="ZoneRelation"/> 的
+    /// <c>IsBoundary</c> 與 <c>IsAmbiguous</c> 互斥（兩者都是 <c>Kind ==</c> 比較），所以
+    /// <see cref="AmbiguousMember"/> 永遠比不到它；少了這條查找路徑，上面的迴圈會 <c>continue</c>，
+    /// 規格要的那一列人工覆核就被丟掉。故意另開一個函式而不放寬 <see cref="AmbiguousMember"/>：
+    /// 後者的語意是「關係本身存疑」，那一條路通往 <see cref="Settled"/> 的「不論是否構成邊界結論
+    /// 都相同」推理，混進一個關係其實已確定、只有室內外存疑的構件會把那層推理弄亂。
+    /// </remarks>
+    private static MemberCandidate? ExposureUndecidedMember(
+        CandidateSet set, CandidateAmbiguity ambiguity, FireResistanceInputs inputs, MergedAtriums merged)
+    {
+        if (ambiguity.Kind != CandidateAmbiguityKind.CurtainWallExposureUndecided) return null;
+        if (ambiguity.ZoneId is not Guid zoneId || ambiguity.SubjectUniqueIds.Count != 1) return null;
+        return set.Members.FirstOrDefault(m =>
+            string.Equals(m.Source.ElementUniqueId, ambiguity.SubjectUniqueIds[0], StringComparison.Ordinal) &&
+            m.RelationTo(zoneId) is { } relation && IsExposureUndecidedBoundary(set, m, relation, inputs, merged));
+    }
 
     /// <summary>The member an ambiguity is about, when it is an ambiguous member relation.</summary>
     private static MemberCandidate? AmbiguousMember(CandidateSet set, CandidateAmbiguity ambiguity)

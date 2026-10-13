@@ -7,6 +7,7 @@ using System.Text.Json.Serialization;
 using BuildingRegulationReview.Application.Candidates;
 using BuildingRegulationReview.Application.Checks;
 using BuildingRegulationReview.Application.Diagnostics;
+using BuildingRegulationReview.Application.Parameters;
 using BuildingRegulationReview.Application.Reviews;
 using BuildingRegulationReview.Application.Rules;
 using BuildingRegulationReview.Domain.Reviews;
@@ -355,6 +356,250 @@ public sealed class FireResistanceCheckTests
         // 於是這片室內區劃牆的第79條第1項時效被靜默免除。
         Assert.NotEqual(ReviewStatus.NotApplicable, finding.Status);
         Assert.Equal(expected, finding.Status);
+    }
+
+    // --- 室內外未定的帷幕牆仍是一列人工覆核（C-08、帷幕牆規格 §5.5 版本 3）-----------------------
+    //
+    // 規格的三分流：外牆帷幕牆不列入構件防火時效、室內帷幕牆照常列出、室內外未定的帷幕牆仍是一列
+    // 人工覆核。既有測試只測到 CandidateResolver 產得出那個 ambiguity，沒有一條測它會不會出現在
+    // FireResistanceReview.Findings 裡——而它原本不會：ambiguity 掛在 boundary 關係上，
+    // AmbiguousMember 只認 Ambiguous 關係，比不到構件就 continue，那一列被靜默丟棄。
+
+    /// <summary>
+    /// B 區東緣（x = 20）上的帷幕牆：沿牆只有一側有區劃，幾何判外牆；型別 Function 卻宣告 Interior。
+    /// 兩者相反 → 室內外 Unknown（DeclarationConflict），而它對 B 區是 boundary 關係。
+    /// </summary>
+    private static MemberObservation ExposureUndecidedCurtainWall(string uid = "CW-conflict", double x = 20) =>
+        new(Source(uid), CandidateCategory.Wall, new[] { P(x, 0), P(x, 10) }, widthFeet: M(0.1),
+            typeUniqueId: WallType, typeName: "帷幕牆", isStructural: false, isCurtainWall: true,
+            curtainWallFunction: CurtainWallFunctionDeclaration.Interior);
+
+    /// <summary>
+    /// building 層輸入，含 <c>building.fireResistiveConstruction</c>。室內外未定那一列的護欄要求這個
+    /// 事實**已知為 true** 才改走人工覆核，所以凡是測那條路的都得把它給齊；<c>null</c> 代表沒填。
+    /// </summary>
+    private static CompartmentAreaInputs FireResistive(bool? fireResistive = true, double? floors = 5)
+    {
+        var building = new List<ReviewInput>();
+        if (floors is double f) building.Add(ReviewInput.Known("building.floorsAboveGround", f, ReviewUnit.None, "專案設定"));
+        if (fireResistive is bool r) building.Add(ReviewInput.Known("building.fireResistiveConstruction", r, "專案設定"));
+        return new CompartmentAreaInputs(building, null);
+    }
+
+    /// <summary>出貨規則集。護欄的對稱性只有在真的規則（六條都以防火構造開頭）上才測得出來。</summary>
+    private static RuleEngine ShippedEngine()
+    {
+        var json = new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
+        };
+        var path = Path.Combine(AppContext.BaseDirectory, "Rules", "BuiltIn", "fire-review-rules.json");
+        var loaded = RuleSetCompiler.Load(JsonSerializer.Deserialize<RuleSetDocument>(File.ReadAllText(path), json));
+        Assert.True(loaded.IsSuccess, loaded.IsSuccess ? string.Empty : loaded.Error.ToString());
+        return new RuleEngine(loaded.Value);
+    }
+
+    [Fact]
+    public void A_curtain_wall_of_undecided_exposure_is_reported_as_one_manual_review_row()
+    {
+        var set = Set(ZonesAB(), ExposureUndecidedCurtainWall());
+        var member = set.Members.Single(m => m.Source.ElementUniqueId == "CW-conflict");
+
+        Assert.Equal(CurtainWallExposure.Unknown, member.CurtainWallExposure!.Exposure);
+        Assert.True(member.RelationTo(ZoneB)!.IsBoundary);
+
+        var finding = Assert.Single(
+            Review(set, Ratings(FireResistive(), (WallType, "60")), Engine(ExposureAwareWallRule())).Findings,
+            f => f.ElementUniqueId == "CW-conflict");
+
+        Assert.Equal(ReviewStatus.ManualReview, finding.Status);
+        Assert.Equal(CandidateAmbiguityKind.CurtainWallExposureUndecided, finding.Ambiguity!.Kind);
+
+        // 訊息只有一個來源：CandidateResolver 寫的那一份。這裡逐字比對規格要的那句，
+        // 以免有人在檢討端再抄一份複本，兩份日後各走各的。
+        Assert.Contains("外牆不受第79條第1項區劃牆壁時效拘束", finding.Result.Message);
+        Assert.Contains("無法判定它是建築物外牆或室內帷幕牆", finding.Result.Message);
+    }
+
+    /// <summary>
+    /// 同一個構件×區劃只能出一列。主迴圈若不把這一輪跳掉，版本 3 的 appliesWhen 排除 Unknown
+    /// 會再給一列 NoRuleApplies 的「不適用」，於是使用者看到自相矛盾的兩列。
+    /// </summary>
+    [Fact]
+    public void An_undecided_curtain_wall_gets_no_second_not_applicable_row()
+    {
+        var set = Set(ZonesAB(), ExposureUndecidedCurtainWall());
+        var review = Review(set, Ratings(FireResistive(), (WallType, "60")), Engine(ExposureAwareWallRule()));
+
+        var rows = review.Findings.Concat(review.ExteriorCurtainWalls)
+            .Where(f => f.ElementUniqueId == "CW-conflict").ToList();
+
+        Assert.Single(rows);
+        Assert.DoesNotContain(rows, f => f.Status == ReviewStatus.NotApplicable);
+    }
+
+    /// <summary>
+    /// 一道牆同時是兩個區劃的邊界時，列數仍是 1:1：主迴圈跳掉兩輪、ambiguity 迴圈補回兩列，各一個區劃。
+    /// </summary>
+    /// <remarks>
+    /// 兩個區劃上下疊在同一條東緣（x = 10）上，所以那道牆同時是兩者的邊界，而牆外沒有區劃 → 幾何
+    /// 判外牆；型別 Function 宣告 Interior，兩者相反 → Unknown。不能改用「牆站在兩個區劃中間、
+    /// Function 宣告 Exterior」：Exterior 是系統族預設值，依設計不足以否決幾何判出的室內
+    /// （<c>CurtainWallExposureVerdict.Combine</c>），那樣造出來的是 Interior，不是 Unknown。
+    /// </remarks>
+    [Fact]
+    public void An_undecided_curtain_wall_gets_one_row_per_zone_it_bounds()
+    {
+        var stacked = new[]
+        {
+            Zone(ZoneA, "A 區", "area-a", Rect(0, 0, 10, 5)),
+            Zone(ZoneB, "B 區", "area-b", Rect(0, 5, 10, 10))
+        };
+        var set = Set(stacked, ExposureUndecidedCurtainWall("CW-both", 10));
+
+        Assert.Equal(CurtainWallExposure.Unknown, set.Members.Single().CurtainWallExposure!.Exposure);
+
+        var rows = Review(set, Ratings(FireResistive(), (WallType, "60")), Engine(ExposureAwareWallRule()))
+            .Findings.Where(f => f.ElementUniqueId == "CW-both").ToList();
+
+        Assert.Equal(2, rows.Count);
+        Assert.All(rows, f => Assert.Equal(ReviewStatus.ManualReview, f.Status));
+        Assert.Equal(
+            new[] { ZoneA.ToString("D"), ZoneB.ToString("D") }.OrderBy(x => x, StringComparer.Ordinal),
+            rows.Select(f => f.Result.ZoneId).OrderBy(x => x, StringComparer.Ordinal));
+    }
+
+    // --- 室內外未定那一列的護欄：不能蓋掉本來不是「不適用」的列 ---------------------------------
+    //
+    // 主迴圈的 skip 與 ambiguity 迴圈的查找共用 IsExposureUndecidedBoundary，所以護欄放在述詞裡，
+    // 跳掉幾列就一定補回幾列。護欄不成立時原本那一列講的是別的、而且更可執行的事：區劃範圍壞掉、
+    // 這棟樓不是防火構造、防火構造還沒填、挑空內部線。以下四條各釘一種。
+
+    [Fact]
+    public void A_zone_whose_extent_is_in_doubt_still_withholds_instead_of_asking_about_exposure()
+    {
+        // 區劃重疊 → 兩個區劃都不 clear。室內外判定本來就是從區劃形狀量出來的，區劃壞掉時
+        // 「先去修區劃邊界」才是病因，「判不出室內外」只是症狀。
+        var overlapping = new[]
+        {
+            Zone(ZoneA, "A 區", "area-a", Rect(0, 0, 10, 10)),
+            Zone(ZoneB, "B 區", "area-b", Rect(8, 0, 18, 10))
+        };
+        var set = Set(overlapping, ExposureUndecidedCurtainWall("CW-doubt", 18));
+
+        Assert.Equal(CurtainWallExposure.Unknown, set.Members.Single().CurtainWallExposure!.Exposure);
+
+        var finding = Only(Review(set, Ratings(FireResistive(), (WallType, "60")), Engine(ExposureAwareWallRule())));
+
+        Assert.Equal(ReviewStatus.ManualReview, finding.Status);
+        Assert.Equal(ReviewErrorCode.CandidateZoneUnusable, finding.ErrorCode);
+        Assert.Contains("範圍有問題", finding.Result.Message);
+        Assert.DoesNotContain("無法判定它是建築物外牆或室內帷幕牆", finding.Result.Message);
+    }
+
+    /// <summary>
+    /// 非防火構造建築物：出貨的六條構件規則 appliesWhen 全都以 <c>building.fireResistiveConstruction
+    /// == true</c> 開頭，第79條對這棟樓根本不適用，每一列都該是不適用。這與
+    /// <c>IsExteriorCurtainWallSetAside</c> 要求同一個事實為 true 是同一道護欄。
+    /// </summary>
+    [Fact]
+    public void A_building_that_is_not_fire_resistive_keeps_its_not_applicable_row()
+    {
+        var set = Set(ZonesAB(), ExposureUndecidedCurtainWall());
+        var finding = Only(Review(set, Ratings(FireResistive(fireResistive: false), (WallType, "60")), ShippedEngine()));
+
+        Assert.Equal(ReviewStatus.NotApplicable, finding.Status);
+        Assert.NotEqual(ReviewStatus.ManualReview, finding.Status);
+        Assert.DoesNotContain("無法判定它是建築物外牆或室內帷幕牆", finding.Result.Message);
+    }
+
+    /// <summary>
+    /// 防火構造還沒填：原本那一列講的是這棟樓本身的狀態，不能換成一個使用者無從下手的室內外問題。
+    /// </summary>
+    /// <remarks>
+    /// 非結構的帷幕牆在這個狀態下出的是**不適用**而不是資料不足：出貨的六條構件規則除了防火構造
+    /// 之外，每一條都還有另一個對這道牆明確為 false 的合項（Columns／StructuralFraming／Floors／
+    /// <c>isStructural == true</c>／版本 3 排除 Unknown），三值邏輯下 <c>Unknown &amp;&amp; false</c>
+    /// 仍是 false，所以每一條都確定不適用，引擎回 NoRuleApplies 而不是 UndecidedApplicability。
+    /// 真正會停在資料不足的是**結構性**帷幕牆：第70條那條只被防火構造一個事實卡住。兩種都測，
+    /// 因為護欄要守住的是「原本那一列是什麼就還是什麼」，不是某一個特定狀態。
+    /// </remarks>
+    [Fact]
+    public void A_building_whose_fire_resistive_construction_is_unfilled_keeps_its_own_gap()
+    {
+        var nonStructural = Set(ZonesAB(), ExposureUndecidedCurtainWall());
+        var plain = Only(Review(nonStructural, Ratings(FireResistive(fireResistive: null), (WallType, "60")), ShippedEngine()));
+
+        Assert.Equal(ReviewStatus.NotApplicable, plain.Status);
+        Assert.DoesNotContain("無法判定它是建築物外牆或室內帷幕牆", plain.Result.Message);
+
+        var structural = Set(ZonesAB(), new MemberObservation(
+            Source("CW-structural"), CandidateCategory.Wall, new[] { P(20, 0), P(20, 10) }, widthFeet: M(0.1),
+            typeUniqueId: WallType, typeName: "帷幕牆", isStructural: true, isCurtainWall: true,
+            curtainWallFunction: CurtainWallFunctionDeclaration.Interior));
+        Assert.Equal(CurtainWallExposure.Unknown, structural.Members.Single().CurtainWallExposure!.Exposure);
+
+        var gap = Only(Review(structural, Ratings(FireResistive(fireResistive: null), (WallType, "60")), ShippedEngine()));
+
+        Assert.Equal(ReviewStatus.InsufficientData, gap.Status);
+        Assert.Contains("building.fireResistiveConstruction", gap.Result.Message);
+        Assert.DoesNotContain("無法判定它是建築物外牆或室內帷幕牆", gap.Result.Message);
+    }
+
+    // 第四種護欄（merged 挑空內部線）沒有測試，因為目前的分類器造不出那個組合：MergedAtriums
+    // .IsInterior 要求沿線每一處都是「挑空｜連通區劃」，那正是幾何判 Interior 的條件，而
+    // Combine() 在幾何判 Interior 時直接採用，不會回 Unknown（Function=Exterior 是系統族預設值，
+    // 依設計不足以否決它）。那條 clause 因此是防禦性的：室內外判定與 MergedAtriums 是兩套各自
+    // 取樣的實作，取樣深度與間距都不同，兩者在病態模型上答案分歧時它才會生效。
+
+    /// <summary>
+    /// 室內外未定 ＋ 邊界存疑（區劃邊線畫在牆面而非中心線）不能靜默收斂成不適用。版本 3 排除
+    /// Unknown，所以 <c>Settled</c> 的「假設構成邊界」與「假設不構成」兩支都評不適用，那層
+    /// 「不論是否構成邊界結論都相同」的推理會把一個真正的空缺讀成一致的答案。
+    /// </summary>
+    [Fact]
+    public void An_undecided_curtain_wall_whose_boundary_is_also_in_doubt_is_not_silently_not_applicable()
+    {
+        // A 區東緣（x = 10）外面沒有區劃 → 幾何判外牆，Function 宣告 Interior → Unknown；
+        // 中心線偏 80 mm，區劃邊線落在牆厚之內 → 關係是 BoundaryOffCenterline，走 Settled 那條路。
+        var wall = new MemberObservation(Source("CW-off-unknown"), CandidateCategory.Wall,
+            new[] { P(10.08, 0), P(10.08, 10) }, widthFeet: M(0.2),
+            typeUniqueId: WallType, typeName: "帷幕牆", isStructural: false, isCurtainWall: true,
+            curtainWallFunction: CurtainWallFunctionDeclaration.Interior);
+        var set = Set(ZoneAOnly(), wall);
+
+        Assert.Equal(CurtainWallExposure.Unknown, set.Members.Single().CurtainWallExposure!.Exposure);
+        Assert.Equal(CandidateAmbiguityKind.BoundaryOffCenterline, set.Members.Single().RelationTo(ZoneA)!.Ambiguity);
+
+        var rows = Review(set, Ratings(FireResistive(), (WallType, "60")), ShippedEngine())
+            .Findings.Where(f => f.ElementUniqueId == "CW-off-unknown").ToList();
+
+        Assert.NotEmpty(rows);
+        Assert.All(rows, f => Assert.Equal(ReviewStatus.ManualReview, f.Status));
+        Assert.DoesNotContain(rows, f => f.Status == ReviewStatus.NotApplicable);
+    }
+
+    /// <summary>
+    /// 第三種分流不能把前兩種弄壞：A｜B 分界線上的室內帷幕牆照常列出，而且讀自己的時效。
+    /// 兩個區劃各一列，因為它同時是兩個區劃的牆壁。
+    /// </summary>
+    [Fact]
+    public void An_interior_curtain_wall_on_a_boundary_is_still_asked_for_its_own_rating()
+    {
+        var wall = new MemberObservation(Source("CW-interior"), CandidateCategory.Wall,
+            new[] { P(10, 0), P(10, 10) }, widthFeet: M(0.1),
+            typeUniqueId: WallType, typeName: "帷幕牆", isStructural: false, isCurtainWall: true);
+        var set = Set(ZonesAB(), wall);
+
+        Assert.Equal(CurtainWallExposure.Interior, set.Members.Single().CurtainWallExposure!.Exposure);
+
+        var rows = Review(set, Ratings((WallType, "30")), Engine(ExposureAwareWallRule()))
+            .Findings.Where(f => f.ElementUniqueId == "CW-interior").ToList();
+
+        Assert.Equal(2, rows.Count);
+        Assert.All(rows, f => Assert.Equal(ReviewStatus.Fail, f.Status));
+        Assert.All(rows, f => Assert.Equal(ReviewValue.Quantity(30, ReviewUnit.Minute), f.Result.ActualValue));
     }
 
     [Theory]

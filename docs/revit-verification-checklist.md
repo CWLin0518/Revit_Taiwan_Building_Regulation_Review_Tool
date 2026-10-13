@@ -1162,9 +1162,71 @@ FL3 的唯一差異：區劃 322274「13 區劃 1」的防火區劃面積由「�
 | C-03 | 🟢 低 | `ReviewMarkupDiff` 算了 `ForeignMarks`（外來工作包的標示有幾個被留在原處不動），卻**從不曾被讀**——全 repo 只有 `:716` 賦值、`:730` 宣告兩處。`Summary`（`:741-743`）只報新增／更新／移除／不變／略過，沒有外來標示那一欄。標示被別的工作包佔著時，工具正確地「不動它、另畫一份」，但**不告訴使用者**，檢討視圖裡會突然多出一份外觀相同的標示而沒有任何說明（規格 §15 要求自動變更前給範圍摘要） | `ReviewMarkup.cs:716`、`:730`、`:741-743`（`Summary`）；算值處 `:755-756` | 2026-10-07 驗 V-10 第 5 項時從程式碼發現。尚未實測（要做出外來標示必須寫 Extensible Storage，MCP 做不到） **⏸ 2026-10-07 決策：與 C-02 一起待本輪驗證全數收尾再決定是否修。2026-10-08 本輪驗證收尾後的決策：仍不修**，使用者選擇只修 C-04；C-03 與 C-02 一起留待下一輪。 |
 | C-04 | 🟡 中 | **檢討完成後狀態列停在「檢討中：…（7/7）」，完成訊息使用者永遠看不到；進度列在檢討結束後才跑、並停在滿格。** `Post` 走 `ExternalEvent.Raise()`，handler 在 **Revit 主執行緒 ＝ WPF UI 執行緒**上跑，於是 `FireReviewModel.RunAndSave` 整段**佔住 UI 執行緒**；`progress.Report(...)` 經 `Progress<T>` → `Dispatcher.BeginInvoke` **排隊等候**，而 `beforeSave` 與 `ShowSaved` 走 `Dispatcher.Invoke`、從 UI 執行緒自己呼叫時**直接同步執行、不排隊**。結果：完成訊息先被設好 → handler 返回 → UI 執行緒回到訊息迴圈 → **積壓的 7 個進度回呼這時才依序播放**，覆蓋掉完成訊息並停在最後一個 `7/7`；`SetBusy(false)` 歸零的進度列也被設回滿格。`ShowSaved` 組出的完成訊息（`outcome.Message` ＋ 標示摘要 ＋「有 N 筆人工覆寫需重新確認」＋ `outcome.Performance.Summary`）**永遠顯示不出來**，狀態列反而一直說「檢討中」 | `FireReviewWindow.cs:259-263`（`Progress<T>`）、`:269-273`（`beforeSave`）、`:293-296`（`ShowSaved`）、`:787`（進度列歸零）；`FireReviewCommand.cs:49-52`（`Post` ＝ `ExternalEvent.Raise`） | 2026-10-08 00:0x 使用者實機回報：狀態列停在「檢討中：保存證據與人工覆寫（7/7）」（`FireReviewRunner.cs:370`）、進度列有動；同時標題行與判定行**都是正確的最新結果**（「工作包「FL2 - 防火區劃」　狀態：已檢討　規則集：tw-bcr-fire 2026.10-provisional／總狀態：未符合 符合 194／未符合 9／待確認 2／不適用 90 檢討時間 2026-10-08 00:13」），證明 `ShowSaved` 確實執行完畢，只有 `_status` 與 `_progress` 被事後覆蓋。**連帶兩點**：(a) V-30 第 3 項的取消鈕按不到，不只是因為檢討太快——UI 執行緒被佔住，取消鈕**根本無法回應**；(b) `FireReviewWindow.cs:26-28` 的類別註解已與實作不符（仍寫著 checks 在 worker thread 上跑、所以取消鈕在檢討期間是活的），修正時應一併更正。 **✅ 2026-10-08 決策：要修（本輪驗證全數收尾後由使用者決定；C-02、C-03 留待下一輪）。**修正方向：根本問題是 handler 佔住 UI 執行緒時進度回報沒有意義，所以**不改派送方式**（`RunAndSave` 必須留在 Revit 的 API context——帷幕牆區劃交接步驟要在檢討進行中讀取帷幕牆），改成讓 `SetBusy(false)` 之後遲到的 `Report` 被忽略（run generation／token 比對），並一併更正 `FireReviewWindow.cs:23-28` 的類別註解與 `Start()` 的 doc 註解（「checks 在 worker thread 上跑」、「Cancelling still works」兩句都不成立）。全 repo 只有 `FireReviewWindow.cs:259` 一處 `new Progress<`，修改範圍收在單一檔案。**✅ 2026-10-08 已修**：照上述方向改在 `FireReviewWindow.cs` 單一檔案——新增 `_runGeneration` 序號，`SetBusy` 每次進出忙碌狀態都 `++`，`Progress<T>` 回呼比對序號不符就直接丟棄；忙碌訊息改為「檢討中…（視窗在檢討期間不會回應，請稍候）」；兩處與實作不符的註解一併更正。建置 0 警告 0 錯誤、單元測試 2169 通過／0 失敗。詳見下方「C-04 的修正內容」一節。**✅ 2026-10-08 01:48 部署、02:02 實機驗證通過**：三項畫面預期（新字樣／完成訊息／進度列歸零）全部命中，統計零迴歸 |
 | C-05 | 🟢 低 | **`防火檢討_所在樓層序`（Integer）與 `防火檢討_自動滅火設備`（YESNO）清不掉，而失敗訊息怪到「值」身上。** 寫入端把「清除」表示成空字串的文字編輯，Integer 分支 `int.TryParse("")` 失敗就回 `Rejected`，訊息成了「參數 … 的資料型別（Integer）無法接受這個值。」真正的原因是 Revit API 沒有「取消設值」這個動作（`Parameter` 只有 `Set`），所以一個已寫入的 Integer／YesNo 參數**本來就回不到未填狀態**。面板走的是同一條路（`FireReviewInputViewModels.cs:357-363` 一樣用 `OfText` ＋ 空字串），所以使用者在面板把這兩格清空再按「寫入模型」，拿到的也是這句看不懂的話，而且不會事先被阻止 | `RevitFireReviewParameterWriter.cs:161-171`（`Write` 的 Text→Integer 分支）、`:117-123`（失敗訊息）；面板側 `FireReviewInputViewModels.cs:357-363`；MCP 工具說明仍寫「null=清除」 | 2026-10-13 驗 V-11 時實測：`fire_review_set_parameters` 對 316022 傳 `floorNumber: null`、對 316020 傳 `sprinklered: null`，兩筆都在 `failures` 裡，理由逐字為「參數 防火檢討_所在樓層序 的資料型別（Integer）無法接受這個值。」同一批的兩筆文字參數（`use`）正常寫入。**連帶**：V-11 的 `未填樓層序，無法判定上限` 因此在本模型湊不出來（只有從未寫入過的新 Area 才看得到）。修正方向：(a) 工具與面板都該在**送出前**就說「Revit 無法清除整數／是否參數，請改填一個值」，(b) 失敗訊息不要指向「值的型別」，(c) MCP 工具說明的「null=清除」要限定成只適用文字參數 |
-| C-06 | 🟡 中 | **一般區劃（用途依設計留空）超出面積上限時被判「資料不足」而不是「未符合」，未符合被藏起來。** 兩條面積規則的豁免都寫成 `zone.use == "挑空"` 這種比較，而 `ReviewParameterSnapshot.Convert` 對 `!reading.HasValue` 直接回 `null`——`Empty`（參數存在但空白）也在裡面——於是空白的 `區劃用途` **根本沒有進入事實集**，豁免條件變成 Unknown。規則引擎的設計是：要求值通過就忽略豁免缺口（判符合），要求值不通過才把缺口端出來改判資料不足。結果一個「用途照面板規定留空」的一般區劃，面積沒超就符合、**一超就變資料不足**。這同時違反專案自己訂的不變量——`ZoneAreaLimits.cs` 的類別註解明寫「what the panel calls 未填 is exactly what the engine would report as 資料不足」，而面板對同一個區劃顯示的是有數字的「第79條 上限 1500 m²」，沒有任何未填 | 根因 `ReviewParameterSnapshot.cs:336-340`（`Convert` 把 `Empty` 與 `Absent` 一視同仁）；引擎的刻意行為 `RuleEngine.cs:128-137`（有測試背書：`CompartmentAreaCheckTests.cs:311-321`）；對照先例 `ReviewParameterSnapshot.cs:378-384`（`ProvidedFireProtection` 明確把 `Empty` 當「未勾選＝否」）；規則定義 `fire-review-rules.json` 的 `tw-bcr-79-area`／`tw-bcr-83-area` | 2026-10-13 決定性實驗（FL3、322274、面積 423.594 ㎡、上限 400 ㎡）：`用途` 空白 → **資料不足**「zone.area = 423.594 m2 未達 <= 400 m2，但無法確認是否符合豁免條件：zone.use 未設定。」；同一個區劃把 `用途` 填成非豁免的 `辦公室` → **未符合**「zone.area = 423.594 m2，未符合 <= 400 m2。」兩次只差這一個欄位。第79條那一條是同一段程式，本模型的區劃面積都遠小於 1500 ㎡，湊不出超限，但 `appliesWhen`／豁免清單與第83條逐字相同。修正方向：讓「參數存在但空白」的 `zone.use` 成為一個**已知的空字串事實**（豁免因此確定不成立），而不是缺資料；務必**只針對 `zone.use`**（或以欄位層級的「空白有意義」宣告來做），不可讓 `Convert` 普遍把空白當已知值——`element.providedFireRating` 之類的欄位空白時必須維持資料不足 |
+| C-06 | 🟡 中 | **一般區劃（用途依設計留空）超出面積上限時被判「資料不足」而不是「未符合」，未符合被藏起來。** 兩條面積規則的豁免都寫成 `zone.use == "挑空"` 這種比較，而 `ReviewParameterSnapshot.Convert` 對 `!reading.HasValue` 直接回 `null`——`Empty`（參數存在但空白）也在裡面——於是空白的 `區劃用途` **根本沒有進入事實集**，豁免條件變成 Unknown。規則引擎的設計是：要求值通過就忽略豁免缺口（判符合），要求值不通過才把缺口端出來改判資料不足。結果一個「用途照面板規定留空」的一般區劃，面積沒超就符合、**一超就變資料不足**。這同時違反專案自己訂的不變量——`ZoneAreaLimits.cs` 的類別註解明寫「what the panel calls 未填 is exactly what the engine would report as 資料不足」，而面板對同一個區劃顯示的是有數字的「第79條 上限 1500 m²」，沒有任何未填 | 根因 `ReviewParameterSnapshot.cs:336-340`（`Convert` 把 `Empty` 與 `Absent` 一視同仁）；引擎的刻意行為 `RuleEngine.cs:128-137`（有測試背書：`CompartmentAreaCheckTests.cs:311-321`）；對照先例 `ReviewParameterSnapshot.cs:378-384`（`ProvidedFireProtection` 明確把 `Empty` 當「未勾選＝否」）；規則定義 `fire-review-rules.json` 的 `tw-bcr-79-area`／`tw-bcr-83-area` | 2026-10-13 決定性實驗（FL3、322274、面積 423.594 ㎡、上限 400 ㎡）：`用途` 空白 → **資料不足**「zone.area = 423.594 m2 未達 <= 400 m2，但無法確認是否符合豁免條件：zone.use 未設定。」；同一個區劃把 `用途` 填成非豁免的 `辦公室` → **未符合**「zone.area = 423.594 m2，未符合 <= 400 m2。」兩次只差這一個欄位。第79條那一條是同一段程式，本模型的區劃面積都遠小於 1500 ㎡，湊不出超限，但 `appliesWhen`／豁免清單與第83條逐字相同。修正方向：讓「參數存在但空白」的 `zone.use` 成為一個**已知的空字串事實**（豁免因此確定不成立），而不是缺資料；務必**只針對 `zone.use`**（或以欄位層級的「空白有意義」宣告來做），不可讓 `Convert` 普遍把空白當已知值——`element.providedFireRating` 之類的欄位空白時必須維持資料不足。**✅ 2026-10-13 已修**，見下方「C-06 的修正內容」 |
 | C-07 | 🟢 低 | **批次面板「防火構造建築物」未勾時的紅字說錯了後果。** 紅字寫「整份檢討會判「資料不足」」，但四條規則的 `appliesWhen` 都是 `building.fireResistiveConstruction == true`：明確填**否**時這個條件是「已知為假」→ 全部**不適用**，不是資料不足；只有**未填**才是資料不足。而「不適用」在檢討表上讀起來像「沒有要檢討的事」，與紅字想傳達的「這份檢討作不了數」正好相反 | `FireReviewInputViewModels.cs:417-419`（`FireResistiveWarning`，條件是 `YesNoOf(...) == true` 以外一律顯示，不分「否」與「未填」） | 2026-10-13 實測：把專案的 `防火檢討_防火構造建築物` 寫成 `false` 後，`scan` 的 `project.fireResistiveWarning` 逐字出現那句話；同一狀態下跑 FL3 得到「檢討完成：待確認（符合 0／未符合 0／待確認 2／不適用 104）」，六節中四節是「不適用」、帷幕牆交接 2 列人工覆核，**一筆資料不足都沒有**。驗畢已還原為 `true`。修正方向：把訊息按三態分開寫——未填＝資料不足、填否＝四類規則都不適用（並點明「不適用不代表合格」）、填是＝無警語 |
-| C-08 | 🟡 中 | **室內外未定的帷幕牆，在「構件防火時效」那一列被靜默丟棄。** `CandidateResolver.cs:96-110` 刻意為這種牆產出一個 `CurtainWallExposureUndecided` 的 ambiguity，訊息就是規格要的那句「外牆不受第79條第1項區劃牆壁時效拘束、室內帷幕牆則受拘束，兩者相反，需人工覆核」，註解也明寫「這一列讓那個空缺出現在檢討表上」。但它掛在該牆的 **boundary** 關係上，而 `FireResistanceCheck` 消費 ambiguity 時用的 `AmbiguousMember` 只認 `IsAmbiguous` 的關係（`m.RelationTo(zoneId) is { IsAmbiguous: true }`），`ZoneRelationKind` 的 `IsBoundary` 與 `IsAmbiguous` 互斥，所以永遠比不到 → `continue` → **那一列從不產生**。牆體時效規則版本 3 又明文排除 `Unknown`（`element.curtainWallExposure != "Unknown"`），於是這道牆在構件防火時效只剩「不適用」或完全不列，第79條第1項的時效要求**無聲消失**——正是規格 §4.8「`Unknown` 不是靜默略過」要防的事 | `FireResistanceCheck.cs:244-247`（`AmbiguousMember` 比對不到就 `continue`）、`:511-518`（`AmbiguousMember`）；`CandidateSet.cs:185-186`（`IsAmbiguous`／`IsBoundary` 互斥）；產出端 `CandidateResolver.cs:96-110`；規則 `tw-bcr-79-wall-rating` 版本 3 的 `appliesWhen`；規格 `docs/regulations/curtain-wall-fire-compartment.md:824-828` | 2026-10-13 實測（V-27 第 9 項）：型別 334 的 `Function` 改成 `Interior` 後跑 FL1，「帷幕牆區劃交接」如期出現 4 列人工覆核（室內外判定，訊息逐字含兩種修法），但「構件防火時效」是 16 符合／**1 資料不足**（257783，那是判為室內的那道牆，照常列出後因沒填時效而資料不足——這一列是對的）／**2 不適用**，**沒有任何人工覆核列**。既有測試只覆蓋產出端（`CandidateResolverTests.cs:489-504`、`CurtainWallExposureTests.cs:325`），沒有一條測到它會不會出現在 `FireResistanceReview.Findings` 裡，所以漏掉了。驗畢已還原 `Function = Exterior` |
+| C-08 | 🟡 中 | **室內外未定的帷幕牆，在「構件防火時效」那一列被靜默丟棄。** `CandidateResolver.cs:96-110` 刻意為這種牆產出一個 `CurtainWallExposureUndecided` 的 ambiguity，訊息就是規格要的那句「外牆不受第79條第1項區劃牆壁時效拘束、室內帷幕牆則受拘束，兩者相反，需人工覆核」，註解也明寫「這一列讓那個空缺出現在檢討表上」。但它掛在該牆的 **boundary** 關係上，而 `FireResistanceCheck` 消費 ambiguity 時用的 `AmbiguousMember` 只認 `IsAmbiguous` 的關係（`m.RelationTo(zoneId) is { IsAmbiguous: true }`），`ZoneRelationKind` 的 `IsBoundary` 與 `IsAmbiguous` 互斥，所以永遠比不到 → `continue` → **那一列從不產生**。牆體時效規則版本 3 又明文排除 `Unknown`（`element.curtainWallExposure != "Unknown"`），於是這道牆在構件防火時效只剩「不適用」或完全不列，第79條第1項的時效要求**無聲消失**——正是規格 §4.8「`Unknown` 不是靜默略過」要防的事 | `FireResistanceCheck.cs:244-247`（`AmbiguousMember` 比對不到就 `continue`）、`:511-518`（`AmbiguousMember`）；`CandidateSet.cs:185-186`（`IsAmbiguous`／`IsBoundary` 互斥）；產出端 `CandidateResolver.cs:96-110`；規則 `tw-bcr-79-wall-rating` 版本 3 的 `appliesWhen`；規格 `docs/regulations/curtain-wall-fire-compartment.md:824-828` | 2026-10-13 實測（V-27 第 9 項）：型別 334 的 `Function` 改成 `Interior` 後跑 FL1，「帷幕牆區劃交接」如期出現 4 列人工覆核（室內外判定，訊息逐字含兩種修法），但「構件防火時效」是 16 符合／**1 資料不足**（257783，那是判為室內的那道牆，照常列出後因沒填時效而資料不足——這一列是對的）／**2 不適用**，**沒有任何人工覆核列**。既有測試只覆蓋產出端（`CandidateResolverTests.cs:489-504`、`CurtainWallExposureTests.cs:325`），沒有一條測到它會不會出現在 `FireResistanceReview.Findings` 裡，所以漏掉了。驗畢已還原 `Function = Exterior`。**✅ 2026-10-13 已修**，見下方「C-08 的修正內容」 |
+
+#### C-06 的修正內容（2026-10-13，**尚未部署**）
+
+根因是「參數存在但空白」被當成「沒有資料」。修法是讓它成為一個**已知的空字串事實**，
+豁免條件因此確定不成立，而不是 Unknown。
+
+| 位置 | 改了什麼 |
+| --- | --- |
+| `ReviewInputSources.cs:67-91` | 新增 `BlankIsDeclaredValue` 屬性與 `DeclaringBlankAsValue()` 複本方法，remarks 寫明**為什麼預設必須是 false**（`element.providedFireRating`、`zone.interiorFinish` 空白時唯一安全的解讀是資料不足） |
+| `ReviewInputSources.cs:170-172` | `zone.use` 那一行 opt-in，**全表只有這一行** |
+| `ReviewParameterSnapshot.cs:449-467` | `ZoneInput` 的 `return null` gate：帶標記、文字型別、且**每一筆讀值都是 `Empty`** 時回 `ReviewInput.Known(field, "")`，來源文字加「（未填，即一般區劃）」；**任何一筆是 `Absent` 就維持 null** |
+
+**沒有動** `Convert`、`RuleEngine`、`CandidateResolver` 與規則 JSON。引擎在「要求值不通過時才端出豁免缺口」
+的保守是刻意的、有測試背書（`CompartmentAreaCheckTests.cs:311-321`），那條測試原封不動且仍通過。
+
+**為什麼這是單向安全的**（code review 在引擎層確認）：`RuleEngine.EvaluateApplicable` 先判 Pass 再看
+`exemptionGaps`，所以 `zone.use == ""` 只能把「資料不足」翻成「未符合」，**產不出新的「符合」**。
+
+#### C-08 的修正內容（2026-10-13，**尚未部署**）
+
+| 位置 | 改了什麼 |
+| --- | --- |
+| `FireResistanceCheck.cs:566-581` | 新增 `IsExposureUndecidedBoundary`：boundary 關係＋帷幕牆＋`IsUnknown`，**再加三道護欄**——區劃 `IsClear`、`防火構造`已知為 true、非 merged 挑空內部線 |
+| `FireResistanceCheck.cs:589-593` | 新增 `IsFireResistiveConstruction`：主迴圈那個時點 facts 還沒建，改照 `Decide` 建 facts 的順序串接 building 與區劃輸入並取**最後**一筆（`RuleFacts.Set` 後蓋前）；未填與讀不懂都回 false |
+| `FireResistanceCheck.cs:245` | 主迴圈用上面那個述詞跳過該輪，那一列改由 ambiguity 迴圈產出 |
+| `FireResistanceCheck.cs:606-613` | 新增 `ExposureUndecidedMember` 查找路徑（`AmbiguousMember` 只認 `IsAmbiguous`，與 `IsBoundary` 互斥，永遠比不到） |
+| `FireResistanceCheck.cs:449` | `Settled` 開頭拒絕 `IsUnknown`：版本 3 排除 Unknown 使兩支假設都評不適用，「不論是否構成邊界結論都相同」會把**真正的空缺**讀成一致答案 |
+
+**skip 與查找共用同一個述詞**，所以「跳掉幾列就補回幾列」是結構保證，不是兩邊各自維護的約定。
+訊息只有一個來源（`CandidateResolver` 寫的那一份），檢討端不抄第二份。
+
+**第一次 review 抓到的迴歸**（已修）：最初的 skip 沒有任何前提，會把四種本來不是「不適用」的列
+一起換成「問室內外」的人工覆核——區劃範圍有問題（原本走 `Withhold`）、非防火構造建築物
+（第79條對它根本不適用）、防火構造未填、merged 挑空內部線（決議 37）。三道護欄就是為此加的。
+
+**一個與原先假設不同的實測結果**：「防火構造未填」對**非結構**帷幕牆不是資料不足而是**不適用**——
+六條構件規則除了防火構造以外，每一條對這道牆都還有另一個明確為 false 的合項，三值邏輯下
+`Unknown && false` 仍是 false，所以引擎回 `NoRuleApplies`。真正會停在資料不足的是**結構性**帷幕牆。
+測試兩種都釘住了。
+
+**`!merged.IsInterior(member)` 是防禦性的**：`MergedAtriums.IsInterior` 要求沿線每一處都是
+「挑空｜連通區劃」，那正是幾何判 Interior 的條件，而室內外判定在幾何判 Interior 時不會回 Unknown
+（`CurtainWallExposureVerdict.Combine`：Function=Exterior 是系統族預設值，不足以否決幾何）。
+兩者是各自取樣的兩套實作，留著這一條讓它們在病態模型上分歧時仍由挑空那一列勝出。
+
+#### C-06／C-08 修正後的測試與建置（2026-10-13）
+
+- 單元測試 **2182 通過／0 失敗**（修正前基線 2169，共新增 13 條）
+- net48 外掛專案 **0 警告 0 錯誤**
+- 反向驗證：三道護欄各自拿掉 → 正好對應的三條紅；`Settled` 那條拒絕拿掉 → 正好對應的一條紅；
+  C-06 的修正停用 → 4 條回歸測試紅、兩條界線測試兩邊都綠
+
+#### 部署後要預期的事（C-06／C-08）
+
+- **「需更新」數量會偏高，屬一次性**：`ReviewBaselineBuilder.cs:295` 把每筆區劃 input 寫進簽章，
+  用途空白的區劃現在多一行 `t:`；而 `zone.use` 進的是 `CompartmentAreaInputs`，那份 context 同時餵給
+  構件防火時效、開口防火保護、垂直區劃與第79條之1，所以**那些項目的簽章也會一起變**。
+  不要拿「需更新的數量」當健康指標。
+- **判定本身在本模型不該變**：C-08 的改動只在室內外 `Unknown` 時生效，而型別 334 的 `Function`
+  已還原為 `Exterior`、幾何取樣也判外牆，所以沒有任何 Unknown 的牆；C-06 只在「用途空白**且**面積超限」
+  時翻轉判定，而還原後的 322274 樓層序是 3（第79條上限 1500 ㎡，面積 423.594 ㎡）並未超限。
+  **部署後以 dryRun 回比 FL1 總 61、21／2／3／35 與 FL3 總 102、33／9／3／57。**
 
 #### C-01 的修正內容（2026-10-07，**已於 19:55 隨 `1ce981d` 部署、日誌碼已實機驗過**）
 
