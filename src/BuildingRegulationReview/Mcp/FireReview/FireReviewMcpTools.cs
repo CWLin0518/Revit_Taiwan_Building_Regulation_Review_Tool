@@ -498,9 +498,12 @@ namespace BuildingRegulationReview.Mcp.FireReview
 
             public override string Description =>
                 "與「防火參數批次設定」面板相同：把值填進面板的列，只寫入與模型不同的值，整批一個交易（任何錯誤整批復原）。" +
-                "類型參數會套用到專案中該類型的所有實體。值的寫法與面板相同：是否類欄位用 true／false（null＝清除），" +
-                "被覆厚度單位為公分，防火時效如「1h」「60min」。面板不會問的欄位（見 fire_review_scan_parameters 的 asks）" +
-                "會被略過並列在 ignored。不會寫入「防火檢討_法規要求防火時效」。dryRun=true 時只回報會寫入什麼，模型不變。";
+                "類型參數會套用到專案中該類型的所有實體。值的寫法與面板相同：是否類欄位用 true／false，" +
+                "被覆厚度單位為公分，防火時效如「1h」「60min」。文字欄位傳 null 等於清成空白；" +
+                "是否類與整數欄位傳 null 不會清除——Revit 的 YESNO／Integer 參數只能設值、不能取消設值，" +
+                "已寫入的值回不到未填狀態，這種請求會列在 ignored 並附上理由（要清空只能在 Revit 中直接刪除該參數的值）。" +
+                "面板不會問的欄位（見 fire_review_scan_parameters 的 asks）會被略過並列在 ignored。" +
+                "不會寫入「防火檢討_法規要求防火時效」。dryRun=true 時只回報會寫入什麼，模型不變。";
 
             public override JsonObject InputSchema => JsonSchema.Object(new JsonObject
             {
@@ -510,7 +513,7 @@ namespace BuildingRegulationReview.Mcp.FireReview
                     ["typeElementId"] = JsonSchema.Integer("類型的 ElementId。"),
                     ["panelKind"] = JsonSchema.NullableString("帷幕嵌板種類：實心 或 玻璃；null 清除。"),
                     ["material"] = JsonSchema.NullableString("結構材料：RC、SRC 或 SC；null 清除。"),
-                    ["coverCm"] = JsonSchema.NullableNumber("SC 的防火被覆厚度（公分）；null 清除。", 0),
+                    ["coverCm"] = JsonSchema.NullableNumber("SC 的防火被覆厚度（公分）；null 歸零（長度參數寫不出未填）。", 0),
                     ["rating"] = JsonSchema.NullableString("防火檢討_設計防火時效，例如 1h、2h、60min；null 清除。"),
                     ["applyDerivedRating"] = JsonSchema.Boolean("改用依第71～73條推定的時效（面板的「套用推定值」）。不可與 rating 同時使用。"),
                     ["fireProtection"] = JsonSchema.Boolean("防火檢討_設計防火保護（防火門窗）。"),
@@ -522,16 +525,18 @@ namespace BuildingRegulationReview.Mcp.FireReview
                     ["elementUniqueId"] = JsonSchema.String("區劃（Area）的 UniqueId；或改用 elementId。"),
                     ["elementId"] = JsonSchema.Integer("區劃（Area）的 ElementId。"),
                     ["use"] = JsonSchema.NullableString("防火檢討_區劃用途；一般區劃留空（null）。必須與清單逐字相符才有作用，例如 挑空、樓梯間、昇降機道、管道間、觀眾席。"),
-                    ["sprinklered"] = JsonSchema.NullableBoolean("防火檢討_自動滅火設備。"),
-                    ["floorNumber"] = JsonSchema.NullableInteger("防火檢討_所在樓層序。"),
-                    ["linksRefugeFloor"] = JsonSchema.NullableBoolean("防火檢討_避難層通達（只有挑空需要）。"),
-                    ["cannotBeSubdivided"] = JsonSchema.NullableBoolean("防火檢討_無法區劃分隔（只有第79條之1 的六種用途需要）。")
+                    ["sprinklered"] = JsonSchema.NullableBoolean("防火檢討_自動滅火設備；null 不會清除已寫入的值（見本工具說明）。"),
+                    ["floorNumber"] = JsonSchema.NullableInteger("防火檢討_所在樓層序；null 不會清除已寫入的值（見本工具說明）。"),
+                    ["linksRefugeFloor"] = JsonSchema.NullableBoolean("防火檢討_避難層通達（只有挑空需要）；null 不會清除已寫入的值。"),
+                    ["cannotBeSubdivided"] = JsonSchema.NullableBoolean("防火檢討_無法區劃分隔（只有第79條之1 的六種用途需要）；null 不會清除已寫入的值。")
                 }), "要修改的區劃。"),
                 ["project"] = JsonSchema.Object(new JsonObject
                 {
-                    ["fireResistiveConstruction"] = JsonSchema.NullableBoolean("防火檢討_防火構造建築物。未設為 true 時整份檢討都會是資料不足。"),
-                    ["buildingUse"] = JsonSchema.NullableString("建築物用途類組，例如 H-2。"),
-                    ["floorsAboveGround"] = JsonSchema.NullableInteger("地上層數。")
+                    ["fireResistiveConstruction"] = JsonSchema.NullableBoolean(
+                        "防火檢討_防火構造建築物；未填時整份檢討都會是資料不足，明確填 false 則四類規則的適用條件都不成立、" +
+                        "每一列都判「不適用」（不代表合格）。null 不會清除已寫入的值（見本工具說明）。"),
+                    ["buildingUse"] = JsonSchema.NullableString("建築物用途類組，例如 H-2；文字參數，null 清成空白。"),
+                    ["floorsAboveGround"] = JsonSchema.NullableInteger("地上層數；null 不會清除已寫入的值（見本工具說明）。")
                 }),
                 ["deriveFloors"] = JsonSchema.Boolean("先依樓層高程填入每個區劃的樓層序與地上層數（面板的「依樓層推定」），再套用其他值。", false),
                 ["acceptProposedPanelKinds"] = JsonSchema.Boolean(
@@ -589,12 +594,18 @@ namespace BuildingRegulationReview.Mcp.FireReview
 
                 foreach (var value in requested.Where(v => v.Field != "deriveFloors" && !edits.Any(e => e.ElementUniqueId == v.UniqueId && e.ParameterName == v.Parameter)))
                 {
+                    // 驗證清單 C-05：做不到的清除（整數／是否類參數清不回未填）有它自己的理由，不能
+                    // 落到「值與模型相同，或面板不會問這個欄位」那句預設話——那句對它是錯的，呼叫端
+                    // 會以為自己傳錯了欄位名。
+                    var blocked = batch.Blocked
+                        .FirstOrDefault(b => b.ElementUniqueId == value.UniqueId && b.ParameterName == value.Parameter);
                     ignored.Add(new JsonObject
                     {
                         ["field"] = value.Field,
                         ["elementUniqueId"] = value.UniqueId,
                         ["name"] = value.Name,
-                        ["reason"] = value.Reason ?? "值與模型相同，或面板不會在這一列問這個欄位（見 fire_review_scan_parameters 的 asks）。"
+                        ["reason"] = value.Reason ?? blocked?.Reason
+                            ?? "值與模型相同，或面板不會在這一列問這個欄位（見 fire_review_scan_parameters 的 asks）。"
                     });
                 }
 

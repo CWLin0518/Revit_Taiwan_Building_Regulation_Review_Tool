@@ -154,6 +154,35 @@ public enum FireReviewZoneParameters
 }
 
 /// <summary>
+/// What 防火檢討_防火構造建築物 does to the whole review, said in the three states the parameter
+/// actually has.
+/// </summary>
+/// <remarks>
+/// 驗證清單 C-07：面板原本只要值不是 true 就說「整份檢討會判『資料不足』」，不分「否」與「未填」。
+/// 四條規則的 <c>appliesWhen</c> 都以 <c>building.fireResistiveConstruction == true</c> 開頭，所以
+/// 明確填「否」時那個條件是「已知為假」——規則一律不適用，不是資料不足（2026-10-13 實測：寫成
+/// false 後跑 FL3 得到「符合 0／未符合 0／待確認 2／不適用 104」，一筆資料不足都沒有）。只有未填
+/// 才是資料不足。
+/// <para>
+/// 「不適用」在檢討表上讀起來像「沒有要檢討的事」，與這句紅字想傳達的「這份檢討作不了數」正好相反，
+/// 所以填「否」那一句必須點明不適用不代表合格。措辭放在 Application 而不是只寫在 ViewModel 裡，
+/// MCP 的工具說明與面板才講得出同一件事。
+/// </para>
+/// </remarks>
+public static class FireResistiveConstructionNotice
+{
+    /// <summary>The warning to show beside the box, or an empty string when there is nothing to warn about.</summary>
+    public static string For(bool? fireResistiveConstruction)
+    {
+        if (fireResistiveConstruction == true) return "";
+        return fireResistiveConstruction == false
+            ? "填「否」時，四類規則的適用條件都是已知為假，整份檢討每一列都會判「不適用」——" +
+              "「不適用」不代表合格，只表示本工具找不到可據以檢討的條文，這份檢討作不了數。"
+            : "未填時，四類規則的適用條件都無法判斷，整份檢討會判「資料不足」。";
+    }
+}
+
+/// <summary>
 /// The Project Information facts the review reads. One element, so one row; it is rendered as a
 /// form rather than a grid.
 /// </summary>

@@ -510,11 +510,27 @@ public static class FireReviewRunner
         CurtainWallJunctionReview junction,
         VerticalCompartmentReview shaft)
     {
-        foreach (var warning in area.Warnings.Concat(exemption.Warnings)
-                     .Concat(rating.Warnings).Concat(opening.Warnings).Concat(junction.Warnings)
-                     .Concat(shaft.Warnings)
-                     .Distinct(StringComparer.Ordinal))
-            log.Add(ReviewErrorCode.ReviewCheckWarning, ReviewStage.Review, ReviewSeverity.Warning, warning);
+        // 驗證清單 C-02：六個檢查的警告原本先 Concat 成一串、再跨來源 Distinct，有兩個後果。一是讀者
+        // 看不出一條警告是哪個檢查提出的——「某個參數讀不到」要去哪裡補，取決於是區劃面積在抱怨還是
+        // 防火門窗在抱怨。二是跨來源去重會把兩個不同檢查吐出的同文警告併成一條，於是其中一個檢查在
+        // 日誌上完全沒有聲音，讀者會以為只有一個檢查遇到麻煩。改成逐來源處理：警告冠上該檢查在檢討表
+        // 上的分節標題，去重只在同一個來源內做（同一個檢查重複吐同一句仍只記一條，不同檢查的同一句
+        // 各記一條）。沿用 BCR-RUN-006 不另立碼，因為「哪個檢查」是訊息內容而非錯誤類別，碼的語意
+        // （檢討項目警告）本來就涵蓋六個檢查。標題取自 ReviewTable.Title，與檢討表分節同一份字串，
+        // 不在這裡另造中文名稱——兩邊各寫一份遲早會對不起來。
+        var warningSources = new[]
+        {
+            (CheckType: ReviewCheckTypes.CompartmentArea, Warnings: area.Warnings),
+            (CheckType: ReviewCheckTypes.AreaExemption, Warnings: exemption.Warnings),
+            (CheckType: ReviewCheckTypes.FireResistance, Warnings: rating.Warnings),
+            (CheckType: ReviewCheckTypes.OpeningProtection, Warnings: opening.Warnings),
+            (CheckType: ReviewCheckTypes.CompartmentContinuity, Warnings: junction.Warnings),
+            (CheckType: ReviewCheckTypes.VerticalCompartment, Warnings: shaft.Warnings)
+        };
+        foreach (var source in warningSources)
+        foreach (var warning in source.Warnings.Distinct(StringComparer.Ordinal))
+            log.Add(ReviewErrorCode.ReviewCheckWarning, ReviewStage.Review, ReviewSeverity.Warning,
+                $"〔{ReviewTable.Title(source.CheckType)}〕{warning}");
 
         // 垂直區劃規格 §7: all four rows are logged even when a row is empty, because a 管道間 whose
         // 維修門 was never modelled — or a storey with no 挑空 — reads the same as a row that was not

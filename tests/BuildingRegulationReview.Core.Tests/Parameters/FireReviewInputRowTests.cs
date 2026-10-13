@@ -251,3 +251,41 @@ public sealed class FireReviewInputRowTests
         new(new FireReviewTypeTable(null), null,
             new FireReviewProjectRow("info", fireResistiveConstruction: fireResistive));
 }
+
+/// <summary>
+/// C-07：防火檢討_防火構造建築物 的紅字原本只分「是」與「不是是」，於是明確填「否」的人被告知會判
+/// 「資料不足」——實際上四條規則的 appliesWhen 都以 fireResistiveConstruction == true 開頭，填否時
+/// 條件已知為假，每一列都是「不適用」。
+/// </summary>
+public sealed class FireResistiveConstructionNoticeTests
+{
+    [Fact]
+    public void Unanswered_still_warns_about_資料不足()
+    {
+        var notice = FireResistiveConstructionNotice.For(null);
+
+        Assert.Contains("未填", notice);
+        Assert.Contains("資料不足", notice);
+        Assert.DoesNotContain("不適用", notice);
+    }
+
+    /// <summary>
+    /// 填否要說「每一列都不適用」，而且必須點明不適用不代表合格：檢討表上的「不適用」讀起來像
+    /// 「沒有要檢討的事」，與紅字想傳達的「這份檢討作不了數」正好相反。
+    /// </summary>
+    [Fact]
+    public void Answering_否_warns_that_every_row_will_be_不適用_and_that_this_is_not_a_pass()
+    {
+        var notice = FireResistiveConstructionNotice.For(false);
+
+        Assert.Contains("不適用", notice);
+        Assert.Contains("不代表合格", notice);
+        Assert.DoesNotContain("資料不足", notice);
+    }
+
+    [Fact]
+    public void Answering_是_warns_about_nothing()
+    {
+        Assert.Equal("", FireResistiveConstructionNotice.For(true));
+    }
+}

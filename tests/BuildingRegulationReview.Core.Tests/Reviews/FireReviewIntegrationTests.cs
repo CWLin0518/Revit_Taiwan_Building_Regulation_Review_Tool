@@ -1553,8 +1553,12 @@ public sealed class FireReviewIntegrationTests
 
         // The reader's warning is not one of the checks' own warnings either (驗證清單 C-01): those are
         // ReviewCheckWarning, and logging this message under both codes would double it.
+        // EndsWith, not ==: a 檢討項目警告 now carries a 〔檢查名〕 prefix (C-02), so an equality test
+        // could never fail again — it would pass even when the very double-logging it guards against
+        // happened.
         Assert.DoesNotContain(outcome.Log.Entries,
-            e => e.UserMessage == warning && e.Code == ReviewErrorCode.ReviewCheckWarning);
+            e => e.UserMessage.EndsWith(warning, StringComparison.Ordinal) &&
+                 e.Code == ReviewErrorCode.ReviewCheckWarning);
     }
 
     [Fact]
@@ -2425,13 +2429,59 @@ public sealed class FireReviewIntegrationTests
             prescanElapsed: TimeSpan.FromSeconds(1)));
 
         Assert.True(outcome.IsCompleted, outcome.Message);
-        var entry = Assert.Single(outcome.Log.Entries, e => e.UserMessage.Contains("不在此工作包中", StringComparison.Ordinal));
+
+        // 驗證清單 C-02：這一句是好幾個檢查各自讀到同一份輸入時各自抱怨的，所以日誌上本來就該有好幾
+        // 條（見 Warnings_from_two_different_checks_are_logged_separately_with_their_source）。這條測試
+        // 問的是碼對不對，不是有幾條，所以取第一條即可——原本寫 Assert.Single 是把跨來源去重的缺陷
+        // 當成了規格。
+        var entry = outcome.Log.Entries.First(e => e.UserMessage.Contains("不在此工作包中", StringComparison.Ordinal));
         Assert.Equal(ReviewErrorCode.ReviewCheckWarning, entry.Code);
         Assert.Equal("BCR-RUN-006", entry.Code);
         Assert.Equal(ReviewSeverity.Warning, entry.Severity);
         Assert.Equal("檢討項目警告", ReviewErrorCode.Describe(entry.Code));
+        Assert.All(outcome.Log.Entries.Where(e => e.UserMessage.Contains("不在此工作包中", StringComparison.Ordinal)),
+            e => Assert.Equal(ReviewErrorCode.ReviewCheckWarning, e.Code));
         Assert.Contains(outcome.Log.Entries.Where(e => e.Severity == ReviewSeverity.Warning),
             e => e.Code == ReviewErrorCode.ReviewCheckWarning);
+    }
+
+    /// <summary>
+    /// C-02: 一條檢討警告要指得出它是哪個檢查提出的，而兩個不同檢查吐出同文警告時要各記一條。原本
+    /// runner 把六個來源 Concat 後跨來源 Distinct，於是「區劃面積與防火門窗各有一個同樣的抱怨」在
+    /// 日誌上只剩一條，其中一個檢查完全沒有聲音，讀者也無從知道該去哪個檢查的輸入補資料。
+    /// </summary>
+    [Fact]
+    public void Warnings_from_two_different_checks_are_logged_separately_with_their_source()
+    {
+        var parameters = new Parameters();
+        parameters.Elements["area-c"] = new Dictionary<string, ParameterReading>
+        {
+            [ReviewInputSources.Sprinklered] = ParameterReading.OfYesNo(0),
+            [ReviewInputSources.ZoneUse] = ParameterReading.OfText("辦公"),
+            [ReviewInputSources.FloorNumber] = ParameterReading.OfInteger(1)
+        };
+
+        // 輸入是在 C 區還屬於本工作包時組的，檢討只看得到 A、B 兩區：讀到這份輸入的每個檢查都會
+        // 各自抱怨同一個 C 區，正好是「同文、不同來源」的情形。
+        var inputs = ReviewInputAssembler.Assemble(Set(zones: Zones()), parameters.Snapshot());
+        var outcome = Run(new FireReviewRequest(Package(), Rules(), Today, Set(), inputs, Environment(),
+            prescanElapsed: TimeSpan.FromSeconds(1)));
+
+        Assert.True(outcome.IsCompleted, outcome.Message);
+        var complaints = outcome.Log.Entries
+            .Where(e => e.UserMessage.Contains("不在此工作包中", StringComparison.Ordinal))
+            .Select(e => e.UserMessage)
+            .ToList();
+
+        // 至少兩個檢查提出，而且每一條都指得出來源——不是併成一條沒有來源的裸訊息。
+        Assert.True(complaints.Count >= 2, string.Join(" / ", complaints));
+        Assert.Contains($"〔{ReviewTable.Title(ReviewCheckTypes.CompartmentArea)}〕", complaints[0], StringComparison.Ordinal);
+        Assert.All(complaints, m => Assert.StartsWith("〔", m, StringComparison.Ordinal));
+        Assert.Equal(complaints.Count, complaints.Distinct(StringComparer.Ordinal).Count());
+
+        // 同一個檢查重複吐同一句仍然只記一條：去重只在來源內做。
+        var areaPrefix = $"〔{ReviewTable.Title(ReviewCheckTypes.CompartmentArea)}〕";
+        Assert.Single(complaints, m => m.StartsWith(areaPrefix, StringComparison.Ordinal));
     }
 
     /// <summary>C-01: 未檢討 is not 檢討完成, and a reader filtering the log has to be able to tell.</summary>

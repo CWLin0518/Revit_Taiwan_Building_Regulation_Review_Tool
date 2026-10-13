@@ -237,9 +237,19 @@ namespace BuildingRegulationReview.FireReview
 
             var batch = _draft.CollectEdits();
             var edits = batch.All;
+
+            // 驗證清單 C-05：清不掉的格子（Revit 的整數／是否類參數只能設值）在這裡就講清楚，不要讓
+            // 使用者按下寫入、再從失敗清單裡讀一句「資料型別無法接受這個值」。只有這種格子、沒有其他
+            // 變更時更要說——否則「沒有任何變更需要寫入」會讓使用者以為清空成功了。
+            var blocked = batch.Blocked.Count == 0
+                ? ""
+                : "\n\n以下欄位不會寫入：\n・" + string.Join("\n・", batch.Blocked.Select(b => b.ToString()));
+
             if (batch.IsEmpty)
             {
-                MessageBox.Show(this, "沒有任何變更需要寫入。", Title);
+                MessageBox.Show(this,
+                    batch.Blocked.Count == 0 ? "沒有任何變更需要寫入。" : "沒有任何變更可以寫入。" + blocked,
+                    Title);
                 return;
             }
 
@@ -262,7 +272,7 @@ namespace BuildingRegulationReview.FireReview
                 : "";
 
             var confirm = MessageBox.Show(this,
-                "將寫入以下變更：\n\n" + string.Join("\n", lines) + warning + "\n\n要繼續嗎？",
+                "將寫入以下變更：\n\n" + string.Join("\n", lines) + warning + blocked + "\n\n要繼續嗎？",
                 Title, MessageBoxButton.OKCancel, MessageBoxImage.Warning);
             if (confirm != MessageBoxResult.OK) return;
 

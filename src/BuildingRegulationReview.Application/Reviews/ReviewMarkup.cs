@@ -738,9 +738,20 @@ public sealed class ReviewMarkupDiff
         Notes.Any(n => n.Action != ReviewMarkAction.Unchanged) || Bands.Any(b => b.Action != ReviewMarkAction.Unchanged);
 
     /// <summary>The scope summary spec 15 asks for before any automatic change.</summary>
+    /// <remarks>
+    /// 驗證清單 C-03：<see cref="ForeignMarks"/> 原本算了卻沒人讀。標示被別的工作包佔著時，工具正確地
+    /// 不動它、另畫一份自己的，但摘要不提這件事——使用者在檢討視圖裡看到兩份外觀相同的標示，而範圍
+    /// 摘要（spec 15 要求自動變更前先給）一個字都沒交代。所以把外來標示補進摘要，並說清楚它們不是本
+    /// 套件的、也沒有被動到，否則讀者會以為工具改了別人的東西。
+    /// <para>
+    /// 只在有外來標示時才加這一段：永遠顯示「外來 0」會讓每一次（絕大多數）的摘要都多一個恆為零的
+    /// 數字，反而淹掉真正要看的新增／更新／移除。
+    /// </para>
+    /// </remarks>
     public string Summary =>
         $"檢討視圖標示：新增 {Count(ReviewMarkAction.Create)}、更新 {Count(ReviewMarkAction.Update)}、" +
-        $"移除 {Count(ReviewMarkAction.Remove)}、不變 {Count(ReviewMarkAction.Unchanged)}、略過 {Plan.Skipped.Count}";
+        $"移除 {Count(ReviewMarkAction.Remove)}、不變 {Count(ReviewMarkAction.Unchanged)}、略過 {Plan.Skipped.Count}" +
+        (ForeignMarks > 0 ? $"；另有 {ForeignMarks} 個不屬於本工作包的標示留在原處未更動" : string.Empty);
 
     public static ReviewMarkupDiff Compute(
         ReviewMarkupPlan plan,

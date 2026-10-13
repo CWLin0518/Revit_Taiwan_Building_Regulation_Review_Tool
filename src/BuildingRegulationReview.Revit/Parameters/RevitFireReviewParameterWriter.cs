@@ -116,6 +116,14 @@ public sealed class RevitFireReviewParameterWriter
                     {
                         case WriteOutcome.Written: written++; break;
                         case WriteOutcome.Unchanged: unchanged++; break;
+
+                        // 驗證清單 C-05：清不掉不是「值的型別不對」。這一筆的值本身沒有問題——是
+                        // Revit 根本沒有「取消設值」這個動作，所以要說出真正的原因與可行的下一步，
+                        // 否則使用者只會一直重試同一個空白格。
+                        case WriteOutcome.NotClearable:
+                            failures.Add(new FireReviewWriteFailure(edit, element.Name,
+                                FireReviewParameterLimits.NotClearableReason(edit.ParameterName)));
+                            break;
                         default:
                             failures.Add(new FireReviewWriteFailure(edit, element.Name,
                                 $"參數 {edit.ParameterName} 的資料型別（{parameter.StorageType}）無法接受這個值。"));
@@ -136,7 +144,11 @@ public sealed class RevitFireReviewParameterWriter
         return new FireReviewWriteResult(written, unchanged, failures);
     }
 
-    private enum WriteOutcome { Written, Unchanged, Rejected }
+    /// <summary>
+    /// 驗證清單 C-05：NotClearable 與 Rejected 分開，因為兩者要對使用者說的話完全不同——前者是
+    /// Revit 做不到（值沒問題），後者是這個值放不進這個型別（值有問題）。
+    /// </summary>
+    private enum WriteOutcome { Written, Unchanged, Rejected, NotClearable }
 
     private static WriteOutcome Write(Parameter parameter, FireReviewParameterEdit edit)
     {
@@ -166,7 +178,16 @@ public sealed class RevitFireReviewParameterWriter
                 if (string.Equals(parameter.AsString() ?? string.Empty, text, StringComparison.Ordinal)) return WriteOutcome.Unchanged;
                 return parameter.Set(text) ? WriteOutcome.Written : WriteOutcome.Rejected;
             case StorageType.Integer:
-                if (!int.TryParse(text, out var number)) return WriteOutcome.Rejected;
+                // 空字串是面板與 MCP 表示「清除這一格」的寫法，但 Integer（YESNO 也存成 Integer）
+                // 回不到未填；非空而不是整數才是這個值放不進這個型別（C-05）。
+                switch (FireReviewParameterLimits.ReadIntegerText(text, out var number))
+                {
+                    case FireReviewParameterLimits.IntegerTextVerdict.NotClearable:
+                        return WriteOutcome.NotClearable;
+                    case FireReviewParameterLimits.IntegerTextVerdict.NotANumber:
+                        return WriteOutcome.Rejected;
+                }
+
                 if (parameter.HasValue && parameter.AsInteger() == number) return WriteOutcome.Unchanged;
                 return parameter.Set(number) ? WriteOutcome.Written : WriteOutcome.Rejected;
             default:

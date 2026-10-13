@@ -28,7 +28,8 @@ public sealed class ApplyResultItem
         ManagedElementKey key,
         string description,
         string? message = null,
-        string? elementUniqueId = null)
+        string? elementUniqueId = null,
+        bool isParameterOnly = false)
     {
         if (!Enum.IsDefined(typeof(ApplyOutcome), outcome)) throw new ArgumentOutOfRangeException(nameof(outcome));
         if (string.IsNullOrWhiteSpace(description)) throw new ArgumentException("A result line needs a description.", nameof(description));
@@ -38,6 +39,7 @@ public sealed class ApplyResultItem
         Description = description.Trim();
         Message = string.IsNullOrWhiteSpace(message) ? null : message!.Trim();
         ElementUniqueId = string.IsNullOrWhiteSpace(elementUniqueId) ? null : elementUniqueId!.Trim();
+        IsParameterOnly = isParameterOnly;
     }
 
     public ApplyOutcome Outcome { get; }
@@ -49,6 +51,23 @@ public sealed class ApplyResultItem
     public string? Message { get; }
 
     public string? ElementUniqueId { get; }
+
+    /// <summary>
+    /// True when this line only wrote a parameter onto an element that already existed — nothing of
+    /// the geometry moved. 區劃用途 is the only such write today.
+    /// </summary>
+    /// <remarks>
+    /// 驗證清單 C-09：spec 13.1 作廢既有檢討成果（連帶單線圖與出圖）的理由是「邊界變了」，而設定一個
+    /// 區劃用途邊界一動也沒動。<see cref="ApplyOutcome"/> 說的是「這一筆成功了嗎」，沒有「動到的是
+    /// 幾何還是參數」這個維度，而 <see cref="ManagedElementKind"/> 也分不出來：用途是寫在 Area 上，
+    /// 與一個真的被重畫的 Area 共用 <c>Kind == Area</c>。所以這裡加一個最小的標記，讓
+    /// <c>ReviewPackageProgress</c> 判斷要不要讓 boundaryRevision +1 時把純參數項排除在外。
+    /// <para>
+    /// 改用途本身確實該讓既有檢討變成「已失效」——它是檢討的輸入，<c>ReviewBaselineBuilder</c> 會把它
+    /// 算進簽章——但那是 <c>ReviewStaleness</c> 的工作，不是重畫邊界等級的作廢。
+    /// </para>
+    /// </remarks>
+    public bool IsParameterOnly { get; }
 
     public bool IsProblem => Outcome == ApplyOutcome.Failed || Outcome == ApplyOutcome.Skipped;
 
@@ -128,6 +147,23 @@ public sealed class ApplyResult
     public int DeletedCount => CountOf(ApplyOutcome.Deleted);
     public int SkippedCount => CountOf(ApplyOutcome.Skipped);
     public int FailedCount => CountOf(ApplyOutcome.Failed);
+
+    /// <summary>
+    /// The 區劃用途 and other parameter-only writes that landed — counted apart from the geometry
+    /// because 邊界 did not move (驗證清單 C-09, see <see cref="ApplyResultItem.IsParameterOnly"/>).
+    /// </summary>
+    public int ParameterWriteCount => Items.Count(i => i.IsParameterOnly && !i.IsProblem);
+
+    /// <summary>
+    /// Elements whose geometry this run created, moved or deleted. This — not
+    /// <c>CreatedCount + UpdatedCount + DeletedCount</c> — is what spec 13.1 means by a boundary that
+    /// changed, and therefore what may take <c>boundaryRevision</c> forward and throw away 已檢討／
+    /// 已出圖. The three counts above stay as they were, because the result window reports what the
+    /// run did to the model and a 用途 written onto an Area is a real update of that Area.
+    /// </summary>
+    public int GeometryChangeCount => Items.Count(i =>
+        !i.IsParameterOnly &&
+        (i.Outcome == ApplyOutcome.Created || i.Outcome == ApplyOutcome.Updated || i.Outcome == ApplyOutcome.Deleted));
 
     /// <summary>True when the drafts are now in the model in full, which is what lets the Editor
     /// clear its unapplied-changes mark.</summary>
@@ -282,7 +318,10 @@ public sealed class ApplyResult
         public void ZoneUse(ApplyOutcome outcome, ZoneUseOperation operation, string? reason, string? elementUniqueId)
         {
             if (operation is null) throw new ArgumentNullException(nameof(operation));
-            _items.Add(new ApplyResultItem(outcome, operation.Key, operation.Text, reason, elementUniqueId));
+            // isParameterOnly：用途是寫在一個本來就在那裡的 Area 上，邊界沒有動，所以不可以讓
+            // boundaryRevision +1、把「已檢討」退回「可開始檢討」（驗證清單 C-09）。
+            _items.Add(new ApplyResultItem(outcome, operation.Key, operation.Text, reason, elementUniqueId,
+                isParameterOnly: true));
         }
 
         /// <summary>The run committed. Individual failures are on the log, not in an exception.</summary>

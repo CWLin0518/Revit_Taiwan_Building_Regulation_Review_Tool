@@ -362,6 +362,122 @@ public sealed class FireReviewParameterEdit
     };
 }
 
+/// <summary>
+/// What Revit can and cannot take back out of a parameter, and how to say so to the user.
+/// </summary>
+/// <remarks>
+/// 驗證清單 C-05：面板與 MCP 都把「清除這一格」表示成一個空字串的文字編輯，但 Revit API 的
+/// <c>Parameter</c> 只有 <c>Set</c>、沒有「取消設值」。字串類參數設成空字串就等於空白，長度類可以
+/// 退回 0，而 Integer（YESNO 也是 Integer：Revit 以 0／1 存是否）寫不出「未填」這個狀態——一個已經
+/// 寫入的整數或是否類參數本來就回不到未填。寫入器原本把這件事誤判成「這個值的型別不對」，於是使用者
+/// 把「所在樓層序」清空後拿到的是「資料型別（Integer）無法接受這個值。」：原因說錯，也沒給可行的
+/// 下一步，而使用者讀起來會以為是自己填錯了。
+/// <para>
+/// 同一個分支也會被「填了一個非數字的字」觸發（例如樓層序打「三樓」），那種情形「型別不接受」其實
+/// 是對的，所以兩者必須分開判、分開講。判斷與措辭放在 Application 而不是放在寫入器裡，面板才能在
+/// 產生編輯之前就用同一份規則事先攔下來——使用者該在那一格就知道清不掉，不必按下「寫入模型」才看到
+/// 一筆失敗。
+/// </para>
+/// </remarks>
+public static class FireReviewParameterLimits
+{
+    /// <summary>How a text edit reads against a parameter Revit stores as an Integer.</summary>
+    public enum IntegerTextVerdict
+    {
+        /// <summary>A whole number that can be written.</summary>
+        Number,
+
+        /// <summary>Blank — a request to clear the value, which Revit cannot carry out.</summary>
+        NotClearable,
+
+        /// <summary>Not blank, and not a whole number either.</summary>
+        NotANumber
+    }
+
+    /// <summary>
+    /// Reads the text an Integer-storage parameter was handed, telling 「想清空」 apart from
+    /// 「打錯了」. Blank includes whitespace: a cell the user emptied may keep a stray space, and
+    /// that is still a request to clear rather than a value.
+    /// </summary>
+    /// <remarks>
+    /// Invariant culture, spelled out rather than left to <c>int.TryParse(string, out int)</c>'s
+    /// current-culture default. 面板的 <c>IntegerOf</c>／<c>TextOf</c> 讀寫同一格文字時用的就是
+    /// invariant，而整個攔阻判斷建立在「面板認得的數字＝寫入器認得的數字」上：兩邊若用不同文化，
+    /// 一個在面板過關的值可能在寫入器被判成非數字，或反過來讓面板放過一筆註定失敗的編輯。
+    /// </remarks>
+    public static IntegerTextVerdict ReadIntegerText(string? text, out int number)
+    {
+        number = 0;
+        if (string.IsNullOrWhiteSpace(text)) return IntegerTextVerdict.NotClearable;
+        return int.TryParse(text!.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out number)
+            ? IntegerTextVerdict.Number
+            : IntegerTextVerdict.NotANumber;
+    }
+
+    /// <summary>Why a write that would clear an Integer／YESNO parameter cannot be carried out.</summary>
+    public static string NotClearableReason(string parameterName) =>
+        $"Revit 無法清除整數或是否類參數 {parameterName}：API 只能設值、不能取消設值，已寫入的值回不到未填狀態。" +
+        "請改填一個值；若真的要清空，須在 Revit 中直接刪除這個參數的值，或改用其他欄位表達。";
+
+    /// <summary>The same limit said in the panel's own terms, named by the cell's label.</summary>
+    public static string CannotClearHint(string label) =>
+        $"「{label}」已有值，清空後無法寫回未填狀態（Revit 的整數／是否類參數只能設值、不能取消設值）。" +
+        "請填一個值，或在 Revit 中直接刪除這個參數的值。";
+
+    /// <summary>What to say about an Integer cell holding something that is not a whole number.</summary>
+    public static string NotANumberHint(string label, string? typed) =>
+        $"「{label}」填的「{(typed ?? string.Empty).Trim()}」不是整數，無法寫入；請改填阿拉伯數字（例如 3）。";
+
+    /// <summary>
+    /// Why a Yes/No cell's current content cannot be written, or null when it can.
+    /// </summary>
+    /// <remarks>
+    /// Only clearing is impossible: 是 and 否 both write a value, and a cell whose parameter never
+    /// held one (<paramref name="stored"/> is null) has nothing to take back out — leaving it blank
+    /// writes nothing and is not an error. <paramref name="typed"/> is read as the panel reads it:
+    /// anything that is neither 是 nor 否 is 未填.
+    /// </remarks>
+    public static string? YesNoCellProblem(string label, bool? stored, string? typed) =>
+        stored.HasValue && !IsYesOrNo(typed) ? CannotClearHint(label) : null;
+
+    /// <summary>
+    /// Why an Integer cell's current content cannot be written, or null when it can.
+    /// </summary>
+    /// <remarks>
+    /// 「打錯了」 and 「想清空」 are two different problems and get two different sentences. A blank
+    /// cell whose parameter never held a value is not a problem at all; a blank cell over a stored
+    /// value is a clear Revit cannot carry out. Text that is not a whole number is always a problem,
+    /// stored value or not: the panel normalises what was typed, so a 「三樓」 left in the box would
+    /// otherwise reach the writer as a clear nobody asked for.
+    /// </remarks>
+    public static string? IntegerCellProblem(string label, int? stored, string? typed)
+    {
+        switch (ReadIntegerText(typed, out _))
+        {
+            case IntegerTextVerdict.NotANumber:
+                return NotANumberHint(label, typed);
+            case IntegerTextVerdict.NotClearable:
+                return stored.HasValue ? CannotClearHint(label) : null;
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>
+    /// Whether the text is one of the two answers a YESNO cell can write. Kept here beside the
+    /// predicate that depends on it so the panel's 是／否 and this judgement cannot drift apart.
+    /// </summary>
+    private static bool IsYesOrNo(string? typed) =>
+        string.Equals(typed, YesText, StringComparison.Ordinal) ||
+        string.Equals(typed, NoText, StringComparison.Ordinal);
+
+    /// <summary>What the panel's 是 cell holds; the writer turns it into 1.</summary>
+    public const string YesText = "是";
+
+    /// <summary>What the panel's 否 cell holds; the writer turns it into 0.</summary>
+    public const string NoText = "否";
+}
+
 /// <summary>The Types one view contributed, grouped and ordered the way the panel lists them.</summary>
 public sealed class FireReviewTypeTable
 {

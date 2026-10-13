@@ -505,3 +505,165 @@ public sealed class FireReviewTypeTableTests
         Assert.False(Row("T-beam", CandidateCategory.StructuralFraming).SupportsDerivation);
     }
 }
+
+/// <summary>
+/// C-05：面板與 MCP 都把「清除這一格」表示成空字串的文字編輯，而 Revit API 的 Parameter 只有 Set、
+/// 沒有「取消設值」。這組測試釘住的是「清不掉」與「值放不進這個型別」兩件事不可以共用一句訊息。
+/// </summary>
+public sealed class FireReviewParameterLimitsTests
+{
+    /// <summary>空字串（含只剩空白）是想清除，不是打錯——使用者該拿到「清不掉」而不是「型別不接受」。</summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Blank_text_on_an_integer_parameter_is_a_clear_that_cannot_be_done(string? text)
+    {
+        Assert.Equal(FireReviewParameterLimits.IntegerTextVerdict.NotClearable,
+            FireReviewParameterLimits.ReadIntegerText(text, out var number));
+        Assert.Equal(0, number);
+
+        var reason = FireReviewParameterLimits.NotClearableReason("防火檢討_所在樓層序");
+        Assert.Contains("無法清除", reason);
+        Assert.Contains("不能取消設值", reason);
+
+        // 舊訊息把原因怪到值的型別上，使用者只會一直重試同一個空白格。
+        Assert.DoesNotContain("資料型別", reason);
+        Assert.DoesNotContain("無法接受這個值", reason);
+    }
+
+    /// <summary>非空而不是整數（例如樓層序打「三樓」）才是這個值放不進這個型別，舊訊息對這種情形是對的。</summary>
+    [Theory]
+    [InlineData("三樓")]
+    [InlineData("1.5")]
+    [InlineData("3F")]
+    public void Text_that_is_not_a_whole_number_is_a_different_problem(string text)
+    {
+        Assert.Equal(FireReviewParameterLimits.IntegerTextVerdict.NotANumber,
+            FireReviewParameterLimits.ReadIntegerText(text, out _));
+
+        var hint = FireReviewParameterLimits.NotANumberHint("所在樓層序", text);
+        Assert.Contains("不是整數", hint);
+        Assert.DoesNotContain("無法清除", hint);
+    }
+
+    [Theory]
+    [InlineData("3", 3)]
+    [InlineData("-2", -2)]
+    [InlineData(" 11 ", 11)]
+    public void A_whole_number_is_written_as_before(string text, int expected)
+    {
+        Assert.Equal(FireReviewParameterLimits.IntegerTextVerdict.Number,
+            FireReviewParameterLimits.ReadIntegerText(text, out var number));
+        Assert.Equal(expected, number);
+    }
+
+    /// <summary>面板端的措辭要說出「這一格清不掉」與可行的下一步，而不是只說失敗。</summary>
+    [Fact]
+    public void The_panel_hint_names_the_cell_and_says_what_to_do_instead()
+    {
+        var hint = FireReviewParameterLimits.CannotClearHint("自動滅火設備");
+
+        Assert.Contains("自動滅火設備", hint);
+        Assert.Contains("無法寫回未填狀態", hint);
+        Assert.Contains("請填一個值", hint);
+    }
+}
+
+/// <summary>
+/// C-05：面板用來事先攔下「做不到的編輯」的那兩個 predicate。它們下沉到 Application 才測得到——
+/// 測試專案只 reference Domain／Application／Mcp，碰不到 ViewModel、面板與寫入器。攔阻規則錯一邊
+/// 都是災難：攔過頭會讓使用者改不了值而沒有任何說明，攔不住則會送出一筆註定失敗的編輯。
+/// </summary>
+public sealed class FireReviewCellProblemTests
+{
+    // --- 合法的寫入不可以被攔 ---------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("是")]
+    [InlineData("否")]
+    public void An_answered_yes_no_cell_is_never_blocked(string typed)
+    {
+        // 不論模型裡原本是 是、否 還是未填，填了一個答案就是一筆正常的寫入。
+        Assert.Null(FireReviewParameterLimits.YesNoCellProblem("自動滅火設備", true, typed));
+        Assert.Null(FireReviewParameterLimits.YesNoCellProblem("自動滅火設備", false, typed));
+        Assert.Null(FireReviewParameterLimits.YesNoCellProblem("自動滅火設備", null, typed));
+    }
+
+    [Theory]
+    [InlineData("3")]
+    [InlineData("-2")]
+    [InlineData(" 11 ")]
+    public void An_integer_cell_holding_a_whole_number_is_never_blocked(string typed)
+    {
+        Assert.Null(FireReviewParameterLimits.IntegerCellProblem("所在樓層序", 5, typed));
+        Assert.Null(FireReviewParameterLimits.IntegerCellProblem("所在樓層序", null, typed));
+    }
+
+    /// <summary>
+    /// 沒被碰過的列不可以誤報：參數本來就是未填、使用者也沒填，留白是現狀而不是一個做不到的清除。
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void A_blank_cell_whose_parameter_never_held_a_value_is_not_a_problem(string? typed)
+    {
+        Assert.Null(FireReviewParameterLimits.YesNoCellProblem("避難層通達", null, typed));
+        Assert.Null(FireReviewParameterLimits.IntegerCellProblem("地上層數", null, typed));
+    }
+
+    // --- 清不掉 -----------------------------------------------------------------------------------
+
+    /// <summary>
+    /// 把一個已有值的是否類／整數欄位清空，是 Revit 做不到的事（API 只能設值）。要拿到「清不掉」
+    /// 那種理由，不是「型別不接受這個值」。
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Clearing_a_stored_value_is_blocked_as_something_that_cannot_be_cleared(string? typed)
+    {
+        var yesNo = FireReviewParameterLimits.YesNoCellProblem("自動滅火設備", true, typed);
+        Assert.NotNull(yesNo);
+        Assert.Contains("自動滅火設備", yesNo!);
+        Assert.Contains("無法寫回未填狀態", yesNo);
+        Assert.DoesNotContain("不是整數", yesNo);
+
+        var integer = FireReviewParameterLimits.IntegerCellProblem("所在樓層序", 3, typed);
+        Assert.NotNull(integer);
+        Assert.Contains("所在樓層序", integer!);
+        Assert.Contains("無法寫回未填狀態", integer);
+        Assert.DoesNotContain("不是整數", integer);
+    }
+
+    /// <summary>填 否 也清不掉 是——但那是一筆正常的寫入，不是清除，所以不該被攔。</summary>
+    [Fact]
+    public void Answering_否_over_a_stored_是_is_a_write_and_not_a_clear()
+    {
+        Assert.Null(FireReviewParameterLimits.YesNoCellProblem("無法區劃分隔", true, "否"));
+    }
+
+    // --- 不是整數 ---------------------------------------------------------------------------------
+
+    /// <summary>
+    /// 整數欄位填了非數字是另一種問題，要拿到「不是整數」那種理由。面板會把打錯的字正規化成空字串，
+    /// 所以這裡不攔的話，「三樓」會以一筆沒人要求的清除抵達寫入器。
+    /// </summary>
+    [Theory]
+    [InlineData("三樓")]
+    [InlineData("3F")]
+    [InlineData("1.5")]
+    public void An_integer_cell_holding_something_that_is_not_a_number_is_blocked_as_such(string typed)
+    {
+        foreach (var stored in new int?[] { 3, null })
+        {
+            var problem = FireReviewParameterLimits.IntegerCellProblem("所在樓層序", stored, typed);
+            Assert.NotNull(problem);
+            Assert.Contains("不是整數", problem!);
+            Assert.Contains(typed, problem);
+            Assert.DoesNotContain("無法寫回未填狀態", problem);
+        }
+    }
+}

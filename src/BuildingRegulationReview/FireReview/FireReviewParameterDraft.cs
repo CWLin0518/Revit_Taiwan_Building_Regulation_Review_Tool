@@ -78,6 +78,11 @@ namespace BuildingRegulationReview.FireReview
         }
 
         /// <summary>Only what differs from the model, grouped as 寫入模型 reports it.</summary>
+        /// <remarks>
+        /// 驗證清單 C-05：做不到的清除（以及整數格裡的非數字）不混在 edits 裡送去碰運氣，而是另外收在
+        /// Blocked。類型列不會有這種格子——它的是否類欄位走 OfYesNo（勾或不勾，沒有「清除」這個狀態），
+        /// 被覆厚度是長度（可以退回 0），其餘是文字參數（空字串就真的是空白）。
+        /// </remarks>
         public FireReviewParameterEditBatch CollectEdits() =>
             new FireReviewParameterEditBatch(
                 Rows.SelectMany(r => r.Edits()).ToList(),
@@ -85,7 +90,10 @@ namespace BuildingRegulationReview.FireReview
                 Project == null ? new List<FireReviewParameterEdit>() : Project.Edits().ToList(),
                 Rows.Where(r => r.IsDirty).ToList(),
                 Zones.Count(z => z.IsDirty),
-                Rows.Count(r => r.PanelKindIsProposed));
+                Rows.Count(r => r.PanelKindIsProposed),
+                Zones.SelectMany(z => z.Blocked())
+                    .Concat(Project == null ? Enumerable.Empty<FireReviewBlockedEdit>() : Project.Blocked())
+                    .ToList());
     }
 
     internal sealed class FloorDerivation
@@ -114,7 +122,8 @@ namespace BuildingRegulationReview.FireReview
             IReadOnlyList<FireReviewParameterEdit> projectEdits,
             IReadOnlyList<FireReviewTypeRowViewModel> dirtyTypes,
             int dirtyZoneCount,
-            int proposedPanelKindCount)
+            int proposedPanelKindCount,
+            IReadOnlyList<FireReviewBlockedEdit> blocked)
         {
             TypeEdits = typeEdits;
             ZoneEdits = zoneEdits;
@@ -122,6 +131,7 @@ namespace BuildingRegulationReview.FireReview
             DirtyTypes = dirtyTypes;
             DirtyZoneCount = dirtyZoneCount;
             ProposedPanelKindCount = proposedPanelKindCount;
+            Blocked = blocked ?? new List<FireReviewBlockedEdit>();
         }
 
         public IReadOnlyList<FireReviewParameterEdit> TypeEdits { get; }
@@ -144,5 +154,11 @@ namespace BuildingRegulationReview.FireReview
         /// like any other value once 寫入模型 is pressed (決議 16、D3), so it is counted out loud.
         /// </summary>
         public int ProposedPanelKindCount { get; }
+
+        /// <summary>
+        /// Cells whose content is not being written because it cannot be (驗證清單 C-05). Never silent:
+        /// 寫入模型 names them, and the MCP tool reports them as the reason that field was ignored.
+        /// </summary>
+        public IReadOnlyList<FireReviewBlockedEdit> Blocked { get; }
     }
 }

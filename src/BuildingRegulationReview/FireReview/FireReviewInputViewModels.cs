@@ -11,6 +11,35 @@ using BuildingRegulationReview.Application.Reviews;
 namespace BuildingRegulationReview.FireReview
 {
     /// <summary>
+    /// One cell the panel will not write, and why — in the user's words, not the Revit API's.
+    /// </summary>
+    /// <remarks>
+    /// 驗證清單 C-05。帶著元素與參數名，MCP 的 <c>ignored</c> 才能把這個理由放到對的那一筆上；只回
+    /// 一句話的話，`fire_review_set_parameters` 只能給出「值與模型相同，或面板不會問這個欄位」那句
+    /// 預設理由，對一個做不到的清除來說是錯的。
+    /// </remarks>
+    internal sealed class FireReviewBlockedEdit
+    {
+        public FireReviewBlockedEdit(string elementUniqueId, string parameterName, string name, string reason)
+        {
+            ElementUniqueId = elementUniqueId;
+            ParameterName = parameterName;
+            Name = name;
+            Reason = reason;
+        }
+
+        public string ElementUniqueId { get; }
+        public string ParameterName { get; }
+
+        /// <summary>The row as the panel lists it, e.g. a 區劃 name or 專案資訊.</summary>
+        public string Name { get; }
+
+        public string Reason { get; }
+
+        public override string ToString() => $"{Name}：{Reason}";
+    }
+
+    /// <summary>
     /// Shared plumbing for the panel's editable rows: change notification, and the conversions
     /// between what the user types and what a Revit parameter takes.
     /// </summary>
@@ -21,8 +50,11 @@ namespace BuildingRegulationReview.FireReview
     /// </remarks>
     internal abstract class FireReviewEditableRow : INotifyPropertyChanged
     {
-        internal const string YesText = "是";
-        internal const string NoText = "否";
+        // 取自 Application 的同一組常數，而不是在這裡再打一次：下沉後的
+        // FireReviewParameterLimits.YesNoCellProblem 要靠「是／否」逐字相符才認得出一格是不是空的，
+        // 兩邊各寫一份遲早會對不起來（C-05）。
+        internal const string YesText = FireReviewParameterLimits.YesText;
+        internal const string NoText = FireReviewParameterLimits.NoText;
 
         public IReadOnlyList<string> YesNoChoices { get; } = new[] { "", YesText, NoText };
 
@@ -30,6 +62,19 @@ namespace BuildingRegulationReview.FireReview
 
         /// <summary>The edits this row would make, or nothing when the user changed nothing.</summary>
         public abstract IEnumerable<FireReviewParameterEdit> Edits();
+
+        /// <summary>
+        /// Cells whose current content cannot reach the model, so 寫入模型 can say so before it writes
+        /// instead of the writer refusing them afterwards.
+        /// </summary>
+        /// <remarks>
+        /// 驗證清單 C-05：使用者把「所在樓層序」或「自動滅火設備」清空再按「寫入模型」，拿到的是一句
+        /// 看不懂的「資料型別（Integer）無法接受這個值。」——而且是按下去之後才看到。Revit API 沒有
+        /// 「取消設值」，這兩類欄位本來就清不回未填（<see cref="FireReviewParameterLimits"/>），所以
+        /// 面板在產生編輯時就認出這種格子：不產生那筆註定失敗的編輯，但一定要把它列出來講清楚。
+        /// 預設沒有這種格子——只有存著 Integer／YESNO 的列需要覆寫。
+        /// </remarks>
+        public virtual IEnumerable<FireReviewBlockedEdit> Blocked() => Array.Empty<FireReviewBlockedEdit>();
 
         public bool IsDirty => Edits().Any();
 
@@ -319,8 +364,16 @@ namespace BuildingRegulationReview.FireReview
         /// <remarks>
         /// Offered as the same 空白／是／否 list the other YESNO columns use, not as a tick box. A tick
         /// box has two states and this field has three that the review tells apart: 未填 is 資料不足,
-        /// 否 is 不適用 (第79條之1規格 §3.5). With a tick box, clearing an accidental 是 back to 未填
-        /// would be impossible from the panel — unticking writes 否, which is a different answer.
+        /// 否 is 不適用 (第79條之1規格 §3.5). A tick box could not even show which of the three a row
+        /// holds — an unticked box would read as 否 on a row nobody has answered, silently answering
+        /// for the designer — and its only two gestures both write. The list at least shows 未填 as
+        /// 未填 and lets the user leave it that way.
+        /// <para>
+        /// What the list still cannot do is take a written value back to 未填: Revit's YESNO
+        /// parameter is an Integer and the API has no 「取消設值」, so the panel blocks that edit and
+        /// says so (驗證清單 C-05, <see cref="FireReviewParameterLimits"/>). Clearing is a Revit-side
+        /// job — deleting the parameter's value on the Area itself.
+        /// </para>
         /// </remarks>
         public string CannotBeSubdivided
         {
@@ -334,9 +387,22 @@ namespace BuildingRegulationReview.FireReview
         /// <summary>
         /// Whether the 無法區劃分隔 box takes an edit: only for the six uses 第79條之1 names, because
         /// the field has no meaning for any other 區劃 and a fillable box would suggest it did
-        /// (第79條之1規格 §7.3). A row that already holds a value stays editable whatever its use, so a
-        /// value left behind by a since-changed 用途 can still be cleared here rather than only in Revit.
+        /// (第79條之1規格 §7.3).
         /// </summary>
+        /// <remarks>
+        /// A row that already holds a value stays editable whatever its 用途, because 是 and 否 are
+        /// the one correction the panel can still offer on a value left behind by a since-changed
+        /// 用途. It is no longer offered as a way to clear that value: Revit cannot take a YESNO
+        /// parameter back to 未填, so the panel blocks a blank here and says the clearing has to be
+        /// done in Revit (驗證清單 C-05). Disabling the box instead would leave the stale value with
+        /// no route at all from the panel.
+        /// <para>
+        /// A stale value on a non-qualifying 用途 does not change a verdict —
+        /// <c>Article79_1Exemption.For</c> reads the 用途 and answers 不適用 for all three states —
+        /// but it is still recorded as that result's <c>zone.cannotBeSubdivided</c> evidence, so
+        /// being able to correct it is worth keeping.
+        /// </para>
+        /// </remarks>
         public bool CanEditCannotBeSubdivided => IsArticle79_1Use || _cannotBeSubdivided.Length > 0;
 
         public string MissingParameters => Source.MissingParameters.Count == 0
@@ -350,32 +416,65 @@ namespace BuildingRegulationReview.FireReview
             if (!Same(_use, Source.Use))
                 yield return FireReviewParameterEdit.OfText(Source.ElementUniqueId, ReviewInputSources.ZoneUse, _use);
 
-            if (YesNoOf(_sprinklered) != Source.Sprinklered)
+            // 這四格都是 YESNO／Integer，清不回未填（C-05），所以先問 Blocked 認不認得這一格：認得就
+            // 不產生那筆註定被寫入器拒絕的編輯，由 Blocked 去把理由說給使用者聽。
+            if (YesNoOf(_sprinklered) != Source.Sprinklered && SprinkleredProblem == null)
             {
                 yield return FireReviewParameterEdit.OfText(
                     Source.ElementUniqueId, ReviewInputSources.Sprinklered, YesNoParameterText(YesNoOf(_sprinklered)));
             }
 
-            if (IntegerOf(_floorNumber) != Source.FloorNumber)
+            if (IntegerOf(_floorNumber) != Source.FloorNumber && FloorNumberProblem == null)
             {
                 yield return FireReviewParameterEdit.OfText(
                     Source.ElementUniqueId, ReviewInputSources.FloorNumber, TextOf(IntegerOf(_floorNumber)));
             }
 
-            if (YesNoOf(_linksRefugeFloor) != Source.LinksRefugeFloor)
+            if (YesNoOf(_linksRefugeFloor) != Source.LinksRefugeFloor && LinksRefugeFloorProblem == null)
             {
                 yield return FireReviewParameterEdit.OfText(
                     Source.ElementUniqueId, ReviewInputSources.LinksRefugeFloor, YesNoParameterText(YesNoOf(_linksRefugeFloor)));
             }
 
             // 第79條之1. Written for whatever the box holds, including on a row whose 用途 is no longer
-            // one of the six: that is how a value left behind by a changed 用途 gets cleared.
-            if (YesNoOf(_cannotBeSubdivided) != Source.CannotBeSubdivided)
+            // one of the six: that is how a value left behind by a changed 用途 gets corrected here
+            // rather than only in Revit. Correcting it means writing 是 or 否 — taking it back to 未填
+            // is what C-05 found Revit cannot do, and Blocked says so instead of pretending.
+            if (YesNoOf(_cannotBeSubdivided) != Source.CannotBeSubdivided && CannotBeSubdividedProblem == null)
             {
                 yield return FireReviewParameterEdit.OfText(
                     Source.ElementUniqueId, ReviewInputSources.CannotBeSubdivided, YesNoParameterText(YesNoOf(_cannotBeSubdivided)));
             }
         }
+
+        // 這四格的攔阻判斷住在 Application（FireReviewParameterLimits），面板只負責說出哪一格、
+        // 現在存著什麼、使用者打了什麼。規則下沉後才測得到——測試專案不 reference 這個外掛專案。
+        private string SprinkleredProblem =>
+            FireReviewParameterLimits.YesNoCellProblem("自動滅火設備", Source.Sprinklered, _sprinklered);
+
+        private string FloorNumberProblem =>
+            FireReviewParameterLimits.IntegerCellProblem("所在樓層序", Source.FloorNumber, _floorNumber);
+
+        private string LinksRefugeFloorProblem =>
+            FireReviewParameterLimits.YesNoCellProblem("避難層通達", Source.LinksRefugeFloor, _linksRefugeFloor);
+
+        private string CannotBeSubdividedProblem =>
+            FireReviewParameterLimits.YesNoCellProblem("無法區劃分隔", Source.CannotBeSubdivided, _cannotBeSubdivided);
+
+        public override IEnumerable<FireReviewBlockedEdit> Blocked()
+        {
+            if (SprinkleredProblem != null)
+                yield return Block(ReviewInputSources.Sprinklered, SprinkleredProblem);
+            if (FloorNumberProblem != null)
+                yield return Block(ReviewInputSources.FloorNumber, FloorNumberProblem);
+            if (LinksRefugeFloorProblem != null)
+                yield return Block(ReviewInputSources.LinksRefugeFloor, LinksRefugeFloorProblem);
+            if (CannotBeSubdividedProblem != null)
+                yield return Block(ReviewInputSources.CannotBeSubdivided, CannotBeSubdividedProblem);
+        }
+
+        private FireReviewBlockedEdit Block(string parameterName, string reason) =>
+            new FireReviewBlockedEdit(Source.ElementUniqueId, parameterName, DisplayName, reason);
     }
 
     /// <summary>
@@ -414,9 +513,12 @@ namespace BuildingRegulationReview.FireReview
             }
         }
 
-        public string FireResistiveWarning => YesNoOf(_fireResistive) == true
-            ? ""
-            : "未勾選時，四類規則的適用條件都不成立，整份檢討會判「資料不足」。";
+        /// <summary>
+        /// 驗證清單 C-07：三態分開講。原本只要值不是 是 就說「會判資料不足」，但明確填 否 時四條規則的
+        /// 適用條件是已知為假，每一列都判「不適用」而不是資料不足——而「不適用」在檢討表上讀起來像
+        /// 「沒有要檢討的事」，與這句紅字想傳達的意思正好相反，所以那一句得點明不適用不代表合格。
+        /// </summary>
+        public string FireResistiveWarning => FireResistiveConstructionNotice.For(YesNoOf(_fireResistive));
 
         public bool HasFireResistiveWarning => FireResistiveWarning.Length > 0;
 
@@ -477,7 +579,7 @@ namespace BuildingRegulationReview.FireReview
 
         public override IEnumerable<FireReviewParameterEdit> Edits()
         {
-            if (YesNoOf(_fireResistive) != Source.FireResistiveConstruction)
+            if (YesNoOf(_fireResistive) != Source.FireResistiveConstruction && FireResistiveProblem == null)
             {
                 yield return FireReviewParameterEdit.OfText(
                     Source.ElementUniqueId, ReviewInputSources.FireResistiveConstruction,
@@ -487,11 +589,30 @@ namespace BuildingRegulationReview.FireReview
             if (!Same(_buildingUse, Source.BuildingUse))
                 yield return FireReviewParameterEdit.OfText(Source.ElementUniqueId, ReviewInputSources.BuildingUse, _buildingUse);
 
-            if (IntegerOf(_floorsAboveGround) != Source.FloorsAboveGround)
+            if (IntegerOf(_floorsAboveGround) != Source.FloorsAboveGround && FloorsAboveGroundProblem == null)
             {
                 yield return FireReviewParameterEdit.OfText(
                     Source.ElementUniqueId, ReviewInputSources.FloorsAboveGround, TextOf(IntegerOf(_floorsAboveGround)));
             }
         }
+
+        // 防火構造建築物 是 YESNO、地上層數 是 Integer，兩者都清不回未填（C-05）。建築物用途類組是
+        // 文字參數，設成空字串就真的是空白，所以不在這裡。
+        private string FireResistiveProblem => FireReviewParameterLimits.YesNoCellProblem(
+            "防火構造建築物", Source.FireResistiveConstruction, _fireResistive);
+
+        private string FloorsAboveGroundProblem => FireReviewParameterLimits.IntegerCellProblem(
+            "地上層數", Source.FloorsAboveGround, _floorsAboveGround);
+
+        public override IEnumerable<FireReviewBlockedEdit> Blocked()
+        {
+            if (FireResistiveProblem != null)
+                yield return Block(ReviewInputSources.FireResistiveConstruction, FireResistiveProblem);
+            if (FloorsAboveGroundProblem != null)
+                yield return Block(ReviewInputSources.FloorsAboveGround, FloorsAboveGroundProblem);
+        }
+
+        private FireReviewBlockedEdit Block(string parameterName, string reason) =>
+            new FireReviewBlockedEdit(Source.ElementUniqueId, parameterName, "專案資訊", reason);
     }
 }

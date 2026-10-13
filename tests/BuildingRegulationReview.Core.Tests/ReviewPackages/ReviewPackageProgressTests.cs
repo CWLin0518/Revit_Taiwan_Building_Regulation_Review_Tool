@@ -343,6 +343,143 @@ public class ReviewPackageProgressTests
         Assert.Throws<ArgumentOutOfRangeException>(() => package.WithProgress(ReviewPackageStatus.Ready, 4));
     }
 
+    /// <summary>
+    /// C-09 情形 2：只寫了區劃用途，幾何一動也沒動。spec 13.1 作廢既有成果的理由是「邊界變了」，
+    /// 所以 boundaryRevision 不能 +1、已檢討也不能被退回可開始檢討——改用途該讓檢討變成「已失效」，
+    /// 但那是 ReviewStaleness 的工作。訊息同時必須誠實：有東西被寫進去了。
+    /// </summary>
+    [Fact]
+    public void ARunThatOnlySetAZoneUseLeavesTheRevisionAndTheStatusAlone()
+    {
+        var result = ZoneUseOnly();
+        Assert.Equal(0, result.GeometryChangeCount);
+        Assert.Equal(1, result.ParameterWriteCount);
+
+        var outcome = ReviewPackageProgress.After(
+            Package(ReviewPackageStatus.Reviewed, boundaryRevision: 7), result, At);
+
+        Assert.Equal(7, outcome.BoundaryRevision);
+        Assert.Equal(ReviewPackageStatus.Reviewed, outcome.Status);
+        Assert.Empty(outcome.Blockers);
+
+        // 「模型已經與草稿一致」是給「一個字都沒寫」的那條路用的；這一次寫了用途，說一致是假話。
+        Assert.Contains("已設定 1 個面積的區劃用途", outcome.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("模型已經與草稿一致", outcome.Message, StringComparison.Ordinal);
+        Assert.Contains("需更新", outcome.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>C-09 情形 1：真的什麼都沒寫，現行的早退訊息與狀態維持不變。</summary>
+    [Fact]
+    public void ARunThatWroteNothingAtAllStillSaysTheModelAlreadyMatchesTheDraft()
+    {
+        var result = new ApplyResult.Builder(AppliedPlan()).Complete();
+        Assert.Equal(0, result.GeometryChangeCount);
+        Assert.Equal(0, result.ParameterWriteCount);
+
+        var outcome = ReviewPackageProgress.After(
+            Package(ReviewPackageStatus.Reviewed, boundaryRevision: 7), result, At);
+
+        Assert.Equal(7, outcome.BoundaryRevision);
+        Assert.Equal(ReviewPackageStatus.Reviewed, outcome.Status);
+        Assert.Contains("模型已經與草稿一致", outcome.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// C-09 情形 3：幾何有動的行為完全不變，一併寫入的用途不會把它拉成純參數的套用。
+    /// </summary>
+    [Fact]
+    public void AZoneUseWrittenAlongsideGeometryDoesNotStopTheRevisionFromAdvancing()
+    {
+        var plan = Plan();
+        var builder = new ApplyResult.Builder(plan);
+        foreach (var step in plan.Steps) builder.Created(step, "new-" + step.Key.ToToken());
+        builder.Area(AreaAgreement.Compare(AreaKey(), "A", 92.9, 92.9));
+        builder.ZoneUse(ApplyOutcome.Updated, ZoneUse(), null, "existing-area");
+        var result = builder.Complete();
+
+        Assert.Equal(plan.Steps.Count, result.GeometryChangeCount);
+        Assert.Equal(1, result.ParameterWriteCount);
+
+        var outcome = ReviewPackageProgress.After(
+            Package(ReviewPackageStatus.Reviewed, boundaryRevision: 7), result, At);
+
+        Assert.Equal(8, outcome.BoundaryRevision);
+        Assert.Equal(ReviewPackageStatus.Ready, outcome.Status);
+        Assert.Contains("面積與邊界都已寫入", outcome.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// C-09：純參數的寫入不會把 blockers 吞掉。Blockers 沒改，而純參數那段訊息藏在
+    /// <c>blockerCount == 0</c> 後面，所以一筆用途寫入旁邊有面積不符時，套件照舊退回區劃草稿；
+    /// 唯一的差別是 revision 不再 +1——邊界沒動過，沒有理由作廢既有成果。
+    /// </summary>
+    [Fact]
+    public void AZoneUseWriteDoesNotHideAnAreaThatDisagrees()
+    {
+        var builder = new ApplyResult.Builder(AppliedPlan());
+        builder.ZoneUse(ApplyOutcome.Updated, ZoneUse(), null, "existing-area");
+        builder.Area(AreaAgreement.Compare(AreaKey(), "A", 92.9, 70.0));
+        var result = builder.Complete();
+
+        Assert.Equal(0, result.GeometryChangeCount);
+        Assert.Equal(1, result.ParameterWriteCount);
+
+        var outcome = ReviewPackageProgress.After(
+            Package(ReviewPackageStatus.Reviewed, boundaryRevision: 7), result, At);
+
+        Assert.Equal(ReviewPackageStatus.BoundaryDraft, outcome.Status);
+        Assert.Contains(outcome.Blockers, b => b.Contains("相差", StringComparison.Ordinal));
+        Assert.Contains("尚不得進入", outcome.Message, StringComparison.Ordinal);
+
+        // 邊界沒動，所以就算退回區劃草稿，既有的單線圖與出圖也不該被 revision 作廢。
+        Assert.Equal(7, outcome.BoundaryRevision);
+    }
+
+    /// <summary>
+    /// C-09：一筆用途寫入失敗（FailedCount > 0）同樣擋得住 Ready，revision 照樣不動。
+    /// </summary>
+    [Fact]
+    public void AZoneUseThatFailedKeepsThePackageOutOfReadyWithoutAdvancingTheRevision()
+    {
+        var builder = new ApplyResult.Builder(AppliedPlan());
+        builder.ZoneUse(ApplyOutcome.Failed, ZoneUse(), "Revit 拒絕寫入這個區劃用途。", "existing-area");
+        var result = builder.Complete();
+
+        Assert.Equal(0, result.GeometryChangeCount);
+        Assert.Equal(0, result.ParameterWriteCount);
+        Assert.Equal(1, result.FailedCount);
+
+        var outcome = ReviewPackageProgress.After(
+            Package(ReviewPackageStatus.Ready, boundaryRevision: 7), result, At);
+
+        Assert.Equal(ReviewPackageStatus.BoundaryDraft, outcome.Status);
+        Assert.Contains(outcome.Blockers, b => b.Contains("沒有寫入模型", StringComparison.Ordinal));
+        Assert.Equal(7, outcome.BoundaryRevision);
+    }
+
+    /// <summary>
+    /// C-09：還在等邊界的套件（設定中／區劃草稿）本來就會被一次「測量過、沒寫幾何」的套用晉升到
+    /// 可開始檢討，純參數的套用也一樣——這是改動前後一致的既有行為，但現在會配上新的「邊界未變更」
+    /// 訊息。釘住它，免得以後有人把它當成 C-09 的漏洞改掉。
+    /// </summary>
+    [Theory]
+    [InlineData(ReviewPackageStatus.Setup)]
+    [InlineData(ReviewPackageStatus.BoundaryDraft)]
+    public void AZoneUseWriteStillPromotesAPackageThatIsStillAwaitingItsBoundaries(ReviewPackageStatus status)
+    {
+        var outcome = ReviewPackageProgress.After(Package(status, boundaryRevision: 7), ZoneUseOnly(), At);
+
+        Assert.Equal(ReviewPackageStatus.Ready, outcome.Status);
+        Assert.Empty(outcome.Blockers);
+
+        // 晉升不等於邊界變了：revision 仍然不動。
+        Assert.Equal(7, outcome.BoundaryRevision);
+        Assert.Contains("邊界未變更", outcome.Message, StringComparison.Ordinal);
+        Assert.Contains(Describe(ReviewPackageStatus.Ready), outcome.Message, StringComparison.Ordinal);
+    }
+
+    private static string Describe(ReviewPackageStatus status) => ReviewPackageProgress.Describe(status);
+
     // ---- helpers ------------------------------------------------------------------------------
 
     private static ReviewPackage Package(
@@ -406,6 +543,18 @@ public class ReviewPackageProgressTests
 
     private static ManagedElementKey AreaKey() =>
         new ManagedElementKey(PackageId, ZoneId, ManagedElementKind.Area, 0, 0);
+
+    /// <summary>C-09：一筆區劃用途的寫入，標的是一個本來就存在的 Area。</summary>
+    private static ZoneUseOperation ZoneUse() =>
+        new ZoneUseOperation(AreaKey(), "A", null, "挑空", "existing-area");
+
+    /// <summary>What the write-back reports for a run whose only change was one 區劃用途 (C-09).</summary>
+    private static ApplyResult ZoneUseOnly()
+    {
+        var builder = new ApplyResult.Builder(AppliedPlan());
+        builder.ZoneUse(ApplyOutcome.Updated, ZoneUse(), null, "existing-area");
+        return builder.Complete();
+    }
 
     private static ApplyPlan Plan()
     {

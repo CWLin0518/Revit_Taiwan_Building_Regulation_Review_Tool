@@ -274,6 +274,41 @@ public sealed class ReviewMarkupTests
         Assert.Equal(2, diff.Count(ReviewMarkAction.Create));
     }
 
+    /// <summary>
+    /// C-03：外來標示被算出來卻沒進範圍摘要（spec 15 要求自動變更前先給摘要），於是使用者在檢討視圖
+    /// 裡會多看到一份外觀相同的標示而沒有任何說明。摘要要提到它們，並說明沒有被更動。
+    /// </summary>
+    [Fact]
+    public void The_scope_summary_says_foreign_marks_were_left_in_place()
+    {
+        var model = new Model();
+        var run = ReviewTableTests.ReviewAll(model, areaLimitM2: 50);
+        var foreign = new ExistingReviewMark("foreign-1", new ReviewMarkKey(OtherPackage, run.RunId, ZoneA, 0).ToToken(), "x");
+        var junk = new ExistingReviewMark("junk-1", "人工繪製", "");
+
+        var diff = ReviewMarkupDiff.Compute(Plan(run, model), new[] { foreign, junk }, Array.Empty<RecordedElementOverride>());
+
+        Assert.Contains("2 個不屬於本工作包的標示", diff.Summary);
+        Assert.Contains("未更動", diff.Summary);
+    }
+
+    /// <summary>
+    /// C-03：沒有外來標示時摘要不提它——永遠顯示一個恆為零的數字只會淹掉真正要看的新增／更新／移除。
+    /// </summary>
+    [Fact]
+    public void The_scope_summary_stays_silent_when_there_are_no_foreign_marks()
+    {
+        var model = new Model();
+        var run = ReviewTableTests.ReviewAll(model, areaLimitM2: 50);
+
+        var diff = ReviewMarkupDiff.Compute(Plan(run, model), Array.Empty<ExistingReviewMark>(),
+            Array.Empty<RecordedElementOverride>());
+
+        Assert.Equal(0, diff.ForeignMarks);
+        Assert.DoesNotContain("不屬於本工作包", diff.Summary);
+        Assert.EndsWith($"略過 {diff.Plan.Skipped.Count}", diff.Summary);
+    }
+
     [Fact]
     public void A_changed_zone_outline_updates_its_region_and_a_duplicate_is_removed()
     {
