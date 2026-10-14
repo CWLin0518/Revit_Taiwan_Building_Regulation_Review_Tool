@@ -1168,7 +1168,7 @@ FL3 的唯一差異：區劃 322274「13 區劃 1」的防火區劃面積由「�
 | C-08 | 🟡 中 | **室內外未定的帷幕牆，在「構件防火時效」那一列被靜默丟棄。** `CandidateResolver.cs:96-110` 刻意為這種牆產出一個 `CurtainWallExposureUndecided` 的 ambiguity，訊息就是規格要的那句「外牆不受第79條第1項區劃牆壁時效拘束、室內帷幕牆則受拘束，兩者相反，需人工覆核」，註解也明寫「這一列讓那個空缺出現在檢討表上」。但它掛在該牆的 **boundary** 關係上，而 `FireResistanceCheck` 消費 ambiguity 時用的 `AmbiguousMember` 只認 `IsAmbiguous` 的關係（`m.RelationTo(zoneId) is { IsAmbiguous: true }`），`ZoneRelationKind` 的 `IsBoundary` 與 `IsAmbiguous` 互斥，所以永遠比不到 → `continue` → **那一列從不產生**。牆體時效規則版本 3 又明文排除 `Unknown`（`element.curtainWallExposure != "Unknown"`），於是這道牆在構件防火時效只剩「不適用」或完全不列，第79條第1項的時效要求**無聲消失**——正是規格 §4.8「`Unknown` 不是靜默略過」要防的事 | `FireResistanceCheck.cs:244-247`（`AmbiguousMember` 比對不到就 `continue`）、`:511-518`（`AmbiguousMember`）；`CandidateSet.cs:185-186`（`IsAmbiguous`／`IsBoundary` 互斥）；產出端 `CandidateResolver.cs:96-110`；規則 `tw-bcr-79-wall-rating` 版本 3 的 `appliesWhen`；規格 `docs/regulations/curtain-wall-fire-compartment.md:824-828` | 2026-10-13 實測（V-27 第 9 項）：型別 334 的 `Function` 改成 `Interior` 後跑 FL1，「帷幕牆區劃交接」如期出現 4 列人工覆核（室內外判定，訊息逐字含兩種修法），但「構件防火時效」是 16 符合／**1 資料不足**（257783，那是判為室內的那道牆，照常列出後因沒填時效而資料不足——這一列是對的）／**2 不適用**，**沒有任何人工覆核列**。既有測試只覆蓋產出端（`CandidateResolverTests.cs:489-504`、`CurtainWallExposureTests.cs:325`），沒有一條測到它會不會出現在 `FireResistanceReview.Findings` 裡，所以漏掉了。驗畢已還原 `Function = Exterior`。**✅ 2026-10-13 已修、已部署、已實機驗證通過**；部署後在**未製造任何條件**的 FL1 上就抓到既有缺口（帷幕牆 257783 長期被靜默歸為不適用），見下方「C-08 在真實模型上抓到的既有缺口」 |
 | C-09 | 🟢 低 | **在區劃編輯器只設定一個「區劃用途」（元素本身一個都沒動），就會讓套件的 `boundaryRevision` +1，並把狀態從「已檢討」退回「可開始檢討」。** 成功寫入用途被記成 `ApplyOutcome.Updated`，於是 `ReviewPackageProgress.After` 算出的 `touched` 大於 0，略過了「什麼都沒動就別動狀態」那道閘，直接走 `WithNextBoundaryRevision`。但 spec 13.1 之所以在 `boundaryRevision` 變動時作廢既有成果，理由是「**邊界**變了」——這裡邊界一動也沒動。改用途**確實**該讓檢討變成「已失效」（它是檢討的輸入，`ReviewBaselineBuilder` 會算進簽章），但那是 `ReviewStaleness` 的工作；用 `boundaryRevision` 表達等於連單線圖與出圖都宣告失效。**同一個改動從批次設定面板走只會變成已失效，從編輯器走卻是重畫邊界等級的作廢——兩個入口代價不同** | 記成 Updated：`RevitZoneWriteBack.cs:507`；`touched` 的算法與閘門：`ReviewPackageProgress.cs:107`（`touched = Created + Updated + Deleted`）、`:108-114`（全無變更的早退）、`:124-126`（刻意不讓已檢討被白白降級的那一段，註解明寫「Nothing was invalidated, so 已檢討／已出圖 would be thrown away for no reason」）、`:128-130`（`touched > 0` 才 `WithNextBoundaryRevision`） | 2026-10-13 驗 V-29 時實測：FL2 的 `boundaryRevision` 由 **7 變 10**、狀態由 `Reviewed`／已檢討 變成 `Ready`／可開始檢討，而這段期間編輯器只做了三次套用，其中兩次只寫一個區劃用途、一次（第 7 項）**連一個元素都沒寫**（結果視窗：「已建立 0 個、更新 0 個、刪除 0 個元素。模型未變更」）。那一次沒寫的套用符合設計（不該 +1），所以 +3 之中至少有兩次來自「只改用途」。**未修**——本輪只授權修 C-06／C-08。修正方向：讓只影響參數的寫回不要走 `WithNextBoundaryRevision`（例如把用途的成功寫入與幾何的 Created/Updated/Deleted 分開計數，或在 `After` 判斷 touched 時排除純參數項），改由既有的 staleness 機制把結果標成已失效 。**✅ 2026-10-13 已修**，見下方「C-02／C-03／C-05／C-07／C-09 的修正內容」 |
 
-#### C-02／C-03／C-05／C-07／C-09 的修正內容（2026-10-13，**尚未部署**）
+#### C-02／C-03／C-05／C-07／C-09 的修正內容（2026-10-13 修、**2026-10-13 20:23 已部署**）
 
 五個 🟢 低嚴重度缺陷一批修完。經過一輪 code-reviewer（REQUEST CHANGES，**無 Critical**）後再修六條
 （兩處 doc comment 被新類別劫走、四處與新行為相反的註解、一條被前綴變成恆真的斷言、一處過強的註解、
@@ -1206,7 +1206,39 @@ FL3 的唯一差異：區劃 322274「13 區劃 1」的防火區劃面積由「�
 | 5 | **C-09 實機**：對一個 `Reviewed` 套件（例如 FL2）在區劃編輯器只改用途並套用 | **狀態維持「已檢討」、`boundaryRevision` 不再前進**；結果改由 `ReviewStaleness` 標為需更新。既有模型的 revision 數字不會回退，只是不再前進 |
 | 6 | `無法區劃分隔` 欄的 tooltip | 文字已改寫，逐字比對的話要用新版 |
 
-#### C-06 的修正內容（2026-10-13，**尚未部署**）
+#### 部署後實機驗證結果（2026-10-14，MCP 可驗的四項）
+
+部署：commit `1b383d1` → `scripts/install-revit-2024.ps1 -SkipClaudeRegistration -WaitForRevit`，
+全部組件 mtime `2026-10-13 20:23`。重開 Revit 後 `revit_status` 回報 `建築防火檢討1.rvt`、作用中視圖 FL2。
+**MCP 工具說明本身就是部署成功的第一個證據**——`fire_review_set_parameters` 的說明已換成新版
+（「是否類與整數欄位傳 null 不會清除」）。
+
+| # | 項目 | 結果 |
+| --- | --- | --- |
+| 1 | **C-05**：一次送 `zones[0].floorNumber/sprinklered/cannotBeSubdivided = null` ＋ `project.fireResistiveConstruction/floorsAboveGround = null` | ✅ **`failures` 為空陣列**（修正前這些會是失敗），五筆全部落在 `ignored`。理由逐字：「**「所在樓層序」已有值，清空後無法寫回未填狀態（Revit 的整數／是否類參數只能設值、不能取消設值）。請填一個值，或在 Revit 中直接刪除這個參數的值。**」（自動滅火設備、防火構造建築物、地上層數同句型）；`無法區劃分隔` 走的是另一條既有理由「只有第79條之1 的六種用途要填無法區劃分隔（先設 use）」。`edits` 空、`written` 不計這些 |
+| 2 | **C-07**：把專案的防火構造寫成 `false` 後 `fire_review_scan_parameters` | ✅ `project.fireResistiveWarning` 逐字為「**填「否」時，四類規則的適用條件都是已知為假，整份檢討每一列都會判「不適用」——「不適用」不代表合格，只表示本工具找不到可據以檢討的條文，這份檢討作不了數。**」。還原為 `true` 後該欄為 `null`（填是＝無警語，三態的第三態也驗到了）。**已還原** |
+| 3 | **FL1 零迴歸** | ✅ 總 **61；21／2／4／34**，六節逐項與 16:22 部署後更新的基線吻合（面積 1：1 符合｜時效 17：16/0/1/0｜門窗 36：2/0/0/34｜交接 7：2/2/3/0｜免除與垂直 0）。`log.total` 50、`warnings` 43 |
+| 4 | **FL3 零迴歸** | ✅ 總 **102；33／9／3／57**，六節逐項（面積 2：1 符合／1 資料不足｜時效 27：24/0/0/3｜門窗 57：3/0/0/54｜交接 15：4/9/2/0｜垂直 1：1/0/0/0）、`log.warnings` 61、`log.total` 75 **與基線完全相同** |
+| 5 | **套件未被動到** | ✅ 全程 `dryRun`；三個套件的 `lastReviewRunId` 仍是 `7fbfa09e`／`4dcc3962`／`b3021c0a`，`boundaryRevision` 1／10／1 未動 |
+
+**C-02 在本模型上驗不到，而且理由本身值得記下來。** 原本預期「`BCR-RUN-006` 條目會變多、每條冠上〔檢查名〕」，
+實際把 FL1 的 50 筆日誌全部取回來看，**一筆 `BCR-RUN-006` 都沒有**。查 `CompartmentAreaCheck.cs:170`、
+`FireResistanceCheck.cs:220` 等六個來源，各檢查的 `Warnings` 只在「輸入資料指定的區劃 N 不在此工作包中」
+這類情境才會有東西——而 runner 的輸入是從套件自己組出來的，正常執行永遠不會指到別的工作包的區劃。
+C-01 把原本掛在 `BCR-RUN-003` 的那些逐元素警告拆成 `BCR-CAND-*`／`BCR-CW-*` 之後，
+**`BCR-RUN-006` 在實機上已經近乎空集合**。所以：
+
+- 清單舊的「FL1 `log.warnings = 5`，其中資料不足／人工覆核類皆掛 `BCR-RUN-006`」是 **C-01 之前**的狀態，已不成立。
+- C-02 的 `〔檢查名〕` 前綴與「每個來源內各自去重」只有單元測試覆蓋（反向驗證做過：停用前綴後對應測試轉紅），
+  **本模型無法提供實機證據**，不要把「日誌上看不到前綴」誤讀成修正沒生效。
+- FL1 的 `log` 由 `total 47／warnings 40` 變成 `total 50／warnings 43`，增加的三筆是
+  **C-08 帶出來的**（帷幕牆 257783 的構件防火時效 `BCR-CAND-001` 與帷幕牆交接 `BCR-CW-007`、以及 289140 的 `BCR-CW-007`），
+  與 C-02 無關。
+
+**還沒驗的三項**（都要人在畫面上操作）：面板六格的事前攔阻與確認視窗（上表第 2 項）、
+C-09 實機（第 5 項）、`無法區劃分隔` 的新 tooltip（第 6 項）。
+
+#### C-06 的修正內容（2026-10-13 修、2026-10-13 16:22 已部署）
 
 根因是「參數存在但空白」被當成「沒有資料」。修法是讓它成為一個**已知的空字串事實**，
 豁免條件因此確定不成立，而不是 Unknown。
@@ -1223,7 +1255,7 @@ FL3 的唯一差異：區劃 322274「13 區劃 1」的防火區劃面積由「�
 **為什麼這是單向安全的**（code review 在引擎層確認）：`RuleEngine.EvaluateApplicable` 先判 Pass 再看
 `exemptionGaps`，所以 `zone.use == ""` 只能把「資料不足」翻成「未符合」，**產不出新的「符合」**。
 
-#### C-08 的修正內容（2026-10-13，**尚未部署**）
+#### C-08 的修正內容（2026-10-13 修、2026-10-13 16:22 已部署）
 
 | 位置 | 改了什麼 |
 | --- | --- |
