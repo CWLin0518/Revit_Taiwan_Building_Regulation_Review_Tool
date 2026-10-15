@@ -393,17 +393,42 @@ public sealed class FireReviewParameterEdit
 /// 那個 0 今天「不會」回頭污染本工具的推定，但原因不是呼叫端少，而是只靠一個條件攔著：
 /// <c>RevitFireReviewTypeScanner.IsPositiveLength</c> 要求 <c>AsDouble() &gt; 0</c>，所以存著 0 的被覆
 /// 重掃後讀回 null，面板的格子是空白、推定仍是 <c>FireRatingDerivationKind.CoverMissing</c>。
-/// <c>FireRatingDeriver.Derive</c> 有兩個呼叫端——面板的 <c>FireReviewTypeRowViewModel.Derivation</c>
-/// 與掃描結果自己的 <see cref="FireReviewTypeRow.Derivation"/>，而後者餵
-/// <see cref="FireReviewTypeRow.RatingEdit"/>，那條路會把推定時效寫進 <c>防火檢討_設計防火時效</c>，
-/// 而那個參數檢討是會讀的。所以掃描層那個 <c>&gt; 0</c> 日後若被放寬，這裡就會從「只是改了模型」
-/// 變成「改了判定」，屆時要連這段一起重查。
+/// 掃描層那個 <c>&gt; 0</c> 日後若被放寬，壞掉的**不是**「把一個時效寫進參數」這一路：被覆 0 推出的是
+/// <c>FireRatingDerivationKind.NotRated</c>，而 <c>FireRatingDerivation.HasRating</c> 只在
+/// <c>Derived</c> 時為真，所以它是 false、<c>ParameterText</c> 是 null、
+/// <see cref="FireReviewTypeRow.RatingEdit"/> 回 null，<c>防火檢討_設計防火時效</c> 一個字都不會被寫
+/// （<see cref="FireReviewTypeRow.CanApplyDerived"/> 同樣因 <c>!HasRating</c> 回 false）。壞掉的是那一列
+/// **從待辦裡消失**：<c>Kind</c> 由 <c>CoverMissing</c> 變成 <c>NotRated</c>，
+/// <c>FireRatingDerivationGaps.AwaitsCover</c>（要求 <c>Kind == CoverMissing</c>）回 false，於是面板
+/// 狀態列的「待填被覆」與 MCP 的 <c>onlyNeedingAttention</c> 都不再列它，而面板「依據／提醒」欄把
+/// 「SC 被覆 0.0cm，未達門檻 → 無防火時效」當成一個**已決的推定**端給審查者看。屆時要連這段一起重查。
 /// </para>
 /// <para>
 /// 寫 0 的真正代價因此是模型被改與回報說謊兩件，不是一個錯的判定。而 0 在推定的語意上確實是一個
 /// 「宣告」——SC 被覆未達第71～73條任一被覆門檻（最低 3 公分，第73條第1款第2目）→「無防火時效」——
 /// 所以使用者自己打 <c>0</c> 必須仍然寫得進去，不可以被這道攔阻擋掉。掃描層讀不回那個 0，
 /// 使得「真心想宣告 0 公分」無法往返，是另一條缺陷（驗證清單 C-20）。
+/// </para>
+/// <para>
+/// 驗證清單 C-20 走的是**甲方案：只讓限制可見，不改讀取**。<see cref="DeclaresZeroCover"/> 與
+/// <see cref="ZeroCoverNotice"/> 就是那一層——使用者在「宣告 0 公分」的那一刻被告知這個往返限制，
+/// 面板的確認視窗與 MCP 的回應各取用同一句話。<c>RevitFireReviewTypeScanner.IsPositiveLength</c>
+/// 的 <c>&gt; 0</c> **刻意不放寬**，兩個理由：
+/// <list type="number">
+/// <item>剛綁定／從未填寫的長度參數常常是 <c>HasValue == true, AsDouble() == 0</c>，放寬會讓每一條
+/// **沒填**被覆的 SC 列都被當成「已宣告 0 公分」：推定由 <c>CoverMissing</c> 變成 <c>NotRated</c>，
+/// <c>FireRatingDerivationGaps.AwaitsCover</c> 回 false，那一列就從面板的「待填被覆」與 MCP 的
+/// <c>onlyNeedingAttention</c> 消失，而面板「依據／提醒」欄把「無防火時效」當成**已決的推定**呈現。
+/// 資料不足被換成一個有肯定語氣的答案，而且使用者再也不會被提示去填它。那個 0 **不會**被寫進
+/// <c>防火檢討_設計防火時效</c>——<c>NotRated</c> 的 <c>HasRating</c> 是 false，
+/// <see cref="FireReviewTypeRow.RatingEdit"/> 回 null——危害在「不再被問」，不在「寫錯一個值」。</item>
+/// <item><c>IsPositiveLength</c> 同時服務三個欄位：**被覆、柱短邊與嵌板厚**。牆厚走
+/// <c>WallType.Width &gt; 0</c>、板厚走掃描器自己的 <c>Structure()</c>（<c>width &gt; 0</c>），兩者都
+/// 不經過它。放寬會讓短邊 0 的柱與厚度 0 的嵌板也「讀得到尺寸」，它們的 <c>DimensionMissing</c>
+/// 同樣變成 <c>NotRated</c>，與第 1 點同一類危害——所以就算只想替被覆放寬，也會連帶改掉另外兩個
+/// 欄位的讀法。</item>
+/// </list>
+/// 替被覆另開一個讀取述詞（「乙方案」）能避開第 2 點，但避不開第 1 點，而且本批未選它。
 /// </para>
 /// </remarks>
 public static class FireReviewParameterLimits
@@ -590,6 +615,78 @@ public static class FireReviewParameterLimits
                 return null;
         }
     }
+
+    /// <summary>
+    /// Whether this edit declares a 被覆 of 0 公分 — which 第71～73條 read as 無防火時效
+    /// (驗證清單 C-20 甲方案).
+    /// </summary>
+    /// <remarks>
+    /// 問的是「這一筆編輯在宣告 0」，不是「這一格空白」：空白是
+    /// <see cref="LengthTextVerdict.NotClearable"/>，根本不會變成一筆編輯（C-11）。所以這個述詞只會
+    /// 對使用者真的打了 <c>0</c>、或 MCP 真的送了 <c>coverCm: 0</c> 的那一筆為真。
+    /// <para>
+    /// 刻意**只認 <c>防火被覆厚度</c>**，而不是「任何值為 0 的長度編輯」。一個泛用的述詞配一句泛用的
+    /// 文案，就得把「依第71～73條推定為無防火時效」「該列回到待填被覆」這兩句拿掉——而那正是這句話
+    /// 唯一能讓審查者行動的部分。今天面板也只有這一個長度格；日後若多出別的長度參數，該為它寫自己
+    /// 的述詞與自己的後果，而不是讓它套用被覆的句子。
+    /// </para>
+    /// </remarks>
+    public static bool DeclaresZeroCover(FireReviewParameterEdit? edit) =>
+        edit != null && edit.IsLength && edit.LengthMeters.HasValue && edit.LengthMeters.Value == 0 &&
+        string.Equals(edit.ParameterName, StructuralMaterialParameters.Cover, StringComparison.Ordinal);
+
+    /// <summary>
+    /// 「你宣告的 0 寫得進去，但本工具讀不回來」這句話（驗證清單 C-20 甲方案）。
+    /// </summary>
+    /// <remarks>
+    /// 第一句一定是「值確實會寫進模型」：使用者看到格子變空白時最容易得到的結論是「寫入失敗了」，
+    /// 於是把同一個 0 再打一次——那正是 C-20 實機觀察到的循環。這句話要同時說出三件事：值進去了、
+    /// 重新掃描讀不回來、所以那一格會空白、該列回到「待填被覆」。
+    /// <para>
+    /// 文案放在 Application 而不是放在面板或 MCP 裡，理由與 C-05／C-11 相同：兩個出口必須講同一句
+    /// 話，而且這句話測得到——面板與 MCP 的接線在 WPF／net48，測試專案碰不到。
+    /// </para>
+    /// </remarks>
+    public static string ZeroCoverRoundTripNotice =>
+        $"「{StructuralMaterialParameters.Cover}」寫入 0 是宣告被覆 0 公分（依第71～73條推定為「無防火時效」），" +
+        "值確實會寫進模型。但本工具重新掃描時讀不回 0——掃描層只把大於 0 的長度當成有值——" +
+        "所以這一格之後會顯示為空白、該列會回到「待填被覆」。" +
+        "值沒有不見，是顯示與推定讀不到它；要確認它，請在 Revit 的類型屬性裡直接看這個參數。";
+
+    /// <summary>
+    /// 同一個往返限制，但這一批**沒有真的寫進模型**時該說的話（驗證清單 C-20 甲方案）。
+    /// </summary>
+    /// <remarks>
+    /// MCP 有三條路走這一句：<c>dryRun</c>、「寫入途中失敗、整批復原」，以及「整批 commit 了但這一筆
+    /// 被寫入器略過」（例如那個參數沒綁到這個類別）。
+    /// <see cref="ZeroCoverRoundTripNotice"/> 說的是「值確實會寫進模型…值沒有不見」，在這兩條路上
+    /// 那是假話——模型裡什麼都沒有，而呼叫端（尤其是自動化的）會因此以為宣告已經完成、不再真的寫
+    /// 一次。所以兩種結局兩句話，而不是一句話配一個模糊的語氣。
+    /// </remarks>
+    public static string UnwrittenZeroCoverRoundTripNotice =>
+        $"「{StructuralMaterialParameters.Cover}」這一筆是宣告被覆 0 公分（依第71～73條推定為「無防火時效」），" +
+        "但本批並未實際寫入模型（試跑，或寫入未成功、整批復原），所以模型裡還沒有這個值。" +
+        "若之後真的寫入：值寫得進去，但本工具重新掃描時讀不回 0——掃描層只把大於 0 的長度當成有值——" +
+        "那一格會顯示為空白、該列會回到「待填被覆」。";
+
+    /// <summary>
+    /// 這一批編輯裡有「宣告被覆 0 公分」時要附上的那一句話，沒有就回 null（驗證清單 C-20 甲方案）。
+    /// </summary>
+    /// <param name="edits">這一批要寫的編輯。</param>
+    /// <param name="written">
+    /// 這一批是否真的落地。面板的確認視窗是「將寫入…要繼續嗎？」，按下去就會寫，所以用預設的
+    /// <c>true</c>（文案本身是未來式的「會寫進模型」）；MCP 要傳
+    /// <c>write.Committed &amp;&amp; !dryRun</c>——<c>dryRun</c> 下內層交易照樣 commit，
+    /// 只有外層 TransactionGroup 回滾，所以 <c>Committed</c> 仍是 true。
+    /// </param>
+    /// <remarks>
+    /// 回 null 而不是空字串，是為了讓呼叫端非得先面對「這批到底有沒有」才拿得到文字——面板只有在
+    /// 真的有這種編輯時才在確認視窗多出一段，MCP 也只有在那時才多一條 notice。
+    /// </remarks>
+    public static string? ZeroCoverNotice(IEnumerable<FireReviewParameterEdit>? edits, bool written = true) =>
+        edits is not null && edits.Any(DeclaresZeroCover)
+            ? (written ? ZeroCoverRoundTripNotice : UnwrittenZeroCoverRoundTripNotice)
+            : null;
 
     /// <summary>
     /// Whether the text is one of the two answers a YESNO cell can write. Kept here beside the

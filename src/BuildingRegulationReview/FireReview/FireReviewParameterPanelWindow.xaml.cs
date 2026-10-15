@@ -271,8 +271,15 @@ namespace BuildingRegulationReview.FireReview
                 ? "\n\n構件類型是類型參數，變更會套用到專案中所有同類型的實體，不只目前視圖。"
                 : "";
 
+            // 驗證清單 C-20 甲：這一批裡有「長度欄位值為 0」時，在使用者做出這個宣告的當下講出那個
+            // 往返限制——值寫得進模型，但重新掃描讀不回 0，格子會空白、該列回到「待填被覆」。比照
+            // 上面 blocked 的做法（C-05）：述詞與文案都在 Application 的 FireReviewParameterLimits，
+            // 與 MCP 共用同一句話。沒有這種編輯時回 null，確認視窗就不會多出這一段。
+            var declaredZero = FireReviewParameterLimits.ZeroCoverNotice(edits);
+            var zeroNotice = declaredZero == null ? "" : "\n\n" + declaredZero;
+
             var confirm = MessageBox.Show(this,
-                "將寫入以下變更：\n\n" + string.Join("\n", lines) + warning + blocked + "\n\n要繼續嗎？",
+                "將寫入以下變更：\n\n" + string.Join("\n", lines) + warning + blocked + zeroNotice + "\n\n要繼續嗎？",
                 Title, MessageBoxButton.OKCancel, MessageBoxImage.Warning);
             if (confirm != MessageBoxResult.OK) return;
 

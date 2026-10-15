@@ -844,6 +844,138 @@ public sealed class FireReviewLengthCellLimitsTests
             FireReviewParameterEdit.OfLength("T-1", StructuralMaterialParameters.Cover, 0.04).ToString());
     }
 
+    // --- C-20 甲：宣告 0 公分的那一刻要被告知往返限制 ------------------------------------------------
+
+    /// <summary>
+    /// 「這一筆編輯在宣告被覆 0 公分」是一個述詞，不是一句文案：面板與 MCP 都問它，所以它必須在
+    /// Application 層而且測得到。空白不在它的範圍內——空白是 NotClearable，根本不會變成一筆編輯
+    /// （C-11）；別的長度參數也不在，那一句話講的後果（第71～73條的推定、該列回到「待填被覆」）
+    /// 只對被覆成立。
+    /// </summary>
+    [Fact]
+    public void A_cover_edit_of_zero_is_recognised_as_a_declaration_of_zero_centimetres()
+    {
+        Assert.True(FireReviewParameterLimits.DeclaresZeroCover(
+            FireReviewParameterEdit.OfLength("T-1", StructuralMaterialParameters.Cover, 0)));
+
+        // 有厚度的被覆不是宣告 0；無值的長度編輯寫不進去，也不是宣告 0。
+        Assert.False(FireReviewParameterLimits.DeclaresZeroCover(
+            FireReviewParameterEdit.OfLength("T-1", StructuralMaterialParameters.Cover, 0.04)));
+        Assert.False(FireReviewParameterLimits.DeclaresZeroCover(
+            FireReviewParameterEdit.OfLength("T-1", StructuralMaterialParameters.Cover, null)));
+
+        // 別的長度參數寫 0 不套用被覆的句子：它沒有「待填被覆」那個後果，該為它寫自己的述詞。
+        Assert.False(FireReviewParameterLimits.DeclaresZeroCover(
+            FireReviewParameterEdit.OfLength("T-1", "測試_另一個長度", 0)));
+
+        // 別的種類不是長度：文字的「0」與沒勾的是否欄位（寫成 0）都不是宣告被覆 0 公分。
+        Assert.False(FireReviewParameterLimits.DeclaresZeroCover(
+            FireReviewParameterEdit.OfText("T-1", StructuralMaterialParameters.Material, "0")));
+        Assert.False(FireReviewParameterLimits.DeclaresZeroCover(
+            FireReviewParameterEdit.OfYesNo("T-1", FireProtectionParameters.Provided, false)));
+        Assert.False(FireReviewParameterLimits.DeclaresZeroCover(null));
+    }
+
+    /// <summary>
+    /// 那句話要先說「值確實寫進去了」。使用者看到格子變空白，最容易得到的結論是「寫入失敗」，於是把
+    /// 同一個 0 再打一次——C-20 實機看到的就是這個循環。所以這一條同時釘住「說了寫得進去」與
+    /// 「沒有說寫入失敗」。
+    /// </summary>
+    [Fact]
+    public void The_zero_cover_notice_says_the_value_was_written_and_why_the_cell_still_goes_blank()
+    {
+        var notice = FireReviewParameterLimits.ZeroCoverRoundTripNotice;
+
+        Assert.Contains(StructuralMaterialParameters.Cover, notice);
+        Assert.Contains("宣告被覆 0 公分", notice);
+        Assert.Contains("無防火時效", notice);
+        Assert.Contains("值確實會寫進模型", notice);
+        Assert.Contains("讀不回 0", notice);
+        Assert.Contains("顯示為空白", notice);
+        Assert.Contains("待填被覆", notice);
+        Assert.Contains("值沒有不見", notice);
+
+        // 不可以讀成一次失敗，也不可以讀成「這個值被攔下來了」——它沒有被攔，它寫進去了。
+        Assert.DoesNotContain("寫入失敗", notice);
+        Assert.DoesNotContain("不會寫入", notice);
+    }
+
+    /// <summary>
+    /// Code review M-3：同一句話在「沒有真的落地」時是假話。MCP 的 dryRun（內層 commit、外層
+    /// TransactionGroup 回滾）與「寫入失敗整批復原」兩條路，模型裡什麼都沒有，卻會讀到
+    /// 「值確實會寫進模型…值沒有不見」；自動化呼叫端因此以為宣告完成，不再真的寫一次。
+    /// </summary>
+    [Fact]
+    public void The_unwritten_zero_cover_notice_never_claims_the_value_is_in_the_model()
+    {
+        var notice = FireReviewParameterLimits.UnwrittenZeroCoverRoundTripNotice;
+
+        Assert.Contains(StructuralMaterialParameters.Cover, notice);
+        Assert.Contains("宣告被覆 0 公分", notice);
+        Assert.Contains("並未實際寫入模型", notice);
+        Assert.Contains("試跑", notice);
+        Assert.Contains("整批復原", notice);
+        Assert.Contains("模型裡還沒有這個值", notice);
+
+        // 往返限制本身仍要講，否則呼叫端只知道「這次沒寫」，不知道寫了也讀不回來。
+        Assert.Contains("讀不回 0", notice);
+        Assert.Contains("待填被覆", notice);
+
+        // 落地那一句的兩個關鍵說法在這裡都是假話。
+        Assert.DoesNotContain("值確實會寫進模型", notice);
+        Assert.DoesNotContain("值沒有不見", notice);
+        Assert.NotEqual(FireReviewParameterLimits.ZeroCoverRoundTripNotice, notice);
+    }
+
+    /// <summary>零噪音：沒有人宣告被覆 0 時，面板的確認視窗與 MCP 的回應都不該多出這一段。</summary>
+    [Fact]
+    public void A_batch_that_declares_no_zero_cover_gets_no_notice_at_all()
+    {
+        foreach (var written in new[] { true, false })
+        {
+            Assert.Null(FireReviewParameterLimits.ZeroCoverNotice(null, written));
+            Assert.Null(FireReviewParameterLimits.ZeroCoverNotice(Array.Empty<FireReviewParameterEdit>(), written));
+            Assert.Null(FireReviewParameterLimits.ZeroCoverNotice(new[]
+            {
+                FireReviewParameterEdit.OfLength("T-1", StructuralMaterialParameters.Cover, 0.04),
+                FireReviewParameterEdit.OfLength("T-2", StructuralMaterialParameters.Cover, null),
+                FireReviewParameterEdit.OfLength("T-3", "測試_另一個長度", 0),
+                FireReviewParameterEdit.OfText("T-1", StructuralMaterialParameters.Material, "SC")
+            }, written));
+        }
+    }
+
+    /// <summary>
+    /// 一筆宣告被覆 0 就要有那一句話，而且是**跟著落地與否**的那一句（code review M-3）。面板的確認
+    /// 視窗是「將寫入…要繼續嗎？」，按下去就會寫，所以用預設的 true。
+    /// </summary>
+    [Fact]
+    public void A_batch_that_declares_zero_cover_gets_the_notice_that_matches_whether_it_landed()
+    {
+        var batch = new[]
+        {
+            FireReviewParameterEdit.OfText("T-1", StructuralMaterialParameters.Material, "SC"),
+            FireReviewParameterEdit.OfLength("T-1", StructuralMaterialParameters.Cover, 0)
+        };
+
+        Assert.Equal(FireReviewParameterLimits.ZeroCoverRoundTripNotice,
+            FireReviewParameterLimits.ZeroCoverNotice(batch, written: true));
+        Assert.Equal(FireReviewParameterLimits.UnwrittenZeroCoverRoundTripNotice,
+            FireReviewParameterLimits.ZeroCoverNotice(batch, written: false));
+
+        // 預設是落地那一句：面板的呼叫端不傳這個旗標。
+        Assert.Equal(FireReviewParameterLimits.ZeroCoverRoundTripNotice,
+            FireReviewParameterLimits.ZeroCoverNotice(batch));
+
+        // 同一個參數在兩個類型上各宣告一次，仍然只是那一句話。
+        Assert.Equal(FireReviewParameterLimits.ZeroCoverRoundTripNotice,
+            FireReviewParameterLimits.ZeroCoverNotice(new[]
+            {
+                FireReviewParameterEdit.OfLength("T-1", StructuralMaterialParameters.Cover, 0),
+                FireReviewParameterEdit.OfLength("T-2", StructuralMaterialParameters.Cover, 0)
+            }));
+    }
+
     // --- 為什麼這件事重要：0 與未填是兩個判定 -------------------------------------------------------
 
     /// <summary>

@@ -337,6 +337,34 @@ public sealed class RevitFireReviewTypeScanner
         return IsPositiveLength(parameter) ? parameter!.AsDouble() : (double?)null;
     }
 
+    /// <summary>
+    /// A length parameter that holds a usable number. <c>&gt; 0</c> is deliberate, not an oversight
+    /// (驗證清單 C-20：走甲方案——只讓限制可見，不改這裡的讀取).
+    /// </summary>
+    /// <remarks>
+    /// 放寬成 <c>&gt;= 0</c> 有兩個後果：
+    /// <list type="number">
+    /// <item>Revit 的 Double 參數沒有「未設值」的可靠表示法——剛綁定／從未填寫的長度參數常常是
+    /// <c>HasValue == true, AsDouble() == 0</c>。放寬會讓**每一條沒填被覆的 SC 列**都被當成「已宣告
+    /// 0 公分」：<c>FireRatingDerivation.Kind</c> 由 <c>CoverMissing</c> 變成 <c>NotRated</c>，
+    /// <c>FireRatingDerivationGaps.AwaitsCover</c>（要求 <c>Kind == CoverMissing</c>）回 false，於是
+    /// 那一列從面板狀態列的「待填被覆」與 MCP 的 <c>onlyNeedingAttention</c> 消失，而面板
+    /// 「依據／提醒」欄把「SC 被覆 0.0cm，未達門檻 → 無防火時效」當成一個**已決的推定**端給審查者。
+    /// 資料不足被換成一個有肯定語氣的答案，而且使用者再也不會被提示去填它。那個 0 **不會**被寫進
+    /// <c>防火檢討_設計防火時效</c>：<c>NotRated</c> 的 <c>HasRating</c> 是 false、
+    /// <c>ParameterText</c> 是 null，<c>FireReviewTypeRow.RatingEdit()</c> 回 null。危害在
+    /// 「不再被問」，不在「寫錯一個值」。</item>
+    /// <item>這個述詞**同時服務三個欄位**：被覆（<see cref="Meters(Element, string)"/>）、柱短邊
+    /// （<see cref="ColumnShortSide"/>）與嵌板厚（<see cref="PanelThickness"/>）。牆厚走
+    /// <c>WallType.Width &gt; 0</c>、板厚走 <see cref="Structure"/> 自己的 <c>width &gt; 0</c>，兩者都
+    /// **不經過**這裡。放寬會讓短邊 0 的柱與厚度 0 的嵌板也「讀得到尺寸」，它們的
+    /// <c>DimensionMissing</c> 同樣變成 <c>NotRated</c>——與第 1 點同一類危害。所以就算只想替被覆
+    /// 放寬，也會連帶改掉另外兩個欄位的讀法。</item>
+    /// </list>
+    /// 代價是使用者真心宣告的 0 公分無法往返：寫得進模型，重新掃描讀回 null，那一格空白、該列回到
+    /// 「待填被覆」。甲方案接受這個代價，改成在使用者做出宣告的那一刻告訴他——
+    /// <c>FireReviewParameterLimits.ZeroCoverNotice</c>，面板的確認視窗與 MCP 的回應各走一次。
+    /// </remarks>
     private static bool IsPositiveLength(Parameter? parameter) =>
         parameter is not null && parameter.StorageType == StorageType.Double && parameter.HasValue && parameter.AsDouble() > 0;
 

@@ -1525,6 +1525,233 @@ public sealed class FireReviewIntegrationTests
         Assert.DoesNotContain("W3-partition", asked.RequiredFireRatingMinutes.Keys);
     }
 
+    /// <summary>
+    /// 驗證清單 C-19 第一層：關係存疑的牆仍然不進區劃邊界清單（那是刻意的），但不可以是無聲的。
+    /// </summary>
+    /// <remarks>
+    /// 固定模型裡有兩道這樣的牆：<c>W4-crossing</c> 的中心線跨越 A／B 兩區的分界，<c>W5-offset</c>
+    /// 的厚度壓著 B 區上緣卻偏離中心線。修正前兩道牆既不在清單裡、也不在日誌裡，它們與帷幕牆的
+    /// 交接處一列都不會產生，而讀者從任何一邊都看不出來。
+    /// </remarks>
+    [Fact]
+    public void A_wall_whose_relation_to_a_zone_is_only_in_doubt_is_left_out_of_the_boundary_list_and_never_in_silence()
+    {
+        var reader = new CurtainWalls();
+        var outcome = Run(Request(curtainWalls: reader));
+
+        // 行為不變：列進去會讓交接檢討對一道可能不是區劃牆的牆產生交接判定，那是相反方向的錯。
+        Assert.DoesNotContain("W4-crossing", reader.Asked!.LegalReferences.Keys);
+        Assert.DoesNotContain("W5-offset", reader.Asked!.LegalReferences.Keys);
+
+        var entry = Assert.Single(outcome.Log.Entries,
+            e => e.Code == ReviewErrorCode.CandidateBoundaryDoubtNotJunctionRead);
+        Assert.Equal("BCR-CAND-005", entry.Code);
+        Assert.Equal(ReviewSeverity.Warning, entry.Severity);
+        Assert.Equal("邊界關係存疑的牆未納入帷幕牆區劃交接檢討", ReviewErrorCode.Describe(entry.Code));
+
+        // 點名是哪幾道牆，而且每一道都說出它自己的關係種類——「2 道牆存疑」答不了「要去看哪一道」。
+        Assert.Contains("2 道牆與區劃的關係存疑", entry.UserMessage);
+        Assert.Contains("W4-crossing（跨越邊界）", entry.UserMessage);
+        Assert.Contains("W5-offset（偏離中心線）", entry.UserMessage);
+        Assert.Contains("跨越邊界 1 道", entry.UserMessage);
+        Assert.Contains("偏離中心線 1 道", entry.UserMessage);
+
+        // 並且告訴審查者這些交接處本次沒有被檢討、該自己確認。
+        Assert.Contains("本次未檢討", entry.UserMessage);
+        Assert.Contains("請人工確認", entry.UserMessage);
+
+        // 完整清單在技術細節裡，訊息只點前幾個（件數多時比照 BCR-CAND-003／BCR-CAND-004）。
+        Assert.Equal("W4-crossing(跨越邊界;RC 200); W5-offset(偏離中心線;RC 200)", entry.TechnicalDetail);
+
+        // 不與 BCR-CAND-001 共用一個碼，而且那不是潔癖：這兩道牆在同一次 run 裡**沒有**任何
+        // BCR-CAND-001 的列——C-18 之後 FireResistanceCheck 對它們評「假設構成邊界／假設不構成」
+        // 兩支、結論相同就逕行判定，所以它們根本不是人工覆核。少了 BCR-CAND-005 這一行，它們在
+        // 日誌上完全沒有聲音，這正是這個碼存在的理由。
+        var ambiguous = outcome.Log.Entries.Where(e => e.Code == ReviewErrorCode.CandidateAmbiguous).ToList();
+        Assert.NotEmpty(ambiguous);
+        foreach (var wall in new[] { "W4-crossing", "W5-offset" })
+            Assert.DoesNotContain(ambiguous,
+                e => e.ElementUniqueId == wall || e.UserMessage.Contains(wall, StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// 零噪音（驗證清單 C-19 第一層）：沒有關係存疑的牆時，這一行不可以出現——每次 run 都固定多一條
+    /// 警告的話，日誌上真正的問題會被它擠掉，而讀者會學會忽略它。
+    /// </summary>
+    [Fact]
+    public void No_wall_in_doubt_means_no_such_warning_at_all()
+    {
+        var settled = Members()
+            .Where(m => m.Source.ElementUniqueId is not "W4-crossing" and not "W5-offset")
+            .ToList();
+        var outcome = Run(Request(members: settled, curtainWalls: new CurtainWalls()));
+
+        Assert.DoesNotContain(outcome.Log.Entries,
+            e => e.Code == ReviewErrorCode.CandidateBoundaryDoubtNotJunctionRead);
+    }
+
+    /// <summary>
+    /// Code review I-2(a)：一道牆同時「確實構成某個區劃的邊界」與「對另一個區劃只是存疑」時，它已經
+    /// 在區劃邊界清單裡、交接處會被檢討，所以**不可以**被點名成「本次未檢討」。
+    /// </summary>
+    /// <remarks>
+    /// B 區往上挪 8 cm，於是 W1-bottom 的中心線沿 A 區下緣（構成邊界），而 B 區的下緣落在它的厚度內
+    /// 卻偏離中心線（存疑）。固定模型裡沒有任何一道牆是這樣，所以少了這一條，
+    /// <c>!references.ContainsKey(...)</c> 那個條件被刪掉也不會有測試轉紅。
+    /// </remarks>
+    [Fact]
+    public void A_wall_that_also_bounds_a_zone_is_not_among_the_walls_left_out()
+    {
+        var zones = new[]
+        {
+            Zone(ZoneA, "A 區", "area-a", Rect(0, 0, 10, 10)),
+            Zone(ZoneB, "B 區", "area-b", Rect(10, 0.08, 20, 10))
+        };
+
+        // 這個 fixture 真的做出了「一邊構成邊界、一邊只是存疑」，不是空跑。
+        var wall = Set(zones: zones).Members.Single(m => m.Source.ElementUniqueId == "W1-bottom");
+        Assert.Contains(wall.Relations, r => r.IsBoundary);
+        Assert.Contains(wall.Relations, r => r.Ambiguity == CandidateAmbiguityKind.BoundaryOffCenterline);
+
+        var reader = new CurtainWalls();
+        var outcome = Run(Request(zones: zones, curtainWalls: reader));
+
+        // 它在清單裡，所以它的交接處有被讀；這一行不得點名它。
+        Assert.Contains("W1-bottom", reader.Asked!.LegalReferences.Keys);
+        var entry = Assert.Single(outcome.Log.Entries,
+            e => e.Code == ReviewErrorCode.CandidateBoundaryDoubtNotJunctionRead);
+        Assert.DoesNotContain("W1-bottom", entry.UserMessage);
+        Assert.DoesNotContain("W1-bottom", entry.TechnicalDetail);
+        Assert.Contains("2 道牆與區劃的關係存疑", entry.UserMessage);
+    }
+
+    /// <summary>
+    /// Code review I-2(b)：決議 37 的挑空分界牆。它與區劃的關係存疑，但在免除成立的挑空與其連通區劃
+    /// 之間，法規已經答過「不視為區劃邊界」——它不欠立面任何交接處，所以不是一個「未檢討」。
+    /// </summary>
+    /// <remarks>
+    /// 幾何取自 <c>MergedAtriumsTests.A_line_on_the_face_of_the_railing_is_interior_too</c>：A 區
+    /// （挑空）畫到 10.1，分界牆的中心線在 10，邊界落在厚度內而偏離中心線。預設的 <c>Request()</c>
+    /// 只有 A／B 兩區、沒有免除挑空，<c>IsInterior</c> 恆為 false，所以少了這一條，
+    /// <c>!merged.IsInterior(m)</c> 被刪掉也不會有測試轉紅。
+    /// </remarks>
+    [Fact]
+    public void The_line_between_an_exempt_atrium_and_its_neighbour_is_not_among_the_walls_left_out()
+    {
+        var zones = new[]
+        {
+            Zone(ZoneA, "A 區", "area-a", Rect(0, 0, 10.1, 10)),
+            Zone(ZoneB, "B 區", "area-b", Rect(10.1, 0, 20, 10))
+        };
+        var members = Members()
+            .Select(m => m.Source.ElementUniqueId == "W2-shared" ? Wall("W2-shared", 10, 0, 10, 10, width: 0.3) : m)
+            .ToList();
+
+        // fixture 真的做出了「存疑」＋「決議 37 的內部線」兩個條件。
+        var set = Set(members: members, zones: zones);
+        var railing = set.Members.Single(m => m.Source.ElementUniqueId == "W2-shared");
+        Assert.All(railing.Relations, r => Assert.Equal(CandidateAmbiguityKind.BoundaryOffCenterline, r.Ambiguity));
+        var inputs = ReviewInputAssembler.Assemble(set, AtriumParameters().Snapshot(), model: AtriumStoreys());
+        Assert.True(MergedAtriums.Of(set, inputs.Area).IsInterior(railing));
+
+        var outcome = Run(Request(parameters: AtriumParameters(), members: members, zones: zones,
+            model: AtriumStoreys(), curtainWalls: new CurtainWalls()));
+
+        var entry = Assert.Single(outcome.Log.Entries,
+            e => e.Code == ReviewErrorCode.CandidateBoundaryDoubtNotJunctionRead);
+        Assert.DoesNotContain("W2-shared", entry.UserMessage);
+        Assert.DoesNotContain("W2-shared", entry.TechnicalDetail);
+
+        // 留下來被點名的是 W5-offset（它與挑空無關）。W4-crossing 跨越的正是那條內部線，所以它
+        // 同樣是決議 37 的內部構件，一併不點名。
+        Assert.Contains("1 道牆與區劃的關係存疑", entry.UserMessage);
+        Assert.Contains("W5-offset（偏離中心線）", entry.UserMessage);
+    }
+
+    /// <summary>
+    /// Code review I-2(c)、Minor 2：件數多時，總數要說完整，但點名與技術細節都有上限——
+    /// <c>ReviewLogEntry</c> 不截斷，MCP 的 log digest 會把 technicalDetail 整串帶出去。
+    /// </summary>
+    [Fact]
+    public void Many_walls_in_doubt_are_counted_in_full_but_named_and_detailed_only_in_part()
+    {
+        // 21 道跨越 A 區下半邊界的牆，加上固定模型原有的 W4-crossing 與 W5-offset，共 23 道。
+        // 刻意**倒序**建立（WX-21 先、WX-01 最後）：點名的那三道必須由 UniqueId 的 ordinal 排序決定，
+        // 而不是碰巧跟著讀取順序走——順著建的話，拿掉 OrderBy 也不會有測試轉紅。
+        var many = Members()
+            .Concat(Enumerable.Range(1, 21).Reverse().Select(i => Wall($"WX-{i:D2}", -5, i * 0.4, 5, i * 0.4)))
+            .ToList();
+        var outcome = Run(Request(members: many, curtainWalls: new CurtainWalls()));
+
+        var entry = Assert.Single(outcome.Log.Entries,
+            e => e.Code == ReviewErrorCode.CandidateBoundaryDoubtNotJunctionRead);
+
+        // 總數說完整；點名的正好是 ordinal 排序最前的三道，其餘以「等 23 道」帶過。
+        Assert.Contains("23 道牆與區劃的關係存疑", entry.UserMessage);
+        Assert.Contains("W4-crossing（跨越邊界）、W5-offset（偏離中心線）、WX-01（跨越邊界） 等 23 道",
+            entry.UserMessage);
+        Assert.Contains("技術細節列出前 20 道", entry.UserMessage);
+
+        // technicalDetail 正好 20 筆：第 21 道之後不列。
+        var detailed = entry.TechnicalDetail!.Split("; ");
+        Assert.Equal(20, detailed.Length);
+        Assert.StartsWith("W4-crossing(", detailed[0], StringComparison.Ordinal);
+        Assert.StartsWith("WX-18(", detailed[19], StringComparison.Ordinal);
+        Assert.DoesNotContain("WX-19", entry.TechnicalDetail);
+    }
+
+    /// <summary>
+    /// Code review I-1：沒有帷幕牆的樓層沒有「與帷幕牆的交接處」可言，這一行無從成立。
+    /// <c>BoundaryOffCenterline</c> 一點都不罕見（挑空以 room separation line 封邊時就是常態），
+    /// 少了這道閘門，它會在正常模型上變成每次 run 固定一行噪音。
+    /// </summary>
+    [Fact]
+    public void A_storey_with_no_curtain_wall_gets_no_such_warning()
+    {
+        var members = Members().Where(m => !m.IsCurtainWall).ToList();
+        Assert.Contains(members, m => m.Source.ElementUniqueId == "W4-crossing");
+
+        var outcome = Run(Request(members: members, openings: Array.Empty<OpeningObservation>(),
+            curtainWalls: new CurtainWalls()));
+
+        Assert.DoesNotContain(outcome.Log.Entries,
+            e => e.Code == ReviewErrorCode.CandidateBoundaryDoubtNotJunctionRead);
+    }
+
+    /// <summary>
+    /// Code review Minor 7：「邊界疑義」的判準在三個地方各有一份——
+    /// <c>FireReviewRunner.BoundaryDoubtLabel</c>（這一批新增的）、
+    /// <c>FireResistanceCheck.IsBoundaryDoubt</c> 與 <c>MergedAtriums.Counts</c>。三份都是
+    /// 「列出認得的 kind，其餘忽略」，所以新增第四種邊界疑義時會被**無聲地**漏掉，C# 沒有辦法用
+    /// 編譯錯誤擋住。這一條把整份 enum 釘住：新增任何一個 kind 都會讓它轉紅，請順手回答
+    /// 「它算不算邊界疑義」，再更新那三處與這份清單。
+    /// </summary>
+    [Fact]
+    public void The_boundary_doubt_kinds_are_pinned_so_a_fourth_one_cannot_slip_in_silently()
+    {
+        Assert.Equal(new[]
+        {
+            // 這三個就是「只是不確定它是不是區劃邊界」的那幾種，三處判準都該收它們。
+            nameof(CandidateAmbiguityKind.BoundaryOffCenterline),
+            nameof(CandidateAmbiguityKind.BoundaryAlongOutline),
+            nameof(CandidateAmbiguityKind.BoundaryCrossed),
+            // 以下是對資料本身的疑義，不是對「是不是邊界」的疑義。
+            nameof(CandidateAmbiguityKind.NoPlanGeometry),
+            nameof(CandidateAmbiguityKind.HostRelationAmbiguous),
+            nameof(CandidateAmbiguityKind.HostNotResolved),
+            nameof(CandidateAmbiguityKind.CurtainWallOpening),
+            nameof(CandidateAmbiguityKind.CurtainPanelIsConstruction),
+            nameof(CandidateAmbiguityKind.CurtainPanelKindUndeclared),
+            nameof(CandidateAmbiguityKind.CurtainWallExposureUndecided),
+            nameof(CandidateAmbiguityKind.NonHostedOpening),
+            nameof(CandidateAmbiguityKind.OpeningLocationUnknown),
+            nameof(CandidateAmbiguityKind.OpeningOffHostCenterline),
+            nameof(CandidateAmbiguityKind.LinkedElement),
+            nameof(CandidateAmbiguityKind.ZoneNotEnclosed),
+            nameof(CandidateAmbiguityKind.ZonesOverlap)
+        }, Enum.GetNames(typeof(CandidateAmbiguityKind)));
+    }
+
     [Theory]
     [InlineData(ZoneUses.Atrium, ReviewStatus.NotApplicable)]
     [InlineData(ZoneUses.Stairwell, ReviewStatus.NotApplicable)]
