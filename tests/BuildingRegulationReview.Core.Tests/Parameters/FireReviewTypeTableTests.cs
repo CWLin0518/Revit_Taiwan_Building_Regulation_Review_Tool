@@ -667,3 +667,206 @@ public sealed class FireReviewCellProblemTests
         }
     }
 }
+
+/// <summary>
+/// C-11：清空「被覆厚度 cm」（或 MCP 送 <c>coverCm: null</c>）會靜默地寫入 0。長度參數的 Set 會成功，
+/// 所以一次清除被回報成一次寫入，而 0 在判定上是一個**宣告**（第73條門檻不過 → 無防火時效），未填才是
+/// 推不出來（CoverMissing、該列列為待填）。這組測試釘住三件事：空白與 0 分得開、清不掉有自己的理由、
+/// 而使用者自己打的 0 永遠不可以被攔——否則「真的想宣告 0 公分」就變成做不到的事。
+/// </summary>
+public sealed class FireReviewLengthCellLimitsTests
+{
+    private const string Label = "被覆厚度 cm";
+
+    // --- 空白／0／數字分得開 -----------------------------------------------------------------------
+
+    /// <summary>空白（含只剩空白、null）是想清除，不是 0 也不是打錯。</summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Blank_text_on_a_length_parameter_is_a_clear_that_cannot_be_done(string? text)
+    {
+        Assert.Equal(FireReviewParameterLimits.LengthTextVerdict.NotClearable,
+            FireReviewParameterLimits.ReadCentimetresText(text, out var metres));
+        // null 而不是 0：這個 out 要是在空白時回 0，日後一句 `ReadCentimetresText(t, out var m);
+        // write(m);` 就把 C-11 原封不動重現一次，而編譯器不會講話。
+        Assert.Null(metres);
+    }
+
+    /// <summary>
+    /// 不可退讓的一條：使用者自己打 0 是「宣告被覆 0 公分」，照常寫入，與空白分得開。
+    /// </summary>
+    [Theory]
+    [InlineData("0")]
+    [InlineData(" 0 ")]
+    [InlineData("0.0")]
+    public void A_typed_zero_is_a_declaration_and_not_a_clear(string text)
+    {
+        Assert.Equal(FireReviewParameterLimits.LengthTextVerdict.Number,
+            FireReviewParameterLimits.ReadCentimetresText(text, out var metres));
+        // 0 而不是 null：打出來的 0 是一個宣告，與空白分得開（空白那條斷言的是 Assert.Null）。
+        Assert.Equal(0d, metres);
+    }
+
+    [Theory]
+    [InlineData("4", 0.04)]
+    [InlineData(" 4.5 ", 0.045)]
+    [InlineData("0.5", 0.005)]
+    public void Centimetres_are_read_as_metres(string text, double expectedMetres)
+    {
+        Assert.Equal(FireReviewParameterLimits.LengthTextVerdict.Number,
+            FireReviewParameterLimits.ReadCentimetresText(text, out var metres));
+        Assert.Equal(expectedMetres, metres!.Value, 9);
+    }
+
+    /// <summary>非空而讀不成有效的公分數（含負數與非有限值）是另一種問題。</summary>
+    [Theory]
+    [InlineData("四公分")]
+    [InlineData("4cm")]
+    [InlineData("-1")]
+    [InlineData("NaN")]
+    [InlineData("Infinity")]
+    public void Text_that_is_not_a_length_is_a_different_problem(string text)
+    {
+        Assert.Equal(FireReviewParameterLimits.LengthTextVerdict.NotANumber,
+            FireReviewParameterLimits.ReadCentimetresText(text, out _));
+    }
+
+    // --- 合法的寫入不可以被攔 -----------------------------------------------------------------------
+
+    /// <summary>0 無論模型裡原本有沒有值都是一筆正常的寫入，絕不可以被攔。</summary>
+    [Fact]
+    public void A_length_cell_holding_zero_is_never_blocked()
+    {
+        Assert.Null(FireReviewParameterLimits.LengthCellProblem(Label, 0.04, "0"));
+        Assert.Null(FireReviewParameterLimits.LengthCellProblem(Label, null, "0"));
+    }
+
+    [Theory]
+    [InlineData("4")]
+    [InlineData(" 4.5 ")]
+    public void A_length_cell_holding_a_number_is_never_blocked(string typed)
+    {
+        Assert.Null(FireReviewParameterLimits.LengthCellProblem(Label, 0.04, typed));
+        Assert.Null(FireReviewParameterLimits.LengthCellProblem(Label, null, typed));
+    }
+
+    /// <summary>沒被碰過的列不可以誤報：參數本來就是未填、使用者也沒填，留白是現狀而不是一個清除。</summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void A_blank_length_cell_whose_parameter_never_held_a_value_is_not_a_problem(string? typed)
+    {
+        Assert.Null(FireReviewParameterLimits.LengthCellProblem(Label, null, typed));
+    }
+
+    // --- 清不掉 -------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// 把一個已有值的長度欄位清空，要拿到「清不掉」那種理由，而且那句話必須說出「寫 0 等於宣告 0 公分」
+    /// ——不講的話使用者只會把 0 打回去，正好做出那個他不想做的宣告。
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Clearing_a_stored_length_is_blocked_as_something_that_cannot_be_cleared(string? typed)
+    {
+        var problem = FireReviewParameterLimits.LengthCellProblem(Label, 0.04, typed);
+
+        Assert.NotNull(problem);
+        Assert.Contains(Label, problem!);
+        Assert.Contains("無法寫回未填狀態", problem);
+        Assert.Contains("寫入 0 是宣告 0 公分", problem);
+        Assert.DoesNotContain("不是有效的公分數值", problem);
+    }
+
+    // --- 不是公分數 ---------------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("四公分")]
+    [InlineData("-1")]
+    public void A_length_cell_holding_something_that_is_not_a_length_is_blocked_as_such(string typed)
+    {
+        foreach (var stored in new double?[] { 0.04, null })
+        {
+            var problem = FireReviewParameterLimits.LengthCellProblem(Label, stored, typed);
+            Assert.NotNull(problem);
+            Assert.Contains("不是有效的公分數值", problem!);
+            Assert.Contains(typed, problem);
+            Assert.DoesNotContain("無法寫回未填狀態", problem);
+        }
+    }
+
+    // --- 寫入器那一句話 -----------------------------------------------------------------------------
+
+    /// <summary>
+    /// 長度與整數清不掉的原因不同：整數是 API 會失敗，長度是 Set(0.0) 會成功而 0 是一個宣告。兩者
+    /// 共用一句話就會把「寫 0 的陷阱」藏起來。
+    /// </summary>
+    [Fact]
+    public void The_length_reason_names_the_zero_trap_and_is_not_the_integer_sentence()
+    {
+        var length = FireReviewParameterLimits.NotClearableReason(
+            StructuralMaterialParameters.Cover, FireReviewEditKind.Length);
+
+        Assert.Contains(StructuralMaterialParameters.Cover, length);
+        Assert.Contains("宣告 0 公分", length);
+        Assert.DoesNotContain("整數或是否類參數", length);
+        Assert.NotEqual(FireReviewParameterLimits.NotClearableReason(StructuralMaterialParameters.Cover), length);
+    }
+
+    /// <summary>整數／是否類與文字仍舊走原本那句——C-05 的措辭不可以被這次的修改動到。</summary>
+    [Theory]
+    [InlineData(FireReviewEditKind.Text)]
+    [InlineData(FireReviewEditKind.YesNo)]
+    public void Every_other_kind_keeps_the_sentence_C_05_left(FireReviewEditKind kind)
+    {
+        Assert.Equal(
+            FireReviewParameterLimits.NotClearableReason("防火檢討_所在樓層序"),
+            FireReviewParameterLimits.NotClearableReason("防火檢討_所在樓層序", kind));
+    }
+
+    /// <summary>無值的長度編輯在 MCP 的 edits[].value 上要看得出來寫不進去，而不是印成「…＝空白 m」。</summary>
+    [Fact]
+    public void A_length_edit_with_no_value_says_so_instead_of_printing_an_empty_number()
+    {
+        var text = FireReviewParameterEdit
+            .OfLength("T-1", StructuralMaterialParameters.Cover, null)
+            .ToString();
+
+        Assert.Contains("無值", text);
+        Assert.DoesNotContain("=  m", text);
+
+        Assert.Equal($"{StructuralMaterialParameters.Cover} = 0.04 m",
+            FireReviewParameterEdit.OfLength("T-1", StructuralMaterialParameters.Cover, 0.04).ToString());
+    }
+
+    // --- 為什麼這件事重要：0 與未填是兩個判定 -------------------------------------------------------
+
+    /// <summary>
+    /// 被覆 0 公分是一個**有效的推定**（第73條門檻不過 → 無防火時效），未填才是推不出來、該列列為待填。
+    /// 寫入層把空白塌成 0，就是把使用者沒做過的宣告寫進模型；這一條把兩者的差別釘在判定端。
+    /// </summary>
+    [Fact]
+    public void Zero_cover_is_an_answer_while_a_missing_cover_is_a_gap()
+    {
+        var zero = SteelWall(coverCm: 0);
+        var missing = SteelWall(coverCm: null);
+
+        Assert.Equal(FireRatingDerivationKind.NotRated, zero.Derivation.Kind);
+        Assert.Contains("無防火時效", zero.Derivation.Explanation);
+        Assert.False(zero.AwaitsCover);
+
+        Assert.Equal(FireRatingDerivationKind.CoverMissing, missing.Derivation.Kind);
+        Assert.True(missing.AwaitsCover);
+    }
+
+    private static FireReviewTypeRow SteelWall(double? coverCm) =>
+        new("T-SC", CandidateCategory.Wall, "SC20", familyName: null, instanceCount: 1, projectInstanceCount: 1,
+            dimensionMeters: 0.20, material: "SC",
+            coverMeters: coverCm is double c ? c / 100 : (double?)null,
+            present: FireReviewTypeParameters.Rating | FireReviewTypeParameters.Material | FireReviewTypeParameters.Cover);
+}

@@ -359,6 +359,40 @@ namespace BuildingRegulationReview.FireReview
 
         public bool HasMissingParameters => MissingParameters.Length > 0;
 
+        /// <summary>
+        /// 被覆厚度 這一格現在的內容寫不進去的理由，或 null 表示寫得進去（驗證清單 C-11）。判斷住在
+        /// Application（<see cref="FireReviewParameterLimits.LengthCellProblem"/>），面板只說出哪一格、
+        /// 模型現在存著什麼、使用者打了什麼——規則下沉後才測得到。
+        /// </summary>
+        /// <remarks>
+        /// 問的條件與 <see cref="Edits"/> 產生這筆編輯的條件逐字相同（<see cref="CarriesMaterial"/>，
+        /// 不是 <see cref="NeedsCover"/>）：兩邊若不一致，一筆被攔的編輯會照樣送出，或一筆送得出去的
+        /// 編輯會被誤報成攔阻。
+        /// </remarks>
+        private string CoverProblem => CarriesMaterial
+            ? FireReviewParameterLimits.LengthCellProblem(CoverLabel, Source.CoverMeters, _coverCm)
+            : null;
+
+        /// <summary>被覆厚度那一欄在面板上的標題，攔阻訊息才指得出是哪一格。</summary>
+        private const string CoverLabel = "被覆厚度 cm";
+
+        /// <summary>
+        /// 這一列不會寫入的格子與理由，在寫入之前就講（驗證清單 C-05 的機制、C-11 的欄位）。只有
+        /// 被覆厚度會進來：是否類欄位走 OfYesNo（勾或不勾，沒有「清除」這個狀態），其餘是文字參數
+        /// （空字串就真的是空白），而長度參數寫不出「未填」——寫 0 會變成宣告 0 公分。
+        /// </summary>
+        public IEnumerable<FireReviewBlockedEdit> Blocked()
+        {
+            // 佔位嵌板列一個字都寫不回去，它的格子不是「清不掉」而是整列唯讀（決議 16、步驟 16h）；
+            // Edits() 也在同一個條件下直接 yield break。
+            if (IsSubstituted) yield break;
+
+            var cover = CoverProblem;
+            if (cover != null)
+                yield return new FireReviewBlockedEdit(
+                    Source.TypeUniqueId, StructuralMaterialParameters.Cover, DisplayName, cover);
+        }
+
         /// <summary>Writes the derived rating into the editable rating box; does not touch the model.</summary>
         public void ApplyDerived()
         {
@@ -408,6 +442,14 @@ namespace BuildingRegulationReview.FireReview
             if (!Same(_material, Source.Material))
                 yield return FireReviewParameterEdit.OfText(Source.TypeUniqueId, StructuralMaterialParameters.Material, _material);
 
+            // 驗證清單 C-11：清空（或填了讀不懂的字）不產生這筆編輯。長度參數寫不出「未填」，寫入器
+            // 舊行為會把它塌成 0，而 0 是一個宣告——SC 被覆未達第71～73條任一被覆門檻（最低 3cm）
+            // 推定為無防火時效，而使用者只是把填錯的值清掉。理由由 Blocked() 在按下「寫入模型」
+            // 之前講出來。問的條件與下面產生這筆編輯的條件逐字相同（CarriesMaterial，不是
+            // NeedsCover）：兩邊不一致會讓 RC 列被清空的被覆照樣送出一筆註定失敗的編輯。
+            // 使用者自己打 0 不走這裡：那是 LengthTextVerdict.Number，照常寫入。
+            if (CoverProblem != null) yield break;
+
             var cover = Meters(_coverCm);
             if (!Same(cover, Source.CoverMeters))
                 yield return FireReviewParameterEdit.OfLength(Source.TypeUniqueId, StructuralMaterialParameters.Cover, cover);
@@ -437,18 +479,32 @@ namespace BuildingRegulationReview.FireReview
             return Math.Abs(typed.Value - stored.Value) < 1e-6;
         }
 
+        /// <summary>
+        /// Metres as centimetres for the cell. 0 renders as 「0」 and not as blank on purpose: a Type
+        /// that really declares 被覆 0 公分 has said something (no 被覆 threshold is met, so 無防火時效),
+        /// and hiding it would put back exactly the conflation C-11 is about.
+        /// <para>
+        /// 今天這個分支其實印不出來：<c>Source.CoverMeters</c> 永遠拿不到 0，掃描層的
+        /// <c>IsPositiveLength</c> 要求 <c>&gt; 0</c>、先把它吃掉了，所以宣告 0 公分的類型在面板上
+        /// 看到的是**空白**而不是 0（驗證清單 C-20）。這個分支是為那條缺陷修好之後準備的。
+        /// </para>
+        /// </summary>
         private static string Centimetres(double? meters) => meters.HasValue
             ? (meters.Value * 100).ToString("0.##", CultureInfo.InvariantCulture)
             : "";
 
         /// <summary>Centimetres as typed, back to metres; blank or unreadable is no value, never zero.</summary>
+        /// <remarks>
+        /// The parse itself lives in <see cref="FireReviewParameterLimits.ReadCentimetresText"/> so that
+        /// the cell's 「清不掉」／「打錯了」 judgement and this conversion cannot disagree about which
+        /// strings are numbers (C-05 的理由，C-11 的欄位).
+        /// </remarks>
         private static double? Meters(string centimetres)
         {
-            if (string.IsNullOrWhiteSpace(centimetres)) return null;
-            return double.TryParse(centimetres.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) &&
-                   !double.IsNaN(value) && !double.IsInfinity(value) && value >= 0
-                ? value / 100
-                : (double?)null;
+            // ReadCentimetresText 的 out 已經是 double?，想清空與打錯都回 null，所以這裡原樣交出去
+            // 就夠了——不必再寫一次「哪個 verdict 算有值」，兩處對不起來正是 C-11 的病根。
+            FireReviewParameterLimits.ReadCentimetresText(centimetres, out var meters);
+            return meters;
         }
 
         public event PropertyChangedEventHandler PropertyChanged;

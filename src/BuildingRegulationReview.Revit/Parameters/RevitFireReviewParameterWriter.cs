@@ -119,10 +119,11 @@ public sealed class RevitFireReviewParameterWriter
 
                         // 驗證清單 C-05：清不掉不是「值的型別不對」。這一筆的值本身沒有問題——是
                         // Revit 根本沒有「取消設值」這個動作，所以要說出真正的原因與可行的下一步，
-                        // 否則使用者只會一直重試同一個空白格。
+                        // 否則使用者只會一直重試同一個空白格。理由隨值的種類而不同（C-11：長度格
+                        // 清不掉的原因是「寫 0 等於宣告 0」，不是「API 會失敗」）。
                         case WriteOutcome.NotClearable:
                             failures.Add(new FireReviewWriteFailure(edit, element.Name,
-                                FireReviewParameterLimits.NotClearableReason(edit.ParameterName)));
+                                FireReviewParameterLimits.NotClearableReason(edit.ParameterName, edit.Kind)));
                             break;
                         default:
                             failures.Add(new FireReviewWriteFailure(edit, element.Name,
@@ -163,8 +164,15 @@ public sealed class RevitFireReviewParameterWriter
         if (edit.IsLength)
         {
             if (parameter.StorageType != StorageType.Double) return WriteOutcome.Rejected;
+
+            // 驗證清單 C-11：清空一格長度不是「寫 0」。0 落進第71～73條的被覆門檻鏈，得到一個有效的
+            // 推定（未達任一門檻，最低 3cm → 無防火時效）；無值才走 CoverMissing，該列列為待填。
+            // 舊行為 Set(0.0) 會成功，所以一次清除被回報成一次寫入，而模型裡被悄悄留下一個使用者
+            // 沒有宣告過的 0——Revit 的類型屬性與明細表看到的都是「0」，而掃描層的 IsPositiveLength
+            // 要求 > 0、讀不回它，所以他在面板上既看不到也清不掉。
+            // 本來就沒有值的參數沒有東西可以取回，不是使用者在清除。
             if (edit.LengthMeters is not double meters)
-                return parameter.HasValue && parameter.Set(0.0) ? WriteOutcome.Written : WriteOutcome.Unchanged;
+                return parameter.HasValue ? WriteOutcome.NotClearable : WriteOutcome.Unchanged;
 
             var feet = UnitUtils.ConvertToInternalUnits(meters, UnitTypeId.Meters);
             if (parameter.HasValue && Math.Abs(parameter.AsDouble() - feet) < 1e-9) return WriteOutcome.Unchanged;

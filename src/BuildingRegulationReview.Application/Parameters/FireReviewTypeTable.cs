@@ -356,7 +356,12 @@ public sealed class FireReviewParameterEdit
 
     public override string ToString() => Kind switch
     {
-        FireReviewEditKind.Length => $"{ParameterName} = {LengthMeters?.ToString("0.###", CultureInfo.InvariantCulture) + " m" ?? "（清除）"}",
+        // 驗證清單 C-11：`x?.ToString() + " m" ?? "…"` 永遠不是 null（+ 比 ?? 先結合），所以無值的
+        // 長度本來會印成「… =  m」。它是 MCP `edits[].value` 的字樣，照原樣會讓呼叫端讀不出這一筆
+        // 其實寫不進去，而「清除」又不是長度參數做得到的事。
+        FireReviewEditKind.Length => $"{ParameterName} = " + (LengthMeters is double metres
+            ? metres.ToString("0.###", CultureInfo.InvariantCulture) + " m"
+            : "（無值；長度參數清不回未填）"),
         FireReviewEditKind.YesNo => $"{ParameterName} = {(YesNo ? "是" : "否")}",
         _ => $"{ParameterName} = {Text}"
     };
@@ -367,9 +372,9 @@ public sealed class FireReviewParameterEdit
 /// </summary>
 /// <remarks>
 /// 驗證清單 C-05：面板與 MCP 都把「清除這一格」表示成一個空字串的文字編輯，但 Revit API 的
-/// <c>Parameter</c> 只有 <c>Set</c>、沒有「取消設值」。字串類參數設成空字串就等於空白，長度類可以
-/// 退回 0，而 Integer（YESNO 也是 Integer：Revit 以 0／1 存是否）寫不出「未填」這個狀態——一個已經
-/// 寫入的整數或是否類參數本來就回不到未填。寫入器原本把這件事誤判成「這個值的型別不對」，於是使用者
+/// <c>Parameter</c> 只有 <c>Set</c>、沒有「取消設值」。只有字串類參數設成空字串就等於空白；Integer
+/// （YESNO 也是 Integer：Revit 以 0／1 存是否）與長度類都寫不出「未填」這個狀態——一個已經寫入的
+/// 值本來就回不到未填。寫入器原本把這件事誤判成「這個值的型別不對」，於是使用者
 /// 把「所在樓層序」清空後拿到的是「資料型別（Integer）無法接受這個值。」：原因說錯，也沒給可行的
 /// 下一步，而使用者讀起來會以為是自己填錯了。
 /// <para>
@@ -377,6 +382,28 @@ public sealed class FireReviewParameterEdit
 /// 是對的，所以兩者必須分開判、分開講。判斷與措辭放在 Application 而不是放在寫入器裡，面板才能在
 /// 產生編輯之前就用同一份規則事先攔下來——使用者該在那一格就知道清不掉，不必按下「寫入模型」才看到
 /// 一筆失敗。
+/// </para>
+/// <para>
+/// 驗證清單 C-11：長度類參數也清不回未填，只是失敗的方式更壞。<c>Set(0.0)</c> 成功了，所以舊的寫入器
+/// 把一次清除回報成一次寫入（<c>written</c> 多算一筆），而且模型裡被悄悄留下一個使用者沒有宣告過的
+/// 0——Revit 的類型屬性、明細表與任何其他讀取端看到的都是「0」。長度格的判斷與整數格並列在這裡，
+/// 理由相同：面板要在產生編輯之前就認得出這一格，MCP 的 <c>ignored</c> 也用同一句理由。
+/// </para>
+/// <para>
+/// 那個 0 今天「不會」回頭污染本工具的推定，但原因不是呼叫端少，而是只靠一個條件攔著：
+/// <c>RevitFireReviewTypeScanner.IsPositiveLength</c> 要求 <c>AsDouble() &gt; 0</c>，所以存著 0 的被覆
+/// 重掃後讀回 null，面板的格子是空白、推定仍是 <c>FireRatingDerivationKind.CoverMissing</c>。
+/// <c>FireRatingDeriver.Derive</c> 有兩個呼叫端——面板的 <c>FireReviewTypeRowViewModel.Derivation</c>
+/// 與掃描結果自己的 <see cref="FireReviewTypeRow.Derivation"/>，而後者餵
+/// <see cref="FireReviewTypeRow.RatingEdit"/>，那條路會把推定時效寫進 <c>防火檢討_設計防火時效</c>，
+/// 而那個參數檢討是會讀的。所以掃描層那個 <c>&gt; 0</c> 日後若被放寬，這裡就會從「只是改了模型」
+/// 變成「改了判定」，屆時要連這段一起重查。
+/// </para>
+/// <para>
+/// 寫 0 的真正代價因此是模型被改與回報說謊兩件，不是一個錯的判定。而 0 在推定的語意上確實是一個
+/// 「宣告」——SC 被覆未達第71～73條任一被覆門檻（最低 3 公分，第73條第1款第2目）→「無防火時效」——
+/// 所以使用者自己打 <c>0</c> 必須仍然寫得進去，不可以被這道攔阻擋掉。掃描層讀不回那個 0，
+/// 使得「真心想宣告 0 公分」無法往返，是另一條缺陷（驗證清單 C-20）。
 /// </para>
 /// </remarks>
 public static class FireReviewParameterLimits
@@ -414,10 +441,72 @@ public static class FireReviewParameterLimits
             : IntegerTextVerdict.NotANumber;
     }
 
+    /// <summary>How a text edit reads against a parameter Revit stores as a Double (a length).</summary>
+    /// <remarks>驗證清單 C-11。</remarks>
+    public enum LengthTextVerdict
+    {
+        /// <summary>A finite, non-negative number of centimetres — 0 included, which declares 0 cm.</summary>
+        Number,
+
+        /// <summary>Blank — a request to clear the value, which Revit cannot carry out.</summary>
+        NotClearable,
+
+        /// <summary>Not blank, and not a length either: not a number, negative, or not finite.</summary>
+        NotANumber
+    }
+
+    /// <summary>
+    /// Reads the centimetres a length cell holds, telling 「想清空」 apart from 「打錯了」 — and keeping
+    /// a typed <c>0</c> apart from both, because 0 公分被覆 is a declaration the user is entitled to make.
+    /// </summary>
+    /// <remarks>
+    /// Invariant culture for the same reason <see cref="ReadIntegerText"/> spells it out: the panel's
+    /// cell, the MCP tool and the writer all have to agree on which strings are numbers, or a value
+    /// that passes in one place is refused in another. Negative is 「打錯了」 rather than a number:
+    /// <see cref="FireReviewParameterEdit.OfLength"/> refuses it outright, so letting it through here
+    /// would only trade a sentence the user can act on for an exception.
+    /// <para>
+    /// <paramref name="metres"/> 刻意是 <c>double?</c> 而不是 <c>double</c>：在一個「存在意義就是把 0
+    /// 與空白分開」的類別裡，若空白時 <c>out</c> 回 0，日後一句
+    /// <c>ReadCentimetresText(t, out var m); write(m);</c> 就把 C-11 原封不動重現一次，而編譯器不會
+    /// 講話。回 null 讓那個呼叫端非得先面對「這一格沒有值」才拿得到數字。
+    /// </para>
+    /// </remarks>
+    public static LengthTextVerdict ReadCentimetresText(string? text, out double? metres)
+    {
+        metres = null;
+        if (string.IsNullOrWhiteSpace(text)) return LengthTextVerdict.NotClearable;
+        if (!double.TryParse(text!.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var centimetres) ||
+            double.IsNaN(centimetres) || double.IsInfinity(centimetres) || centimetres < 0)
+            return LengthTextVerdict.NotANumber;
+
+        metres = centimetres / 100;
+        return LengthTextVerdict.Number;
+    }
+
     /// <summary>Why a write that would clear an Integer／YESNO parameter cannot be carried out.</summary>
     public static string NotClearableReason(string parameterName) =>
         $"Revit 無法清除整數或是否類參數 {parameterName}：API 只能設值、不能取消設值，已寫入的值回不到未填狀態。" +
         "請改填一個值；若真的要清空，須在 Revit 中直接刪除這個參數的值，或改用其他欄位表達。";
+
+    /// <summary>
+    /// Why a write that would clear a length parameter cannot be carried out (驗證清單 C-11).
+    /// </summary>
+    /// <remarks>
+    /// Said separately from <see cref="NotClearableReason(string)"/> because the reason is different:
+    /// the integer case fails loudly, while a length would take <c>Set(0.0)</c> and succeed — and 0 is
+    /// an answer, not the absence of one. The sentence has to name that, or the user reads it as the
+    /// same arbitrary refusal and tries typing 0 themselves.
+    /// </remarks>
+    public static string NotClearableLengthReason(string parameterName) =>
+        $"Revit 無法清除長度參數 {parameterName}：API 只能設值、不能取消設值，而寫入 0 是「宣告 0 公分」" +
+        "（SC 列會被推定為無防火時效），不是「未填」。請改填一個值；若真的要清空，須在 Revit 中直接刪除這個參數的值。";
+
+    /// <summary>The not-clearable reason in the words that fit the kind of value the edit carries.</summary>
+    public static string NotClearableReason(string parameterName, FireReviewEditKind kind) =>
+        kind == FireReviewEditKind.Length
+            ? NotClearableLengthReason(parameterName)
+            : NotClearableReason(parameterName);
 
     /// <summary>The same limit said in the panel's own terms, named by the cell's label.</summary>
     public static string CannotClearHint(string label) =>
@@ -427,6 +516,45 @@ public static class FireReviewParameterLimits
     /// <summary>What to say about an Integer cell holding something that is not a whole number.</summary>
     public static string NotANumberHint(string label, string? typed) =>
         $"「{label}」填的「{(typed ?? string.Empty).Trim()}」不是整數，無法寫入；請改填阿拉伯數字（例如 3）。";
+
+    /// <summary>
+    /// The length limit in the panel's own terms, named by the cell's label (驗證清單 C-11).
+    /// </summary>
+    /// <remarks>
+    /// 不與 <see cref="CannotClearHint"/> 共用一句話：長度格的使用者看不到任何失敗（舊行為寫 0 就成功了），
+    /// 所以這句要說出「清空會被當成宣告 0 公分」，否則他只會把 0 打回去，正好做出那個他不想做的宣告。
+    /// </remarks>
+    public static string CannotClearLengthHint(string label) =>
+        $"「{label}」已有值，清空後無法寫回未填狀態（長度參數只能設值；寫入 0 是宣告 0 公分，不是未填）。" +
+        "請填一個值，或在 Revit 中直接刪除這個參數的值。";
+
+    /// <summary>What to say about a length cell holding something that is not a length.</summary>
+    public static string NotALengthHint(string label, string? typed) =>
+        $"「{label}」填的「{(typed ?? string.Empty).Trim()}」不是有效的公分數值，無法寫入；請改填 0 或正數（例如 4）。";
+
+    /// <summary>
+    /// Why a length cell's current content cannot be written, or null when it can.
+    /// </summary>
+    /// <remarks>
+    /// Read exactly like <see cref="IntegerCellProblem"/>: 「打錯了」 and 「想清空」 are two problems and
+    /// get two sentences, and a blank cell whose parameter never held a value is not a problem at all —
+    /// nothing is being taken back out, so nothing is written and nothing is wrong. A typed <c>0</c> is
+    /// never a problem: 被覆 0 公分 is a declaration the clauses can act on (未達第71～73條任一被覆門檻,
+    /// 最低 3 公分 第73條第1款第2目 → 無防火時效), and it is the one thing this guard must not make
+    /// impossible. 這一格對牆／板／柱／嵌板都問，所以不寫成柱的 4 公分那一條。
+    /// </remarks>
+    public static string? LengthCellProblem(string label, double? stored, string? typed)
+    {
+        switch (ReadCentimetresText(typed, out _))
+        {
+            case LengthTextVerdict.NotANumber:
+                return NotALengthHint(label, typed);
+            case LengthTextVerdict.NotClearable:
+                return stored.HasValue ? CannotClearLengthHint(label) : null;
+            default:
+                return null;
+        }
+    }
 
     /// <summary>
     /// Why a Yes/No cell's current content cannot be written, or null when it can.

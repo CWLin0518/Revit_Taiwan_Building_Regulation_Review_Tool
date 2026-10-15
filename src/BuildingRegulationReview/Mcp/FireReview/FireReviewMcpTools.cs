@@ -500,8 +500,9 @@ namespace BuildingRegulationReview.Mcp.FireReview
                 "與「防火參數批次設定」面板相同：把值填進面板的列，只寫入與模型不同的值，整批一個交易（任何錯誤整批復原）。" +
                 "類型參數會套用到專案中該類型的所有實體。值的寫法與面板相同：是否類欄位用 true／false，" +
                 "被覆厚度單位為公分，防火時效如「1h」「60min」。文字欄位傳 null 等於清成空白；" +
-                "是否類與整數欄位傳 null 不會清除——Revit 的 YESNO／Integer 參數只能設值、不能取消設值，" +
-                "已寫入的值回不到未填狀態，這種請求會列在 ignored 並附上理由（要清空只能在 Revit 中直接刪除該參數的值）。" +
+                "是否類、整數與長度欄位傳 null 不會清除——Revit 的 YESNO／Integer 參數只能設值、不能取消設值，" +
+                "長度參數（coverCm）則是寫入 0 會變成「宣告 0 公分」而不是「未填」，三者都回不到未填狀態，" +
+                "這種請求會列在 ignored 並附上理由（要清空只能在 Revit 中直接刪除該參數的值）。" +
                 "面板不會問的欄位（見 fire_review_scan_parameters 的 asks）會被略過並列在 ignored。" +
                 "不會寫入「防火檢討_法規要求防火時效」。dryRun=true 時只回報會寫入什麼，模型不變。";
 
@@ -513,7 +514,9 @@ namespace BuildingRegulationReview.Mcp.FireReview
                     ["typeElementId"] = JsonSchema.Integer("類型的 ElementId。"),
                     ["panelKind"] = JsonSchema.NullableString("帷幕嵌板種類：實心 或 玻璃；null 清除。"),
                     ["material"] = JsonSchema.NullableString("結構材料：RC、SRC 或 SC；null 清除。"),
-                    ["coverCm"] = JsonSchema.NullableNumber("SC 的防火被覆厚度（公分）；null 歸零（長度參數寫不出未填）。", 0),
+                    ["coverCm"] = JsonSchema.NullableNumber(
+                        "SC 的防火被覆厚度（公分）；0 是「宣告被覆 0 公分」（第73條推定為無防火時效），" +
+                        "不是未填。null 不會清除已寫入的值（見本工具說明）。", 0),
                     ["rating"] = JsonSchema.NullableString("防火檢討_設計防火時效，例如 1h、2h、60min；null 清除。"),
                     ["applyDerivedRating"] = JsonSchema.Boolean("改用依第71～73條推定的時效（面板的「套用推定值」）。不可與 rating 同時使用。"),
                     ["fireProtection"] = JsonSchema.Boolean("防火檢討_設計防火保護（防火門窗）。"),

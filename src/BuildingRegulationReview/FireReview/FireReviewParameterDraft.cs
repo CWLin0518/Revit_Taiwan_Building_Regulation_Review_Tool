@@ -80,8 +80,9 @@ namespace BuildingRegulationReview.FireReview
         /// <summary>Only what differs from the model, grouped as 寫入模型 reports it.</summary>
         /// <remarks>
         /// 驗證清單 C-05：做不到的清除（以及整數格裡的非數字）不混在 edits 裡送去碰運氣，而是另外收在
-        /// Blocked。類型列不會有這種格子——它的是否類欄位走 OfYesNo（勾或不勾，沒有「清除」這個狀態），
-        /// 被覆厚度是長度（可以退回 0），其餘是文字參數（空字串就真的是空白）。
+        /// Blocked。類型列也有一格：它的是否類欄位走 OfYesNo（勾或不勾，沒有「清除」這個狀態），文字
+        /// 欄位設成空字串就真的是空白，但**被覆厚度是長度，一樣清不回未填**——寫入器只能 Set，而寫 0
+        /// 是「宣告 0 公分」（第73條推定為無防火時效），不是使用者要的「未填」（C-11）。
         /// </remarks>
         public FireReviewParameterEditBatch CollectEdits() =>
             new FireReviewParameterEditBatch(
@@ -91,7 +92,8 @@ namespace BuildingRegulationReview.FireReview
                 Rows.Where(r => r.IsDirty).ToList(),
                 Zones.Count(z => z.IsDirty),
                 Rows.Count(r => r.PanelKindIsProposed),
-                Zones.SelectMany(z => z.Blocked())
+                Rows.SelectMany(r => r.Blocked())
+                    .Concat(Zones.SelectMany(z => z.Blocked()))
                     .Concat(Project == null ? Enumerable.Empty<FireReviewBlockedEdit>() : Project.Blocked())
                     .ToList());
     }
