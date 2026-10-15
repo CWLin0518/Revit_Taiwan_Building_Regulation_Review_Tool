@@ -259,10 +259,35 @@ public static class ReviewEntryReport
         yield return new ReviewDetailLine("檢討時間", Time(table.Run.StartedAtUtc));
     }
 
+    /// <summary>
+    /// One evidence section, with lines a reader cannot tell apart collapsed into one (驗證清單 C-14).
+    /// </summary>
+    /// <remarks>
+    /// 一個事實可以同時是規則讀的欄位與檢討記下的證據——<c>element.curtainWallExposure</c> 與
+    /// <c>source.curtainWallExposure</c> 就共用「帷幕牆室內外」這個中文標籤——於是明細把兩類欄位先後
+    /// 列出時，同一句話會印兩行，審查者會以為是兩個不同的欄位。
+    /// <para>
+    /// 比的是**已經成文的標籤與值兩者都相同**，不是欄位鍵：欄位鍵不同正是這個重複的來源，比它去不掉。
+    /// 反過來說，真的兩個不同欄位只要值不同就留著兩行；而標籤與值都一樣的兩行，讀的人本來就分不出
+    /// 差別，少印一行不會少掉任何資訊。保留**第一次**出現的位置，欄位原本的順序不變。
+    /// </para>
+    /// <para>
+    /// 實際會被併掉的有三組（都是同一列「判定依據」裡同標籤又同值）：
+    /// <c>element.curtainWallExposure</c>／<c>source.curtainWallExposure</c>（「帷幕牆室內外」）、
+    /// <c>zone.id</c>／<c>candidate.zoneId</c>（「區劃編號」）、
+    /// <c>zone.name</c>／<c>candidate.zoneName</c>（「區劃名稱」）。
+    /// 另外三組同標籤的鍵（<c>provided.parameter</c>／<c>protection.parameter</c> 與同組的
+    /// <c>raw</c>、<c>reason</c>）不受影響：帷幕牆交接那一列只會有其中一組，兩組同時出現的情形
+    /// 不存在。去重範圍刻意是**每個區段各自**（這個方法被叫三次），跨區段的同名欄位位置與語意都
+    /// 不同，不該併。
+    /// </para>
+    /// </remarks>
     private static void Add(List<ReviewDetailSection> sections, string title, IEnumerable<ReviewEvidenceItem> items)
     {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
         var lines = items
             .Select(x => new ReviewDetailLine(ReviewFieldText.Label(x.Field), ReviewFieldText.Value(x.Field, x.Value)))
+            .Where(line => seen.Add(line.Label + "\u001f" + line.Value))
             .ToList();
         if (lines.Count > 0) sections.Add(new ReviewDetailSection(title, lines));
     }

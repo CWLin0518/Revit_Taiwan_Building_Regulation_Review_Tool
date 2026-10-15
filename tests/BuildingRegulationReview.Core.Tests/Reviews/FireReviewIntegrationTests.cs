@@ -1023,6 +1023,49 @@ public sealed class FireReviewIntegrationTests
 
     // --- one review, three checks ---------------------------------------------------------------
 
+    /// <summary>
+    /// C-18：前置檢查 BCR-CAND-001 的數字就是 <c>CandidateSet.Ambiguities.Count</c>，所以跨越區劃
+    /// 邊界的牆一併算進來，承諾（會逐一回答）與產出（檢討表上真有那幾列）一致。原本 Crossing 不帶
+    /// 疑義，既不在這個數字裡，也不會出現在檢討表上。
+    /// </summary>
+    [Fact]
+    public void The_precondition_counts_every_relation_in_doubt_including_a_wall_crossing_the_boundary()
+    {
+        var set = Set();
+        var crossings = set.Ambiguities
+            .Count(a => a.Kind == CandidateAmbiguityKind.BoundaryCrossed && a.SubjectUniqueIds.Contains("W4-crossing"));
+        Assert.Equal(2, crossings); // W4-crossing 跨 A 區與 B 區的邊界，兩個區劃各一筆
+
+        var item = Assert.Single(Readiness(candidates: Result.Success(set)).Items,
+            i => i.Code == ReviewErrorCode.CandidateAmbiguous);
+
+        Assert.Equal(ReadinessSeverity.Info, item.Severity);
+        Assert.Contains($"有 {set.Ambiguities.Count} 個元素", item.Message);
+        Assert.Contains("跨越區劃邊界", item.Message);
+    }
+
+    /// <summary>
+    /// C-15：明細的「判定依據」把結果的每一個證據欄位逐行印出來，欄位鍵沒進對照表就直接印英文鍵名
+    /// （實機驗出 <c>candidate.bandLength：2.6875 m</c> 這種行）。這一條把整個檢討跑一遍，要求每一列
+    /// 結果的每一個欄位都成文得出中文名字：<c>ReviewFieldText.Label</c> 回傳的若就是欄位鍵本身，
+    /// 代表沒人替它取名。補一個欄位卻忘了對照時，這裡會先紅。
+    /// </summary>
+    [Fact]
+    public void Every_evidence_field_a_whole_run_records_has_a_Chinese_label()
+    {
+        var run = Run(Request(openings: WithPanelType())).Run!;
+
+        var unnamed = run.Results
+            .SelectMany(r => r.Evidence.Items)
+            .Select(i => i.Field)
+            .Distinct(StringComparer.Ordinal)
+            .Where(field => string.Equals(ReviewFieldText.Label(field), field, StringComparison.Ordinal))
+            .OrderBy(field => field, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.Empty(unnamed);
+    }
+
     [Fact]
     public void Review_runs_every_check_and_leaves_the_package_reviewed_with_the_rule_set_locked()
     {

@@ -24,7 +24,8 @@ public sealed class CandidateResolverTests
         Row("W1-bottom", "Boundary", "Boundary"),
         Row("W2-shared", "Boundary", "Boundary"),
         Row("W3-partition", "Inside", None),
-        Row("W4-crossing", "Crossing", "Crossing"),
+        // 牆跨越區劃邊界：關係是 Crossing，但「算不算這道區劃的邊界」仍存疑（C-18）。
+        Row("W4-crossing", "Crossing:BoundaryCrossed", "Crossing:BoundaryCrossed"),
         Row("W5-offset", None, "Ambiguous:BoundaryOffCenterline"),
         Row("W8-long", "Boundary", None),
         Row("W10-left", "Boundary", None),
@@ -33,6 +34,7 @@ public sealed class CandidateResolverTests
         Row("C2-inside", "Inside", None),
         Row("C3-flush", "Ambiguous:BoundaryAlongOutline", "Ambiguous:BoundaryAlongOutline"),
         Row("B1-shared", "Boundary", "Boundary"),
+        // 樓板跨越區劃邊界是常態而非疑義，所以不掛 BoundaryCrossed（C-18，與 W4-crossing 對照）。
         Row("F1-slab", "Crossing", "Crossing"),
         Row("D1-shared", "Boundary", "Boundary"),
         Row("WN1-bottom", None, "Boundary"),
@@ -87,9 +89,11 @@ public sealed class CandidateResolverTests
             "HostNotResolved|A|D6-ghost-host",
             "OpeningLocationUnknown|A|D7-no-location",
             "NonHostedOpening|A|N1-unhosted",
+            "BoundaryCrossed|A|W4-crossing",
             "BoundaryAlongOutline|B|C3-flush",
             "HostRelationAmbiguous|B|D5-ambiguous-host",
             "OpeningLocationUnknown|B|D7-no-location",
+            "BoundaryCrossed|B|W4-crossing",
             "BoundaryOffCenterline|B|W5-offset",
             "ZoneNotEnclosed|C|area-c"
         };
@@ -160,6 +164,66 @@ public sealed class CandidateResolverTests
             Array.Empty<OpeningObservation>()));
 
         Assert.Equal(expected, Describe(Relation(set, "W", ZoneA)));
+    }
+
+    /// <summary>
+    /// C-18：牆的中心線跨越區劃邊界時，幾何既沒說它構成邊界、也沒說它不構成，所以 Crossing 關係要
+    /// 掛一筆 <see cref="CandidateAmbiguityKind.BoundaryCrossed"/> 並登成一筆疑義。不掛的話
+    /// <c>element.isCompartmentBoundary</c> 逕取 false，第79條第1項整列「不適用」而靜默免除。
+    /// 對照組是樓板：一片樓板本來就跨多個區劃，那是常態而非疑義，不掛也不登。
+    /// </summary>
+    [Fact]
+    public void Wall_crossing_a_boundary_is_a_doubt_about_whether_it_bounds_but_a_floor_is_not()
+    {
+        var set = Resolve();
+
+        foreach (var zone in new[] { ZoneA, ZoneB })
+        {
+            var wall = Relation(set, "W4-crossing", zone)!;
+            Assert.Equal(ZoneRelationKind.Crossing, wall.Kind);
+            Assert.Equal(CandidateAmbiguityKind.BoundaryCrossed, wall.Ambiguity);
+            Assert.True(wall.CarriesAmbiguity);
+            Assert.False(wall.IsBoundary);
+            Assert.False(wall.IsAmbiguous);
+            Assert.Contains(set.Ambiguities, a =>
+                a.Kind == CandidateAmbiguityKind.BoundaryCrossed &&
+                a.ZoneId == zone &&
+                a.SubjectUniqueIds.Contains("W4-crossing"));
+        }
+
+        var slab = Relation(set, "F1-slab", ZoneA)!;
+        Assert.Equal(ZoneRelationKind.Crossing, slab.Kind);
+        Assert.False(slab.CarriesAmbiguity);
+        Assert.DoesNotContain(set.Ambiguities, a => a.SubjectUniqueIds.Contains("F1-slab"));
+    }
+
+    /// <summary>
+    /// 不變量：除了「跨越邊界 ＋ BoundaryCrossed」這一個組合，已判定的關係一律不得帶疑義——
+    /// 帶了就表示某處把「已判定」與「存疑」混為一談（C-18）。白名單是雙向的：BoundaryCrossed
+    /// 講的是「中心線跨過去了，但算不算這道區劃的邊界沒有答案」，那句話也只有 Crossing 說得通，
+    /// 掛到別的 kind 上 <c>IsBoundaryDoubt</c> 仍會收它、<c>Settled</c> 仍會評兩支，等於用一個
+    /// 量不出來的前提去推論。
+    /// </summary>
+    [Fact]
+    public void Only_an_ambiguous_relation_or_a_crossing_one_may_name_an_ambiguity()
+    {
+        Assert.Throws<ArgumentException>(() => new ZoneRelation(ZoneA, ZoneRelationKind.Ambiguous, "無法判定。"));
+        Assert.Throws<ArgumentException>(() => new ZoneRelation(ZoneA, ZoneRelationKind.Boundary, "構成邊界。",
+            null, CandidateAmbiguityKind.BoundaryCrossed));
+        Assert.Throws<ArgumentException>(() => new ZoneRelation(ZoneA, ZoneRelationKind.Crossing, "跨越邊界。",
+            null, CandidateAmbiguityKind.BoundaryOffCenterline));
+
+        // 反向：BoundaryCrossed 只屬於 Crossing。Ambiguous 帶它會穿過上面兩道檢查，所以要單獨擋。
+        Assert.Throws<ArgumentException>(() => new ZoneRelation(ZoneA, ZoneRelationKind.Ambiguous, "無法判定。",
+            null, CandidateAmbiguityKind.BoundaryCrossed));
+
+        var crossing = new ZoneRelation(ZoneA, ZoneRelationKind.Crossing, "跨越邊界。",
+            null, CandidateAmbiguityKind.BoundaryCrossed);
+        Assert.True(crossing.CarriesAmbiguity);
+        Assert.False(crossing.IsAmbiguous);
+
+        var plain = new ZoneRelation(ZoneA, ZoneRelationKind.Crossing, "跨越邊界。");
+        Assert.False(plain.CarriesAmbiguity);
     }
 
     [Fact]
@@ -327,6 +391,31 @@ public sealed class CandidateResolverTests
         var ambiguous = set.Members.Single(m => m.Source.ElementUniqueId == "W5-offset");
         Assert.Throws<ArgumentException>(() => CandidateFacts.ForMember(set, ambiguous, ZoneB));
         Assert.Throws<ArgumentException>(() => CandidateFacts.ForMember(set, wall, ZoneC));
+    }
+
+    /// <summary>
+    /// C-18：這道守衛問的是「關係帶著疑義」而不是「關係是 Ambiguous」。跨越區劃邊界的牆關係是
+    /// <see cref="ZoneRelationKind.Crossing"/>（量得出來、不是 Ambiguous），但它算不算這道區劃的
+    /// 邊界沒有答案——讓它穿過守衛，<c>element.isCompartmentBoundary</c> 就會逕取 <c>false</c>，
+    /// 第79條第1項整列「不適用」而靜默免除，正是 C-18 的因果鏈。
+    /// </summary>
+    /// <remarks>
+    /// 今天沒有呼叫端會踩到它（主迴圈已先 <c>CarriesAmbiguity → continue</c>，<c>Settled</c> 一律傳
+    /// <c>Assuming</c> 的複本），所以這一條守的是**將來**：任何 check 新增一個 <c>ForMember</c>
+    /// 呼叫而忘了先排除帶疑義的關係時，這裡會擋下來，而不是再靜默免除一次。
+    /// </remarks>
+    [Fact]
+    public void Facts_refuse_a_crossing_relation_whose_boundary_role_has_no_answer()
+    {
+        var set = Resolve();
+        var crossing = set.Members.Single(m => m.Source.ElementUniqueId == "W4-crossing");
+        var relation = crossing.Relations.First(r => r.Kind == ZoneRelationKind.Crossing);
+
+        Assert.False(relation.IsAmbiguous, "前提：Crossing 不是 Ambiguous，所以舊守衛放得過它。");
+        Assert.True(relation.CarriesAmbiguity);
+        Assert.Equal(CandidateAmbiguityKind.BoundaryCrossed, relation.Ambiguity);
+
+        Assert.Throws<ArgumentException>(() => CandidateFacts.ForMember(set, crossing, relation.ZoneId));
     }
 
     [Fact]
@@ -557,8 +646,15 @@ public sealed class CandidateResolverTests
         return compiled.Value;
     }
 
+    /// <summary>
+    /// 關係的種類，加上它掛著的疑義（有的話）。Crossing 也可能掛疑義（C-18），所以問的是
+    /// <c>CarriesAmbiguity</c> 而不是 <c>IsAmbiguous</c>——否則 W4-crossing 與 F1-slab 這兩種不同的
+    /// Crossing 在這張表上看起來一模一樣。
+    /// </summary>
     private static string Describe(ZoneRelation? relation) =>
-        relation is null ? None : relation.IsAmbiguous ? $"Ambiguous:{relation.Ambiguity}" : relation.Kind.ToString();
+        relation is null ? None
+            : relation.CarriesAmbiguity ? $"{relation.Kind}:{relation.Ambiguity}"
+            : relation.Kind.ToString();
 
     private static string Name(Guid zone) => zone == ZoneA ? "A" : zone == ZoneB ? "B" : zone == ZoneC ? "C" : zone.ToString("D");
 }

@@ -233,7 +233,14 @@ public static class FireResistanceCheck
             foreach (var member in set.MembersOf(zone.ZoneId))
             {
                 var relation = member.RelationTo(zone.ZoneId)!;
-                if (relation.IsAmbiguous) continue;
+
+                // CarriesAmbiguity 而不是 IsAmbiguous：跨越區劃邊界的牆（Crossing ＋ BoundaryCrossed）
+                // 關係量得出來，但算不算這道區劃的邊界沒有答案，所以也由下面的 ambiguity 迴圈接手
+                // （驗證清單 C-18）。不在這裡跳過的話，同一個構件×區劃會出兩列：這裡 Decide 得到
+                // isCompartmentBoundary=false 的不適用，下面 Settled 又出一列逕行判定。
+                // CandidateResolver 為每一個 CarriesAmbiguity 的關係都登了一筆疑義，所以這裡跳掉幾列
+                // 下面就補回幾列。
+                if (relation.CarriesAmbiguity) continue;
 
                 // 室內外未定的帷幕牆在區劃邊界上：這一列改由下面的 ambiguity 迴圈產出人工覆核
                 // （CandidateResolver 已為每一個 boundary 關係登了 CurtainWallExposureUndecided）。
@@ -408,11 +415,14 @@ public static class FireResistanceCheck
 
     /// <summary>
     /// The geometric doubts that are only about <i>whether</i> the member bounds the zone: the Area
-    /// edge runs along a column face, or inside a wall's thickness off its centreline. Linked elements,
-    /// missing geometry and doubtful zones are doubts about the data itself and are never settled.
+    /// edge runs along a column face, or inside a wall's thickness off its centreline, or the member's
+    /// centreline crosses the edge with neither side on it (驗證清單 C-18). Linked elements, missing
+    /// geometry and doubtful zones are doubts about the data itself and are never settled.
     /// </summary>
     private static bool IsBoundaryDoubt(CandidateAmbiguityKind kind) =>
-        kind == CandidateAmbiguityKind.BoundaryAlongOutline || kind == CandidateAmbiguityKind.BoundaryOffCenterline;
+        kind == CandidateAmbiguityKind.BoundaryAlongOutline ||
+        kind == CandidateAmbiguityKind.BoundaryOffCenterline ||
+        kind == CandidateAmbiguityKind.BoundaryCrossed;
 
     /// <summary>
     /// Settles a boundary doubt when the law gives the same answer either way. The rules are evaluated
@@ -444,8 +454,16 @@ public static class FireResistanceCheck
         // 規則的結論都相同」便把一個**真正的空缺**讀成一致的答案，逕行判定不適用——連人工覆核都不留。
         // 這正是 Assuming 的 remarks 寫下要防的那個機制，只是那裡防的是判定被複本丟掉，這裡是判定
         // 本來就判不出來。回 null 讓那一列保持 ambiguity 自己的人工覆核（此時 AmbiguousMember 找得到
-        // 它，kind 是 BoundaryOffCenterline／BoundaryAlongOutline，訊息講的是邊界存疑而不是室內外；
-        // 那不是最精準的說法，但比一列靜默的不適用好得多，而且使用者修邊界時室內外通常跟著判得出來）。
+        // 它，kind 是 BoundaryOffCenterline／BoundaryAlongOutline／BoundaryCrossed，訊息講的是邊界
+        // 存疑而不是室內外；那不是最精準的說法，但比一列靜默的不適用好得多，而且使用者修邊界時室內外
+        // 通常跟著判得出來）。
+        //
+        // 這道防線只擋「兩支都不適用」這一種走法。同一類失效還有另一個入口，是在這個函式之外被堵上
+        // 的：一道**跨越**區劃邊界的牆原本連疑義都沒有（Crossing 不帶 CandidateAmbiguityKind），於是
+        // 整列走主迴圈的 Decide，isCompartmentBoundary 逕取 false，第79條第1項靜默不適用，連
+        // Settled 都進不來（驗證清單 C-18）。那一個已由 CandidateResolver 在源頭掛上
+        // BoundaryCrossed、並納入 IsBoundaryDoubt 修掉：這類牆現在一律走到這裡評兩支，所以下面
+        // 「兩支結論相同」「一支符合一支不適用」的推理本身就是那個缺口的答案，不必在此另設防線。
         if (member.CurtainWallExposure?.IsUnknown == true) return null;
 
         if (set.Zone(zoneId) is not { IsClear: true } zone) return null;
@@ -596,9 +614,9 @@ public static class FireResistanceCheck
     /// <see cref="CandidateAmbiguityKind.CurtainWallExposureUndecided"/> 所指的那道帷幕牆。
     /// </summary>
     /// <remarks>
-    /// 這個 ambiguity 掛在**boundary** 關係上，不是 Ambiguous 關係，而 <see cref="ZoneRelation"/> 的
-    /// <c>IsBoundary</c> 與 <c>IsAmbiguous</c> 互斥（兩者都是 <c>Kind ==</c> 比較），所以
-    /// <see cref="AmbiguousMember"/> 永遠比不到它；少了這條查找路徑，上面的迴圈會 <c>continue</c>，
+    /// 這個 ambiguity 掛在**boundary** 關係上，不是 Ambiguous 關係，而那個 boundary 關係自己的
+    /// <c>Ambiguity</c> 是 null（關係本身已確定，只有室內外存疑），所以 <c>CarriesAmbiguity</c> 為
+    /// false、<see cref="AmbiguousMember"/> 永遠比不到它；少了這條查找路徑，上面的迴圈會 <c>continue</c>，
     /// 規格要的那一列人工覆核就被丟掉。故意另開一個函式而不放寬 <see cref="AmbiguousMember"/>：
     /// 後者的語意是「關係本身存疑」，那一條路通往 <see cref="Settled"/> 的「不論是否構成邊界結論
     /// 都相同」推理，混進一個關係其實已確定、只有室內外存疑的構件會把那層推理弄亂。
@@ -613,13 +631,25 @@ public static class FireResistanceCheck
             m.RelationTo(zoneId) is { } relation && IsExposureUndecidedBoundary(set, m, relation, inputs, merged));
     }
 
-    /// <summary>The member an ambiguity is about, when it is an ambiguous member relation.</summary>
+    /// <summary>
+    /// The member an ambiguity is about, when the relation itself is the thing in doubt.
+    /// </summary>
+    /// <remarks>
+    /// 比的是「這個關係掛著這一筆疑義」（<see cref="ZoneRelation.CarriesAmbiguity"/>）而不是
+    /// 「這個關係是 Ambiguous」：跨越區劃邊界的牆關係是 <see cref="ZoneRelationKind.Crossing"/>，
+    /// 疑義卻是 <see cref="CandidateAmbiguityKind.BoundaryCrossed"/>（驗證清單 C-18），比 IsAmbiguous
+    /// 就永遠比不到它，主迴圈跳掉的那一列會憑空消失。
+    /// <see cref="CandidateAmbiguityKind.CurtainWallExposureUndecided"/> 仍然比不到——它掛在一個
+    /// <c>Boundary</c> 關係上，而那個關係的 <c>Ambiguity</c> 是 null（關係本身已確定，只有室內外存疑），
+    /// 所以它照舊走 <see cref="ExposureUndecidedMember"/>，不會混進 <see cref="Settled"/> 的
+    /// 「不論是否構成邊界結論都相同」推理。
+    /// </remarks>
     private static MemberCandidate? AmbiguousMember(CandidateSet set, CandidateAmbiguity ambiguity)
     {
         if (ambiguity.ZoneId is not Guid zoneId || ambiguity.SubjectUniqueIds.Count != 1) return null;
         return set.Members.FirstOrDefault(m =>
             string.Equals(m.Source.ElementUniqueId, ambiguity.SubjectUniqueIds[0], StringComparison.Ordinal) &&
-            m.RelationTo(zoneId) is { IsAmbiguous: true } relation &&
+            m.RelationTo(zoneId) is { CarriesAmbiguity: true } relation &&
             relation.Ambiguity == ambiguity.Kind);
     }
 

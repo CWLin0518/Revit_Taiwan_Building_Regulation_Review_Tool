@@ -120,6 +120,76 @@ public sealed class ReviewEntryReportTests
         Assert.DoesNotContain("區劃名稱", labels);
     }
 
+    /// <summary>
+    /// C-14：一個事實同時是規則讀的欄位與檢討記下的證據時（<c>element.curtainWallExposure</c> 與
+    /// <c>source.curtainWallExposure</c> 共用「帷幕牆室內外」這個標籤），明細不印兩行一模一樣的話。
+    /// 去重比的是**成文後的標籤與值**，所以標籤相同但值不同的兩個欄位仍是兩行——那才是真的兩件事。
+    /// </summary>
+    [Fact]
+    public void Two_evidence_fields_a_reader_cannot_tell_apart_are_one_line()
+    {
+        var lines = Reading(
+            new ReviewEvidenceItem("element.curtainWallExposure", ReviewValue.OfText("Interior")),
+            new ReviewEvidenceItem("source.width", ReviewValue.Quantity(0.025, ReviewUnit.Meter)),
+            new ReviewEvidenceItem("source.curtainWallExposure", ReviewValue.OfText("Interior")));
+
+        Assert.Equal(
+            new[] { "帷幕牆室內外", "構件厚度" },
+            lines.Select(l => l.Label).ToArray());
+        Assert.Equal("室內帷幕牆", lines.Single(l => l.Label == "帷幕牆室內外").Value);
+    }
+
+    [Fact]
+    public void Two_fields_sharing_a_label_but_not_a_value_stay_two_lines()
+    {
+        var lines = Reading(
+            new ReviewEvidenceItem("element.curtainWallExposure", ReviewValue.OfText("Interior")),
+            new ReviewEvidenceItem("source.curtainWallExposure", ReviewValue.OfText("Unknown")));
+
+        Assert.Equal(2, lines.Count);
+        Assert.Equal(new[] { "帷幕牆室內外", "帷幕牆室內外" }, lines.Select(l => l.Label).ToArray());
+        Assert.Equal(new[] { "室內帷幕牆", "室內外未判定" }, lines.Select(l => l.Value).ToArray());
+    }
+
+    /// <summary>
+    /// C-15：候選解析量到的六個長度與構件厚度都要有中文名字，否則明細會在一排中文標籤之間夾出
+    /// <c>candidate.bandLength</c> 這種英文鍵名。
+    /// </summary>
+    [Fact]
+    public void Every_candidate_measurement_reads_as_a_Chinese_label()
+    {
+        var fields = new[]
+        {
+            "candidate.boundaryLength", "candidate.bandLength", "candidate.insideLength",
+            "candidate.outsideLength", "candidate.throughLength", "candidate.distanceToBoundary",
+            "source.width"
+        };
+        var lines = Reading(fields.Select(f => new ReviewEvidenceItem(f, ReviewValue.Quantity(1.5, ReviewUnit.Meter))).ToArray());
+
+        Assert.Equal(fields.Length, lines.Count);
+        Assert.All(lines, line =>
+        {
+            Assert.DoesNotContain("candidate.", line.Label);
+            Assert.DoesNotContain("source.", line.Label);
+            Assert.Equal("1.5 m", line.Value);
+        });
+        Assert.Equal("區劃邊界落在構件厚度內的長度", ReviewFieldText.Label("candidate.bandLength"));
+        Assert.Equal("構件厚度", ReviewFieldText.Label("source.width"));
+    }
+
+    /// <summary>判定依據那一段的行，以一組自訂的證據欄位組出來。</summary>
+    private static IReadOnlyList<ReviewDetailLine> Reading(params ReviewEvidenceItem[] items)
+    {
+        var result = new ReviewResult(Guid.Parse("55555555-5555-5555-5555-555555555555"), RunId, PackageId,
+            ReviewCheckTypes.FireResistance, new[] { Wall }, ZoneId.ToString("D"), ReviewStatus.Pass,
+            ReviewValue.Quantity(120, ReviewUnit.Minute), ReviewValue.Quantity(60, ReviewUnit.Minute),
+            "tw-bcr-79-wall-rating", "3", "建築技術規則建築設計施工編第79條",
+            "符合。", new ReviewEvidence(items));
+        var table = Table(result);
+        return ReviewEntryReport.Describe(table, table.Entry(result.ResultId)!)
+            .Single(s => s.Title == "判定依據").Lines;
+    }
+
     [Fact]
     public void Elements_and_settings_are_kept_apart_from_the_reading()
     {

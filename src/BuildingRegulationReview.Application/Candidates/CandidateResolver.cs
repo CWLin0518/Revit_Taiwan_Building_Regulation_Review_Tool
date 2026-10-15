@@ -76,6 +76,10 @@ public static class CandidateResolver
             }
 
             var allowed = options.RelationsFor(member.Category);
+            // Crossing 帶著 BoundaryCrossed 之後仍照 allowed 過濾（而不是比照 IsAmbiguous 一律留下）：
+            // 一個把 Crossing 關掉的策略是「這一類構件跨越邊界時整個不檢討」的明示設定，不是靜默免除
+            // ——關係整個不存在，構件也就不是該區劃的候選，與下面登 ambiguity 的那個迴圈仍然一致
+            // （留幾個關係就登幾筆疑義）。預設是 CandidateRelationKinds.All，所以實機路徑一律會留下。
             var relations = ApplyLinkPolicy(member.Source, CandidateCategories.Label(member.Category), memberRelations[member])
                 .Where(r => r.IsAmbiguous || Allows(allowed, r.Kind))
                 .ToList();
@@ -109,7 +113,9 @@ public static class CandidateResolver
                         remedy is null ? string.Empty : "；" + remedy),
                     candidate.EvidenceFor(relation.ZoneId)));
             }
-            foreach (var relation in candidate.Relations.Where(r => r.IsAmbiguous))
+            // CarriesAmbiguity 而不是 IsAmbiguous：跨越區劃邊界的牆（Crossing ＋ BoundaryCrossed）
+            // 關係是量得出來的，但「算不算這道區劃的邊界」仍無答案，也要登一筆（驗證清單 C-18）。
+            foreach (var relation in candidate.Relations.Where(r => r.CarriesAmbiguity))
             {
                 ambiguities.Add(new CandidateAmbiguity(relation.Ambiguity!.Value, new[] { member.Source.ElementUniqueId },
                     relation.ZoneId, relation.Message, candidate.EvidenceFor(relation.ZoneId)));
@@ -156,7 +162,10 @@ public static class CandidateResolver
 
             var candidate = new OpeningCandidate(opening, relations, host);
             openingCandidates.Add(candidate);
-            foreach (var relation in candidate.Relations.Where(r => r.IsAmbiguous))
+            // 開口沒有 Crossing（RelateOpening 只回 Boundary／Inside／Facade／Ambiguous），所以這裡
+            // CarriesAmbiguity 與 IsAmbiguous 等價；用同一個述詞是為了與上面的構件迴圈對稱，將來
+            // 開口多出一種「已判定但仍存疑」的關係時不會從這裡漏掉。
+            foreach (var relation in candidate.Relations.Where(r => r.CarriesAmbiguity))
             {
                 ambiguities.Add(new CandidateAmbiguity(relation.Ambiguity!.Value, new[] { opening.Source.ElementUniqueId },
                     relation.ZoneId, relation.Message, candidate.EvidenceFor(relation.ZoneId)));
@@ -286,9 +295,15 @@ public static class CandidateResolver
 
         if (measure.InsideFeet >= threshold && measure.OutsideFeet >= threshold)
         {
+            // 跨越邊界的牆或梁仍帶一筆 BoundaryCrossed（驗證清單 C-18）：中心線兩段分落區劃內外，
+            // 幾何既沒說它構成這道區劃的邊界，也沒說它不構成。不掛疑義的話
+            // element.isCompartmentBoundary 逕取 false，第79條第1項的 tw-bcr-79-wall-rating 便整列
+            // 不適用——沒有未符合、沒有待確認、連人工覆核都沒有。掛上之後 FireResistanceCheck 會評
+            // 「假設構成邊界」與「假設不構成」兩支，相同則逕行判定，衝突才回人工覆核。
             return new ZoneRelation(zone.ZoneId, ZoneRelationKind.Crossing,
-                Format("{0}穿越區劃「{1}」邊界：區劃內 {2} m、區劃外 {3} m。", label, name, Meters(measure.InsideFeet), Meters(measure.OutsideFeet)),
-                measurements);
+                Format("{0}穿越區劃「{1}」邊界：區劃內 {2} m、區劃外 {3} m，無法判定是否由此{0}構成該區劃邊界。",
+                    label, name, Meters(measure.InsideFeet), Meters(measure.OutsideFeet)),
+                measurements, CandidateAmbiguityKind.BoundaryCrossed);
         }
 
         if (measure.InsideFeet >= threshold)
@@ -326,6 +341,10 @@ public static class CandidateResolver
                            zone.Shape.InteriorPoints().Any(p => outline.ContainsWithClearance(p, tolerance));
             if (!overlaps) return null;
 
+            // 樓板的 Crossing 不帶 BoundaryCrossed（對照 RelateLinear，驗證清單 C-18）：一片樓板本來
+            // 就同時覆蓋多個區劃並延伸出去，那是常態而不是疑義，而第79條第1項問的是**區劃牆壁**的
+            // 時效，樓地板走的是第70條主要構造那條路，與它是否構成某個區劃的邊界無關。把它一併當成
+            // 邊界存疑只會讓每一片樓板都多出一列人工覆核，卻回答不了任何多出來的問題。
             return through > 0 || perimeter.OutsideFeet >= threshold
                 ? new ZoneRelation(zone.ZoneId, ZoneRelationKind.Crossing,
                     Format("樓板與區劃「{0}」重疊並延伸至區劃外。", name), measurements)

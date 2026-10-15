@@ -226,6 +226,17 @@ public static class ReviewFieldText
         ["candidate.enclosedAreaCount"] = "封閉的 Area 數",
         ["candidate.otherZoneId"] = "另一個區劃編號",
         ["candidate.relation"] = "與區劃的空間關係",
+
+        // RelationMeasurements 量到的六個長度（驗證清單 C-15）：少了對照，明細就在一排中文標籤之間
+        // 夾出 candidate.bandLength 這種英文鍵名。用字跟著「與區劃的空間關係」那一組的說法：
+        // 中心線落在邊界上的那一段、落在構件厚度（交接帶）內的那一段、區劃內外各一段。
+        ["candidate.boundaryLength"] = "中心線沿區劃邊界的長度",
+        ["candidate.bandLength"] = "區劃邊界落在構件厚度內的長度",
+        ["candidate.insideLength"] = "位於區劃內側的長度",
+        ["candidate.outsideLength"] = "位於區劃外側的長度",
+        ["candidate.throughLength"] = "區劃邊界穿過構件輪廓的長度",
+        ["candidate.distanceToBoundary"] = "與區劃邊界的距離",
+
         ["candidate.settledBy"] = "空間關係無法判定但逕行判定的依據",
         ["candidate.verdictIfBoundary"] = "假設構成區劃邊界時的結論",
         ["candidate.verdictIfNotBoundary"] = "假設不構成區劃邊界時的結論",
@@ -246,6 +257,10 @@ public static class ReviewFieldText
         ["junction.doubtReason"] = "無法判定的原因",
         ["junction.doubtSubjects"] = "相關元素",
         ["junction.transferredTo"] = "改依哪一條檢討",
+
+        // 阻熱性的讀取結果（決議 38）。與 protection.kind 同一個 ProvidedFireProtectionKind，所以
+        // 下面的 TokenMaps 也共用同一份對照。C-15 的新護欄抓出來的第七個漏列。
+        ["insulation.kind"] = "設計阻熱性讀取結果",
 
         ["opening.hostUniqueId"] = "Host 牆",
 
@@ -278,7 +293,11 @@ public static class ReviewFieldText
         ["source.hostUniqueId"] = "依附主體",
         ["source.linkInstanceUniqueId"] = "連結模型",
         ["source.typeName"] = "類型名稱",
-        ["source.typeUniqueId"] = "類型"
+        ["source.typeUniqueId"] = "類型",
+
+        // 構件自己的厚度（MemberObservation.WidthFeet，驗證清單 C-15）。叫「厚度」而不是「寬度」，
+        // 因為它量的就是牆身厚度，也是 RelateLinear 的交接帶（半厚＋容許誤差）的來源。
+        ["source.width"] = "構件厚度"
     };
 
     /// <summary>Enum names as they are stored in evidence, per field, in the words of the 條文.</summary>
@@ -419,6 +438,7 @@ public static class ReviewFieldText
         {
             ["provided.kind"] = rating,
             ["protection.kind"] = protection,
+            ["insulation.kind"] = protection,
             ["provided.scope"] = Map(("Instance", "元素本身"), ("Type", "類型")),
 
             ["source.category"] = category,
@@ -465,6 +485,7 @@ public static class ReviewFieldText
             ["candidate.ambiguity"] = Map(
                 ("BoundaryOffCenterline", "區劃邊界落在構件厚度內但不在中心線上"),
                 ("BoundaryAlongOutline", "區劃邊界沿柱面而非穿過柱心"),
+                ("BoundaryCrossed", "構件中心線跨越區劃邊界，區劃內外各有一段"),
                 ("NoPlanGeometry", "元素沒有可量測的平面幾何"),
                 ("HostRelationAmbiguous", "開口的主體牆本身無法判定"),
                 ("HostNotResolved", "開口的主體未讀到或不是牆"),

@@ -682,6 +682,153 @@ public sealed class FireResistanceCheckTests
         Assert.All(review.Findings, f => Assert.Equal(ReviewStatus.ManualReview, f.Status));
     }
 
+    // --- 牆跨越區劃邊界（C-18）--------------------------------------------------------------------
+    //
+    // ZoneRelationKind.Crossing 原本不帶任何 CandidateAmbiguityKind，於是 IsBoundary 為 false、
+    // element.isCompartmentBoundary 為 false、tw-bcr-79-wall-rating 的 appliesWhen 不成立，整列
+    // 「所列規則均不適用」——沒有未符合、沒有待確認、連人工覆核都沒有，第79條第1項被靜默免除。
+    // 同一個 resolver 對「開口的 host 牆跨越邊界」早就是 HostRelationAmbiguous 的人工覆核，牆自己
+    // 卻不是。現在 Crossing 掛 BoundaryCrossed 並納入 IsBoundaryDoubt，走與 BoundaryOffCenterline
+    // 同一條 Settled 兩支推理。
+
+    /// <summary>A｜B 分界（x = 10）上橫跨過去的牆：區劃內外各 2 m，落在邊界上的長度為 0。</summary>
+    private static MemberObservation CrossingWall(string uid = "W-crossing", bool curtainWall = false) =>
+        new(Source(uid), CandidateCategory.Wall, new[] { P(8, 5), P(12, 5) }, widthFeet: M(0.2),
+            typeUniqueId: WallType, typeName: curtainWall ? "帷幕牆" : "RC 200",
+            isStructural: !curtainWall, isCurtainWall: curtainWall);
+
+    /// <summary>A｜B 分界上橫跨過去的梁，用來測第70條那條不看區劃的路。</summary>
+    private static MemberObservation CrossingBeam() =>
+        new(Source("B-crossing"), CandidateCategory.StructuralFraming, new[] { P(8, 5), P(12, 5) },
+            widthFeet: M(0.3), typeUniqueId: BeamType, typeName: "B30x60", isStructural: true);
+
+    /// <summary>
+    /// V-27 第 11 項的實機夾具：室內帷幕牆跨越區劃邊界、設計防火時效 2 h。原本整列「不適用」，
+    /// 現在要落在「若構成區劃邊界則符合第79條區劃牆壁之要求，若不構成邊界則無此要求」那一支，
+    /// 判定為**符合**。
+    /// </summary>
+    [Fact]
+    public void An_interior_curtain_wall_crossing_the_boundary_is_judged_not_silently_set_aside()
+    {
+        var set = Set(ZonesAB(), CrossingWall("CW-crossing", curtainWall: true));
+        var member = set.Members.Single();
+
+        Assert.Equal(CurtainWallExposure.Interior, member.CurtainWallExposure!.Exposure);
+        var relation = member.RelationTo(ZoneA)!;
+        Assert.Equal(ZoneRelationKind.Crossing, relation.Kind);
+        Assert.Equal(CandidateAmbiguityKind.BoundaryCrossed, relation.Ambiguity);
+        Assert.True(relation.CarriesAmbiguity);
+        Assert.False(relation.IsBoundary);
+
+        var finding = Review(set, Ratings(FireResistive(), (WallType, "2 hr")), Engine(ExposureAwareWallRule()))
+            .Findings.Single(f => f.ElementUniqueId == "CW-crossing" && f.Result.ZoneId == ZoneA.ToString("D"));
+        var result = finding.Result;
+
+        // 關鍵在於**不是** NotApplicable：那正是 C-18 的靜默免除。
+        Assert.NotEqual(ReviewStatus.NotApplicable, result.Status);
+        Assert.Equal(ReviewStatus.Pass, result.Status);
+        Assert.Equal("wall-v3", result.RuleId);
+        Assert.Equal(ReviewValue.Quantity(120, ReviewUnit.Minute), result.ActualValue);
+        Assert.Equal(ReviewValue.Quantity(60, ReviewUnit.Minute), result.RequiredValue);
+        Assert.Equal(CandidateAmbiguityKind.BoundaryCrossed, finding.Ambiguity!.Kind);
+
+        // 兩支都評過，而且明細留得下來：這是「免人工覆核」的唯一正當理由。
+        Assert.Equal(ReviewValue.OfText("SameVerdictEitherWay"), result.Evidence.Find("candidate.settledBy"));
+        Assert.Equal(ReviewValue.OfText(ReviewStatusText.Label(ReviewStatus.Pass)),
+            result.Evidence.Find("candidate.verdictIfBoundary"));
+        Assert.Equal(ReviewValue.OfText(ReviewStatusText.Label(ReviewStatus.NotApplicable)),
+            result.Evidence.Find("candidate.verdictIfNotBoundary"));
+        Assert.Contains("若構成區劃邊界則符合第79條區劃牆壁之要求，若不構成邊界則無此要求", result.Message);
+
+        // 明細仍要看得出關係本來是「跨越」，不是被改寫成邊界。
+        Assert.Equal(ReviewValue.OfText("Crossing"), result.Evidence.Find("candidate.relation"));
+        Assert.Equal(ReviewValue.OfText("BoundaryCrossed"), result.Evidence.Find("candidate.ambiguity"));
+    }
+
+    [Fact]
+    public void A_plain_wall_crossing_the_boundary_and_meeting_article_79_passes()
+    {
+        var finding = Review(Set(ZoneAOnly(), CrossingWall()), Ratings((WallType, "60")))
+            .Findings.Single(f => f.ElementUniqueId == "W-crossing");
+
+        Assert.Equal(ReviewStatus.Pass, finding.Status);
+        Assert.Equal("wall", finding.Result.RuleId);
+        Assert.Equal(CandidateAmbiguityKind.BoundaryCrossed, finding.Ambiguity!.Kind);
+        Assert.Contains("逕行判定", finding.Result.Message);
+    }
+
+    /// <summary>兩支結論衝突（構成邊界 → 未符合、不構成 → 不適用）時，回人工覆核而不是替使用者選一個。</summary>
+    [Theory]
+    [InlineData("30")] // 構成邊界：未符合；不構成：無要求
+    [InlineData("")]   // 構成邊界：資料不足；不構成：無要求
+    public void A_wall_crossing_the_boundary_whose_verdict_depends_on_it_stays_manual_review(string provided)
+    {
+        var finding = Only(Review(Set(ZoneAOnly(), CrossingWall()), Ratings((WallType, provided))));
+        var result = finding.Result;
+
+        Assert.Equal(ReviewStatus.ManualReview, result.Status);
+        Assert.Equal(CandidateAmbiguityKind.BoundaryCrossed, finding.Ambiguity!.Kind);
+        Assert.Equal(ReviewErrorCode.CandidateAmbiguous, finding.ErrorCode);
+        Assert.Null(result.Evidence.Find("candidate.settledBy"));
+        Assert.Contains("無法判定是否由此牆構成該區劃邊界", result.Message);
+        Assert.Equal(ZoneA.ToString("D"), result.ZoneId);
+    }
+
+    /// <summary>
+    /// 同一個構件×區劃只能出一列：主迴圈跳掉幾輪，ambiguity 迴圈就要補回幾列。跨越邊界的牆同時與
+    /// 兩個區劃是 Crossing，所以兩個區劃各一列，而且沒有任何一列是靜默的「不適用」。
+    /// </summary>
+    [Fact]
+    public void A_wall_crossing_the_boundary_gets_exactly_one_row_per_zone()
+    {
+        var review = Review(Set(ZonesAB(), CrossingWall()), Ratings((WallType, "60")));
+        var rows = review.Findings.Concat(review.ExteriorCurtainWalls)
+            .Where(f => f.ElementUniqueId == "W-crossing").ToList();
+
+        Assert.Equal(2, rows.Count);
+        Assert.All(rows, f => Assert.Equal(ReviewStatus.Pass, f.Status));
+        Assert.Equal(
+            new[] { ZoneA.ToString("D"), ZoneB.ToString("D") }.OrderBy(x => x, StringComparer.Ordinal),
+            rows.Select(f => f.Result.ZoneId).OrderBy(x => x, StringComparer.Ordinal));
+    }
+
+    /// <summary>第70條不看構件是否構成區劃邊界，所以跨越邊界的梁兩支結論相同，逕行判定。</summary>
+    [Theory]
+    [InlineData("2 hr", ReviewStatus.Pass)]
+    [InlineData("60", ReviewStatus.Fail)]
+    public void A_beam_crossing_the_boundary_is_decided_because_article_70_does_not_depend_on_the_compartment(
+        string provided, ReviewStatus expected)
+    {
+        var finding = Only(Review(Set(ZoneAOnly(), CrossingBeam()), Ratings((BeamType, provided))));
+
+        Assert.Equal(expected, finding.Status);
+        Assert.Equal("beam", finding.Result.RuleId);
+        Assert.Equal(CandidateAmbiguityKind.BoundaryCrossed, finding.Ambiguity!.Kind);
+        Assert.Contains("不論此構件是否構成區劃邊界，規則的結論都相同", finding.Result.Message);
+    }
+
+    /// <summary>
+    /// 樓板的 Crossing 不是邊界疑義（一片樓板本來就跨多個區劃），所以它照舊走主迴圈的 Decide，
+    /// 不多出一列人工覆核，也不帶 settledBy。這一條與上面的梁成對，守住 C-18 的修正範圍。
+    /// </summary>
+    [Fact]
+    public void A_floor_crossing_a_zone_boundary_is_not_a_boundary_doubt()
+    {
+        var slab = new MemberObservation(Source("F-crossing"), CandidateCategory.Floor,
+            outlines: new[] { Rect(5, 0, 15, 10) }, typeUniqueId: FloorType, typeName: "RC 150", isStructural: true);
+        var set = Set(ZoneAOnly(), slab);
+
+        var relation = set.Members.Single().RelationTo(ZoneA)!;
+        Assert.Equal(ZoneRelationKind.Crossing, relation.Kind);
+        Assert.False(relation.CarriesAmbiguity);
+        Assert.DoesNotContain(set.Ambiguities, a => a.SubjectUniqueIds.Contains("F-crossing"));
+
+        var finding = Only(Review(set, Ratings((FloorType, "90"))));
+        Assert.Equal(ReviewStatus.Pass, finding.Status);
+        Assert.Null(finding.Ambiguity);
+        Assert.Null(finding.Result.Evidence.Find("candidate.settledBy"));
+    }
+
     [Fact]
     public void Linked_members_and_members_without_plan_geometry_are_manual_review()
     {

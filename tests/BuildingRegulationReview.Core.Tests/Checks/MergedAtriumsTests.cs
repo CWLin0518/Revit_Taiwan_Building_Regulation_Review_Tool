@@ -120,6 +120,40 @@ public sealed class MergedAtriumsTests
         });
     }
 
+    /// <summary>
+    /// C-18：一道**跨越**挑空與其連通區劃分界的欄杆。它的關係是 <c>Crossing</c>、疑義是
+    /// <see cref="CandidateAmbiguityKind.BoundaryCrossed"/>，不是 <c>Ambiguous</c>，所以
+    /// <c>MergedAtriums.Counts</c> 若只認 <c>IsAmbiguous</c> 就不把它算成「可能構成邊界」，
+    /// <c>IsInterior</c> 回 false，決議 37 那一支讓位給「假設構成邊界／假設不構成」的兩支推理——
+    /// 於是這一列從「不適用＋挑空註記」變成一列人工覆核，使用者被問一個法規已經答過的問題。
+    /// </summary>
+    [Fact]
+    public void A_railing_crossing_the_line_of_an_exempt_atrium_is_interior_too()
+    {
+        var set = Resolve(new[] { Zone(ZoneA, "A 區", "area-a", Rect(0, 0, 10, 10)), Zone(ZoneB, "B 區", "area-b", Rect(10, 0, 20, 10)) },
+            Partition("W-crossing", 8, 5, 12, 5, width: 0.3));
+        var railing = set.Members.Single();
+
+        Assert.Contains(railing.Relations, r =>
+            r.Kind == ZoneRelationKind.Crossing && r.Ambiguity == CandidateAmbiguityKind.BoundaryCrossed);
+        Assert.DoesNotContain(railing.Relations, r => r.IsAmbiguous);
+
+        var inputs = Inputs();
+        Assert.True(MergedAtriums.Of(set, inputs).IsInterior(railing));
+
+        var review = FireResistanceCheck.Review(set, new FireResistanceInputs(inputs, null), new RuleEngine(Shipped()), Today,
+            Guid.Parse("99999999-0000-0000-0000-000000000004"));
+        Assert.True(review.IsSuccess, review.IsSuccess ? string.Empty : review.Error.ToString());
+
+        var findings = review.Value.For("W-crossing").ToList();
+        Assert.NotEmpty(findings);
+        Assert.All(findings, f =>
+        {
+            Assert.Equal(ReviewStatus.NotApplicable, f.Status);
+            Assert.Equal(ReviewValue.OfBoolean(true), f.Result.Evidence.Find(MergedAtriums.EvidenceField));
+        });
+    }
+
     // --- helpers ------------------------------------------------------------------------------------
 
     private static CandidateSet Resolve(IEnumerable<ZoneObservation> zones, params MemberObservation[] members) =>

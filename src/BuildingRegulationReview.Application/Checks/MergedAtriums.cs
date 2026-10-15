@@ -149,12 +149,20 @@ public sealed class MergedAtriums
         return met.Count > 0 && bounded.All(met.Contains);
     }
 
-    /// <summary>A boundary, or a doubt about whether the element is one (a line on its face).</summary>
+    /// <summary>
+    /// A boundary, or a doubt about whether the element is one (a line on its face, or a centreline
+    /// crossing the edge). <c>BoundaryCrossed</c> rides on a <c>Crossing</c> relation rather than an
+    /// <c>Ambiguous</c> one, so the test is「關係掛著邊界疑義」rather than「關係是 Ambiguous」
+    /// （驗證清單 C-18）: a wall that crosses the line between an exempt 挑空 and its 連通區劃 is
+    /// interior either way (決議 37), and leaving it out would send it to the two-branch reasoning in
+    /// <c>FireResistanceCheck.Settled</c> instead of to 挑空's own answer.
+    /// </summary>
     private static bool Counts(ZoneRelation relation) =>
         relation.IsBoundary ||
-        (relation.IsAmbiguous &&
+        (relation.CarriesAmbiguity &&
          (relation.Ambiguity == CandidateAmbiguityKind.BoundaryOffCenterline ||
           relation.Ambiguity == CandidateAmbiguityKind.BoundaryAlongOutline ||
+          relation.Ambiguity == CandidateAmbiguityKind.BoundaryCrossed ||
           relation.Ambiguity == CandidateAmbiguityKind.HostRelationAmbiguous));
 
     private static double HalfWidth(double? widthFeet) => widthFeet is double w && w > 0 ? w / 2.0 : 0;

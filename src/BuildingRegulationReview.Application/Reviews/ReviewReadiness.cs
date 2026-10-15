@@ -417,8 +417,15 @@ public static class ReviewReadiness
 
         if (set.Ambiguities.Count > 0)
         {
+            // 計數就是 set.Ambiguities，所以跨越區劃邊界的牆（BoundaryCrossed，驗證清單 C-18）一併
+            // 算進來——它原本不帶疑義，既不在這個數字裡，也不會出現在檢討表上，承諾與產出不一致。
+            // 分成兩句講，是因為寫死「會列為人工覆核」與產出不符：邊界存疑的那幾種，兩種假設結論
+            // 相同時由 FireResistanceCheck 逕行判定。前半句既然已經把逕行判定的那些排除掉，「其餘」
+            // 就一定是人工覆核（兩支衝突、資料本身存疑的那幾種 kind、Settled 回 null 的全部路徑都
+            // 落在 ManualReview），所以後半句不加「可能」——前置檢查比產出寬鬆不如比產出精確。
             items.Add(Info(ReadinessCondition.SpatialRelations, ReviewErrorCode.CandidateAmbiguous,
-                $"有 {set.Ambiguities.Count} 個元素與區劃的空間關係無法自動判定（幕牆、非 Hosted、偏離中心線等），會列為人工覆核。"));
+                $"有 {set.Ambiguities.Count} 個元素與區劃的空間關係無法自動判定（幕牆、非 Hosted、偏離中心線、跨越區劃邊界等），" +
+                "兩種假設結論相同者會逕行判定，其餘列為人工覆核。"));
         }
 
         foreach (var warning in set.Warnings)

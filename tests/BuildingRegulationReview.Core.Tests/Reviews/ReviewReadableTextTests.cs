@@ -1,3 +1,5 @@
+using System;
+using BuildingRegulationReview.Application.Candidates;
 using BuildingRegulationReview.Application.Reviews;
 using BuildingRegulationReview.Domain.Reviews;
 using BuildingRegulationReview.Domain.Rules;
@@ -147,6 +149,23 @@ public sealed class ReviewReadableTextTests
         Assert.Equal("牆", ReviewFieldText.Value("source.category", ReviewValue.OfText("Walls")));
         Assert.Equal("區劃牆與帷幕牆交接（水平）", ReviewFieldText.Value("junction.kind", ReviewValue.OfText("WallToCurtainWall")));
         Assert.Equal("管道間維修門之防火時效", ReviewFieldText.Value("shaft.requirement", ReviewValue.OfText("ShaftDoorRating")));
+    }
+
+    /// <summary>
+    /// C-18、C-15：空間關係與它的疑義都是存進證據的 enum 名字，每一個都要有中文。少一個就是在明細
+    /// 的「無法判定空間關係的原因」那一行印出 <c>BoundaryCrossed</c>。
+    /// </summary>
+    [Fact]
+    public void Every_spatial_relation_and_ambiguity_reads_as_words()
+    {
+        Assert.Equal("跨越區劃邊界", ReviewFieldText.Value("candidate.relation", ReviewValue.OfText("Crossing")));
+        Assert.Equal("構件中心線跨越區劃邊界，區劃內外各有一段",
+            ReviewFieldText.Value("candidate.ambiguity", ReviewValue.OfText("BoundaryCrossed")));
+
+        foreach (var name in Enum.GetNames(typeof(CandidateAmbiguityKind)))
+            Assert.NotEqual(name, ReviewFieldText.Value("candidate.ambiguity", ReviewValue.OfText(name)));
+        foreach (var name in Enum.GetNames(typeof(ZoneRelationKind)))
+            Assert.NotEqual(name, ReviewFieldText.Value("candidate.relation", ReviewValue.OfText(name)));
     }
 
     [Fact]

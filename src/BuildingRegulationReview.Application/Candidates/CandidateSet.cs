@@ -44,6 +44,18 @@ public enum CandidateAmbiguityKind
     /// <summary>The Area boundary runs along a column face instead of through the column.</summary>
     BoundaryAlongOutline,
 
+    /// <summary>
+    /// 一道牆或梁的中心線**跨越**區劃邊界：一段在區劃內、一段在區劃外，而落在邊界上（或落在構件厚度
+    /// 內）的長度都不到門檻（<see cref="ZoneRelationKind.Crossing"/>，驗證清單 C-18）。幾何沒說它構成
+    /// 邊界，也沒說它不構成——牆可能就是那道區劃牆而 Area 邊界畫偏了，也可能只是一道穿過去的隔間牆。
+    /// 不登這一筆，<c>element.isCompartmentBoundary</c> 會逕自取 false，第79條第1項的
+    /// <c>tw-bcr-79-wall-rating</c> 便整列「不適用」而靜默免除（同一個 resolver 對開口的 host 牆跨越
+    /// 邊界已經是 <see cref="HostRelationAmbiguous"/> 的人工覆核，牆自己卻不是，前後不一致）。
+    /// 它與前兩者同屬「只是不確定**是否**構成邊界」的疑義，所以納入
+    /// <c>FireResistanceCheck.IsBoundaryDoubt</c>：兩種假設結論相同時逕行判定，衝突時才人工覆核。
+    /// </summary>
+    BoundaryCrossed,
+
     /// <summary>The element has no plan geometry to measure.</summary>
     NoPlanGeometry,
 
@@ -167,8 +179,26 @@ public sealed class ZoneRelation
         if (zoneId == Guid.Empty) throw new ArgumentException("Zone ID cannot be empty.", nameof(zoneId));
         if (!Enum.IsDefined(typeof(ZoneRelationKind), kind)) throw new ArgumentOutOfRangeException(nameof(kind));
         if (string.IsNullOrWhiteSpace(message)) throw new ArgumentException("A relation must say why.", nameof(message));
-        if ((kind == ZoneRelationKind.Ambiguous) != ambiguity.HasValue)
-            throw new ArgumentException("Exactly the ambiguous relations name what made them ambiguous.", nameof(ambiguity));
+        if (kind == ZoneRelationKind.Ambiguous && !ambiguity.HasValue)
+            throw new ArgumentException("An ambiguous relation must name what made it ambiguous.", nameof(ambiguity));
+
+        // 唯一一個「關係已經定了，卻仍帶著疑義」的組合（驗證清單 C-18）：一道跨越區劃邊界的牆或梁。
+        // Crossing 本身是量得出來的事實（區劃內外各一段），所以它不是 Ambiguous——規則引擎仍讀得到
+        // 它的 facts，兩種假設才評得下去；但「它到底算不算這道區劃的邊界」沒有答案，所以仍要掛一個
+        // BoundaryCrossed，否則 element.isCompartmentBoundary 逕取 false，第79條第1項就被靜默免除。
+        // 其餘非 Ambiguous 的關係一律不得帶疑義：帶了就表示某處把「已判定」與「存疑」混為一談。
+        if (kind != ZoneRelationKind.Ambiguous && ambiguity.HasValue &&
+            !(kind == ZoneRelationKind.Crossing && ambiguity == CandidateAmbiguityKind.BoundaryCrossed))
+            throw new ArgumentException(
+                "Only an ambiguous relation, or a Crossing one carrying BoundaryCrossed, names an ambiguity.",
+                nameof(ambiguity));
+
+        // 白名單的另一半：BoundaryCrossed 講的是「中心線跨過去了，但算不算這道區劃的邊界沒有答案」，
+        // 那句話只有在關係確實是 Crossing 時才成立。掛到別的 kind 上，IsBoundaryDoubt 仍會收它、
+        // Settled 仍會評兩支，等於用一個量不出來的前提去推論，所以一併擋掉。
+        if (ambiguity == CandidateAmbiguityKind.BoundaryCrossed && kind != ZoneRelationKind.Crossing)
+            throw new ArgumentException(
+                "BoundaryCrossed belongs to a Crossing relation and no other.", nameof(ambiguity));
 
         ZoneId = zoneId;
         Kind = kind;
@@ -185,6 +215,14 @@ public sealed class ZoneRelation
     public bool IsAmbiguous => Kind == ZoneRelationKind.Ambiguous;
     public bool IsBoundary => Kind == ZoneRelationKind.Boundary;
     public bool IsFacade => Kind == ZoneRelationKind.Facade;
+
+    /// <summary>
+    /// 這個關係帶著一筆疑義：<see cref="IsAmbiguous"/> 的關係，或一道跨越邊界的
+    /// <see cref="ZoneRelationKind.Crossing"/>（<see cref="CandidateAmbiguityKind.BoundaryCrossed"/>）。
+    /// 每一個這樣的關係都由 <c>CandidateResolver</c> 登一筆 <see cref="CandidateAmbiguity"/>，所以
+    /// 「主迴圈跳過它」與「ambiguity 迴圈接手它」兩端都問這個述詞，跳掉幾列就補回幾列（驗證清單 C-18）。
+    /// </summary>
+    public bool CarriesAmbiguity => Ambiguity.HasValue;
 }
 
 /// <summary>A wall, column, beam or floor with the zones it relates to.</summary>
