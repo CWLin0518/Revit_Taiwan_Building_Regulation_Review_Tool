@@ -119,9 +119,20 @@ namespace BuildingRegulationReview.RegionEditor
             string.IsNullOrWhiteSpace(notice)
                 ? message
                 : message + Environment.NewLine + Environment.NewLine + notice;
+
+        // 驗證清單 C-12：兩個呼叫端開的不是同一個視窗，所以問的也不是同一件事。問句與按鈕
+        // 成對放在這裡，免得又只改了一半。
+        internal const string EditorPrompt = "要編輯哪一個 Area Plan 的防火區劃？";
+        internal const string EditorAccept = "開啟編輯器";
+        internal const string ReviewPrompt = "要檢討哪一個 Area Plan 的防火區劃？";
+        internal const string ReviewAccept = "開啟檢討";
     }
 
-    /// <summary>Picks which review package to edit when the document holds more than one.</summary>
+    /// <summary>
+    /// Picks which review package to work on when the document holds more than one. The wording is
+    /// the caller's, because the same picker opens「防火區劃編輯器」and「防火區劃檢討」and the
+    /// button has to name the window it actually opens (驗證清單 C-12).
+    /// </summary>
     internal sealed class PackagePickerWindow : Window
     {
         private readonly ListBox _list = new ListBox { DisplayMemberPath = "Label", MinHeight = 140, Margin = new Thickness(0, 8, 0, 0) };
@@ -131,7 +142,16 @@ namespace BuildingRegulationReview.RegionEditor
         /// the list is everything the document holds. A package whose Area Plan the user deleted is
         /// hidden rather than listed as a GUID, so this line is the only place that says so.
         /// </param>
-        public PackagePickerWindow(System.Collections.Generic.IEnumerable<PackageChoice> choices, string notice = null)
+        /// <param name="prompt">The question above the list; defaults to the editor's wording.</param>
+        /// <param name="accept">
+        /// The button that opens what was picked; defaults to the editor's wording. It names the
+        /// window the caller is about to open, so「防火區劃檢討」has to pass its own.
+        /// </param>
+        public PackagePickerWindow(
+            System.Collections.Generic.IEnumerable<PackageChoice> choices,
+            string notice = null,
+            string prompt = PackagePickerMessages.EditorPrompt,
+            string accept = PackagePickerMessages.EditorAccept)
         {
             Title = "選擇檢討套件";
             Width = 460;
@@ -143,7 +163,7 @@ namespace BuildingRegulationReview.RegionEditor
             _list.MouseDoubleClick += (_, __) => Accept();
 
             var panel = new StackPanel { Margin = new Thickness(18) };
-            panel.Children.Add(new TextBlock { Text = "要編輯哪一個 Area Plan 的防火區劃？", FontWeight = FontWeights.SemiBold });
+            panel.Children.Add(new TextBlock { Text = prompt, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
             panel.Children.Add(_list);
 
             if (!string.IsNullOrWhiteSpace(notice))
@@ -159,7 +179,7 @@ namespace BuildingRegulationReview.RegionEditor
 
             var ok = new Button
             {
-                Content = "開啟編輯器",
+                Content = accept,
                 Padding = new Thickness(12, 6, 12, 6),
                 Margin = new Thickness(0, 14, 0, 0),
                 HorizontalAlignment = HorizontalAlignment.Right,

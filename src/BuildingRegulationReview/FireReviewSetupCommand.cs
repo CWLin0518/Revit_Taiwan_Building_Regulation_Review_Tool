@@ -4,6 +4,7 @@ using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using BuildingRegulationReview.Application.ProjectSetup;
+using BuildingRegulationReview.Domain.ReviewPackages;
 using BuildingRegulationReview.Revit.ProjectSetup;
 using BuildingRegulationReview.Revit.ReviewPackages;
 
@@ -34,7 +35,11 @@ namespace BuildingRegulationReview
                 _window.Activate();
                 return Result.Succeeded;
             }
-            _window = new FireReviewSetupWindow(catalog);
+            // 驗證清單 C-13：把每個既有套件存過的樣板／Scope Box／裁切設定一次讀齊再開視窗。
+            // 視窗是在 WPF 執行緒上回應選取變更的，那裡碰不到 Revit API，所以讀取只能在這裡做完。
+            var historyWarning = "";
+            var history = ReadSetupHistory(application, document, ref historyWarning);
+            _window = new FireReviewSetupWindow(catalog, history, historyWarning);
             new System.Windows.Interop.WindowInteropHelper(_window).Owner = application.MainWindowHandle;
             _handler = new SetupEventHandler(_window);
             _externalEvent = ExternalEvent.Create(_handler);
@@ -56,6 +61,51 @@ namespace BuildingRegulationReview
             };
             _window.Show();
             return Result.Succeeded;
+        }
+
+        /// <summary>
+        /// 讀回每個套件存過的設定（驗證清單 C-13）。這裡對例外很寬容：預選失敗只是少了方便，而這段
+        /// 程式在開窗之前跑，讓例外穿出去會把「本來一定開得起來的設定視窗」變成打不開——例如文件裡
+        /// 留著同一個 Schema GUID 但欄位較舊的 DataStorage，<c>GetField</c> 回 null 就會丟例外。
+        /// 失敗的套件退成「沒存過」，原因寫進 journal 與視窗提示，不無痕吞掉。
+        /// </summary>
+        private static ReviewPackageSetupHistory ReadSetupHistory(UIApplication application, Document document, ref string warning)
+        {
+            var failures = new System.Collections.Generic.List<string>();
+            ReviewPackageSetupHistory history;
+            try
+            {
+                var optionsRepository = new RevitReviewSetupOptionsRepository(document);
+                history = ReviewPackageSetupHistory.From(
+                    new RevitReviewPackageRepository(document).GetAll(),
+                    package => ReadSavedOptions(optionsRepository, package, failures));
+            }
+            catch (Exception exception)
+            {
+                // 連套件清單都讀不到：整份退成空的，視窗照常開，三個控制項維持預設值。
+                history = ReviewPackageSetupHistory.Empty;
+                failures.Add(exception.Message);
+            }
+            if (failures.Count == 0) return history;
+            warning = "讀不到部分套件存過的設定，這些樓層平面不會自動帶回原本的視圖樣板與 Scope Box；"
+                + "按「建立 Area Plan」會把目前畫面上的設定存回去。原因："
+                + string.Join("；", failures.Distinct());
+            try { application.Application.WriteJournalComment("BCR 防火區劃設定：" + warning, true); }
+            catch (Exception) { /* journal 寫不進去不該連帶擋住開窗，畫面上的紅字已經說了同一件事。 */ }
+            return history;
+        }
+
+        private static ReviewPackageSetupSelection ReadSavedOptions(
+            RevitReviewSetupOptionsRepository repository,
+            ReviewPackage package,
+            System.Collections.Generic.List<string> failures)
+        {
+            try { return repository.Get(package); }
+            catch (Exception exception)
+            {
+                failures.Add(package.PackageId.ToString("D") + "：" + exception.Message);
+                return null;
+            }
         }
 
         private static Result Apply(UIApplication application, System.Collections.Generic.IReadOnlyList<ReviewPackageSetupSelection> selections, ref string message)

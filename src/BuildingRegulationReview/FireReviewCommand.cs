@@ -80,7 +80,9 @@ namespace BuildingRegulationReview
 
             if (choices.Count == 1) return choices[0];
 
-            var picker = new PackagePickerWindow(choices, packages.HiddenNotice);
+            // 這個按鈕開的是檢討視窗，不是編輯器，所以用字也要是檢討的（驗證清單 C-12）。
+            var picker = new PackagePickerWindow(choices, packages.HiddenNotice,
+                PackagePickerMessages.ReviewPrompt, PackagePickerMessages.ReviewAccept);
             new WindowInteropHelper(picker).Owner = application.MainWindowHandle;
             return picker.ShowDialog() == true ? picker.Selected : null;
         }
