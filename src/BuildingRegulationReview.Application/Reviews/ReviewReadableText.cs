@@ -495,6 +495,7 @@ public static class ReviewFieldText
                 ("CurtainWallExposureUndecided", "無法判定帷幕牆為建築物外牆或室內帷幕牆"),
                 ("NonHostedOpening", "沒有主體的開口，改由人工覆核"),
                 ("OpeningLocationUnknown", "開口沒有平面位置"),
+                ("OpeningOffHostCenterline", "開口的平面位置偏離主體牆的位置線，無法判定它在不在區劃邊界上"),
                 ("LinkedElement", "連結模型的元素，改由人工覆核"),
                 ("ZoneNotEnclosed", "區劃的 Area 未封閉"),
                 ("ZonesOverlap", "區劃的 Area 與另一區劃重疊")),

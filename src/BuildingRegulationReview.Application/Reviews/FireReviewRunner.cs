@@ -11,6 +11,7 @@ using BuildingRegulationReview.Application.Checks;
 using BuildingRegulationReview.Application.Diagnostics;
 using BuildingRegulationReview.Application.Parameters;
 using BuildingRegulationReview.Domain.Common;
+using BuildingRegulationReview.Domain.Geometry;
 using BuildingRegulationReview.Domain.ReviewPackages;
 using BuildingRegulationReview.Domain.Reviews;
 using BuildingRegulationReview.Domain.Rules;
@@ -346,6 +347,7 @@ public static class FireReviewRunner
             ReviewPackageStatus.Reviewed, completedAt);
 
         Findings(log, area.Value, exemption.Value, rating.Value, opening.Value, junction.Value, shaft.Value);
+        UnrelatedOpenings(log, set);
         if (carryOver is not null) CarryOverLog(log, carryOver);
         var table = ReviewTable.Build(completed);
         log.Add(ReviewErrorCode.ReviewCompleted, ReviewStage.Review,
@@ -500,6 +502,45 @@ public static class FireReviewRunner
         }
         return references;
     }
+
+    /// <summary>
+    /// 讀到了、但不是任何區劃候選的開口，一行總結（驗證清單 C-16）。
+    /// </summary>
+    /// <remarks>
+    /// 這些開口原本只進候選元素總數一個數字，而「開口因位置讀錯而假性落空」與「開口本來就不在
+    /// 區劃邊界上」在那個數字上長得一模一樣——實機就是一扇帷幕牆門因位置回退到含門扇的外接矩形而
+    /// 整扇消失，檢討表、日誌、統計三邊都沒有一句話。多數情形這一行報的是預期結果（第79條第1項
+    /// 只問區劃邊界上的開口），所以它只報總結與分類計數，不逐件列成檢討表的一列；件數與身分都留在
+    /// 日誌裡，下一次同類問題才驗得出來。真正判不出來的那些（位置偏離 host 位置線的）已經由
+    /// <c>CandidateAmbiguityKind.OpeningOffHostCenterline</c> 列為人工覆核，不在這一行裡。
+    /// </remarks>
+    private static void UnrelatedOpenings(ReviewLog.Builder log, CandidateSet set)
+    {
+        if (set.UnrelatedOpenings.Count == 0) return;
+
+        var byCategory = string.Join("、", set.UnrelatedOpenings
+            .GroupBy(o => o.Category)
+            .OrderBy(g => g.Key)
+            .Select(g => $"{CandidateCategories.Label(g.Key)} {g.Count()} 件"));
+        var inside = set.UnrelatedOpenings.Count(o => o.IsInsideAZone);
+        var measured = set.UnrelatedOpenings
+            .Where(o => o.NearestBoundaryDistanceFeet.HasValue)
+            .Select(o => o.NearestBoundaryDistanceFeet!.Value)
+            .ToList();
+        double? nearest = measured.Count == 0 ? null : measured.Min();
+
+        log.Add(ReviewErrorCode.CandidateOpeningNotOnBoundary, ReviewStage.Review, ReviewSeverity.Warning,
+            $"防火門窗：{set.UnrelatedOpenings.Count} 件開口不在任何區劃邊界上，未列入檢討（{byCategory}；" +
+            $"其中 {inside} 件位於區劃內部" +
+            (nearest is double feet ? $"；最近者距邊界 {Meters(feet)} m" : string.Empty) + "）。" +
+            "第79條第1項只問區劃邊界上的開口，所以這通常是預期結果；若其中有本該檢討的，" +
+            "請確認它的 Host 牆與平面位置（技術細節列出前 20 件的 UniqueId）。",
+            technicalDetail: string.Join("; ", set.UnrelatedOpenings.Take(20)
+                .Select(o => $"{o.Source.ElementUniqueId}({CandidateCategories.Label(o.Category)}{(o.TypeName is null ? string.Empty : "/" + o.TypeName)})")));
+    }
+
+    private static string Meters(double feet) =>
+        PlanUnits.FeetToMeters(feet).ToString("0.###", CultureInfo.InvariantCulture);
 
     private static void Findings(
         ReviewLog.Builder log,

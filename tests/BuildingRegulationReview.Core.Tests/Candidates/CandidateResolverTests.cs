@@ -275,6 +275,114 @@ public sealed class CandidateResolverTests
         Assert.Equal(1, set.UnrelatedOpeningCount);
     }
 
+    /// <summary>
+    /// 驗證清單 C-16：開口位置偏離 host 牆位置線時，不得拿那個位置去排除它。實機是一扇室內帷幕牆上的
+    /// 門，位置回退到含門扇的外接矩形（門扇 90 度開啟，中心被拉離牆面 502 mm，而半牆厚＋容許值只有
+    /// 175 mm），於是被判「離邊界太遠」→ Inside → 被 IncludeInteriorOpenings 濾空 → 併入
+    /// UnrelatedOpeningCount，檢討表、日誌、統計三邊都不留痕跡。
+    /// </summary>
+    [Fact]
+    public void An_opening_whose_location_misses_its_host_centreline_stays_a_candidate_for_manual_review()
+    {
+        var set = CandidateResolver.Resolve(Observations(
+            Zones().Take(1),
+            new[] { Wall("CW-boundary", 10, 0, 10, 10, width: 0.25, curtain: true) },
+            new[] { Door("D-off-centreline", "CW-boundary", 10.5, 4) }));
+
+        // 沒有從候選集合裡消失，而且留下了看得見的說明。
+        Assert.Equal("Ambiguous:OpeningOffHostCenterline", Describe(Relation(set, "D-off-centreline", ZoneA)));
+        Assert.Empty(set.UnrelatedOpenings);
+
+        var ambiguity = set.Ambiguities.Single(a => a.Kind == CandidateAmbiguityKind.OpeningOffHostCenterline);
+        Assert.Equal(new[] { "D-off-centreline" }, ambiguity.SubjectUniqueIds);
+        Assert.Equal(ZoneA, ambiguity.ZoneId);
+        Assert.Contains("0.5 m", ambiguity.Message, StringComparison.Ordinal);
+        Assert.Contains("0.175 m", ambiguity.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// C-16 的護欄要擋的是「host 不是判在區劃內部」的每一種，不只 Boundary 與 Ambiguous。Crossing
+    /// （C-18 讓它帶 BoundaryCrossed 疑義而 Kind 仍是 Crossing）兩個述詞都是 false，漏掉它就等於對
+    /// 「開在跨越邊界的牆上、位置又不可信」的門重開 C-16 這個洞；同一個函式的 default: 分支對同一道
+    /// Crossing host 只要位置可信就已經是 HostRelationAmbiguous 人工覆核了。
+    /// </summary>
+    [Fact]
+    public void The_guardrail_also_covers_an_opening_hosted_on_a_wall_that_crosses_the_boundary()
+    {
+        var crossing = Wall("W-crossing", 8, 5, 12, 5);
+        var set = CandidateResolver.Resolve(Observations(
+            Zones().Take(1),
+            new[] { crossing },
+            new[] { Door("D-on-crossing", "W-crossing", 9, 5.5) }));
+
+        // host 本身是 Crossing ＋ BoundaryCrossed（C-18），兩個述詞都是 false。
+        Assert.Equal("Crossing:BoundaryCrossed", Describe(Relation(set, "W-crossing", ZoneA)));
+
+        // 門偏離位置線 0.5 m（band = 0.1 + 0.05 = 0.15 m）：仍然是候選，仍然留下說明。
+        Assert.Equal("Ambiguous:OpeningOffHostCenterline", Describe(Relation(set, "D-on-crossing", ZoneA)));
+        Assert.Empty(set.UnrelatedOpenings);
+        Assert.Contains(set.Ambiguities, a => a.Kind == CandidateAmbiguityKind.OpeningOffHostCenterline &&
+                                              a.SubjectUniqueIds.Contains("D-on-crossing"));
+    }
+
+    /// <summary>
+    /// 同一個洞的另一半：連平面位置都沒有的開口，host 判 Crossing 時也不得靜默消失。C-17 的佔位嵌板
+    /// 正好走這條路（沒有量體、問不出格子時連位置都沒有），所以這一條與上一條是同一個判準。
+    /// </summary>
+    [Fact]
+    public void An_opening_with_no_location_on_a_crossing_host_is_manual_review_not_silence()
+    {
+        var set = CandidateResolver.Resolve(Observations(
+            Zones().Take(1),
+            new[] { Wall("W-crossing", 8, 5, 12, 5) },
+            new[] { Door("P-no-location", "W-crossing", null, null, CandidateCategory.CurtainPanel) }));
+
+        Assert.Equal("Ambiguous:OpeningLocationUnknown", Describe(Relation(set, "P-no-location", ZoneA)));
+        Assert.Empty(set.UnrelatedOpenings);
+    }
+
+    /// <summary>
+    /// C-16 的對照組：位置確實落在 host 的位置線上、只是沿著牆離那段邊界很遠的開口，仍然不是候選
+    /// ——一道長牆上只有一段構成邊界，站在另一段的門不是區劃開口（本類別的 remarks）。這一條是護欄的
+    /// 邊界：擋的是「位置不可信」，不是「位置可信但離邊界遠」。
+    /// </summary>
+    [Fact]
+    public void An_opening_on_the_centreline_but_away_from_the_boundary_is_still_not_a_candidate()
+    {
+        var set = CandidateResolver.Resolve(Observations(
+            Zones().Take(1),
+            new[] { Wall("W-long", -4, 10, 10, 10) },
+            new[] { Door("D-far", "W-long", -2, 10) }));
+
+        Assert.Equal(None, Describe(Relation(set, "D-far", ZoneA)));
+        Assert.DoesNotContain(set.Ambiguities, a => a.Kind == CandidateAmbiguityKind.OpeningOffHostCenterline);
+        Assert.Equal(1, set.UnrelatedOpeningCount);
+    }
+
+    /// <summary>
+    /// C-16：不是候選的開口不可以只剩一個數字。每一件都要留下身分、離最近邊界多遠、是落在區劃內部
+    /// 還是不屬於任何區劃——否則「因位置讀錯而假性落空」與「本來就不在邊界上」在輸出上長得一模一樣。
+    /// </summary>
+    [Fact]
+    public void Openings_that_are_candidates_for_no_zone_are_listed_with_why()
+    {
+        var set = Resolve();
+
+        Assert.Equal(new[] { "D2-partition", "D3-off-boundary" },
+            set.UnrelatedOpenings.Select(o => o.Source.ElementUniqueId).ToArray());
+        Assert.Equal(set.UnrelatedOpenings.Count, set.UnrelatedOpeningCount);
+
+        var inside = set.UnrelatedOpenings.Single(o => o.Source.ElementUniqueId == "D2-partition");
+        Assert.True(inside.IsInsideAZone);
+        Assert.Equal(CandidateCategory.Door, inside.Category);
+        Assert.Equal("D1", inside.TypeName);
+        Assert.Equal(4.0, PlanUnits.FeetToMeters(inside.NearestBoundaryDistanceFeet!.Value), 9);
+
+        var offBoundary = set.UnrelatedOpenings.Single(o => o.Source.ElementUniqueId == "D3-off-boundary");
+        Assert.False(offBoundary.IsInsideAZone);
+        Assert.Equal(2.0, PlanUnits.FeetToMeters(offBoundary.NearestBoundaryDistanceFeet!.Value), 9);
+    }
+
     [Fact]
     public void Linked_elements_are_manual_review_under_the_mvp_policy()
     {

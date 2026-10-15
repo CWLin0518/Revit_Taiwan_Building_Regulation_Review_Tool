@@ -82,6 +82,15 @@ public static class ReviewErrorCode
     public const string CandidateZoneUnusable = "BCR-CAND-002";
     public const string CandidateFacadeInferred = "BCR-CAND-003";
 
+    /// <summary>
+    /// 讀到了、但不在任何區劃邊界上而未列入檢討的開口，一行總結（驗證清單 C-16）。第79條第1項只問
+    /// 區劃邊界上的開口，所以多數情形這是預期結果；它仍要有一句話，因為「開口因位置讀錯而假性落空」
+    /// 與「開口本來就不在邊界上」在數字上長得一模一樣，少了這一行，前者在檢討表、日誌、統計三邊都
+    /// 看不出來。它講的是工具讀到卻沒有檢討的東西，所以不與
+    /// <see cref="CandidateAmbiguous"/>（已列為人工覆核的那些）共用一個碼。
+    /// </summary>
+    public const string CandidateOpeningNotOnBoundary = "BCR-CAND-004";
+
     // 寫回本身
     public const string WriteBackRolledBack = "BCR-WB-001";
     public const string WriteBackElementFailed = "BCR-WB-002";
@@ -232,6 +241,7 @@ public static class ReviewErrorCode
             { CandidateAmbiguous, "元素與區劃的空間關係無法判定" },
             { CandidateZoneUnusable, "區劃範圍無法用於檢討" },
             { CandidateFacadeInferred, "帷幕牆外側無區劃，推定為外牆" },
+            { CandidateOpeningNotOnBoundary, "開口不在任何區劃邊界上，未列入檢討" },
             { WriteBackRolledBack, "寫回整批復原" },
             { WriteBackElementFailed, "元素寫入失敗" },
             { WriteBackElementSkipped, "元素略過未寫入" },

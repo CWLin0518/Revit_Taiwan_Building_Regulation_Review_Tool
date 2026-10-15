@@ -1185,6 +1185,16 @@ public sealed class FireReviewIntegrationTests
         Assert.Contains(outcome.Log.Entries, e => e.Code == ReviewErrorCode.CandidateFacadeInferred &&
                                                   e.Severity == ReviewSeverity.Warning && e.UserMessage.Contains("1 件"));
 
+        // 不在任何區劃邊界上而未列入檢討的開口：原本只進候選總數一個數字，現在日誌上有一句話
+        // （驗證清單 C-16）。D2-partition 在 A 區內部、D3-off-boundary 在長牆的非邊界段上。
+        var notOnBoundary = outcome.Log.Entries.Single(e => e.Code == ReviewErrorCode.CandidateOpeningNotOnBoundary);
+        Assert.Equal(ReviewSeverity.Warning, notOnBoundary.Severity);
+        Assert.Contains("2 件開口不在任何區劃邊界上", notOnBoundary.UserMessage, StringComparison.Ordinal);
+        Assert.Contains("門 2 件", notOnBoundary.UserMessage, StringComparison.Ordinal);
+        Assert.Contains("其中 1 件位於區劃內部", notOnBoundary.UserMessage, StringComparison.Ordinal);
+        Assert.Contains("最近者距邊界 2 m", notOnBoundary.UserMessage, StringComparison.Ordinal);
+        Assert.Contains("D3-off-boundary", notOnBoundary.TechnicalDetail!, StringComparison.Ordinal);
+
         // 區劃面積：100 m² ≤ 1500 m²（A 區無灑水）與 3000 m²（B 區有灑水）
         Assert.Equal(ReviewStatus.Pass, run.Results.Single(r => r.CheckType == ReviewCheckTypes.CompartmentArea && r.ZoneId == ZoneA.ToString("D")).Status);
         Assert.Equal(ReviewStatus.Pass, run.Results.Single(r => r.CheckType == ReviewCheckTypes.CompartmentArea && r.ZoneId == ZoneB.ToString("D")).Status);

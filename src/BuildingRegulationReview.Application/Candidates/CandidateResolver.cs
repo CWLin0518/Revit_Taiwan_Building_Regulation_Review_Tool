@@ -127,7 +127,7 @@ public static class CandidateResolver
             .ToDictionary(m => HostKey(m.Source.DocumentUniqueId, m.Source.LinkInstanceUniqueId, m.Source.ElementUniqueId), StringComparer.Ordinal);
 
         var openingCandidates = new List<OpeningCandidate>();
-        var unrelatedOpenings = 0;
+        var unrelatedOpenings = new List<UnrelatedOpening>();
         foreach (var opening in observations.Openings.OrderBy(o => o.Category).ThenBy(o => o.Source, CandidateOrdering.Sources))
         {
             MemberObservation? host = null;
@@ -146,17 +146,28 @@ public static class CandidateResolver
                 continue;
             }
 
-            var relations = measurable
+            var measured = measurable
                 .Select(z => RelateOpening(opening, host, host is null ? null : memberRelations[host].FirstOrDefault(r => r.ZoneId == z.ZoneId), z, measurable, options))
                 .Where(r => r is not null).Select(r => r!)
                 .ToList();
-            relations = ApplyLinkPolicy(opening.Source, CandidateCategories.Label(opening.Category), relations)
+            var relations = ApplyLinkPolicy(opening.Source, CandidateCategories.Label(opening.Category), measured)
                 .Where(r => r.Kind != ZoneRelationKind.Inside || options.IncludeInteriorOpenings)
                 .ToList();
 
             if (relations.Count == 0)
             {
-                unrelatedOpenings++;
+                // 驗證清單 C-16：這裡原本只累加一個數字，而那個數字只進基準指紋與候選元素總數，於是
+                // 一個本該檢討的開口若因位置讀錯而落到這裡，檢討表、日誌、統計三邊都看不出有東西消失。
+                // 記下它是誰、離最近的區劃邊界多遠、是落在區劃內部還是不屬於任何區劃，FireReviewRunner
+                // 才有東西可以在日誌上講一句話（比照 BCR-CAND-003 對推定為外牆的那些開口所做的）。
+                unrelatedOpenings.Add(new UnrelatedOpening(
+                    opening.Source,
+                    opening.Category,
+                    opening.TypeName,
+                    opening.Location.HasValue && measurable.Count > 0
+                        ? measurable.Min(z => z.Shape.DistanceToEdges(opening.Location.Value))
+                        : (double?)null,
+                    measured.Any(r => r.Kind == ZoneRelationKind.Inside)));
                 continue;
             }
 
@@ -392,7 +403,11 @@ public static class CandidateResolver
         {
             // Only reachable with a resolved host; without a place on it, the host alone cannot say
             // whether the opening sits on the boundary part of the wall.
-            if (hostRelation is null || !(hostRelation.IsBoundary || hostRelation.IsAmbiguous)) return null;
+            // 判準與下面偏離位置線那道護欄同一個（「host 不是判在區劃內部」），不是「host 構成邊界」：
+            // Crossing 的 host 帶的是 BoundaryCrossed 疑義而 Kind 仍是 Crossing，IsBoundary 與
+            // IsAmbiguous 兩個述詞都是 false。C-17 的佔位嵌板正好走這條路（沒有量體、問不出格子時
+            // 連平面位置都沒有），所以漏掉 Crossing 就是讓它在一道跨越邊界的帷幕牆上靜默消失。
+            if (hostRelation is null || hostRelation.Kind == ZoneRelationKind.Inside) return null;
             return new ZoneRelation(zone.ZoneId, ZoneRelationKind.Ambiguous,
                 Format("{0}的 Host 牆與區劃「{1}」邊界相關，但{0}沒有平面位置，無法判定是否位於邊界上，需人工覆核。", label, name),
                 RelationMeasurements.None, CandidateAmbiguityKind.OpeningLocationUnknown);
@@ -421,6 +436,30 @@ public static class CandidateResolver
         }
 
         var band = ((host.WidthFeet ?? 0) / 2.0) + options.BoundaryToleranceFeet;
+
+        // 驗證清單 C-16：band 這條帶是以 host 的位置線為軸量的，所以只有「開口位置落在那條線上」
+        // （OpeningObservation.Location 的契約）時，distance 才是「開口距區劃邊界多遠」。位置偏出
+        // 那條線時量到的其實是「量體伸出牆面多遠」——實機上是一扇帷幕牆門的外接矩形含 90 度開啟的
+        // 門扇，中心被拉離牆面 502 mm，於是這扇就在區劃邊界牆上的門被判成「離邊界太遠」→ Inside
+        // → 被 IncludeInteriorOpenings 濾空 → 併入 UnrelatedOpeningCount，一句話都不留。
+        // 位置既然不可信，就不拿它去排除，也不替它選一個答案：交人工覆核。
+        // 擋的條件是「host 不是判在區劃內部」，不是「host 構成邊界」：Boundary、Ambiguous 之外還有
+        // Crossing（C-18 讓它帶 BoundaryCrossed 疑義而 Kind 仍是 Crossing，所以 IsBoundary 與
+        // IsAmbiguous 兩個述詞都是 false）。漏掉 Crossing 就等於對「開在跨越邊界的牆上、位置又不可信」
+        // 的門重開 C-16 這個洞，而下面的 default: 分支對同一道 Crossing host 只要位置可信就已經是
+        // HostRelationAmbiguous 人工覆核了——那會是同一個 resolver 自己又一次前後不一致。
+        // host 判定位於區劃內部時不擋：開口在牆上的哪一段都不改變結論，不必為此多一列人工覆核。
+        if (hostRelation is not null && hostRelation.Kind != ZoneRelationKind.Inside &&
+            OpeningPlacement.IsOffCenterline(location, host.Centerline, band))
+        {
+            var offCenterline = OpeningPlacement.DistanceToCenterline(location, host.Centerline)!.Value;
+            return new ZoneRelation(zone.ZoneId, ZoneRelationKind.Ambiguous,
+                Format("{0}的 Host 牆與區劃「{1}」的邊界相關，但它的平面位置距該牆位置線 {2} m，超出半牆厚與容許值合計的 {3} m，" +
+                       "無法以這個位置判定它是否落在區劃邊界上（開口的量體可能伸出牆面，或位置讀取已回退到外接矩形），需人工覆核。",
+                    label, name, Meters(offCenterline), Meters(band)),
+                measurements, CandidateAmbiguityKind.OpeningOffHostCenterline);
+        }
+
         if (hostRelation is null || distance > band) return Interior();
 
         if (host.IsCurtainWall || opening.Category == CandidateCategory.CurtainPanel)

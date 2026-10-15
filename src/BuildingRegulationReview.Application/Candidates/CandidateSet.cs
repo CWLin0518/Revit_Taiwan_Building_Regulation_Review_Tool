@@ -99,6 +99,17 @@ public enum CandidateAmbiguityKind
     /// <summary>The opening has no plan location to test.</summary>
     OpeningLocationUnknown,
 
+    /// <summary>
+    /// 開口的平面位置偏離 host 牆的位置線超過半牆厚＋容許值（驗證清單 C-16）。
+    /// <see cref="OpeningObservation.Location"/> 的契約是「落在 host 的位置線上」，判它在不在區劃邊界上
+    /// 用的也是以那條線為軸的一條帶；位置偏出去，量到的就不是「距邊界多遠」而是「量體伸出牆面多遠」。
+    /// 不登這一筆，一扇就在區劃邊界牆上的門會被判成「離邊界太遠」→ Inside → 被
+    /// <c>IncludeInteriorOpenings</c> 濾空 → 併入 <c>UnrelatedOpeningCount</c>，檢討表與日誌兩邊都
+    /// 不留痕跡（實機是一扇帷幕牆門的外接矩形含 90 度開啟的門扇，中心被拉離牆面 502 mm）。
+    /// 位置本身既然不可信，就不替它選一個答案，交人工覆核。
+    /// </summary>
+    OpeningOffHostCenterline,
+
     /// <summary>An element from a linked model. MVP policy: manual review (spec 17.1).</summary>
     LinkedElement,
 
@@ -434,6 +445,52 @@ public sealed class CandidateAmbiguity
 }
 
 /// <summary>
+/// 一個讀到了、但不是任何區劃候選的開口（驗證清單 C-16）。
+/// </summary>
+/// <remarks>
+/// 這一類開口原本只進 <see cref="CandidateSet.UnrelatedOpeningCount"/> 一個數字，而那個數字只進基準
+/// 指紋與候選元素總數——換句話說，一個本該檢討的開口若因位置讀錯而落到這裡，檢討表、日誌、統計三邊
+/// 都看不出有東西消失。留下每一件的身分與它離最近邊界多遠，<c>FireReviewRunner</c> 才有東西可以在
+/// 日誌上講一句話（比照 <c>BCR-CAND-003</c> 對推定為外牆的那些開口所做的）。
+/// 構件那一側仍只有計數：構件的「與任何區劃無關」是量得出來的事實（整個樓層都讀進來，多數構件
+/// 本來就不在任何區劃邊界上），不像開口會因為位置讀錯而假性落空。
+/// </remarks>
+public sealed class UnrelatedOpening
+{
+    public UnrelatedOpening(
+        CandidateSource source,
+        CandidateCategory category,
+        string? typeName,
+        double? nearestBoundaryDistanceFeet,
+        bool isInsideAZone)
+    {
+        Source = source ?? throw new ArgumentNullException(nameof(source));
+        if (!CandidateCategories.IsOpening(category)) throw new ArgumentOutOfRangeException(nameof(category), "Not an opening category.");
+        if (nearestBoundaryDistanceFeet.HasValue &&
+            (double.IsNaN(nearestBoundaryDistanceFeet.Value) || double.IsInfinity(nearestBoundaryDistanceFeet.Value) ||
+             nearestBoundaryDistanceFeet.Value < 0))
+            throw new ArgumentOutOfRangeException(nameof(nearestBoundaryDistanceFeet));
+
+        Category = category;
+        TypeName = string.IsNullOrWhiteSpace(typeName) ? null : typeName!.Trim();
+        NearestBoundaryDistanceFeet = nearestBoundaryDistanceFeet;
+        IsInsideAZone = isInsideAZone;
+    }
+
+    public CandidateSource Source { get; }
+    public CandidateCategory Category { get; }
+    public string? TypeName { get; }
+
+    /// <summary>離最近一個可量區劃邊界多遠，或 null 表示它連平面位置都沒有。</summary>
+    public double? NearestBoundaryDistanceFeet { get; }
+
+    /// <summary>它落在某個區劃內部（關係是 Inside，被 <c>IncludeInteriorOpenings</c> 濾掉），而不是不屬於任何區劃。</summary>
+    public bool IsInsideAZone { get; }
+
+    public override string ToString() => $"{CandidateCategories.Label(Category)} {Source}";
+}
+
+/// <summary>
 /// The outcome of candidate resolution for one package: every zone, every member and opening that
 /// relates to one, and everything that could not be decided. Ordered canonically, so the same model
 /// always yields the same set (spec 11.0 P3-T03: 固定模型的候選集合可重現).
@@ -449,13 +506,12 @@ public sealed class CandidateSet
         IEnumerable<OpeningCandidate> openings,
         IEnumerable<CandidateAmbiguity> ambiguities,
         int unrelatedMemberCount,
-        int unrelatedOpeningCount,
+        IEnumerable<UnrelatedOpening> unrelatedOpenings,
         IEnumerable<string>? warnings = null)
     {
         if (packageId == Guid.Empty) throw new ArgumentException("Package ID cannot be empty.", nameof(packageId));
         if (string.IsNullOrWhiteSpace(levelUniqueId)) throw new ArgumentException("Level UniqueId is required.", nameof(levelUniqueId));
         if (unrelatedMemberCount < 0) throw new ArgumentOutOfRangeException(nameof(unrelatedMemberCount));
-        if (unrelatedOpeningCount < 0) throw new ArgumentOutOfRangeException(nameof(unrelatedOpeningCount));
 
         PackageId = packageId;
         LevelUniqueId = levelUniqueId.Trim();
@@ -471,7 +527,9 @@ public sealed class CandidateSet
             .ThenBy(a => a.Kind)
             .ToList());
         UnrelatedMemberCount = unrelatedMemberCount;
-        UnrelatedOpeningCount = unrelatedOpeningCount;
+        UnrelatedOpenings = new ReadOnlyCollection<UnrelatedOpening>(
+            (unrelatedOpenings ?? throw new ArgumentNullException(nameof(unrelatedOpenings)))
+                .OrderBy(o => o.Category).ThenBy(o => o.Source, CandidateOrdering.Sources).ToList());
         Warnings = new ReadOnlyCollection<string>((warnings ?? Array.Empty<string>()).ToList());
     }
 
@@ -486,8 +544,13 @@ public sealed class CandidateSet
     /// <summary>Members read from the storey that relate to no zone at all.</summary>
     public int UnrelatedMemberCount { get; }
 
+    /// <summary>
+    /// Openings read from the storey that are candidates for no zone, each with why (驗證清單 C-16).
+    /// </summary>
+    public IReadOnlyList<UnrelatedOpening> UnrelatedOpenings { get; }
+
     /// <summary>Openings read from the storey that are candidates for no zone.</summary>
-    public int UnrelatedOpeningCount { get; }
+    public int UnrelatedOpeningCount => UnrelatedOpenings.Count;
 
     public IReadOnlyList<string> Warnings { get; }
 

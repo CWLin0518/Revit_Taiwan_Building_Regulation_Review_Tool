@@ -11,6 +11,12 @@ namespace BuildingRegulationReview.Revit.Parameters;
 /// 嵌板：實測它沒有任何量體（<c>SolidCount</c> 0、讀不到 BoundingBox、連 <c>Volume</c> 參數都不存在），
 /// 型別參數全部唯讀。讀取層把兩個事實交給 <see cref="CurtainPanelTypeSubstitution"/> 去判——
 /// 型別參數是不是唯讀的，以及帷幕牆型別指到的是不是一個牆型別。
+/// <para>
+/// 「讀不到 BoundingBox」不只是一句性質描述，它會決定這些嵌板進不進得了檢討（驗證清單 C-17）：
+/// 任何以 <c>BoundingBoxIntersectsFilter</c> 篩範圍的收集器都永遠收不到它們，所以要靠
+/// <see cref="HostWallOf"/> 從宿主帷幕牆那一端接回來，位置也不能依賴嵌板自己的幾何
+/// （見 <c>RevitCandidateObservationReader</c>）。
+/// </para>
 /// </remarks>
 internal static class RevitReservedPanelType
 {
@@ -95,7 +101,11 @@ internal static class RevitReservedPanelType
     }
 
     /// <summary>The wall the panel sits in, or null for a curtain system's panel, which has no wall type.</summary>
-    private static Wall? HostWallOf(Document document, Element panel)
+    /// <remarks>
+    /// 候選元素讀取也要它（驗證清單 C-17）：佔位嵌板沒有 BoundingBox，過不了樓層的
+    /// <c>BoundingBoxIntersectsFilter</c>，只能從已入選的宿主帷幕牆那一端把它接回來。
+    /// </remarks>
+    public static Wall? HostWallOf(Document document, Element panel)
     {
         if (panel is Panel typed && typed.Host is Wall hosted) return hosted;
         if (panel is FamilyInstance instance && instance.Host is Wall inserted) return inserted;
