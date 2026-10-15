@@ -1230,7 +1230,7 @@ FL3 的唯一差異：區劃 322274「13 區劃 1」的防火區劃面積由「�
 | C-10 | 🟢 低 | **`DataGridComboBoxColumn` 欄的 tooltip 永遠看不到；停用的格子也看不到。** 兩個獨立原因：**(a)** `DataGridComboBoxColumn` 的非編輯態顯示元素不是普通 `ComboBox`，而是 WPF 內部型別 `TextBlockComboBox`（`GenerateElement` 建立，`DefaultStyleKey` 指向 theme 的 `TextBlockComboBoxStyleKey`，是一個只畫文字的樣板），滑鼠碰不到它，所以掛在 `ElementStyle` 上的 tooltip 永遠不會觸發——滑鼠實際落在 `DataGridCell` 上，而這兩欄的 CellStyle 沒掛 tooltip。**(b)** WPF 的 `ToolTipService.ShowOnDisabled` 預設 `false`，停用的元素不顯示 tooltip，而 `IsEnabled` 會往下傳給儲存格內的控制項；全專案 XAML **一處都沒設過** `ShowOnDisabled`。另有一個可用性缺口：**所有欄位標題都沒有掛 tooltip**，而使用者的直覺是停在標題上找說明——這正是本缺陷一開始被誤判成「面板 tooltip 整片失效」的原因 | (a)：`FireReviewParameterPanelWindow.xaml:448-467`（`避難層通達`，tooltip 在 `:453`）、`:469-490`（`無法區劃分隔`，tooltip 在 `:483`）。(b)：`:472-479`（`無法區劃分隔` 的 CellStyle 以 `CanEditCannotBeSubdivided` 停用整格）、`:243`／`:260`／`:267`（三個 CheckBox 欄的 `IsEnabled="{Binding CarriesProtection}"`，tooltip 在 `:244`／`:261`／`:278`）、`:106-133`（`嵌板種類`）、`:190-200`（`被覆厚度 cm`）、`:216-232`（`設計防火時效`）。WPF 側：`DataGridComboBoxColumn.GenerateElement`／`TextBlockComboBox`、`DataGridCheckBoxColumn.DefaultElementStyle` | 2026-10-14 逐項對照測試，詳見上方「人工畫面驗證」第 6 項。**原始記錄的「連可編輯的格子都一樣／整片失效」是誤報**，已撤：掛在 `DataGridCell`（CellStyle）、`DataGridTextColumn.ElementStyle`（TextBlock）、`DataGridCheckBoxColumn.ElementStyle`（啟用的列）上的 tooltip 全都正常顯示，同一批 Style 的視覺 Setter 也都生效。修正方向：**(a)** 把 `:453`、`:483` 的 tooltip 從 `ElementStyle` 搬到該欄的 `CellStyle`（`區劃用途` 與 `所在樓層序` 已證明 `DataGridCell` 上的 tooltip 有效）；**(b)** 對會停用的格子與元素補 `ToolTipService.ShowOnDisabled="True"`——注意 `無法區劃分隔` 同時中 (a) 與 (b)，搬到 CellStyle 之後**仍要**加 `ShowOnDisabled`；**(c)** 可考慮把說明一併掛到各欄的 `HeaderStyle`，接住「停在標題上」的直覺。**連帶注意（修改時不可破壞）**：三個 CheckBox 欄因為自訂 `ElementStyle` 取代了 `DataGridCheckBoxColumn.DefaultElementStyle`，一併失去了它的 `IsHitTestVisible=false`／`Focusable=false`，所以非編輯狀態下就能直接點勾（2026-10-14 實測確認）。這是目前的實際行為，修 tooltip 時**不可以**把那兩個屬性補回去，否則會同時打掉直接點勾與 tooltip。**2026-10-15 已修**（批次 D，詳見下方「C-10／C-12／C-13 的修正內容」）。⚠️ **兩欄只修了一半**：`結構材料` 在 `CarriesMaterial == false` 的列、`設計防火時效` 在 `CarriesRating == false` 的列，**格子上仍然沒有說明** —— 這兩欄的格子本來就沒有無條件 ToolTip（唯一的 tooltip 在 `IsEditable == false` 的觸發程序裡，是給保留型別那一列的 `SubstitutionNote`），所以 `ShowOnDisabled` 對它們無事可做。說明改掛在這兩欄的**欄位標題**上，人工驗證時不要把「格子上沒說明」當成缺陷回報。**2026-10-16 人工畫面驗證通過**（17 項，詳見下方「C-10／C-12 的人工畫面驗證結果」；紅線「非編輯狀態直接單擊勾選」仍然成立） |
 | C-11 | 🟡 中 | **清空「被覆厚度 cm」（或 MCP 送 `coverCm: null`）會靜默地 `Set(0.0)`：一次清除被回報成一次成功寫入（`written` 多算一筆），而模型裡被留下一個使用者沒有宣告過的 0。** ⚠️ **2026-10-15 更正：原描述的「判定端把 0 當成已宣告 0 公分 → 正面判定無防火時效」與「清空寫入後重掃，格子回來顯示 `0`」兩句都不成立**（驗證時只讀了 `FireRatingDerivation` 的程式碼，沒有往上追掃描層）。`RevitFireReviewTypeScanner` 的 `IsPositiveLength` 要求 `AsDouble() > 0`，所以存著 0 的被覆重掃後**讀回 null**：格子是**空白**不是 0，推定仍是 `CoverMissing`，檢討路徑更是完全不讀被覆厚度（`StructuralMaterialParameters.Cover` 全 repo 只有掃描器兩處讀取端）。**真正的實害是**：(a) Revit 的類型屬性、明細表與任何其他讀取端看到的都是「0」，而本工具因為讀不回它，使用者在面板上既看不到、也清不掉；(b) 一次清除被回報成一次成功寫入。**但防護只落在 `IsPositiveLength` 的 `> 0` 這一個條件上，不是落在呼叫端數量上** —— `FireRatingDeriver.Derive` 有**兩個**呼叫端（面板的 `FireReviewTypeRowViewModel.cs:262` 與掃描結果自己的 `FireReviewTypeTable.cs:227`），後者餵 `RatingEdit()`，那條路會把推定時效寫進 `防火檢討_設計防火時效`，**而那個參數檢討是會讀的**；掃描層那個 `> 0` 日後若被放寬（見 C-20），這條就會從「只是改了模型」變成「改了判定」。 兩者在判定上是兩件事：`coverMeters == null` 走 `FireRatingDerivationKind.CoverMissing`（`None(...)`，推定不出、該列列為待填）；`== 0` 則落進第73條的門檻鏈，得到一個有效的推定「SC 被覆 0cm，未達第73條二(二) 的 4cm 門檻 → 無防火時效。」。使用者「把填錯的值清掉」的動作，因此被譯成了一個**他沒有做過的宣告**。面板自己的記憶體其實分得清（`Meters()` 的註解明寫 「blank or unreadable is no value, never zero」），是**寫入層把它塌成 0**。原記的「往返不一致」方向寫反了：真正的往返遺失是**使用者真的宣告 0** 之後，重掃讀回 null、格子變空白、推定退回 `CoverMissing`（→ C-20） | `RevitFireReviewParameterWriter.cs:163-172`（`IsLength` 分支，`:166-167` 無值時 `parameter.Set(0.0)` 並回 `Written`）；判定端 `FireRatingDerivation.cs:292-295`（`Steel`，`coverMeters is not double` → `CoverMissing`）、`:304-314`（有值則走門檻鏈）；面板側 `FireReviewTypeRowViewModel.cs:444-452`（`Meters`）、`:440-442`（`Centimetres`）、`:411-413`（產生 `OfLength` edit）；`FireReviewParameterDraft.cs:84` 的註解「被覆厚度是長度（可以退回 0）」就是這個錯誤假設，所以 `Blocked` 不收長度格；MCP schema 字串 `FireReviewMcpTools.cs:516`「null 歸零（長度參數寫不出未填）」| 2026-10-14 使用者在 V-18 批次中決定另開。專案目前 12 個類型的 `coverCm` 全為空（沒有 SC 材料的列，`NeedsCover` 全為 false），所以**本模型現狀碰不到**，是源碼層認定的缺陷；驗證要先把一列的結構材料改成 SC、填一個被覆厚度寫入，再清空寫入。**修正方向**：照 C-05 已有的機制，`IsLength` 分支在 `edit.LengthMeters` 無值、且 `parameter.HasValue` 為真時回 **`WriteOutcome.NotClearable`** 而不是寫 0（`:123-125` 已有現成的 `NotClearableReason` 路徑）；`parameter.HasValue` 為假時維持 `Unchanged`（本來就空，不是使用者在清除）；並讓 `FireReviewParameterDraft.CollectEdits` 把被清空的長度格收進 `Blocked`，確認視窗才會**在寫入前**就講。使用者自己打 `0` 仍要能宣告 0 公分（`Meters("0")` → 0，與空白分得開）。順手更正 `FireReviewParameterDraft.cs:84` 的註解與 `FireReviewMcpTools.cs:516` 的 schema 字串。**2026-10-15 已修**（批次 C，詳見下方「C-11 的修正內容」） |
 | C-12 | 🟢 低 | **「防火區劃檢討」的套件選擇視窗沿用編輯器的用字**：提示文字是「要**編輯**哪一個 Area Plan 的防火區劃？」、右下角按鈕是「**開啟編輯器**」，但按下去開的是檢討視窗、不是編輯器。視窗標題「選擇檢討套件」本身是中性的，沒有問題。純用字問題，不影響任何判定，也不會讓使用者選錯套件（清單內容是對的） | `RegionEditorDialogs.cs:145`（提示 `TextBlock` 的文字寫死）、`:162`（按鈕 `Content` 寫死）；`PackagePickerWindow` 的建構式只收 `(choices, notice)` 兩個參數（`:134`），**沒有任何分支**，所以兩個呼叫端 `RegionEditorCommand.cs:140` 與 `FireReviewCommand.cs:82` 必然得到同一組字 | 2026-10-14 V-28 第 2 項人工畫面驗證連帶發現（使用者在「防火區劃檢討」看到「要編輯…」）。**修正方向**：把提示文字與按鈕文字變成 `PackagePickerWindow` 的建構式參數（給預設值就不必改既有呼叫），兩個呼叫端各傳自己的字——編輯器維持現狀，檢討面板給「要檢討哪一個 Area Plan 的防火區劃？」與「開啟檢討」之類的字。注意 `FireReviewCommand` 的空清單訊息（`FireReviewCommand.cs:75-77`）已經是它自己的版本（多了「與『防火區劃編輯器』」），**不要連帶改掉**。WPF 視窗零測試覆蓋，只能部署後人工看畫面。**2026-10-15 已修**（批次 D）：提示文字與按鈕文字變成 `PackagePickerWindow` 建構式的參數（`PackagePickerMessages` 的四個 `internal const` 當預設值），`RegionEditorCommand` **一行未動**、吃預設值維持現狀，`FireReviewCommand` 傳自己的「要檢討哪一個 Area Plan 的防火區劃？」與「開啟檢討」。`FireReviewCommand` 的空清單訊息（多了「與『防火區劃編輯器』」那句）逐字保留。**2026-10-16 人工畫面驗證通過**：按「防火區劃檢討」得到「要**檢討**哪一個 Area Plan 的防火區劃？」＋「**開啟檢討**」；按「防火區劃編輯器」仍是「要**編輯**…」＋「**開啟編輯器**」（對照組成立，兩個呼叫端沒有被一起改掉） |
-| C-13 | 🟢 低 | **「刪除後修復」會把 Area Plan 的視圖樣板、Scope Box 與裁切設定靜默換成視窗預設值，而能救回它們的那份紀錄從來沒有人讀。** 三件事串成一條：**(a)** 設定視窗只拿 `catalog`，**不會**把套件存過的設定讀回來，三個下拉一律回到 `SelectedIndex = 0`（樣板與 Scope Box 的第 0 項是「（不指定）」）、`從來源平面複製裁切設定` 一律回到勾選；**(b)** `Apply` 無條件把視窗當下的選擇 `Save` 回去，覆蓋套件原本存的那一份；**(c)** `RevitReviewSetupOptionsRepository.Get` **在全專案零呼叫端**——那份設定是只寫不讀的死路。所以依附錄 9.5 救回一個被刪的 Area Plan 時，使用者既看不到原本存的是什麼，也拿不回來，而「重用既有 Area Plan」那條路上的警告（「既有 Area Plan 的樣板、裁切與 Scope Box 設定未重新套用。」）在**重建**這條路上不會出現，因為重建確實套用了設定——只是套用的是預設值 | `FireReviewSetupCommand.cs:36`（`new FireReviewSetupWindow(catalog)`，沒有傳既有設定）、`:90`（無條件 `Save(package.PackageId, selection)`）、`:93-95`（`Created` 才算 created，`reused` 才加那句警告）；`FireReviewSetupWindow.cs:33`（`_scheme`／`_template`／`_scopeBox` 全部 `SelectedIndex = 0`）、`:16`（`_copyCrop` 預設勾選）、`:83`（`WithNone` 把「（不指定）」放在第 0 項）；`RevitReviewSetupOptionsRepository.cs:30-42`（`Get`，零呼叫端） | 2026-10-14 V-28 第 6 項驗證時從原始碼讀出，**源碼層認定**。目前**沒有功能後果**（沒有人讀那份設定），所以是潛在缺陷＋死碼，不是已經在害人的行為；但它正打在 V-28 要驗的附錄 9.5「刪除後修復」上，救回來的 Area Plan 會失去原本的樣板與 Scope Box。**修正方向**：設定視窗接受一份「既有設定」（對選中的樓層平面查 `RevitReviewSetupOptionsRepository.Get`）並據以預選三個下拉與勾選框，`Get` 因此有了呼叫端；或者反過來——若確認這份設定不該被記住，就把 `Save` 與整個 `RevitReviewSetupOptionsRepository` 一起刪掉，不要留一個只寫不讀的 `DataStorage`（它還會增加孤兒 `DataStorage` 的數量）。兩條路都要先決定「修復時該不該沿用原設定」這個產品問題。WPF 視窗零測試覆蓋，`Get` 的接線可在 Application 層補測試。**2026-10-15 已修**（批次 D，走「設定視窗讀回既有設定、據以預選」那條路，`Get` 因此有了呼叫端；`Save` 與 repository 都留著）。⚠️ **第一版修法引入了兩個方向相反的同類缺陷，由 code review 擋下**（詳見下方修正內容的「code review 擋下的三個 Major」） |
+| C-13 | 🟢 低 | **「刪除後修復」會把 Area Plan 的視圖樣板、Scope Box 與裁切設定靜默換成視窗預設值，而能救回它們的那份紀錄從來沒有人讀。** 三件事串成一條：**(a)** 設定視窗只拿 `catalog`，**不會**把套件存過的設定讀回來，三個下拉一律回到 `SelectedIndex = 0`（樣板與 Scope Box 的第 0 項是「（不指定）」）、`從來源平面複製裁切設定` 一律回到勾選；**(b)** `Apply` 無條件把視窗當下的選擇 `Save` 回去，覆蓋套件原本存的那一份；**(c)** `RevitReviewSetupOptionsRepository.Get` **在全專案零呼叫端**——那份設定是只寫不讀的死路。所以依附錄 9.5 救回一個被刪的 Area Plan 時，使用者既看不到原本存的是什麼，也拿不回來，而「重用既有 Area Plan」那條路上的警告（「既有 Area Plan 的樣板、裁切與 Scope Box 設定未重新套用。」）在**重建**這條路上不會出現，因為重建確實套用了設定——只是套用的是預設值 | `FireReviewSetupCommand.cs:36`（`new FireReviewSetupWindow(catalog)`，沒有傳既有設定）、`:90`（無條件 `Save(package.PackageId, selection)`）、`:93-95`（`Created` 才算 created，`reused` 才加那句警告）；`FireReviewSetupWindow.cs:33`（`_scheme`／`_template`／`_scopeBox` 全部 `SelectedIndex = 0`）、`:16`（`_copyCrop` 預設勾選）、`:83`（`WithNone` 把「（不指定）」放在第 0 項）；`RevitReviewSetupOptionsRepository.cs:30-42`（`Get`，零呼叫端） | 2026-10-14 V-28 第 6 項驗證時從原始碼讀出，**源碼層認定**。目前**沒有功能後果**（沒有人讀那份設定），所以是潛在缺陷＋死碼，不是已經在害人的行為；但它正打在 V-28 要驗的附錄 9.5「刪除後修復」上，救回來的 Area Plan 會失去原本的樣板與 Scope Box。**修正方向**：設定視窗接受一份「既有設定」（對選中的樓層平面查 `RevitReviewSetupOptionsRepository.Get`）並據以預選三個下拉與勾選框，`Get` 因此有了呼叫端；或者反過來——若確認這份設定不該被記住，就把 `Save` 與整個 `RevitReviewSetupOptionsRepository` 一起刪掉，不要留一個只寫不讀的 `DataStorage`（它還會增加孤兒 `DataStorage` 的數量）。兩條路都要先決定「修復時該不該沿用原設定」這個產品問題。WPF 視窗零測試覆蓋，`Get` 的接線可在 Application 層補測試。**2026-10-15 已修**（批次 D，走「設定視窗讀回既有設定、據以預選」那條路，`Get` 因此有了呼叫端；`Save` 與 repository 都留著）。⚠️ **第一版修法引入了兩個方向相反的同類缺陷，由 code review 擋下**（詳見下方修正內容的「code review 擋下的三個 Major」）。**2026-10-16 人工畫面驗證通過**（10 項，1 項本模型驗不到；三條紅線全守住，詳見下方「C-13 的人工畫面驗證結果」） |
 | C-14 | 🟢 低 | **檢討結果明細的「判定依據」裡，`帷幕牆室內外` 連著出現兩次。** 規則欄位 `element.curtainWallExposure` 與證據欄位 `source.curtainWallExposure` 在 `ReviewReadableText` 的對照表裡指到**同一個中文標籤**「帷幕牆室內外」，而明細面板把規則欄位與證據欄位先後都列出來，所以同一道帷幕牆的同一個事實被印了兩行、值也一樣（實測「帷幕牆室內外：室內帷幕牆」出現在 `構件 Type 名稱` 之後與 `source.width` 之後各一次）。不影響判定，但審查者會以為是兩個不同的欄位 | `ReviewReadableText.cs:273`（`source.curtainWallExposure` → 「帷幕牆室內外」）與同檔 `:442-444` 的「同一份對照給規則欄位與證據欄位共用」那段註解；重複本身由明細面板同時列出兩類欄位造成 | 2026-10-14 V-27 第 10 項實機驗出（FL2 牆 289437 的 `構件防火時效 ＠區劃 4` 明細）。**修正方向**：明細組裝時對「同標籤同值」去重，或給兩個鍵不同的中文標籤（例如規則欄位叫「帷幕牆室內外（規則讀值）」）。去重要小心別把真的兩個不同欄位併掉。**2026-10-15 已修**（批次 A）：`ReviewEntryReport.cs` 的證據區段組裝改成對**成文後的「標籤＋值」**去重（不是欄位鍵——欄位鍵不同正是重複的來源），保留第一次出現的位置。去重範圍是**每個區段各自**，跨區段的同名欄位位置與語意都不同、不併。實際會併掉的有三組：`element.curtainWallExposure`／`source.curtainWallExposure`（帷幕牆室內外）、`zone.id`／`candidate.zoneId`（區劃編號）、`zone.name`／`candidate.zoneName`（區劃名稱）；`provided.*`／`protection.*` 那三組不受影響（帷幕牆交接一列只會有其中一組）。反向案例有測試守著：`Two_fields_sharing_a_label_but_not_a_value_stay_two_lines` |
 | C-15 | 🟢 低 | **五個證據欄位沒有中文對照，明細裡直接印出原始鍵名。** `candidate.boundaryLength`、`candidate.bandLength`、`candidate.insideLength`、`candidate.outsideLength`、`source.width` 都不在 `ReviewReadableText` 的標籤對照表裡，於是「判定依據」那一段在一排中文標籤中間夾了五行英文鍵名（實測逐字：`candidate.boundaryLength：2.65 m`、`candidate.bandLength：2.6875 m`、`candidate.insideLength：0.975 m`、`candidate.outsideLength：6.4375 m`、`source.width：0.025 m`）。同一組的 `candidate.relation` 有對照（「與區劃的空間關係」），所以是漏了而不是刻意 | `ReviewReadableText.cs` 的標籤對照表（`candidate.relation` 在、上列五個都不在） | 2026-10-14 V-27 第 10 項實機驗出，與 C-14 同一份明細。**修正方向**：補五個中文標籤（邊界長度／交接帶長度／區劃內側長度／區劃外側長度／構件厚度之類，用字請與帷幕牆規格的術語對齊），並補一個「對照表要蓋住所有會出現在明細裡的欄位鍵」的測試，免得以後再漏。**2026-10-15 已修**（批次 A）：實際補了 **8 個**而非 5 個 —— 清單點到的四個 `candidate.*` 之外，`RelationMeasurements.Present()` 還會吐 `candidate.throughLength`、`candidate.distanceToBoundary`，加上 `source.width`；而新補的「對照表要蓋住所有欄位鍵」護欄自己又抓出第 8 個漏列 `insulation.kind`（阻熱性讀取結果，決議 38）。護欄共兩層：`Every_evidence_field_a_whole_run_records_has_a_Chinese_label`（跑完整檢討，要求每一列結果的每個證據欄位 `Label()` 都不等於鍵名本身 —— 就是這條抓出 `insulation.kind`）＋`Every_candidate_measurement_reads_as_a_Chinese_label`（七個候選量測欄位逐一點名） |
 | C-16 | 🔴 高 | **室內帷幕牆上的門（換掉一片嵌板的帷幕牆門）完全不進檢討表，連日誌都沒有一句話。** 因果鏈四段：**(a)** `RevitCandidateObservationReader.ReadOpening` 讀開口位置時，帷幕牆門的 `FamilyInstance.Location` 是 null，於是退回 `Centre(element.get_BoundingBox(null))`——外接矩形**含門扇**，門扇若以 90 度開啟，矩形中心會被拉離牆面半公尺。**(b)** `CandidateResolver.RelateOpening` 拿 `band = host.WidthFeet / 2 + BoundaryToleranceFeet` 比對，本案 125 + 50 = **175 mm**，而實測偏移 **502.4 mm**，`distance > band` 於是回 `Interior()`。**(c)** `IncludeInteriorOpenings` 預設 false，那些 Inside 關係被濾空。**(d)** 關係清單空了就 `unrelatedOpenings++ ; continue`，而 `UnrelatedOpeningCount` 只進基準指紋與候選總數，**不產生任何日誌或檢討列**——使用者看不到有東西被吃掉。玻璃嵌板的中心正好落在牆中心線上，所以不受影響；缺陷只對「有量體伸出牆面的開口族群」發作，而那正是防火門最常見的樣子 | `RevitCandidateObservationReader.cs:263-270`（`ReadOpening` 的位置回退）；`CandidateResolver.cs:404-405`（`band` 與 `distance > band` 回 `Interior()`）、`:148`（`IncludeInteriorOpenings` 濾掉 Inside）、`:153`（靜默 `continue`）、`:175` 與 `CandidateSet.cs:452`（`UnrelatedOpeningCount` 只進指紋與總數，零使用者可見輸出）；容許值 `CandidateResolutionOptions.cs:57` → `GeometryTolerance.cs:17` 的 `gapExtensionMillimeters: 50.0` | 2026-10-14 V-27 第 5 項實機驗出（副本 `建築防火檢討1_v27驗證.rvt`、run `25479d1f`）。逐字證據：門 327599 搜尋 0 筆；防火門窗 118 列 `typeName` 統計為 `玻璃 1.0cm` 88、`140 x 210 cm` 12、`110 x 210 cm` 10、`180 x 220 cm` 6、`檢修門` 2，**沒有** `M_門-帷幕牆-雙層-玻璃`；門的外接矩形 X 為 −6959.39～−5916.54、中心 −6437.97，牆 289437 中心線 X −5935.59，偏移 **502.4 mm**；同一格的兩片玻璃嵌板 327605／327611 也沒進表，但它們中心正好在牆中心線上、位於牆北端不屬於任何區劃的那一段，**是正確判定、不是本缺陷**。**修正方向**：開口位置不要用含門扇的外接矩形——優先取 `FamilyInstance.GetTotalTransform().Origin`（帷幕牆門仍有可用的 transform），取不到時把外接矩形中心**投影到 host 牆的中心線**上再用；另外 `unrelatedOpenings` 不可再靜默，至少要比照 `BCR-CAND-003` 留一筆說明哪些開口因離邊界太遠被排除，否則下一個同類問題一樣驗不出來。測試可在 Application 層補：給一個 host 為帷幕牆、位置偏離中心線超過 band 的 `OpeningObservation`，斷言它不會從候選集合裡消失。**2026-10-15 已修**（批次 B，詳見下方「C-16／C-17 的修正內容」） |
@@ -1587,6 +1587,79 @@ code review 另外查了測試沒覆蓋的那段接線：`Same(0, null)` 回 fal
 **C-10 的兩半都驗到了**：B2／B4／B6／B7～B9 是「停用的格子看不到 tooltip」那一半（原因 (b)
 `ShowOnDisabled` 預設 false）；B16／B17 是「`DataGridComboBoxColumn` 欄的 tooltip 掛在碰不到滑鼠的
 `TextBlockComboBox` 上」那一半（原因 (a)）。兩個原因是獨立的，所以兩邊都要有證據。
+
+#### C-13 的人工畫面驗證結果（2026-10-16，使用者操作、MCP 查證）
+
+副本 `建築防火檢討1_v27驗證.rvt`。**10 項通過、1 項（C5）本模型驗不到。三條紅線全守住。**
+
+##### ⚠️ 本模型的限制：只能用「裁切勾選框」當變數
+
+這個專案**沒有任何 Area Plan 類型的視圖樣板**（`get_view_templates` 回 13 個，全是 CeilingPlan／
+Elevation／FloorPlan／ThreeD，**一個 AreaPlan 都沒有**）、也**沒有任何 Scope Box**
+（`query_elements(category: "Scope Boxes")` 回 0）。所以設定視窗的那兩個下拉只有「（不指定）」可選
+—— **這是正確行為，不是缺陷**（視窗本來就該只列 Area Plan 樣板）。
+
+驗證因此改用第三個可設定的控制項「**從來源平面複製裁切設定**」當變數。先讀碼確認這樣驗得到同一套機制：
+
+- `FireReviewSetupWindow.cs:112-113`：`_copyCrop.Checked`／`.Unchecked` **都掛了 `NoteUserEdit()`**
+  → 用勾選框當「使用者手改」可以驗到 `_userEdited` 那套機制（M-1 的修正）。
+- `ReviewPackageSetupPreselection.SaysTheSame` 比的三個欄位**包含 `CopyCropSettings`**
+  → 兩個樓層只差在勾選框也會被判成 `Conflict`，C10 驗得到（M-2 的修正）。
+
+**只有 C5 驗不到**（沒有樣板可刪，所以驗不到「存過的樣板被刪掉 → 退回「（不指定）」並在提示句尾明說」）。
+
+| # | 項目 | 結果 |
+| --- | --- | --- |
+| C1 | 選 FL4 ＋ 防火區劃，取消裁切勾選，建立 Area Plan | ✅ 建立成功（新套件 `a69650d6`） |
+| C2 | 關窗重開、選同一組 → 勾選框回到**未勾** ＋ 藍字「**已帶回**「FL4」上次儲存的設定：…**不複製裁切設定**」 | ✅ |
+| C3 | 改選沒建過的樓層 → 藍字**消失**，勾選框**不會**自己跳回已勾 | ✅ |
+| **C4** | 🔴 **刪除後修復（附錄 9.5）**：刪掉 `FL4 - 防火區劃` 這個 Area Plan → 重開視窗選同一組 → 仍帶回「不複製」→ 按「建立 Area Plan」重建 → **再次關窗重開仍是「不複製」** | ✅ **核心場景通過** |
+| C5 | 存過的樣板被刪掉 → 退回「（不指定）」並在提示句尾明說 | ⛔ **本模型驗不到** |
+| **C6** | 🔴 手改勾選框 → **點 Revit 主視窗再點回設定視窗** → 手改的值**留著**，提示改成「…**畫面上是你自己調過的選擇，所以沒有自動帶回**…」 | ✅ |
+| C7 | 同上，改按「**更新清單**」 | ✅ 值留著 |
+| C8 | 同上，改按「**Area Computation…**」（開關一次） | ✅ 值留著 |
+| C9 | 同上，改用 **Ctrl 加選另一個樓層**（鍵改變，最嚴格的一支） | ✅ 值留著 |
+| **C10** | 🔴 **複選衝突**：同時選 FL1（存「複製」）與 FL4（存「不複製」） | ✅ **逐一點名兩個樓層與各自的值**，見下方逐字 |
+| 控制組 | 新視窗、**完全不碰任何東西**、焦點往返 → 仍是「未勾」且藍字開頭仍是「**已帶回**」（沒有被誤判成「你自己調過」） | ✅ |
+
+**C10 的逐字輸出**（使用者轉述，`（不指定）` 以原始碼 `WithNone` 的字樣為準）：
+
+> 所選樓層平面存過不同的設定（「FL1」：視圖樣板＝（不指定）、Scope Box＝（不指定）、複製裁切設定；
+> 「FL4」：視圖樣板＝（不指定）、Scope Box＝（不指定）、不複製裁切設定），所以這裡不自動帶回。
+> 請一次修復一個樓層平面才能沿用各自的原設定；若就這樣按「建立 Area Plan」，畫面上目前這一組會
+> 套用到全部選取的樓層。
+
+**C6 與 C10 正是 code review 從第一版修法裡抓出來的兩個 Major**（M-1 焦點往返蓋掉手改值、
+M-2 複選時把第一個樓層的設定套到全部）。沒有那一輪 review，這兩個洞會原封不動被部署出去。
+
+##### C4 的 MCP 客觀證據（比畫面觀察更硬）
+
+刪除並重建之後 `fire_review_list_packages`：FL4 套件的 **`packageId` 仍是同一個 `a69650d6`**，
+而 `areaPlanUniqueId` 由 `ed8f3ef0-…-00051114` 變成 `d5b2f3d8-…-0005111e`
+—— 證明修復是**接回原有的套件**並掛上新建的 Area Plan，不是另開一個新套件。
+`status` 仍是 `Setup`（設定中）、`boundaryRevision` 0（還沒畫區劃，符合現狀）。
+
+##### ⚠️ 一次誤報，以及它的成因（下次要避開）
+
+驗 C2 時我一度判定「這是真的 bug」：使用者回報勾選框是「有勾」，與存檔值矛盾。**那是誤報**，
+成因是**我的指示沒把「面積配置」釘住**——`FireReviewSetupWindow.cs:78` 的 `_scheme.SelectedIndex = 0`
+會自動預選第一個面積配置，而使用者中途有一次是在「**出租面積**」這個配置下操作的，於是我們在跟
+**另一個套件**（FL4 ＋ 出租面積，其裁切設定是預設的「複製」）的設定比對。把面積配置明確選成
+「防火區劃」之後重測，結果是「**未勾 ＋ 不複製**」，一致且正確。
+
+**教訓**：叫使用者操作多下拉的視窗時，**每一個會影響結果的下拉都要明確指定值**，不可以依賴預設值
+——尤其是程式會自動預選第 0 項的那些（`:77` 樓層平面、`:78` 面積配置／樣板／Scope Box 都會）。
+另外 `Accept()` **不會關閉視窗**（`:103` 只送出建立請求），所以「關窗重開」這個前提要明講，
+否則 `_userEdited` 會從上一輪留下來，看到的行為是對的但驗的不是你要驗的那一項。
+
+##### 這一輪在副本上留下了什麼
+
+- **新增套件 `FL4 - 防火區劃`**（`a69650d6`，狀態「設定中」，裁切設定存的是「不複製」），
+  其 Area Plan 在 C4 中被刪除後已重建。
+- **隱藏套件由 1 個變 2 個**：多出來的那一個是誤報那一輪在「出租面積」配置下建立、
+  其 Area Plan 未留存的套件。兩者都不影響 FL1／FL2／FL3，也不影響原始檔。
+- FL1／FL2／FL3 的 `lastReviewRunId`、`boundaryRevision` 全程未動
+  （`7fbfa09e`／`d067c72e`／`b3021c0a`）。
 
 #### 部署後要驗的（C-11）
 
