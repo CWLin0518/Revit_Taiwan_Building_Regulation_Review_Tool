@@ -345,7 +345,7 @@ FL2 的 `boundaryRevision 10` 與 `lastReviewRunId 4dcc3962` 完好）。做法�
 **這一輪的模型準備**：現行模型的 CW-H／CW-V 都是「符合」（16e 逐字核對），**必須先製造未符合**才驗得到——
 把一道區劃牆的**突出量改到小於 500 mm** 即可。⚠️ 先另存備份。
 
-### 🟡 ⚠️ V-10 標示真的畫進模型
+### ✅ ⚠️ V-10 標示真的畫進模型（2026-10-27 可驗項全過，見第 15 輪）
 
 > **出處**：§12 步驟 6b-2｜**優先**：高｜**會改動模型**：是
 
@@ -450,7 +450,7 @@ FL2 的 `boundaryRevision 10` 與 `lastReviewRunId 4dcc3962` 完好）。做法�
   擁有權在 Extensible Storage，`Comments` 只是標籤；且真的改掉也是判 `Create`
   不是 `Skipped`。詳見上方第 5 項的改寫與 2026-10-07 20:44 的實測紀錄。
 
-### ⬜ ⚠️ V-13 檢討圖號三處共用、立面自動命名
+### ✅ ⚠️ V-13 檢討圖號三處共用、立面自動命名（2026-10-27 可驗項全過；第 2、3 項本設計驗不到）
 
 > **出處**：§12 步驟 10｜**優先**：高｜**會改動模型**：是｜**前置**：同 V-10，需先有未符合的交接處才發得出圖號
 
@@ -539,7 +539,7 @@ FL2 的 `boundaryRevision 10` 與 `lastReviewRunId 4dcc3962` 完好）。做法�
 **這一輪的模型準備**：現行模型的四個區劃都在樓層序 9，**不加一個樓層序 ≥ 11 的區劃就驗不到第 83 條那一半**。
 ⚠️ 先另存備份。
 
-### 🟡 V-11 「適用上限」欄的字串
+### ✅ V-11 「適用上限」欄的字串（2026-10-27 九種全過）
 
 > **出處**：§12 步驟 8｜**優先**：中｜**2026-10-07 依程式碼重寫**（舊版的四種字串已過時，理由見[第 13 輪那節](#v-11-的驗證項已過時需改寫)）
 
@@ -1050,7 +1050,7 @@ Revit 由使用者在自己的 PowerShell 視窗以 `$env:BRR_MCP_AUTOSTART='0';
 
 
 
-### ⬜ V-32 透過 MCP 檢討
+### ✅ V-32 透過 MCP 檢討（2026-10-27 全過，見第 15 輪）
 
 ⚠️ 第 3 項會寫入檢討結果，先另存備份。
 
@@ -1240,6 +1240,7 @@ FL3 的唯一差異：區劃 322274「13 區劃 1」的防火區劃面積由「�
 | C-18 | 🔴 高 | **牆被判成「跨越區劃邊界」（`ZoneRelationKind.Crossing`）時，第79條第1項被靜默免除——沒有未符合、沒有待確認，連人工覆核都沒有。** 因果鏈五段：**(a)** `RelateLinear` 的 band ＝ 牆半厚 ＋ `BoundaryToleranceFeet`（50 mm），牆與區劃邊界的偏移一旦超出 band，`OnBoundaryFeet` 與 `InBandFeet` 都歸零，只要牆兩側各有一段長度達門檻就回 `Crossing`，而且**沒有附帶任何 `CandidateAmbiguityKind`**（對照同一個函式上一個分支的 `BoundaryOffCenterline` 就有附）；**(b)** `CandidateSet.cs:186` 的 `IsBoundary => Kind == ZoneRelationKind.Boundary`，Crossing 不算邊界；**(c)** `CandidateFacts.cs:39` 於是把 `element.isCompartmentBoundary` 設成 false；**(d)** `fire-review-rules.json:139` 的 `tw-bcr-79-wall-rating` `appliesWhen` 要求 `element.isCompartmentBoundary == true`，第70條那幾條又都要結構／承重／柱／樓板，於是整列變成「所列規則均不適用，無單一依據條文」；**(e)** `FireResistanceCheck.Settled` 的 `IsBoundaryDoubt` 只認 `BoundaryAlongOutline` 與 `BoundaryOffCenterline`，沒有 ambiguity 就根本不進那條路，連「不論是否構成區劃邊界結論都相同」的註記都不會留。**同一個 resolver 自己就不一致**：開口的 host 牆跨越邊界時走 `default:` 回 `Ambiguous` ＋ `HostRelationAmbiguous`（人工覆核），牆自己跨越邊界卻是靜默不適用。前置檢查 `BCR-CAND-001` 還宣告「有 4 個元素與區劃的空間關係無法自動判定…**會列為人工覆核**」，但 Crossing 不在那 4 個裡，承諾與產出不一致 | `CandidateResolver.cs:287-291`（Crossing 未帶 ambiguity kind）、`:279-285`（對照組：BoundaryOffCenterline 有帶）、`:455-459`（對照組：開口的 host 跨越邊界 → 人工覆核）、`CandidateSet.cs:186`、`CandidateFacts.cs:39`、`FireResistanceCheck.cs:414-415`（`IsBoundaryDoubt`）、`:445-452`（已經預言同一類失效的註解，但那道防線只擋 `CurtainWallExposure.IsUnknown`）、`fire-review-rules.json:139` | 2026-10-15 V-27 第 11 項實機驗出（副本 `建築防火檢討1_v27驗證.rvt`，FL2 套件 `7f463a20-6819-4c00-a9dd-adf8456b5597`）。牆 289437 往東搬 150 mm 後，基線 run `1e8c3af4` 的 **4 列全部符合**（`providedFireRating = 120 min，符合 >= 60 min`，規則 `tw-bcr-79-wall-rating` 版本 3，第79條第1項，區劃 4／區劃 2／梯廳1／管道間）變成 run `503a8dbb` 的 **2 列全部不適用**（梯廳1 與 管道間 整列消失）；明細的判定依據是「跨越區劃邊界」、`bandLength 0 m`、`insideLength 1.79 m`、`outsideLength 8.09 m`，而 `防火檢討_設計防火時效 = 2h` 讀得到、室內外判為室內帷幕牆。**修正方向**：`Crossing` 不可以是能產生判定的關係。最小修法是讓它也產出一個 `CandidateAmbiguityKind`（例如 `BoundaryCrossed`）並納入 `IsBoundaryDoubt`，`Settled` 就會評「假設構成邊界」與「假設不構成」兩支——本案前者符合、後者不適用，正好落在既有的「若構成區劃邊界則符合第79條區劃牆壁之要求，若不構成邊界則無此要求」那一支，自動判成**符合**而不是靜默免除；兩支結論衝突時則回人工覆核。另外 `Crossing` 雖然在 `CandidateResolutionOptions.cs:19` 有定義、`All` 有含它、`ReviewReadableText.cs:459` 也有中文對照，但**全專案沒有任何 check 或規則消費它**，是一條必然終結於「不適用」的死路，修的時候一併確認其他 check 有沒有同樣的缺口。測試覆蓋：`CandidateResolver` 與 `FireResistanceCheck` 都在 Application 層，✅ 可直接寫單元測試。**2026-10-15 已修**（批次 A，詳見下方「C-14／C-15／C-18 的修正內容」） |
 | C-19 | 🟡 中 | **牆只「跨越」區劃邊界時，帷幕牆區劃交接處完全不檢討 —— 與 C-18 同一類的靜默略過，只是換到另一個 check。** `HostLegalReferences` 回傳的 `references` 就是餵給帷幕牆交接讀取器的「區劃邊界清單」，而該方法自己的 summary 寫明「**在這裡列出 host 才會讓讀取器把它當成區劃邊界**，所以該樓層每一道邊界牆與每一片樓地板都要列」。它用 `r.IsBoundary` 篩選，於是只跨越邊界的牆`zones.Count == 0` → `continue` → 不進清單，它與帷幕牆的交接處一列都不會產生，連第79條第4項的 90 cm 交接帶與第83條交接規定都沒有「待確認」，也沒有任何日誌。`BoundaryOffCenterline`／`BoundaryAlongOutline` 今天同樣被排除在外，所以這是**既有缺陷**，C-18 的修正沒有擴大它 | `FireReviewRunner.cs:492`（`var zones = member.Relations.Where(r => r.IsBoundary)`）、`:496`（`zones.Count == 0` 即 `continue`）、`:455-459`（summary 自己宣告「every boundary wall … is listed」）、`:407-410`（`references.Keys` 餵給 `CurtainWallJunctionCheck`）；重複的判準 `MergedAtriums.cs:152-166` | 2026-10-15 批次 A 的修碼 subagent 與 code-reviewer **各自獨立**從原始碼讀出，主 agent 已逐段核對`HostLegalReferences` 的註解與呼叫鏈確認成立，**源碼層認定**。嚴重度不給 🔴 的理由：C-18 修好後這些牆已經會在構件防火時效表與 BCR-CAND-001 的計數裡現身，不再是完全看不見。**修正方向**：不可以逕自把跨越的牆當成邊界列進去 —— 那會讓交接檢討對一道可能不是區劃牆的牆產生交接結果，犯的是相反方向的錯。需要的是**第三種狀態**（「可能是邊界」），而這要改`ICurtainWallGeometryReader` 那一端的契約（落在 `BuildingRegulationReview.Revit`）。建議同時把「邊界疑義」的判準抽成一個共用述詞 —— `MergedAtriums.Counts` 與這裡各寫一份已經是重複，讓三個 check 用同一份定義。**2026-10-16：使用者決定只做「第一層」—— 讓它不再靜默**，已實作新的日誌碼 `BCR-CAND-005` 點名被排除的牆（詳見下方「C-19 第一層／C-20 甲 的修正內容」），**尚未部署**。**「第二層」（「可能是邊界」第三種狀態、改 `ICurtainWallGeometryReader` 契約、讓那些牆在帷幕牆區劃交接產出「待確認」列）明確未做** —— 所以**判定本身仍然缺一塊**：那幾道牆的交接處在檢討表上依舊沒有任何一列，第一層只是讓它出現在日誌裡 |
 | C-20 | 🟢 低 | **掃描層讀不回「真的宣告 0 公分」的被覆，所以那個宣告無法往返。** `RevitFireReviewTypeScanner.IsPositiveLength` 要求 `parameter.AsDouble() > 0`，於是使用者親手打進去的 0 在下一次掃描就被吃掉：格子變空白、該列退回「待填被覆」、`AwaitsCover` 把它列進 MCP 的 `onlyNeedingAttention`，而使用者只能一再重打同一個 0。判定不受影響（`FireRatingDerivation.None` 的 `HasRating` 為 false → `CanApplyDerived` 為 false，不會產生時效寫入），所以是往返遺失＋該列卡在待填，不是錯的判定 | `RevitFireReviewTypeScanner.cs:340-341`（`IsPositiveLength`）、`:474-477`（`Meters(element, name)`）、`:189`（`coverMeters` 走這條）；受影響的下游 `FireReviewTypeTable.cs:227`（`Derivation`）、`:236`（`AwaitsCover`）、`FireReviewMcpTools.cs:489`（`onlyNeedingAttention`）；面板側 `FireReviewTypeRowViewModel.cs` 的 `Centimetres` 那個「0 要印成 0」分支因此印不出來 | 2026-10-15 修 C-11 時由修碼 subagent 與 code-reviewer 各自獨立從原始碼讀出，主 agent 已查證 `IsPositiveLength` 的 `> 0` 與兩個 `Derive` 呼叫端，**源碼層認定**。**⚠️ 修正方向（最重要的一點）：不可以逕自把門檻放寬成 `>= 0`。** Revit 的 Double 參數沒有「未設值」的可靠表示法，剛綁定／從未填寫的長度參數常常是 `HasValue == true, AsDouble() == 0`；放寬會讓**每一條沒填被覆的 SC 列**都變成「已宣告 0 公分 → 無防火時效」的正面判定。⚠️ **2026-10-16 更正了這裡的兩個事實**（由 code review 抓出，主 agent 逐行查證）：**(1)** 原本寫「0 會經 `RatingEdit()` 流進 `防火檢討_設計防火時效`」—— **錯**。`cover = 0` 推定出 `NotRated` → `HasRating` 為 false → `ParameterText` 為 null → `RatingEdit()` 回 null，那個參數不會被寫。真正的危害是 `Kind` 由 `CoverMissing` 變 `NotRated` → `AwaitsCover` 回 false → **那一列從面板待填與 MCP `onlyNeedingAttention` 消失**，而「依據／提醒」欄把「無防火時效」當成**已決的推定**呈現 —— 使用者再也不會被提示去填。**(2)** 原本（主 agent 口頭）說「`IsPositiveLength` 同時讀牆厚、板厚、柱短邊」—— **三個裡錯兩個**。牆厚走 `WallType.Width > 0`、板厚走 `Structure()` 自己的 `width > 0`，**都不經過它**；真正共用它的是**被覆 ＋ 柱短邊（`ColumnShortSide`）＋ 嵌板厚（`PanelThickness`）**，放寬會讓短邊 0 的柱與厚度 0 的嵌板也「讀得到尺寸」，`DimensionMissing` 同樣變 `NotRated`。所以 `> 0` 仍然是**刻意的保守選擇**，兩個理由都成立，只是敘述要用更正後的版本。要真的修，得先在寫入側把「這個 0 是宣告」標記出來（例如改用文字參數，或另配一個「已宣告」旗標），再讓掃描層依那個標記決定 0 算不算有值。**2026-10-16 取得實機證據（端到端閉環）**：在副本把 `Basic Wall：RC 牆 15cm`（85268）的`結構材料` 設為 SC、`防火被覆厚度` 寫入 **0**（面板正常寫入、未被攔），`get_element_info` 讀模型確認 **`防火被覆厚度` = `0` 確實寫進去了**，但 `fire_review_scan_parameters` 同時回 **`coverCm: ""`**、`asks.coverCm: true`、`derived.kind: CoverMissing`（「SC（鋼骨造）的防火時效取決於防火被覆厚度…請填被覆單面厚度。」）—— **寫得進去、讀不回來**，該列退回「待填被覆」。**2026-10-16：使用者決定走「甲」—— 不改讀取，只讓限制可見**，已實作（詳見下方「C-19 第一層／C-20 甲 的修正內容」），**尚未部署**。「乙」（給被覆一個獨立的讀取述詞、`HasValue` 為真就接受 0）**明確未選**：它避得開理由 (2)、避不開理由 (1)，而失敗方向是把資料不足換成一個有肯定語氣的答案，對一個判定會被當成法規依據的工具來說不值得那個風險。**往返本身仍未修**（真要修得先在寫入側標記「這個 0 是宣告」）|
+| C-21 | 🟢 低 | **沒有區劃面積結果、也沒有垂直區劃結果的區劃，其所有結果列的區劃名稱都是空的。** 檢討表的區劃名稱不是從區劃讀，而是 `ReviewTable.ZoneNames` 從**同一次檢討裡帶 `zone.name` 證據的結果**借來；帶這項證據的只有區劃面積、垂直區劃、帷幕牆交接、第79條之1 四個 check。用途為樓梯間的區劃免第79條面積檢討，又沒有需要檢的門時垂直區劃也不出列，於是沒有任何一列帶出名字。實機：副本 FL2「5 梯廳1」（316023，zoneId `a4a1f2ea-…`）的 13 列（構件時效、防火門窗）`zoneName` 全為 null，標題少了「＠梯廳1」，但訊息內文寫得出「於區劃「梯廳1」」。判定不受影響，只是顯示與依區劃分組 | `ReviewTable.cs:542-556`（`ZoneNames`；summary 宣稱「every zone the run saw has one」不成立）、`:586`（`ToEntry` 查不到即 null）；`zone.name` 的產生端 `CompartmentAreaCheck.cs:289`、`VerticalCompartmentCheck.cs:517/537`、`CurtainWallJunctionCheck.cs:387`、`Article79_1ExemptionCheck.cs:233` | 2026-10-27 第 15 輪發現；原先懷疑是 V-28「刪除後修復」重建 Area 所致，**查證後排除**——2026-10-27 00:38 重跑仍相同，原因在名稱的來源設計。**修正方向**：讓構件時效、防火門窗等 check 的結果也帶 `zone.name`，或由 runner 依 zoneId 直接提供名稱對照，不再依賴別列借名。**未修，待使用者決定** |
 
 #### C-19 第一層／C-20 甲 的修正內容（2026-10-16 修，**2026-10-25 已部署**）
 
@@ -2363,6 +2364,59 @@ FL3 面積 1/0/1/0（資料不足 1，就是挑空 322273）｜免除 未檢討�
 **C-05**（🟢 低）、**C-06**（🟡 中）、**C-07**（🟢 低）、**C-08**（🟡 中），四筆都已寫進上方的缺陷表。
 其中 **C-06 是本輪最重要的發現**：它不是訊息或體感問題，而是「一般區劃超出面積上限」這個本工具最核心的
 判定，在用途依設計留空時**永遠不會說未符合**，只會說資料不足。
+
+## 第 15 輪：2026-10-25～27 收尾驗證（MCP ＋人工畫面）
+
+**環境**：部署 `7eba879`，副本 `建築防火檢討1_v27驗證.rvt`。所有為湊條件而改的參數都已還原。
+
+### 本輪驗到的項目
+
+| 項目 | 結果 | 證據 |
+| --- | --- | --- |
+| V-14（資料層） | ✅ | 原本的對象 298048 已不在，改用副本的佔位嵌板型別 **331212** `System Panel：Wall`（C-17 夾具，8 個實例）。`scan`：`dimensionMeters 0.12`、`panelKind 實心`、`isSubstituted: true`、`substitutedFrom「Basic Wall：RC 牆 12cm」`、`material RC`、`rating 120 min`、`derived` 第72條第1款第1目「RC 嵌板厚 12cm」、`asks` 全為 false（四格唯讀）、`missingParameters` 空。玻璃 12611：`dimensionMeters 0.01`、`asks.material false`、`derived.rating null`。**面板顯示（`嵌板厚 12 cm`／`1 cm` 字樣、藍底、tooltip、`0 / 8`）仍需人工看** |
+| V-27 第 6 項 | ✅ | 門型別 330566 `防火檢討_設計防火保護` 改否 → dryRun：門 327599 兩列（區劃 2、梯廳1）皆**未符合**，規則 `tw-bcr-79-opening` v1、第79條第1項、「設計防火保護 = 「否」，未符合 == 「是」」，不是人工覆核。驗畢改回是 |
+| V-17 | ✅ | 取得突出量非零的符合列：FL2 `CW-H:289140:289414`，突出量 **+0.6625 m**、所屬「區劃 2」、交點 (18.8294, −31.5796)、高程 4～8 m、交接帶嵌板 2 個。0.6625 ＝ FL3 同位置牆 315739 凸出外牆的 0.675 m 減帷幕牆半厚 0.0125 m —— **決議 15 的方向是外凸為正**，有逐字證據了 |
+| V-09 第 2 項 | ✅ | 嵌板型別 89205 `防火檢討_設計防火時效` 由空白改 `1h` → `get_results(checkFreshness)`：`isStale: true`、`staleReasons「參與檢討的元素或區劃有 1 項已被修改」`，需更新 2 列＝同一片嵌板 327601 在區劃 2、梯廳1 的**防火門窗**列（預期中的 subject 粒度）。改回空白後 `isStale: false`、0 列 |
+
+### 本輪的觀察（不是缺陷，但要知道）
+
+- **套件狀態「已失效」是單向的**：值改回去後結果已不需更新，但套件仍顯示「已失效」，直到下一次真正檢討。
+  這是 `ReviewRunValidity.ApplyTo` 的設計（只把 Reviewed／Documented 推向 Stale，從不反向）。
+  副本 FL2 套件因此停在「已失效」。
+- **FL2「梯廳1」的結果列 `zoneName` 一律是 null**（13 列全部；其他區劃正常），標題因此少了「＠梯廳1」，
+  但訊息內文寫得出「梯廳1」。**2026-10-27 查明是缺陷，登記為 C-21**：區劃名稱是向帶 `zone.name`
+  證據的結果列借來的，「梯廳1」是樓梯間，沒有面積結果也沒有垂直區劃結果，所以借不到。
+  與 V-28 重建 Area 無關（重跑後相同）。
+- **明細的兩處位數不一致**：同一列 `CW-H:289140:289414` 的明細，「原因說明」寫 `0.662 m`、
+  「模型實際值」與「判定依據」寫 `0.6625 m`。視窗與 MCP 一致，只是格式不統一，不列缺陷。
+
+### 2026-10-27 人工畫面驗證（副本）
+
+第一批不改模型，第二批會改，改過的都已復原（Ctrl+Z）。驗畢 MCP 複查：`scan` 的參數都在原值，
+FL4 沒有殘留新 Area，FL2 套件為「已檢討」。
+
+| 項目 | 結果 | 看到 |
+| --- | --- | --- |
+| V-14 面板 | ✅ | 331212 `System Panel：Wall`：`嵌板厚 12 cm`、`實心（取自牆型別）`、四格藍底唯讀、tooltip 指向 `Basic Wall：RC 牆 12cm`、`0 / 8`；玻璃 `嵌板厚 1 cm`、材料灰、推定 `—` |
+| V-33 第 1 項 | ✅ | 面板構件類型 15 列、區劃 13 列，與 `scan` 的 `typeCount 15`、`zoneCount 13` 相同 |
+| V-18 P19 | ✅ | 取消「防火構造建築物」後紅字說明每列都會判「不適用」、「不適用」不代表合格；未寫入，已改回勾選 |
+| V-32 第 1 項 | ✅ | 視窗「開始檢討前的檢查」三條與 `fire_review_check` 逐條相同（BCR-STALE-001、BCR-PRE-002、BCR-CAND-001「18 個元素」） |
+| V-32 第 3、4 項 | ✅ | 視窗按「開始檢討」：「工作包「FL2 - 防火區劃」　狀態：已檢討…符合 190 / 未符合 11 / 待確認 16 / 不適用 90　檢討時間 2026-10-27 00:38」；MCP 讀到 `lastReviewRunId d3302c73-…`、`completedAtUtc 2026-10-26T16:38:05Z`、統計相同；套件由「已失效」回到「已檢討」 |
+| V-32 第 6 項 | ✅ | `CW-H:289140:289414` 視窗「複製明細」與 `fire_review_describe_result` 的 `text` 相同 |
+| V-10 第 1、2 項 | ✅ | 平面上 CW-H 標註為實測 mm 值；層間帶為紅色填滿區域 |
+| V-26 第 3 項 | ✅ | 257977 的帷幕牆立面，層間帶畫在弧起訖點的弦上 |
+| V-13 第 5 項 | ✅ | 檢討表圖號、平面標註、立面名稱是同一個號碼 |
+| V-10 第 4 項 | ✅ | 手改標註後重跑，回到工具算出的值，沒有多一份 |
+| V-10 第 6 項 | ✅ | 縮小立面裁剪範圍後重跑，範圍自動放大，摘要看得到 |
+| V-13 第 4 項 | ✅ | 手動改立面名稱後重跑，名稱不被改回，結果出現「視圖名稱已由使用者變更」 |
+| V-11 第九種字串 | ✅ | FL4 新畫的 Area（未填樓層序），面板上限為 `未填樓層序，無法判定上限`；**九種字串至此全過** |
+| V-32 第 7 項 | ✅ | 刪 FL2 一個區劃的 Area 後，視窗上方出現「需更新」橫幅；已 Ctrl+Z 復原 |
+
+### 仍然驗不到的
+
+- **V-13 第 2、3 項**（同一片牆多處層間帶的號碼列舉、遞補）：一個套件＝一個樓層，同一片牆在一個套件裡只會有一條層間帶，本設計下湊不出來。
+- **V-26 第 2 項**、V-08、V-09 第 1 項、V-19 R14、V-27 第 1／2 項、V-15、V-16、V-29 第 10～14 項、V-28 第 7 項尾段：本模型沒有對應條件（見各節）。
+- **V-10 第 5 項**：要寫 Extensible Storage，只能用單元測試驗。
 
 
 ## 已完成紀錄
