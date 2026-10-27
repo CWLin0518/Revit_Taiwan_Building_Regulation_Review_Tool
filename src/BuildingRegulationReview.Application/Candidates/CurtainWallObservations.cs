@@ -436,22 +436,30 @@ public sealed class CurtainWallObservation
         }
     }
 
-    /// <summary>The nearest boundary at or below <paramref name="edge"/> within a mullion's width; the edge itself otherwise.</summary>
-    private static double Lower(double edge, IEnumerable<double> boundaries)
-    {
-        var candidates = boundaries
-            .Where(b => b <= edge + CurtainPanelObservation.TouchToleranceMm && edge - b <= CurtainPanelObservation.MullionGapMm)
-            .ToList();
-        return candidates.Count == 0 ? edge : Math.Min(edge, candidates.Max());
-    }
+    /// <summary>
+    /// A lower edge moved out to its own boundary: the boundary nearest to it within a mullion's width,
+    /// on either side. An edge already past that boundary — a door wider than its cell, a bounding-box
+    /// reading of a sloped panel — stays where it is rather than jumping over the line to the next one,
+    /// which would stretch it across a neighbouring narrow cell (code review of C-23).
+    /// </summary>
+    private static double Lower(double edge, IEnumerable<double> boundaries) =>
+        Nearest(edge, boundaries) is double b ? Math.Min(edge, b) : edge;
 
-    /// <summary>The nearest boundary at or above <paramref name="edge"/> within a mullion's width; the edge itself otherwise.</summary>
-    private static double Upper(double edge, IEnumerable<double> boundaries)
+    /// <summary>The upper counterpart of <see cref="Lower"/>.</summary>
+    private static double Upper(double edge, IEnumerable<double> boundaries) =>
+        Nearest(edge, boundaries) is double b ? Math.Max(edge, b) : edge;
+
+    private static double? Nearest(double edge, IEnumerable<double> boundaries)
     {
-        var candidates = boundaries
-            .Where(b => b >= edge - CurtainPanelObservation.TouchToleranceMm && b - edge <= CurtainPanelObservation.MullionGapMm)
-            .ToList();
-        return candidates.Count == 0 ? edge : Math.Max(edge, candidates.Min());
+        double? nearest = null;
+        foreach (var b in boundaries)
+        {
+            var gap = Math.Abs(b - edge);
+            if (gap > CurtainPanelObservation.MullionGapMm) continue;
+            if (nearest is null || gap < Math.Abs(nearest.Value - edge)) nearest = b;
+        }
+
+        return nearest;
     }
 
     public override string ToString() => FacetIndex is int facet

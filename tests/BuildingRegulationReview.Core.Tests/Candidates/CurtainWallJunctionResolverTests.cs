@@ -1760,6 +1760,57 @@ public sealed class CurtainWallJunctionResolverTests
         Assert.Equal((1800, 3000, 0, StoreyMm - 300), (hole.StartMm, hole.EndMm, hole.BottomMm, hole.TopMm));
     }
 
+    [Fact]
+    public void A_900mm_cell_whose_panel_is_850mm_net_counts_as_900mm()
+    {
+        // 決議 19（帷幕牆規格）：連續段以格線為界，含橫框寬。格線 3150～4050 剛好 900 mm，實板淨高 850 mm。
+        var set = SpandrelSet(
+            new[]
+            {
+                Panel("S", Mullion, WallLengthMm - Mullion, 60, bottom: StoreyMm - 450 + Mullion, top: StoreyMm + 450 - Mullion),
+                Panel("G-low", Mullion, WallLengthMm - Mullion, 0, bottom: Mullion, top: StoreyMm - 450 - Mullion),
+                Panel("G-high", Mullion, WallLengthMm - Mullion, 0, bottom: StoreyMm + 450 + Mullion, top: StoreyMm * 2 - Mullion)
+            },
+            gridLines: new[]
+            {
+                Grid("G-low", CurtainGridLineDirection.Horizontal, StoreyMm - 450),
+                Grid("G-high", CurtainGridLineDirection.Horizontal, StoreyMm + 450)
+            });
+
+        var junction = Single(Resolve(set), CurtainWallJunctionKind.FloorToCurtainWall);
+
+        Assert.Equal(900, junction.ContinuousFireRatedHeightMm!.Value, 3);
+    }
+
+    [Fact]
+    public void An_edge_past_its_own_grid_line_does_not_jump_to_the_next_one()
+    {
+        // 帷幕牆門比格子寬 2 mm，右緣越過 1500 的格線；隔壁是 1500～1650 的窄格。右緣停在原處，
+        // 不跳到 1650 把窄格蓋掉。
+        var wall = Wall(
+            new[]
+            {
+                Panel("P-door", Mullion, 1502, 60, bottom: Mullion, top: StoreyMm - Mullion),
+                Panel("P-narrow", 1500 + Mullion, 1650 - Mullion, 60, bottom: Mullion, top: StoreyMm - Mullion)
+            },
+            new[] { Grid("V-1", CurtainGridLineDirection.Vertical, 1500), Grid("V-2", CurtainGridLineDirection.Vertical, 1650) });
+
+        Assert.Equal(1502, wall.Panels.Single(p => p.UniqueId == "P-door").EndMm, 3);
+        Assert.Equal((1500.0, 1650.0), (wall.Panels.Single(p => p.UniqueId == "P-narrow").StartMm, wall.Panels.Single(p => p.UniqueId == "P-narrow").EndMm));
+    }
+
+    [Fact]
+    public void Snapping_twice_changes_nothing()
+    {
+        var wall = TopOfWall(lowerSolid: true).CurtainWalls.Single();
+
+        var reversed = wall.WithReversedExteriorNormal();
+
+        Assert.Equal(
+            wall.Panels.Select(p => (p.UniqueId, p.StartMm, p.EndMm, p.BottomMm, p.TopMm)),
+            reversed.Panels.Select(p => (p.UniqueId, p.StartMm, p.EndMm, p.BottomMm, p.TopMm)));
+    }
+
     /// <summary>
     /// 1F 一道 0～3600 的帷幕牆，牆頂就是 2F 樓板。最上排 3100～3600 是 60 min 實板；下面那排由
     /// <paramref name="lowerSolid"/> 決定實板或玻璃。每片嵌板四周都被豎框吃掉 25 mm。

@@ -664,8 +664,12 @@ public static class CurtainWallJunctionResolver
                 if (samples.Count == 0) continue;
 
                 var measurements = new List<(RunMeasurement Measurement, double At)>();
-                foreach (var at in samples)
+                var vertical = facet.GridLines.Where(g => g.Direction == CurtainGridLineDirection.Vertical).ToList();
+                foreach (var sample in samples)
                 {
+                    // C-23 之後嵌板貼齊格線，取樣點正好落在直向格線上時左右兩欄都「覆蓋」它，兩欄的嵌板會
+                    // 混成一欄，往上走時找錯鄰居。挪開 1 mm，讓它只屬於一欄（code review of C-23）。
+                    var at = OffGridLine(sample, vertical, span);
                     var column = facet.Panels.Where(p => p.CoversAlong(at)).ToList();
                     measurements.Add((Measure(
                         Up(column),
@@ -722,6 +726,12 @@ public static class CurtainWallJunctionResolver
                 worst.PanelUniqueIds,
                 SpandrelPlacement(run[0], run[run.Count - 1], floor, options));
         }
+    }
+
+    private static double OffGridLine(double at, IReadOnlyList<CurtainGridLineObservation> vertical, Span span)
+    {
+        if (!vertical.Any(g => Math.Abs(g.PositionMm - at) <= SnapMm)) return at;
+        return at + (2 * SnapMm) <= span.High ? at + (2 * SnapMm) : at - (2 * SnapMm);
     }
 
     /// <summary>
