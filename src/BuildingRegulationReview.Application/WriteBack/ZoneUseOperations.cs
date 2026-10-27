@@ -55,17 +55,25 @@ public sealed class ZoneUseOperation
 
     public bool IsClear => TargetUse.Length == 0;
 
+    /// <summary>
+    /// 不相連的區劃每一塊各有一個面積、各一行預覽；不標出是第幾塊，兩行就一字不差、看不出各指哪一塊
+    /// （2026-10-27 V-29 實測）。第一塊照舊只寫區劃名。
+    /// </summary>
+    private string QuotedName => Key.PartIndex == 0
+        ? "「" + ZoneName + "」"
+        : string.Format(CultureInfo.InvariantCulture, "「{0}」第 {1} 塊", ZoneName, Key.PartIndex + 1);
+
     /// <summary>The preview line, naming both ends so the user can see what is being replaced.</summary>
     public string Text => IsClear
         ? string.Format(
             CultureInfo.InvariantCulture,
-            "清除「{0}」的區劃用途（原為「{1}」，改為一般區劃）",
-            ZoneName,
+            "清除{0}的區劃用途（原為「{1}」，改為一般區劃）",
+            QuotedName,
             CurrentUse)
         : string.Format(
             CultureInfo.InvariantCulture,
-            "將「{0}」的區劃用途設為「{1}」{2}",
-            ZoneName,
+            "將{0}的區劃用途設為「{1}」{2}",
+            QuotedName,
             TargetUse,
             string.IsNullOrEmpty(CurrentUse) ? string.Empty : string.Format(
                 CultureInfo.InvariantCulture, "（原為「{0}」）", CurrentUse));

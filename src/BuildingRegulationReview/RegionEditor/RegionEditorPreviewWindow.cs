@@ -226,6 +226,32 @@ namespace BuildingRegulationReview.RegionEditor
                     };
                 }
             }
+
+            // C-22：新建的面積沿用同區劃既有面積的樓層序等參數。它們跟著上面的「新增」列走，這裡只把
+            // 會寫進去的值（與沿用不了、要使用者補填的參數）講出來。
+            if (preview.ZoneInheritance.Count > 0)
+            {
+                yield return new TextBlock
+                {
+                    Text = string.Format(
+                        CultureInfo.CurrentUICulture,
+                        "新建面積沿用的區劃參數（{0} 個面積）",
+                        preview.ZoneInheritance.Count),
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = Brushes.SteelBlue,
+                    Margin = new Thickness(0, 6, 0, 2)
+                };
+
+                foreach (var operation in preview.ZoneInheritance)
+                {
+                    yield return new TextBlock
+                    {
+                        Text = "　" + operation.Text,
+                        TextWrapping = TextWrapping.Wrap,
+                        ToolTip = operation.Key.ToToken()
+                    };
+                }
+            }
         }
 
         private UIElement BuildButtons(bool canApply)

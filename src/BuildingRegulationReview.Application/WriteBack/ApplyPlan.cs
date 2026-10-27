@@ -119,10 +119,12 @@ public sealed class ApplyPlan
         ColorSchemeEntries colorEntries,
         IEnumerable<ApplyPreviewItem> unchanged,
         int untouchedElementCount,
-        ZoneUseOperations zoneUses)
+        ZoneUseOperations zoneUses,
+        ZoneParameterInheritance? zoneInheritance = null)
     {
         PackageId = packageId;
         ZoneUses = zoneUses;
+        ZoneInheritance = zoneInheritance ?? ZoneParameterInheritance.Empty;
         Steps = new ReadOnlyCollection<ApplyStep>(steps.ToList());
         Deferred = new ReadOnlyCollection<ApplyPreviewItem>(deferred.ToList());
         Warnings = new ReadOnlyCollection<string>(warnings.ToList());
@@ -186,6 +188,12 @@ public sealed class ApplyPlan
     /// model changes all the same, which is why <see cref="IsEmpty"/> asks about them.
     /// </summary>
     public ZoneUseOperations ZoneUses { get; }
+
+    /// <summary>
+    /// What this run's new Areas take over from their 區劃's existing Areas (C-22). Written after the
+    /// Areas stage; never makes a plan non-empty on its own, because only a new Area has any.
+    /// </summary>
+    public ZoneParameterInheritance ZoneInheritance { get; }
 
     public bool IsEmpty => Steps.Count == 0 && ZoneUses.IsEmpty;
 
@@ -278,7 +286,8 @@ public sealed class ApplyPlan
             // Carried whatever the adapter can write: 用途 goes onto an Area, and an Area the adapter
             // cannot create is already deferred, so the write-back simply finds no Area to write on
             // and reports that rather than silently dropping the operation here.
-            preview.ZoneUses);
+            preview.ZoneUses,
+            preview.ZoneInheritance);
     }
 
     private static ApplyStage StageOfDelete(ManagedElementKind kind) =>

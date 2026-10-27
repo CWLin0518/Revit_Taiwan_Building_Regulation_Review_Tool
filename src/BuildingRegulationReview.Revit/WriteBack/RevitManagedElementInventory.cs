@@ -70,8 +70,29 @@ public sealed class RevitManagedElementInventory
                 token,
                 signature,
                 Describe(element),
-                ZoneUseOf(element)));
+                ZoneUseOf(element),
+                ZoneParametersOf(element)));
         }
+    }
+
+    /// <summary>
+    /// The four 區劃 parameters besides 用途, as an Area carries them (C-22). A value counts only when
+    /// Revit says it has one: a Yes/No or Integer that was never set is not 0, it is 未填.
+    /// </summary>
+    private static IReadOnlyDictionary<string, int?>? ZoneParametersOf(Element element)
+    {
+        if (!(element is Autodesk.Revit.DB.Area)) return null;
+
+        var values = new Dictionary<string, int?>();
+        foreach (var name in ZoneAreaParameters.All)
+        {
+            var parameter = element.LookupParameter(name);
+            values[name] = parameter is not null && parameter.StorageType == StorageType.Integer && parameter.HasValue
+                ? parameter.AsInteger()
+                : (int?)null;
+        }
+
+        return values;
     }
 
     /// <summary>

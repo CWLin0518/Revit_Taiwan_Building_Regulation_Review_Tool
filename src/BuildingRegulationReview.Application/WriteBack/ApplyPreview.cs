@@ -85,13 +85,15 @@ public sealed class ApplyPreview
         IEnumerable<ApplyPreviewItem> items,
         int untouchedElementCount,
         IEnumerable<string> warnings,
-        ZoneUseOperations? zoneUses = null)
+        ZoneUseOperations? zoneUses = null,
+        ZoneParameterInheritance? zoneInheritance = null)
     {
         PackageId = packageId;
         Items = new ReadOnlyCollection<ApplyPreviewItem>(items.ToList());
         UntouchedElementCount = untouchedElementCount;
         Warnings = new ReadOnlyCollection<string>(warnings.ToList());
         ZoneUses = zoneUses ?? ZoneUseOperations.Empty;
+        ZoneInheritance = zoneInheritance ?? ZoneParameterInheritance.Empty;
 
         Added = Filter(ApplyChangeKind.Add);
         Updated = Filter(ApplyChangeKind.Update);
@@ -119,6 +121,13 @@ public sealed class ApplyPreview
     /// row above, but they are still changes to the model and count towards <see cref="IsEmpty"/>.
     /// </summary>
     public ZoneUseOperations ZoneUses { get; }
+
+    /// <summary>
+    /// What the new Areas of this run take over from the Areas their 區劃 already has (C-22). Only
+    /// new Areas have any, and a new Area is already an 新增 row, so this never makes an empty
+    /// preview non-empty.
+    /// </summary>
+    public ZoneParameterInheritance ZoneInheritance { get; }
 
     /// <summary>True when applying would change nothing, which is what a second run should report.</summary>
     public bool IsEmpty =>
@@ -238,7 +247,8 @@ public sealed class ApplyPreview
                 orphan.Value.ElementUniqueId));
         }
 
-        return new ApplyPreview(packageId, items, untouched, Warn(map, zones), ZoneUseOperations.Build(planned, mine));
+        return new ApplyPreview(packageId, items, untouched, Warn(map, zones),
+            ZoneUseOperations.Build(planned, mine), ZoneParameterInheritance.Build(planned, mine));
     }
 
     /// <summary>
@@ -258,7 +268,8 @@ public sealed class ApplyPreview
         Warnings,
         // A rebuild redraws elements; it does not re-assert 用途. The operations already exclude the
         // Areas that agree with the draft, and rewriting those would make the review stale for nothing.
-        ZoneUses);
+        ZoneUses,
+        ZoneInheritance);
 
     private static IEnumerable<string> Warn(PlanRegionMap map, ZoneDraftSet zones)
     {

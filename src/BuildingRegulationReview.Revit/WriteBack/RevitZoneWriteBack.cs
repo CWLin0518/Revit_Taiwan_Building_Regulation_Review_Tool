@@ -80,6 +80,7 @@ public sealed class RevitZoneWriteBack
                 Run(plan, ApplyStage.Boundaries, "建立與更新面積邊界線", step => Boundary(plan, step, log, view, level));
                 Run(plan, ApplyStage.Areas, "建立與更新面積", step => Area(plan, step, log, view));
                 ZoneUses(plan, log);
+                ZoneInheritance(plan, log);
                 Run(plan, ApplyStage.Tags, "建立與更新面積標註", step => Tag(plan, step, log, view));
                 DetailCurves(plan, request, log);
                 ColorScheme(plan, request, view, log);
@@ -505,6 +506,69 @@ public sealed class RevitZoneWriteBack
         }
 
         log.ZoneUse(ApplyOutcome.Updated, operation, null, element.UniqueId);
+    }
+
+    /// <summary>
+    /// 驗證清單 C-22：這次新建的面積，寫上同區劃既有面積一致的樓層序、自動滅火設備等參數。
+    /// </summary>
+    /// <remarks>
+    /// 不寫的話，同一區劃的各面積就填得不一致，檢討把它讀成「格式無法判讀」，連帶該區劃的面積與
+    /// 構件時效都變成資料不足（2026-10-27 V-29 實測）。只寫新面積上還沒有值的參數，既有面積一律不碰；
+    /// 既有面積彼此不一致的參數不替使用者選，結果訊息請他補填。和用途一樣在本次寫回的交易群組裡，
+    /// 整批復原時一起復原。
+    /// </remarks>
+    private void ZoneInheritance(ApplyPlan plan, ApplyResult.Builder log)
+    {
+        if (plan.ZoneInheritance.IsEmpty) return;
+
+        using (var transaction = new Transaction(_document, "沿用區劃參數"))
+        {
+            transaction.Start();
+
+            foreach (var operation in plan.ZoneInheritance)
+            {
+                var element = Find(plan, operation.Key);
+                if (element is null || !ManagedElementMark.IsOwnedBy(element, plan.PackageId))
+                {
+                    log.Note($"「{operation.ZoneName}」新建的面積找不到，沒有沿用區劃參數；請在「防火參數批次設定」確認該區劃的樓層序等欄位。");
+                    continue;
+                }
+
+                var written = new List<string>();
+                var refused = new List<string>();
+                foreach (var value in operation.Values)
+                {
+                    var parameter = element.LookupParameter(value.Parameter);
+                    if (parameter is null || parameter.StorageType != StorageType.Integer || parameter.IsReadOnly)
+                    {
+                        refused.Add(ZoneAreaParameters.Label(value.Parameter));
+                        continue;
+                    }
+
+                    if (parameter.HasValue) continue;
+
+                    try
+                    {
+                        if (parameter.Set(value.Value)) written.Add(value.Text);
+                        else refused.Add(ZoneAreaParameters.Label(value.Parameter));
+                    }
+                    catch (RevitApplicationException)
+                    {
+                        refused.Add(ZoneAreaParameters.Label(value.Parameter));
+                    }
+                }
+
+                if (written.Count > 0)
+                    log.Note($"「{operation.ZoneName}」新建的面積已沿用同區劃既有面積的 {string.Join("、", written)}。");
+                if (refused.Count > 0)
+                    log.Note($"「{operation.ZoneName}」新建的面積無法寫入 {string.Join("、", refused)}（參數不存在或唯讀），請在「防火參數批次設定」補填。");
+                if (operation.Unresolved.Count > 0)
+                    log.Note($"「{operation.ZoneName}」既有面積的 {string.Join("、", operation.Unresolved.Select(ZoneAreaParameters.Label))} 填得不一致或有未填，新建的面積沒有填，請在「防火參數批次設定」補填。");
+            }
+
+            if (transaction.Commit() != TransactionStatus.Committed)
+                throw new InvalidOperationException("Revit 無法提交「沿用區劃參數」。");
+        }
     }
 
     private void DetailCurves(ApplyPlan plan, ZoneWriteBackRequest request, ApplyResult.Builder log)

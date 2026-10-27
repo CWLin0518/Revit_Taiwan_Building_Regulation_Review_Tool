@@ -256,7 +256,8 @@ public sealed class ExistingManagedElement
         string keyToken,
         string signature,
         string? description = null,
-        string? zoneUse = null)
+        string? zoneUse = null,
+        IReadOnlyDictionary<string, int?>? zoneParameters = null)
     {
         if (string.IsNullOrWhiteSpace(elementUniqueId)) throw new ArgumentException("An element UniqueId is required.", nameof(elementUniqueId));
         if (string.IsNullOrWhiteSpace(keyToken)) throw new ArgumentException("A managed element needs its key token.", nameof(keyToken));
@@ -265,6 +266,7 @@ public sealed class ExistingManagedElement
         KeyToken = keyToken.Trim();
         Signature = (signature ?? string.Empty).Trim();
         ZoneUse = zoneUse?.Trim();
+        _zoneParameters = zoneParameters ?? new Dictionary<string, int?>();
         HasKey = ManagedElementKey.TryParse(KeyToken, out var key);
         Key = key;
         Description = string.IsNullOrWhiteSpace(description)
@@ -284,6 +286,15 @@ public sealed class ExistingManagedElement
     /// parameter, and for an Area whose parameter is not bound or does not hold text.
     /// </summary>
     public string? ZoneUse { get; }
+
+    private readonly IReadOnlyDictionary<string, int?> _zoneParameters;
+
+    /// <summary>
+    /// One of <see cref="ZoneAreaParameters.All"/> as this Area carries it now; null when it is unset,
+    /// unbound, or the element is not an Area (C-22).
+    /// </summary>
+    public int? ZoneParameter(string parameter) =>
+        _zoneParameters.TryGetValue(parameter, out var value) ? value : null;
 
     public string Description { get; }
 
