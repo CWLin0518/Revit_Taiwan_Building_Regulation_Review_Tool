@@ -419,10 +419,7 @@ public static class FireResistanceCheck
     /// centreline crosses the edge with neither side on it (驗證清單 C-18). Linked elements, missing
     /// geometry and doubtful zones are doubts about the data itself and are never settled.
     /// </summary>
-    private static bool IsBoundaryDoubt(CandidateAmbiguityKind kind) =>
-        kind == CandidateAmbiguityKind.BoundaryAlongOutline ||
-        kind == CandidateAmbiguityKind.BoundaryOffCenterline ||
-        kind == CandidateAmbiguityKind.BoundaryCrossed;
+    private static bool IsBoundaryDoubt(CandidateAmbiguityKind kind) => BoundaryDoubts.Is(kind);
 
     /// <summary>
     /// Settles a boundary doubt when the law gives the same answer either way. The rules are evaluated

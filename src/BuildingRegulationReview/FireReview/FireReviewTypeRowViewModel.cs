@@ -484,9 +484,8 @@ namespace BuildingRegulationReview.FireReview
         /// that really declares 被覆 0 公分 has said something (no 被覆 threshold is met, so 無防火時效),
         /// and hiding it would put back exactly the conflation C-11 is about.
         /// <para>
-        /// 今天這個分支其實印不出來：<c>Source.CoverMeters</c> 永遠拿不到 0，掃描層的
-        /// <c>IsPositiveLength</c> 要求 <c>&gt; 0</c>、先把它吃掉了，所以宣告 0 公分的類型在面板上
-        /// 看到的是**空白**而不是 0（驗證清單 C-20）。這個分支是為那條缺陷修好之後準備的。
+        /// 驗證清單 C-20 乙之後這個分支印得出來了：掃描層的 <c>CoverMeters</c> 連 0 一起讀，宣告 0 公分的
+        /// 類型在面板上看到的是 0 而不是空白。
         /// </para>
         /// </summary>
         private static string Centimetres(double? meters) => meters.HasValue

@@ -254,6 +254,8 @@ public static class ReviewFieldText
         ["junction.facadeWallUniqueIds"] = "交接處實體外牆",
         ["junction.placement"] = "交接處位置",
         ["junction.doubt"] = "無法判定的情形",
+        ["junction.hostBoundaryDoubt"] = "區劃牆與區劃的關係存疑",
+        ["junction.verdictIfBoundary"] = "假設這道牆是區劃牆時的結論",
         ["junction.doubtReason"] = "無法判定的原因",
         ["junction.doubtSubjects"] = "相關元素",
         ["junction.transferredTo"] = "改依哪一條檢討",

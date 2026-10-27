@@ -446,6 +446,26 @@ public sealed class CurtainWallJunctionResolverTests
         Assert.Contains("W1", junction.Doubt.SubjectUniqueIds);
     }
 
+    /// <summary>
+    /// 驗證清單 C-19 第二層：一道只是「可能是區劃牆」的牆收在帷幕牆前、沒有交點時，不另出一列。
+    /// 兩個疑義（是不是區劃牆、有沒有交接）疊在一起，只會讓每一道收在帷幕牆前的隔間牆都多一列人工覆核。
+    /// 同一道牆真的穿過帷幕牆時照樣出列，而且帶著疑義。
+    /// </summary>
+    [Fact]
+    public void A_wall_that_may_be_a_compartment_wall_and_only_stops_near_the_curtain_wall_makes_no_junction()
+    {
+        var near = new CompartmentWallObservation("W1", new Point2D(5000, 3000), new Point2D(5000, 400), 0, StoreyMm,
+            boundaryDoubt: "跨越邊界");
+        Assert.DoesNotContain(Resolve(Set(Wall(Glazing()), hosts: new[] { near })),
+            j => j.Kind == CurtainWallJunctionKind.WallToCurtainWall);
+
+        var through = new CompartmentWallObservation("W1", new Point2D(5000, 3000), new Point2D(5000, -500), 0, StoreyMm,
+            boundaryDoubt: "跨越邊界");
+        var junction = Single(Resolve(Set(Wall(Glazing()), hosts: new[] { through })), CurtainWallJunctionKind.WallToCurtainWall);
+        Assert.Null(junction.Doubt);
+        Assert.Equal("跨越邊界", junction.HostBoundaryDoubt);
+    }
+
     [Fact]
     public void A_compartment_wall_nowhere_near_the_curtain_wall_makes_no_junction()
     {

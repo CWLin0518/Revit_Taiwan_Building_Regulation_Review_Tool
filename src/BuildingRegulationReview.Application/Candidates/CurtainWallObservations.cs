@@ -511,7 +511,8 @@ public sealed class CompartmentWallObservation
         double topElevationMm,
         string legalReference = CurtainWallJunctionReferences.Article79,
         double? requiredFireRatingMinutes = null,
-        string? typeName = null)
+        string? typeName = null,
+        string? boundaryDoubt = null)
     {
         if (string.IsNullOrWhiteSpace(uniqueId)) throw new ArgumentException("Compartment wall UniqueId is required.", nameof(uniqueId));
         if (string.IsNullOrWhiteSpace(legalReference)) throw new ArgumentException("Name the clause the compartment comes from.", nameof(legalReference));
@@ -529,6 +530,7 @@ public sealed class CompartmentWallObservation
         LegalReference = legalReference.Trim();
         RequiredFireRatingMinutes = requiredFireRatingMinutes;
         TypeName = string.IsNullOrWhiteSpace(typeName) ? null : typeName!.Trim();
+        BoundaryDoubt = string.IsNullOrWhiteSpace(boundaryDoubt) ? null : boundaryDoubt!.Trim();
     }
 
     public string UniqueId { get; }
@@ -544,6 +546,14 @@ public sealed class CompartmentWallObservation
     public double? RequiredFireRatingMinutes { get; }
 
     public string? TypeName { get; }
+
+    /// <summary>
+    /// 不確定它是不是區劃牆時，疑義的種類（跨越邊界／偏離中心線／沿輪廓）；確定是區劃牆時為 null
+    /// （驗證清單 C-19 第二層）。它與帷幕牆的交接處一律交人工覆核，帶也不從第79條之4 扣嵌板。
+    /// </summary>
+    public string? BoundaryDoubt { get; }
+
+    public bool IsBoundaryInDoubt => BoundaryDoubt is not null;
 
     // 這道牆自己的設計防火時效**刻意不記在這裡**。CW-H 的但書問的是「該外牆構造」的時效，答案只能
     // 來自立面內的實體外牆（FacadeWallObservation）；若容許以區劃牆自身的時效作答，任何具時效的

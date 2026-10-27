@@ -168,8 +168,8 @@ public sealed class RevitFireReviewParameterWriter
             // 驗證清單 C-11：清空一格長度不是「寫 0」。0 落進第71～73條的被覆門檻鏈，得到一個有效的
             // 推定（未達任一門檻，最低 3cm → 無防火時效）；無值才走 CoverMissing，該列列為待填。
             // 舊行為 Set(0.0) 會成功，所以一次清除被回報成一次寫入，而模型裡被悄悄留下一個使用者
-            // 沒有宣告過的 0——Revit 的類型屬性與明細表看到的都是「0」，而掃描層的 IsPositiveLength
-            // 要求 > 0、讀不回它，所以他在面板上既看不到也清不掉。
+            // 沒有宣告過的 0——Revit 的類型屬性與明細表看到的都是「0」。C-20 乙之後掃描層也讀得到
+            // 它，會把它當成宣告（推定無防火時效），所以更不能在這裡替使用者寫。
             // 本來就沒有值的參數沒有東西可以取回，不是使用者在清除。
             if (edit.LengthMeters is not double meters)
                 return parameter.HasValue ? WriteOutcome.NotClearable : WriteOutcome.Unchanged;

@@ -390,45 +390,26 @@ public sealed class FireReviewParameterEdit
 /// 理由相同：面板要在產生編輯之前就認得出這一格，MCP 的 <c>ignored</c> 也用同一句理由。
 /// </para>
 /// <para>
-/// 那個 0 今天「不會」回頭污染本工具的推定，但原因不是呼叫端少，而是只靠一個條件攔著：
-/// <c>RevitFireReviewTypeScanner.IsPositiveLength</c> 要求 <c>AsDouble() &gt; 0</c>，所以存著 0 的被覆
-/// 重掃後讀回 null，面板的格子是空白、推定仍是 <c>FireRatingDerivationKind.CoverMissing</c>。
-/// 掃描層那個 <c>&gt; 0</c> 日後若被放寬，壞掉的**不是**「把一個時效寫進參數」這一路：被覆 0 推出的是
-/// <c>FireRatingDerivationKind.NotRated</c>，而 <c>FireRatingDerivation.HasRating</c> 只在
-/// <c>Derived</c> 時為真，所以它是 false、<c>ParameterText</c> 是 null、
-/// <see cref="FireReviewTypeRow.RatingEdit"/> 回 null，<c>防火檢討_設計防火時效</c> 一個字都不會被寫
-/// （<see cref="FireReviewTypeRow.CanApplyDerived"/> 同樣因 <c>!HasRating</c> 回 false）。壞掉的是那一列
-/// **從待辦裡消失**：<c>Kind</c> 由 <c>CoverMissing</c> 變成 <c>NotRated</c>，
-/// <c>FireRatingDerivationGaps.AwaitsCover</c>（要求 <c>Kind == CoverMissing</c>）回 false，於是面板
-/// 狀態列的「待填被覆」與 MCP 的 <c>onlyNeedingAttention</c> 都不再列它，而面板「依據／提醒」欄把
-/// 「SC 被覆 0.0cm，未達門檻 → 無防火時效」當成一個**已決的推定**端給審查者看。屆時要連這段一起重查。
-/// </para>
-/// <para>
 /// 寫 0 的真正代價因此是模型被改與回報說謊兩件，不是一個錯的判定。而 0 在推定的語意上確實是一個
 /// 「宣告」——SC 被覆未達第71～73條任一被覆門檻（最低 3 公分，第73條第1款第2目）→「無防火時效」——
-/// 所以使用者自己打 <c>0</c> 必須仍然寫得進去，不可以被這道攔阻擋掉。掃描層讀不回那個 0，
-/// 使得「真心想宣告 0 公分」無法往返，是另一條缺陷（驗證清單 C-20）。
+/// 所以使用者自己打 <c>0</c> 必須仍然寫得進去，不可以被這道攔阻擋掉。
 /// </para>
 /// <para>
-/// 驗證清單 C-20 走的是**甲方案：只讓限制可見，不改讀取**。<see cref="DeclaresZeroCover"/> 與
-/// <see cref="ZeroCoverNotice"/> 就是那一層——使用者在「宣告 0 公分」的那一刻被告知這個往返限制，
-/// 面板的確認視窗與 MCP 的回應各取用同一句話。<c>RevitFireReviewTypeScanner.IsPositiveLength</c>
-/// 的 <c>&gt; 0</c> **刻意不放寬**，兩個理由：
-/// <list type="number">
-/// <item>剛綁定／從未填寫的長度參數常常是 <c>HasValue == true, AsDouble() == 0</c>，放寬會讓每一條
-/// **沒填**被覆的 SC 列都被當成「已宣告 0 公分」：推定由 <c>CoverMissing</c> 變成 <c>NotRated</c>，
-/// <c>FireRatingDerivationGaps.AwaitsCover</c> 回 false，那一列就從面板的「待填被覆」與 MCP 的
-/// <c>onlyNeedingAttention</c> 消失，而面板「依據／提醒」欄把「無防火時效」當成**已決的推定**呈現。
-/// 資料不足被換成一個有肯定語氣的答案，而且使用者再也不會被提示去填它。那個 0 **不會**被寫進
-/// <c>防火檢討_設計防火時效</c>——<c>NotRated</c> 的 <c>HasRating</c> 是 false，
-/// <see cref="FireReviewTypeRow.RatingEdit"/> 回 null——危害在「不再被問」，不在「寫錯一個值」。</item>
-/// <item><c>IsPositiveLength</c> 同時服務三個欄位：**被覆、柱短邊與嵌板厚**。牆厚走
-/// <c>WallType.Width &gt; 0</c>、板厚走掃描器自己的 <c>Structure()</c>（<c>width &gt; 0</c>），兩者都
-/// 不經過它。放寬會讓短邊 0 的柱與厚度 0 的嵌板也「讀得到尺寸」，它們的 <c>DimensionMissing</c>
-/// 同樣變成 <c>NotRated</c>，與第 1 點同一類危害——所以就算只想替被覆放寬，也會連帶改掉另外兩個
-/// 欄位的讀法。</item>
-/// </list>
-/// 替被覆另開一個讀取述詞（「乙方案」）能避開第 2 點，但避不開第 1 點，而且本批未選它。
+/// 驗證清單 C-20：那個宣告原本無法往返——掃描層只把大於 0 的長度當成有值，存著 0 的被覆重掃後讀回
+/// null，格子空白、該列回到「待填被覆」。2026-10-16 先走「甲」（只讓限制可見），2026-10-27 改走
+/// **「乙」**：<c>RevitFireReviewTypeScanner.CoverMeters</c> 給被覆一個獨立的讀取述詞，參數
+/// <c>HasValue</c> 為真就接受 0。柱短邊與嵌板厚仍走 <c>IsPositiveLength</c> 的 <c>&gt; 0</c>，不受影響。
+/// 乙當初沒選，是怕「剛綁定／從未填寫的長度參數是 <c>HasValue == true, AsDouble() == 0</c>」，那會讓
+/// 每一條沒填被覆的 SC 列都變成「已宣告 0 公分」。2026-10-27 在實機模型上查過：從未填寫的類型，
+/// 被覆參數讀不到值（<c>HasValue</c> 為假），只有真的寫過 0 的類型讀得到 0，所以那個前提在 Revit 2024
+/// 以本工具綁定的共用參數上不成立。殘留的風險是 C-11 修好之前（2026-10-15 以前的版本）用面板「清空」
+/// 被覆時被悄悄寫進去的 0：那些 0 現在會被讀成宣告。推定那一欄會寫出「SC 被覆 0.0cm…無防火時效」，
+/// 審查者看得到；而檢討本身不讀被覆厚度，判定不受影響。
+/// </para>
+/// <para>
+/// <see cref="DeclaresZeroCover"/> 與 <see cref="ZeroCoverNotice"/> 留下來，但講的事變了：不再是
+/// 「讀不回來」，而是「0 的意思是無防火時效」——使用者在宣告的那一刻知道後果，面板的確認視窗與
+/// MCP 的回應各取用同一句話。
 /// </para>
 /// </remarks>
 public static class FireReviewParameterLimits
@@ -618,7 +599,7 @@ public static class FireReviewParameterLimits
 
     /// <summary>
     /// Whether this edit declares a 被覆 of 0 公分 — which 第71～73條 read as 無防火時效
-    /// (驗證清單 C-20 甲方案).
+    /// (驗證清單 C-20).
     /// </summary>
     /// <remarks>
     /// 問的是「這一筆編輯在宣告 0」，不是「這一格空白」：空白是
@@ -626,8 +607,7 @@ public static class FireReviewParameterLimits
     /// 對使用者真的打了 <c>0</c>、或 MCP 真的送了 <c>coverCm: 0</c> 的那一筆為真。
     /// <para>
     /// 刻意**只認 <c>防火被覆厚度</c>**，而不是「任何值為 0 的長度編輯」。一個泛用的述詞配一句泛用的
-    /// 文案，就得把「依第71～73條推定為無防火時效」「該列回到待填被覆」這兩句拿掉——而那正是這句話
-    /// 唯一能讓審查者行動的部分。今天面板也只有這一個長度格；日後若多出別的長度參數，該為它寫自己
+    /// 文案，就得把「依第71～73條推定為無防火時效」這句拿掉——而那正是這句話唯一能讓審查者行動的部分。今天面板也只有這一個長度格；日後若多出別的長度參數，該為它寫自己
     /// 的述詞與自己的後果，而不是讓它套用被覆的句子。
     /// </para>
     /// </remarks>
@@ -636,41 +616,34 @@ public static class FireReviewParameterLimits
         string.Equals(edit.ParameterName, StructuralMaterialParameters.Cover, StringComparison.Ordinal);
 
     /// <summary>
-    /// 「你宣告的 0 寫得進去，但本工具讀不回來」這句話（驗證清單 C-20 甲方案）。
+    /// 「你在宣告 0 公分，它的意思是無防火時效」這句話（驗證清單 C-20）。
     /// </summary>
     /// <remarks>
-    /// 第一句一定是「值確實會寫進模型」：使用者看到格子變空白時最容易得到的結論是「寫入失敗了」，
-    /// 於是把同一個 0 再打一次——那正是 C-20 實機觀察到的循環。這句話要同時說出三件事：值進去了、
-    /// 重新掃描讀不回來、所以那一格會空白、該列回到「待填被覆」。
+    /// 乙方案之後 0 讀得回來，這句話不再講往返限制，只講後果：使用者若只是想「清掉」這一格，打 0
+    /// 會得到一個「無防火時效」的推定，而不是空白。
     /// <para>
     /// 文案放在 Application 而不是放在面板或 MCP 裡，理由與 C-05／C-11 相同：兩個出口必須講同一句
     /// 話，而且這句話測得到——面板與 MCP 的接線在 WPF／net48，測試專案碰不到。
     /// </para>
     /// </remarks>
-    public static string ZeroCoverRoundTripNotice =>
-        $"「{StructuralMaterialParameters.Cover}」寫入 0 是宣告被覆 0 公分（依第71～73條推定為「無防火時效」），" +
-        "值確實會寫進模型。但本工具重新掃描時讀不回 0——掃描層只把大於 0 的長度當成有值——" +
-        "所以這一格之後會顯示為空白、該列會回到「待填被覆」。" +
-        "值沒有不見，是顯示與推定讀不到它；要確認它，請在 Revit 的類型屬性裡直接看這個參數。";
+    public static string ZeroCoverDeclaredNotice =>
+        $"「{StructuralMaterialParameters.Cover}」寫入 0 是宣告被覆 0 公分：依第71～73條推定為「無防火時效」" +
+        "（被覆未達任何門檻）。若這不是您的意思，請改填實際的被覆厚度。";
 
     /// <summary>
-    /// 同一個往返限制，但這一批**沒有真的寫進模型**時該說的話（驗證清單 C-20 甲方案）。
+    /// 同一個宣告，但這一批**沒有真的寫進模型**時該說的話（驗證清單 C-20）。
     /// </summary>
     /// <remarks>
     /// MCP 有三條路走這一句：<c>dryRun</c>、「寫入途中失敗、整批復原」，以及「整批 commit 了但這一筆
-    /// 被寫入器略過」（例如那個參數沒綁到這個類別）。
-    /// <see cref="ZeroCoverRoundTripNotice"/> 說的是「值確實會寫進模型…值沒有不見」，在這兩條路上
-    /// 那是假話——模型裡什麼都沒有，而呼叫端（尤其是自動化的）會因此以為宣告已經完成、不再真的寫
-    /// 一次。所以兩種結局兩句話，而不是一句話配一個模糊的語氣。
+    /// 被寫入器略過」（例如那個參數沒綁到這個類別）。呼叫端（尤其是自動化的）不可以因為看到宣告的
+    /// 說明就以為已經寫好了。
     /// </remarks>
-    public static string UnwrittenZeroCoverRoundTripNotice =>
+    public static string UnwrittenZeroCoverDeclaredNotice =>
         $"「{StructuralMaterialParameters.Cover}」這一筆是宣告被覆 0 公分（依第71～73條推定為「無防火時效」），" +
-        "但本批並未實際寫入模型（試跑，或寫入未成功、整批復原），所以模型裡還沒有這個值。" +
-        "若之後真的寫入：值寫得進去，但本工具重新掃描時讀不回 0——掃描層只把大於 0 的長度當成有值——" +
-        "那一格會顯示為空白、該列會回到「待填被覆」。";
+        "但本批並未實際寫入模型（試跑，或寫入未成功、整批復原），所以模型裡還沒有這個值。";
 
     /// <summary>
-    /// 這一批編輯裡有「宣告被覆 0 公分」時要附上的那一句話，沒有就回 null（驗證清單 C-20 甲方案）。
+    /// 這一批編輯裡有「宣告被覆 0 公分」時要附上的那一句話，沒有就回 null（驗證清單 C-20）。
     /// </summary>
     /// <param name="edits">這一批要寫的編輯。</param>
     /// <param name="written">
@@ -685,7 +658,7 @@ public static class FireReviewParameterLimits
     /// </remarks>
     public static string? ZeroCoverNotice(IEnumerable<FireReviewParameterEdit>? edits, bool written = true) =>
         edits is not null && edits.Any(DeclaresZeroCover)
-            ? (written ? ZeroCoverRoundTripNotice : UnwrittenZeroCoverRoundTripNotice)
+            ? (written ? ZeroCoverDeclaredNotice : UnwrittenZeroCoverDeclaredNotice)
             : null;
 
     /// <summary>

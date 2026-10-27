@@ -310,6 +310,11 @@ public static class CurtainWallJunctionResolver
 
         if (!crossing.Value.IsResolved)
         {
+            // 一道「可能是區劃牆」的牆只是靠近帷幕牆、沒有交點時，不另出一列（驗證清單 C-19 第二層）：
+            // 「它是不是區劃牆」與「它有沒有交接於帷幕牆」兩個疑義疊在一起，只會在每一道收在帷幕牆前的
+            // 隔間牆上多一列人工覆核。真的穿過或抵到帷幕牆的，下面照樣出列。
+            if (host.IsBoundaryInDoubt) return WallAttempt.None;
+
             return new WallAttempt(CurtainWallJunction.Doubtful(
                 nearMissId, CurtainWallJunctionKind.WallToCurtainWall, zone.ZoneId, wall.UniqueId,
                 new CurtainWallJunctionDoubt(
@@ -330,7 +335,11 @@ public static class CurtainWallJunctionResolver
         // 要扣掉帶內的嵌板，標示層要把帶內的嵌板塗紅。帶長本身**不由這些嵌板供給**（決議 13）。
         var reach = options.MinFireRatedRunMm;
         var band = PanelBand.Horizontal(at, reach, bandBottom, bandTop);
-        elevation.Cover(wall, band);
+
+        // 可能是區劃牆的帶**不**扣第79條之4 的嵌板（驗證清單 C-19 第二層）：這一列已交人工覆核，CW-O
+        // 若跟著把帶內嵌板扣掉，等於替它先答了「是區劃牆」。保留原來的答案（不扣）才不會因為多讀了
+        // 一道存疑的牆而改動任何既有的判定。
+        if (!host.IsBoundaryInDoubt) elevation.Cover(wall, band);
         var panels = elevation.PanelsIn(wall, band);
 
         // 交接帶附近、且與區劃牆高程重疊的實體外牆。高程只要求「重疊」是為了先問矛盾；要計入帶長
@@ -358,7 +367,8 @@ public static class CurtainWallJunctionResolver
                     new[] { wall.UniqueId, host.UniqueId, facade.Wall.UniqueId, panel.UniqueId }),
                 hostUniqueId: host.UniqueId,
                 panelUniqueIds: panels,
-                facadeWallUniqueIds: new[] { facade.Wall.UniqueId }), true);
+                facadeWallUniqueIds: new[] { facade.Wall.UniqueId },
+                hostBoundaryDoubt: host.BoundaryDoubt), true);
         }
 
         var measurement = FacadeRun(nearby, at, bandBottom, bandTop, host.RequiredFireRatingMinutes, options);
@@ -375,7 +385,8 @@ public static class CurtainWallJunctionResolver
             null,
             panels,
             CurtainWallJunctionPlacement.At(wall.PointAt(at), bandBottom, bandTop),
-            measurement.WallUniqueIds), true);
+            measurement.WallUniqueIds,
+            host.BoundaryDoubt), true);
     }
 
     // --- CW-H 的但書：立面內的實體外牆（docs §4.2「交接處之外牆面」、決議 13）----------------------

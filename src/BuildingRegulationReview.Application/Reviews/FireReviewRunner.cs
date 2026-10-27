@@ -329,6 +329,7 @@ public static class FireReviewRunner
             .Concat(opening.Value.Results)
             .Concat(junction.Value.Results)
             .Concat(shaft.Value.Results)
+            .Select(r => WithZoneName(r, set))
             .ToList();
         var completedAt = clock().ToUniversalTime();
         if (completedAt < started) completedAt = started;
@@ -360,6 +361,32 @@ public static class FireReviewRunner
 
         return new FireReviewOutcome(FireReviewOutcomeKind.Completed, package, completed, carryOver, log.Build(), performance, null);
     }
+
+    /// <summary>
+    /// 每一列有區劃的結果都帶上 <c>zone.name</c>（驗證清單 C-21）。
+    /// </summary>
+    /// <remarks>
+    /// 檢討表的區劃名稱只從存下來的結果重建（<c>ReviewTable.ZoneNames</c>），而原本只有區劃面積、
+    /// 垂直區劃、帷幕牆交接、第79條之1 四個 check 會記這一欄。一個樓梯間區劃既不檢討面積、又沒有
+    /// 需要檢的門時，四者都不出列，它的構件時效與防火門窗結果就全部沒有名字。名字在這裡統一補，
+    /// 不必每個 check 各記一份、也不會因為哪天新增一個 check 而復發；已經記了的（check 自己的值）不動。
+    /// </remarks>
+    private static ReviewResult WithZoneName(ReviewResult result, CandidateSet set)
+    {
+        if (result.ZoneId is null || result.Evidence.Find(ZoneNameField) is not null) return result;
+        if (!Guid.TryParse(result.ZoneId, out var zoneId) || set.Zone(zoneId) is not { } zone) return result;
+
+        return new ReviewResult(result.ResultId, result.RunId, result.PackageId, result.CheckType,
+            result.SubjectUniqueIds, result.ZoneId, result.Status, result.ActualValue, result.RequiredValue,
+            result.RuleId, result.RuleVersion, result.LegalReference, result.Message,
+            new ReviewEvidence(result.Evidence.Items.Concat(new[]
+            {
+                new ReviewEvidenceItem(ZoneNameField, ReviewValue.OfText(zone.Name))
+            })),
+            result.ReviewedBy, result.ReviewedAtUtc);
+    }
+
+    private const string ZoneNameField = "zone.name";
 
     public static string Label(FireReviewStep step) => step switch
     {
@@ -407,17 +434,18 @@ public static class FireReviewRunner
         }
 
         var merged = MergedAtriums.Of(set, request.Inputs.Area);
-        var references = HostLegalReferences(set, area, merged);
+        var doubts = BoundaryDoubtWalls(set, merged);
+        var references = HostLegalReferences(set, area, merged, doubts);
 
-        // 關係存疑的牆沒有進 references，所以讀取器不會把它當成區劃邊界，它與帷幕牆的交接處一列都
-        // 不會產生。那是刻意的（見 HostLegalReferences），但不可以是無聲的（驗證清單 C-19 第一層）。
-        // 排在 Read 之前：讀取失敗會終止整個 run，而「本次沒有檢討哪幾道牆的交接處」在那種情形下
-        // 同樣要留在日誌裡。
-        BoundaryDoubtWallsNotRead(log, set, merged, references);
+        // 關係存疑的牆以「可能是區劃牆」讀入（驗證清單 C-19 第二層）：它們與帷幕牆的交接處列為人工
+        // 覆核。沒有真正交接於帷幕牆的那幾道在檢討表上不會有列，這一行是它們的紀錄。排在 Read 之前：
+        // 讀取失敗會終止整個 run，這一行在那種情形下同樣要留在日誌裡。
+        BoundaryDoubtWallsRead(log, set, doubts);
 
         var read = request.CurtainWallReader.Read(new CurtainWallReadRequest(
             set.PackageId, request.Package.AreaPlanUniqueId,
-            RequiredRatings(rating, references.Keys), references, request.BareNumberUnit, request.JunctionOptions));
+            RequiredRatings(rating, references.Keys), references, request.BareNumberUnit, request.JunctionOptions,
+            doubts.ToDictionary(d => d.UniqueId, d => d.Label, StringComparer.Ordinal)));
         if (read.IsFailure) return Result.Failure<CurtainWallJunctionReview>(read.Error);
 
         // 幾何讀取器講的是它讀到什麼，不是「檢討完成」（驗證清單 B-03）。
@@ -465,16 +493,15 @@ public static class FireReviewRunner
     /// <summary>
     /// The 區劃 boundaries to read, each with the clause it comes from (帷幕牆規格 §2.5). Naming a host
     /// here is what makes the reader read it as a compartment boundary, so every wall the resolver
-    /// decided <i>does</i> bound a 區劃, and every 樓地板 of the storey, is listed — whether or not a
-    /// required rating was worked out for it.
+    /// decided <i>does</i> bound a 區劃, every wall it could not tell (<paramref name="doubts"/>), and
+    /// every 樓地板 of the storey, is listed — whether or not a required rating was worked out for it.
     /// </summary>
     /// <remarks>
-    /// 驗證清單 C-19：「every boundary wall is listed」原本寫得太滿，與行為不符。用 <c>IsBoundary</c>
-    /// 篩選，表示**關係存疑**的牆（跨越邊界、邊界落在厚度內但偏離中心線、邊界貼著輪廓）一律不進
-    /// 清單。那是刻意的：幾何既沒說它構成邊界、也沒說它不構成，逕自把它列進來會讓交接檢討對一道
-    /// 可能不是區劃牆的牆產生交接判定，犯的是相反方向的錯。被排除的那些由
-    /// <see cref="BoundaryDoubtWallsNotRead"/> 點名成一條警告；真正要能判，還缺一個第三種狀態
-    /// （「可能是邊界」），那是 C-19 第二層，尚未實作。
+    /// 驗證清單 C-19：關係存疑的牆（跨越邊界、邊界落在厚度內但偏離中心線、邊界貼著輪廓）原本一律不進
+    /// 清單，它們與帷幕牆的交接處一列都不會產生。第二層起它們以「可能是區劃牆」列進來，疑義另由
+    /// <see cref="CurtainWallReadRequest.BoundaryDoubts"/> 帶給讀取器——不是逕自當成區劃牆：交接處的
+    /// 結論只在「它是區劃牆」的假設下成立，所以一律人工覆核（<c>CurtainWallJunctionCheck</c>）。
+    /// 它的條文取它**存疑**的那幾個區劃，與確定的區劃牆取它構成邊界的區劃同一個道理。
     /// <para>
     /// 第83條 is not read from the model: a 區劃 is 第83條's when that is the clause the 區劃面積 rule
     /// decided it under, which is the rule engine's answer and no one else's. A wall between a 第79條
@@ -488,7 +515,8 @@ public static class FireReviewRunner
     /// (垂直區劃規格 §3.7). Such a 區劃 falls back to the general clause like any other.
     /// </para>
     /// </remarks>
-    private static IReadOnlyDictionary<string, string> HostLegalReferences(CandidateSet set, CompartmentAreaReview area, MergedAtriums merged)
+    private static IReadOnlyDictionary<string, string> HostLegalReferences(
+        CandidateSet set, CompartmentAreaReview area, MergedAtriums merged, IReadOnlyList<DoubtWall> doubts)
     {
         // The 垂直區劃 are not reported as area results but were still decided under a clause, and a
         // stairwell of a 第83條 storey keeps its walls 第83條's.
@@ -496,6 +524,7 @@ public static class FireReviewRunner
             .Where(f => f.Outcome is { IsApplicabilityUndecided: false } &&
                         f.Result.LegalReference.IndexOf(CurtainWallJunctionReferences.Article83, StringComparison.Ordinal) >= 0)
             .Select(f => f.ZoneId));
+        var doubtful = doubts.ToDictionary(d => d.UniqueId, StringComparer.Ordinal);
 
         var references = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var member in set.Members)
@@ -508,12 +537,13 @@ public static class FireReviewRunner
             }
 
             if (member.Category != CandidateCategory.Wall) continue;
-            var zones = member.Relations.Where(r => r.IsBoundary).Select(r => r.ZoneId).ToList();
+            var zones = doubtful.TryGetValue(uniqueId, out var doubt)
+                ? doubt.ZoneIds
+                : member.Relations.Where(r => r.IsBoundary).Select(r => r.ZoneId).ToList();
 
             // The line between a merged 挑空 and its 連通區劃 is no 區劃牆, so it owes the façade no
-            // 交接處 either (垂直區劃規格決議 37). <c>zones.Count == 0</c> also drops every wall whose
-            // relation is merely in doubt — deliberately, and not silently: BoundaryDoubtWallsNotRead
-            // names those walls（驗證清單 C-19 第一層）。
+            // 交接處 either (垂直區劃規格決議 37). A wall in doubt that is not interior is already in
+            // doubts with its zones (驗證清單 C-19 第二層).
             if (zones.Count == 0 || merged.IsInterior(member)) continue;
             references[uniqueId] = zones.All(article83.Contains)
                 ? CurtainWallJunctionReferences.Article83
@@ -523,112 +553,103 @@ public static class FireReviewRunner
     }
 
     /// <summary>
-    /// 與區劃的關係存疑、因而沒有進入「區劃邊界清單」的牆，一行警告點名（驗證清單 C-19 第一層）。
+    /// 一道「可能是區劃牆」的牆：它與任何區劃的關係都沒有確定構成邊界，但至少對一個區劃掛著邊界疑義
+    /// （驗證清單 C-19 第二層）。
+    /// </summary>
+    private sealed class DoubtWall
+    {
+        public DoubtWall(string uniqueId, string? typeName, IReadOnlyList<string> kinds, IReadOnlyList<Guid> zoneIds)
+        {
+            UniqueId = uniqueId;
+            TypeName = typeName;
+            Kinds = kinds;
+            ZoneIds = zoneIds;
+        }
+
+        public string UniqueId { get; }
+        public string? TypeName { get; }
+
+        /// <summary>疑義種類，排序且不重複——一道牆可能同時跨越 A 區邊界又在 B 區偏離中心線。</summary>
+        public IReadOnlyList<string> Kinds { get; }
+
+        /// <summary>它存疑的那幾個區劃：若它是區劃牆，就是這幾個區劃的區劃牆。</summary>
+        public IReadOnlyList<Guid> ZoneIds { get; }
+
+        public string Label => string.Join("／", Kinds);
+    }
+
+    /// <summary>
+    /// 與區劃的關係只是存疑的牆（驗證清單 C-19）。帷幕牆不算：它是交接的另一側，不是區劃牆；決議 37 的
+    /// 挑空分界牆也不算：法規已經答過它不是區劃邊界。確定構成某個區劃邊界的牆同樣不算——它已經是區劃牆，
+    /// 對另一個區劃的疑義不改變這件事。
     /// </summary>
     /// <remarks>
-    /// <see cref="HostLegalReferences"/> 用 <c>IsBoundary</c> 篩選要餵給帷幕牆交接讀取器的區劃邊界
-    /// 清單，於是關係存疑的牆 <c>zones.Count == 0</c> → 不進清單 → 它與帷幕牆的交接處一列都不會
-    /// 產生：第79條第4項的 90 cm 交接帶與第83條的交接規定連「待確認」都沒有。這一行是為了讓那件事
-    /// 看得見——不是為了修掉它。
+    /// 順序不是美觀問題：同一個模型每次 run 的日誌要讀起來一樣，件數多時被點名與列進技術細節的也必須是
+    /// 同幾道。這裡不另外排序——<c>CandidateSet.Members</c> 已經以 Category 再
+    /// <c>CandidateOrdering.Sources</c>（ElementUniqueId 的 string.CompareOrdinal）排好，而這裡只取 Wall
+    /// 一種 Category，所以逐出來就是 UniqueId 的 ordinal 順序。
+    /// </remarks>
+    private static IReadOnlyList<DoubtWall> BoundaryDoubtWalls(CandidateSet set, MergedAtriums merged) =>
+        set.Members
+            .Where(m => m.Category == CandidateCategory.Wall &&
+                        !m.Observation.IsCurtainWall &&
+                        !m.Relations.Any(r => r.IsBoundary) &&
+                        !merged.IsInterior(m) &&
+                        m.Relations.Any(BoundaryDoubts.Carries))
+            .Select(m => new DoubtWall(
+                m.Observation.Source.ElementUniqueId,
+                m.Observation.TypeName,
+                m.Relations.Select(r => BoundaryDoubts.Label(r.Ambiguity)).OfType<string>()
+                    .Distinct(StringComparer.Ordinal).OrderBy(k => k, StringComparer.Ordinal).ToList(),
+                m.Relations.Where(BoundaryDoubts.Carries).Select(r => r.ZoneId).Distinct().ToList()))
+            .ToList();
+
+    /// <summary>
+    /// 以「可能是區劃牆」讀入帷幕牆交接的牆，一行總結（驗證清單 C-19；第一層點名、第二層起改為總結）。
+    /// </summary>
+    /// <remarks>
+    /// 它們與帷幕牆的交接處已經是檢討表上的人工覆核列
+    /// （<see cref="ReviewErrorCode.CandidateBoundaryDoubtJunction"/>），所以這一行是資訊，不是警告。
+    /// 仍要它，是因為沒有真正交接於帷幕牆的那幾道在檢討表上不會有列，審查者要能從日誌看出
+    /// 「這幾道牆的身分工具沒有定」。
     /// <para>
-    /// **這裡只讓它可見，判定仍缺一個第三種狀態（C-19 第二層）。** 要真的檢討這些交接處，得讓
-    /// <c>ICurtainWallGeometryReader</c> 的契約容得下「可能是邊界」，讀取器才能產出待確認的交接列；
-    /// 那一層尚未實作，所以不要因為看到這條警告就以為 C-19 已經修完。
-    /// </para>
-    /// <para>
-    /// 零噪音有兩道閘門。第一道是**這一層得有帷幕牆**：沒有帷幕牆就沒有「與帷幕牆的交接處」可言，
-    /// 這條警告無從成立，而 <c>BoundaryOffCenterline</c> 一點都不罕見（挑空以 room separation line
-    /// 封邊時就是常態，見 <c>MergedAtriums</c> 的 remarks），少了這道閘門會在正常模型上變成每次 run
-    /// 固定一行噪音。第二道是**真的有這種牆**才出聲。
+    /// 零噪音有兩道閘門。第一道是**這一層得有帷幕牆**：沒有帷幕牆就沒有交接處，而
+    /// <c>BoundaryOffCenterline</c> 一點都不罕見（挑空以 room separation line 封邊時就是常態），少了這道
+    /// 閘門會在正常模型上變成每次 run 固定一行。第二道是**真的有這種牆**才出聲。
     /// </para>
     /// <para>
     /// 件數多時比照 <see cref="ReviewErrorCode.CandidateOpeningNotOnBoundary"/>：訊息只點前幾個 Id、
     /// 其餘以「等 N 道」帶過，technicalDetail 也只列前 20 道——<c>ReviewLogEntry</c> 不截斷，而 MCP 的
-    /// log digest 會把整串帶出去，一層數百道疑義牆會變成一個數十 KB 的欄位。
-    /// （<see cref="ReviewErrorCode.CandidateFacadeInferred"/> 只有訊息、沒有 technicalDetail，所以
-    /// 「前幾個 Id ＋ 等 N 個」那個寫法學它，上限那件事學 004。）
+    /// log digest 會把整串帶出去。
     /// </para>
     /// </remarks>
-    private static void BoundaryDoubtWallsNotRead(
-        ReviewLog.Builder log,
-        CandidateSet set,
-        MergedAtriums merged,
-        IReadOnlyDictionary<string, string> references)
+    private static void BoundaryDoubtWallsRead(ReviewLog.Builder log, CandidateSet set, IReadOnlyList<DoubtWall> doubts)
     {
-        // 第一道閘門（驗證清單 C-19 第一層，code review I-1）：這一層根本沒有帷幕牆時，「它們與帷幕牆
-        // 的交接處未檢討」講的是一個不存在的交接處。Junctions 只在沒有讀取器或沒有 Area Plan 時提早
-        // 返回，有讀取器就會走到這裡，所以閘門得自己加。判斷只讀候選集、不讀模型，所以這個函式仍然
-        // 排在 CurtainWallReader.Read 之前（讀取失敗時整個 run 走 Failed，日誌照樣保得住）。
         if (!set.Members.Any(m => m.Observation.IsCurtainWall)) return;
+        if (doubts.Count == 0) return;
 
-        // 順序不是美觀問題：同一個模型每次 run 的日誌要讀起來一樣，件數多時被點名與列進技術細節的
-        // 也必須是同幾道。這裡不另外排序——<c>CandidateSet.Members</c> 已經以 Category 再
-        // <c>CandidateOrdering.Sources</c>（ElementUniqueId 的 string.CompareOrdinal）排好，而這裡只
-        // 取 Wall 一種 Category，所以逐出來就是 UniqueId 的 ordinal 順序。多加一層 OrderBy 只會是一段
-        // 永遠無法轉紅的程式碼。
-        var excluded = set.Members
-            .Where(m => m.Category == CandidateCategory.Wall &&
-                        !references.ContainsKey(m.Observation.Source.ElementUniqueId) &&
-                        !merged.IsInterior(m) &&
-                        m.Relations.Any(r => BoundaryDoubtLabel(r) is not null))
-            .Select(m => new
-            {
-                UniqueId = m.Observation.Source.ElementUniqueId,
-                m.Observation.TypeName,
-                Kinds = m.Relations.Select(BoundaryDoubtLabel).OfType<string>()
-                    .Distinct(StringComparer.Ordinal).OrderBy(k => k, StringComparer.Ordinal).ToList()
-            })
-            .ToList();
-        if (excluded.Count == 0) return;
-
-        // 訊息點名前 3 道、technicalDetail 列前 20 道（比照 BCR-CAND-004 的上限）。
         const int Named = 3;
         const int Detailed = 20;
 
-        // 「其中」＋那句但書不是客套：一道牆可能同時跨越 A 區邊界又在 B 區偏離中心線，於是它在兩個
-        // 分類裡各算一次，括號內加總會大於前面的牆數。分類計數講的是「有幾道牆帶這種疑義」。
-        var byKind = string.Join("、", excluded
+        // 「其中」＋那句但書：一道牆可能同時屬於兩種，括號內加總會大於前面的牆數。
+        var byKind = string.Join("、", doubts
             .SelectMany(w => w.Kinds)
             .GroupBy(k => k, StringComparer.Ordinal)
             .OrderBy(g => g.Key, StringComparer.Ordinal)
             .Select(g => $"{g.Key} {g.Count()} 道"));
-        var list = string.Join("、", excluded.Take(Named).Select(w => $"{w.UniqueId}（{string.Join("／", w.Kinds)}）"));
-        var more = excluded.Count > Named ? $" 等 {excluded.Count} 道" : string.Empty;
-        var detailed = excluded.Count > Detailed ? $"前 {Detailed} 道" : "全部";
+        var list = string.Join("、", doubts.Take(Named).Select(w => $"{w.UniqueId}（{w.Label}）"));
+        var more = doubts.Count > Named ? $" 等 {doubts.Count} 道" : string.Empty;
+        var detailed = doubts.Count > Detailed ? $"前 {Detailed} 道" : "全部";
 
-        log.Add(ReviewErrorCode.CandidateBoundaryDoubtNotJunctionRead, ReviewStage.Review, ReviewSeverity.Warning,
-            $"帷幕牆區劃交接：{excluded.Count} 道牆與區劃的關係存疑（其中 {byKind}；" +
-            "一道牆可能同時屬於兩種），未列入本次的區劃邊界清單，" +
-            $"它們與帷幕牆的交接處（第79條第4項的交接帶、第83條的交接規定）本次未檢討：" +
-            $"{list}{more}。本工具不逕自把它們當成區劃邊界——那會對一道可能不是區劃牆的牆產生交接判定。" +
-            "請人工確認這幾道牆是否為區劃牆：若是，請把 Area 邊界對齊到牆的中心線後重新檢討，" +
-            "並自行確認它與帷幕牆的交接處；若不是，這一行就是預期結果" +
+        log.Add(ReviewErrorCode.CandidateBoundaryDoubtNotJunctionRead, ReviewStage.Review, ReviewSeverity.Info,
+            $"帷幕牆區劃交接：{doubts.Count} 道牆與區劃的關係存疑（其中 {byKind}；" +
+            "一道牆可能同時屬於兩種），以「可能是區劃牆」讀入：" +
+            $"{list}{more}。它們與帷幕牆的交接處列為人工覆核，結論只在它是區劃牆時成立；" +
+            "沒有交接於帷幕牆的不出列。請人工確認這幾道牆是否為區劃牆：若是，請把 Area 邊界對齊到牆的中心線後重新檢討" +
             $"（技術細節列出{detailed}的 UniqueId 與關係種類）。",
-            technicalDetail: string.Join("; ", excluded.Take(Detailed).Select(w =>
+            technicalDetail: string.Join("; ", doubts.Take(Detailed).Select(w =>
                 $"{w.UniqueId}({string.Join("/", w.Kinds)}{(w.TypeName is null ? string.Empty : ";" + w.TypeName)})")));
     }
-
-    /// <summary>
-    /// 「只是不確定它**是不是**區劃邊界」的那幾種關係，給審查者看的名字；其他關係回 null。
-    /// </summary>
-    /// <remarks>
-    /// 問的是 <see cref="ZoneRelation.Ambiguity"/> 而不是 <c>IsAmbiguous</c>：跨越邊界的牆關係是
-    /// <see cref="ZoneRelationKind.Crossing"/>、疑義掛在 <c>BoundaryCrossed</c> 上（驗證清單 C-18），
-    /// 問窄的那一個會漏掉它。
-    /// <para>
-    /// 同一個判準在 <c>FireResistanceCheck.IsBoundaryDoubt</c> 與 <c>MergedAtriums.Counts</c> 各有一份，
-    /// 這是第三份。抽成共用述詞要連那兩處一起改，屬於 C-19 第二層（「邊界疑義」的共用定義），
-    /// 這一批只加可見性、不動既有判定，所以先留在這裡。沿輪廓（<c>BoundaryAlongOutline</c>）今天只有
-    /// 柱會產生——牆走中心線那條路——但仍列出來：牆若哪天以輪廓量測，它不該又變回無聲。
-    /// </para>
-    /// </remarks>
-    private static string? BoundaryDoubtLabel(ZoneRelation relation) => relation.Ambiguity switch
-    {
-        CandidateAmbiguityKind.BoundaryCrossed => "跨越邊界",
-        CandidateAmbiguityKind.BoundaryOffCenterline => "偏離中心線",
-        CandidateAmbiguityKind.BoundaryAlongOutline => "沿輪廓",
-        _ => null
-    };
 
     /// <summary>
     /// 讀到了、但不是任何區劃候選的開口，一行總結（驗證清單 C-16）。

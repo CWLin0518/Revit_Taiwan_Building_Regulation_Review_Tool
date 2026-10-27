@@ -186,7 +186,7 @@ public sealed class RevitFireReviewTypeScanner
             projectInstanceCount: projectInstances.Count,
             dimensionMeters: Dimension(type, category),
             material: Text(type, StructuralMaterialParameters.Material),
-            coverMeters: Meters(type, StructuralMaterialParameters.Cover),
+            coverMeters: CoverMeters(type),
             providedRating: Text(type, FireRatingParameters.Provided),
             providedProtection: opening ? Ticked(type, FireProtectionParameters.Provided) : null,
             providedSmokeProtection: opening ? Ticked(type, SmokeProtectionParameters.Provided) : null,
@@ -338,32 +338,14 @@ public sealed class RevitFireReviewTypeScanner
     }
 
     /// <summary>
-    /// A length parameter that holds a usable number. <c>&gt; 0</c> is deliberate, not an oversight
-    /// (驗證清單 C-20：走甲方案——只讓限制可見，不改這裡的讀取).
+    /// A dimension parameter that holds a usable number: 柱短邊（<see cref="ColumnShortSide"/>）與嵌板厚
+    /// （<see cref="PanelThickness"/>）。<c>&gt; 0</c> is deliberate: a column with no short side and a
+    /// panel with no thickness have no size to derive a rating from.
     /// </summary>
     /// <remarks>
-    /// 放寬成 <c>&gt;= 0</c> 有兩個後果：
-    /// <list type="number">
-    /// <item>Revit 的 Double 參數沒有「未設值」的可靠表示法——剛綁定／從未填寫的長度參數常常是
-    /// <c>HasValue == true, AsDouble() == 0</c>。放寬會讓**每一條沒填被覆的 SC 列**都被當成「已宣告
-    /// 0 公分」：<c>FireRatingDerivation.Kind</c> 由 <c>CoverMissing</c> 變成 <c>NotRated</c>，
-    /// <c>FireRatingDerivationGaps.AwaitsCover</c>（要求 <c>Kind == CoverMissing</c>）回 false，於是
-    /// 那一列從面板狀態列的「待填被覆」與 MCP 的 <c>onlyNeedingAttention</c> 消失，而面板
-    /// 「依據／提醒」欄把「SC 被覆 0.0cm，未達門檻 → 無防火時效」當成一個**已決的推定**端給審查者。
-    /// 資料不足被換成一個有肯定語氣的答案，而且使用者再也不會被提示去填它。那個 0 **不會**被寫進
-    /// <c>防火檢討_設計防火時效</c>：<c>NotRated</c> 的 <c>HasRating</c> 是 false、
-    /// <c>ParameterText</c> 是 null，<c>FireReviewTypeRow.RatingEdit()</c> 回 null。危害在
-    /// 「不再被問」，不在「寫錯一個值」。</item>
-    /// <item>這個述詞**同時服務三個欄位**：被覆（<see cref="Meters(Element, string)"/>）、柱短邊
-    /// （<see cref="ColumnShortSide"/>）與嵌板厚（<see cref="PanelThickness"/>）。牆厚走
-    /// <c>WallType.Width &gt; 0</c>、板厚走 <see cref="Structure"/> 自己的 <c>width &gt; 0</c>，兩者都
-    /// **不經過**這裡。放寬會讓短邊 0 的柱與厚度 0 的嵌板也「讀得到尺寸」，它們的
-    /// <c>DimensionMissing</c> 同樣變成 <c>NotRated</c>——與第 1 點同一類危害。所以就算只想替被覆
-    /// 放寬，也會連帶改掉另外兩個欄位的讀法。</item>
-    /// </list>
-    /// 代價是使用者真心宣告的 0 公分無法往返：寫得進模型，重新掃描讀回 null，那一格空白、該列回到
-    /// 「待填被覆」。甲方案接受這個代價，改成在使用者做出宣告的那一刻告訴他——
-    /// <c>FireReviewParameterLimits.ZeroCoverNotice</c>，面板的確認視窗與 MCP 的回應各走一次。
+    /// 被覆厚度**不走這裡**（驗證清單 C-20 乙，見 <see cref="CoverMeters"/>）：0 公分的被覆是一個宣告，
+    /// 0 公分的柱短邊不是。牆厚走 <c>WallType.Width &gt; 0</c>、板厚走 <see cref="Structure"/> 自己的
+    /// <c>width &gt; 0</c>，同樣不經過這裡。
     /// </remarks>
     private static bool IsPositiveLength(Parameter? parameter) =>
         parameter is not null && parameter.StorageType == StorageType.Double && parameter.HasValue && parameter.AsDouble() > 0;
@@ -499,10 +481,29 @@ public sealed class RevitFireReviewTypeScanner
         };
     }
 
-    private static double? Meters(Element element, string name)
+    /// <summary>
+    /// 防火被覆厚度，連 0 一起讀（驗證清單 C-20 乙）。
+    /// </summary>
+    /// <remarks>
+    /// 0 公分是一個宣告——被覆未達第71～73條任一門檻 →「無防火時效」——不是「未填」。原本與柱短邊、
+    /// 嵌板厚共用 <see cref="IsPositiveLength"/> 的 <c>&gt; 0</c>，於是使用者寫進去的 0 讀不回來：格子
+    /// 空白、該列回到「待填被覆」，MCP 的呼叫端一再重送同一個 0。
+    /// <para>
+    /// 「未填」由 <c>HasValue</c> 回答。當初不選這條路，是怕剛綁定／從未填寫的長度參數是
+    /// <c>HasValue == true, AsDouble() == 0</c>；2026-10-27 在實機模型（Revit 2024、本工具綁定的共用參數）
+    /// 上查過，從未填寫的類型讀不到這個參數的值，只有真的寫過 0 的讀得到 0，所以那個前提不成立。
+    /// C-11 之後面板與 MCP 也都清不掉長度參數（回 <c>NotClearable</c>，不再偷偷 <c>Set(0.0)</c>），
+    /// 所以今後存著的 0 都是有人宣告過的。殘留的是 C-11 修好之前用舊版「清空」留下的 0：它們現在會被
+    /// 讀成宣告，推定欄寫出「無防火時效」——看得到，而檢討本身不讀被覆厚度，判定不受影響。
+    /// </para>
+    /// </remarks>
+    private static double? CoverMeters(Element type)
     {
-        var parameter = element.LookupParameter(name);
-        return IsPositiveLength(parameter) ? Meters(parameter!.AsDouble()) : (double?)null;
+        var parameter = type.LookupParameter(StructuralMaterialParameters.Cover);
+        if (parameter is null || parameter.StorageType != StorageType.Double || !parameter.HasValue) return null;
+
+        var feet = parameter.AsDouble();
+        return double.IsNaN(feet) || double.IsInfinity(feet) || feet < 0 ? (double?)null : Meters(feet);
     }
 
     private static double Meters(double feet) => UnitUtils.ConvertFromInternalUnits(feet, UnitTypeId.Meters);

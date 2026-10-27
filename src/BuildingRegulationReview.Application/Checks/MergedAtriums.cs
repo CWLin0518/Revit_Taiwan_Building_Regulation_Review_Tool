@@ -157,13 +157,14 @@ public sealed class MergedAtriums
     /// interior either way (決議 37), and leaving it out would send it to the two-branch reasoning in
     /// <c>FireResistanceCheck.Settled</c> instead of to 挑空's own answer.
     /// </summary>
+    /// <remarks>
+    /// 邊界疑義問 <see cref="BoundaryDoubts"/>（全專案一份，驗證清單 C-19 第二層）；開口的 host 牆存疑
+    /// （<c>HostRelationAmbiguous</c>）是這裡多收的一種，因為開口跟著它的牆走。
+    /// </remarks>
     private static bool Counts(ZoneRelation relation) =>
         relation.IsBoundary ||
-        (relation.CarriesAmbiguity &&
-         (relation.Ambiguity == CandidateAmbiguityKind.BoundaryOffCenterline ||
-          relation.Ambiguity == CandidateAmbiguityKind.BoundaryAlongOutline ||
-          relation.Ambiguity == CandidateAmbiguityKind.BoundaryCrossed ||
-          relation.Ambiguity == CandidateAmbiguityKind.HostRelationAmbiguous));
+        BoundaryDoubts.Carries(relation) ||
+        relation.Ambiguity == CandidateAmbiguityKind.HostRelationAmbiguous;
 
     private static double HalfWidth(double? widthFeet) => widthFeet is double w && w > 0 ? w / 2.0 : 0;
 

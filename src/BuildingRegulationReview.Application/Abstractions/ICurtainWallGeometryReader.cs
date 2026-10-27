@@ -19,6 +19,12 @@ namespace BuildingRegulationReview.Application.Abstractions;
 /// dictionary — are exactly the ones read as compartment boundaries. One named without a required
 /// rating is still read; the resolver then supplies no continuous run rather than counting panels
 /// against a threshold nobody set.
+/// <para>
+/// 第三種身分是「可能是區劃牆」（<see cref="BoundaryDoubts"/>，驗證清單 C-19 第二層）：候選解析說不出
+/// 這道牆是否構成區劃邊界——跨越邊界、邊界偏離中心線、沿輪廓。它同樣被讀成區劃牆，但帶著那筆疑義，
+/// 它與帷幕牆的交接處因此一律交人工覆核，而不是像確定的區劃牆一樣判符合／未符合，也不是像從前一樣
+/// 整個不讀、一列都沒有。
+/// </para>
 /// </remarks>
 public sealed class CurtainWallReadRequest
 {
@@ -28,7 +34,8 @@ public sealed class CurtainWallReadRequest
         IReadOnlyDictionary<string, double>? requiredFireRatingMinutes = null,
         IReadOnlyDictionary<string, string>? legalReferences = null,
         FireRatingUnit bareNumberUnit = FireRatingUnit.Minute,
-        CurtainWallJunctionOptions? options = null)
+        CurtainWallJunctionOptions? options = null,
+        IReadOnlyDictionary<string, string>? boundaryDoubts = null)
     {
         if (packageId == Guid.Empty) throw new ArgumentException("Package ID cannot be empty.", nameof(packageId));
         if (string.IsNullOrWhiteSpace(areaPlanUniqueId)) throw new ArgumentException("Area Plan UniqueId is required.", nameof(areaPlanUniqueId));
@@ -53,8 +60,16 @@ public sealed class CurtainWallReadRequest
             references[pair.Key.Trim()] = pair.Value.Trim();
         }
 
+        var doubts = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var pair in boundaryDoubts ?? new Dictionary<string, string>())
+        {
+            if (string.IsNullOrWhiteSpace(pair.Key) || string.IsNullOrWhiteSpace(pair.Value)) continue;
+            doubts[pair.Key.Trim()] = pair.Value.Trim();
+        }
+
         RequiredFireRatingMinutes = new ReadOnlyDictionary<string, double>(ratings);
         LegalReferences = new ReadOnlyDictionary<string, string>(references);
+        BoundaryDoubts = new ReadOnlyDictionary<string, string>(doubts);
     }
 
     public Guid PackageId { get; }
@@ -69,6 +84,21 @@ public sealed class CurtainWallReadRequest
     /// the two apart (docs §2.5).
     /// </summary>
     public IReadOnlyDictionary<string, string> LegalReferences { get; }
+
+    /// <summary>
+    /// 可能是區劃牆的牆（UniqueId → 疑義種類，給審查者看的字）。讀取器照樣把它們讀成區劃牆——
+    /// 條文仍由 <see cref="LegalReferences"/> 給——但帶上這筆疑義（驗證清單 C-19 第二層）。
+    /// 不在這裡的區劃牆就是確定的區劃牆。
+    /// </summary>
+    public IReadOnlyDictionary<string, string> BoundaryDoubts { get; }
+
+    /// <summary>Every wall and floor to read as a compartment boundary, doubtful ones included, each once.</summary>
+    public IEnumerable<string> Hosts =>
+        RequiredFireRatingMinutes.Keys.Concat(LegalReferences.Keys).Concat(BoundaryDoubts.Keys)
+            .Distinct(StringComparer.Ordinal);
+
+    public string? BoundaryDoubtOf(string? wallUniqueId) =>
+        wallUniqueId is not null && BoundaryDoubts.TryGetValue(wallUniqueId, out var doubt) ? doubt : null;
 
     /// <summary>What a bare number in 防火檢討_設計防火時效 means, as the project declared it.</summary>
     public FireRatingUnit BareNumberUnit { get; }

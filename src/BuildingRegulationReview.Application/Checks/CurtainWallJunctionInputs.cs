@@ -350,7 +350,8 @@ public sealed class CurtainWallJunction
         CurtainWallJunctionPlacement? placement,
         CurtainWallJunctionDoubt? doubt,
         string? panelAnswerKind = null,
-        ProvidedFireProtection? minFireProtection = null)
+        ProvidedFireProtection? minFireProtection = null,
+        string? hostBoundaryDoubt = null)
     {
         if (string.IsNullOrWhiteSpace(junctionId)) throw new ArgumentException("Junction ID is required.", nameof(junctionId));
         if (!Enum.IsDefined(typeof(CurtainWallJunctionKind), kind)) throw new ArgumentOutOfRangeException(nameof(kind));
@@ -379,6 +380,7 @@ public sealed class CurtainWallJunction
         Doubt = doubt;
         PanelAnswerKind = Trimmed(panelAnswerKind);
         MinFireProtection = minFireProtection;
+        HostBoundaryDoubt = Trimmed(hostBoundaryDoubt);
     }
 
     /// <summary>CW-H：一個交點。Every measurement is supplied except a run that could not be measured.</summary>
@@ -395,7 +397,8 @@ public sealed class CurtainWallJunction
         bool? hasUnprotectedOpening = null,
         IEnumerable<string>? panelUniqueIds = null,
         CurtainWallJunctionPlacement? placement = null,
-        IEnumerable<string>? facadeWallUniqueIds = null)
+        IEnumerable<string>? facadeWallUniqueIds = null,
+        string? hostBoundaryDoubt = null)
     {
         if (string.IsNullOrWhiteSpace(hostUniqueId)) throw new ArgumentException("The compartment wall's UniqueId is required.", nameof(hostUniqueId));
         if (string.IsNullOrWhiteSpace(hostLegalReference)) throw new ArgumentException("Name the clause the compartment comes from.", nameof(hostLegalReference));
@@ -403,7 +406,7 @@ public sealed class CurtainWallJunction
         return new CurtainWallJunction(junctionId, CurtainWallJunctionKind.WallToCurtainWall, zoneId, curtainWallUniqueId,
             hostUniqueId, hostLegalReference, hostRequiredFireRatingMinutes, minFireRating,
             projectionDepthMm, continuousFireRatedLengthMm, null, hasUnprotectedOpening, panelUniqueIds,
-            facadeWallUniqueIds, placement, null);
+            facadeWallUniqueIds, placement, null, hostBoundaryDoubt: hostBoundaryDoubt);
     }
 
     /// <summary>CW-V：一個層間帶的最不利取樣點（docs §4.3）.</summary>
@@ -482,9 +485,11 @@ public sealed class CurtainWallJunction
         CurtainWallJunctionDoubt doubt,
         string? hostUniqueId = null,
         IEnumerable<string>? panelUniqueIds = null,
-        IEnumerable<string>? facadeWallUniqueIds = null) =>
+        IEnumerable<string>? facadeWallUniqueIds = null,
+        string? hostBoundaryDoubt = null) =>
         new(junctionId, kind, zoneId, curtainWallUniqueId, hostUniqueId, null, null, null, null, null, null, null,
-            panelUniqueIds, facadeWallUniqueIds, null, doubt ?? throw new ArgumentNullException(nameof(doubt)));
+            panelUniqueIds, facadeWallUniqueIds, null, doubt ?? throw new ArgumentNullException(nameof(doubt)),
+            hostBoundaryDoubt: hostBoundaryDoubt);
 
     /// <summary>Identifies this junction within the run; results and repeat runs key off it.</summary>
     public string JunctionId { get; }
@@ -498,6 +503,12 @@ public sealed class CurtainWallJunction
 
     /// <summary>第79條／第83條／第79條之3 — which clause put the compartment there.</summary>
     public string? HostLegalReference { get; }
+
+    /// <summary>
+    /// CW-H 的區劃牆只是**可能**是區劃牆時，那筆疑義（跨越邊界／偏離中心線／沿輪廓）；確定時為 null。
+    /// 有值的交接處不論量測結果如何都交人工覆核（驗證清單 C-19 第二層）。
+    /// </summary>
+    public string? HostBoundaryDoubt { get; }
 
     /// <summary>What the host must achieve; the threshold a panel has to reach to count towards a run.</summary>
     public double? HostRequiredFireRatingMinutes { get; }

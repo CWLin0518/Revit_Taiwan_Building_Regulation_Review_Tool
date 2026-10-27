@@ -103,12 +103,20 @@ public static class ReviewErrorCode
     /// <see cref="CandidateOpeningNotOnBoundary"/> 同一類。
     /// </para>
     /// <para>
-    /// 這個碼只負責「可見」。判定本身仍缺一個第三種狀態（「可能是邊界」），那要改
-    /// <c>ICurtainWallGeometryReader</c> 的契約、讓讀取器產出「待確認」的交接列，屬於 C-19 第二層，
-    /// **尚未實作**——讀到這裡的人請不要以為 C-19 已經修完。
+    /// **C-19 第二層之後**（2026-10-27）這些牆已經以「可能是區劃牆」讀進帷幕牆交接，它們與帷幕牆的
+    /// 交接處列為人工覆核（<see cref="CandidateBoundaryDoubtJunction"/>）。這一行仍保留，但語意改成
+    /// 「這幾道牆以存疑身分讀取」的總結，嚴重度降為資訊：沒有真正交接於帷幕牆的那幾道，檢討表上
+    /// 不會有列，這一行是它們唯一的紀錄。
     /// </para>
     /// </summary>
     public const string CandidateBoundaryDoubtNotJunctionRead = "BCR-CAND-005";
+
+    /// <summary>
+    /// 一道「可能是區劃牆」的牆與帷幕牆的交接處（驗證清單 C-19 第二層）。量測與規則照常跑完，
+    /// 但結論只在「它是區劃牆」的假設下成立；另一個假設下這個交接處根本不受第79條第3、4項管，
+    /// 兩種假設的結論永遠不同，所以一律人工覆核，訊息帶出假設成立時的結論。
+    /// </summary>
+    public const string CandidateBoundaryDoubtJunction = "BCR-CAND-006";
 
     // 寫回本身
     public const string WriteBackRolledBack = "BCR-WB-001";
@@ -261,7 +269,8 @@ public static class ReviewErrorCode
             { CandidateZoneUnusable, "區劃範圍無法用於檢討" },
             { CandidateFacadeInferred, "帷幕牆外側無區劃，推定為外牆" },
             { CandidateOpeningNotOnBoundary, "開口不在任何區劃邊界上，未列入檢討" },
-            { CandidateBoundaryDoubtNotJunctionRead, "邊界關係存疑的牆未納入帷幕牆區劃交接檢討" },
+            { CandidateBoundaryDoubtNotJunctionRead, "邊界關係存疑的牆以「可能是區劃牆」讀入帷幕牆區劃交接" },
+            { CandidateBoundaryDoubtJunction, "可能是區劃牆的牆與帷幕牆的交接處需人工覆核" },
             { WriteBackRolledBack, "寫回整批復原" },
             { WriteBackElementFailed, "元素寫入失敗" },
             { WriteBackElementSkipped, "元素略過未寫入" },

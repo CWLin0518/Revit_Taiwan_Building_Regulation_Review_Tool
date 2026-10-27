@@ -864,7 +864,7 @@ public sealed class FireReviewLengthCellLimitsTests
         Assert.False(FireReviewParameterLimits.DeclaresZeroCover(
             FireReviewParameterEdit.OfLength("T-1", StructuralMaterialParameters.Cover, null)));
 
-        // 別的長度參數寫 0 不套用被覆的句子：它沒有「待填被覆」那個後果，該為它寫自己的述詞。
+        // 別的長度參數寫 0 不套用被覆的句子：它沒有「無防火時效」那個後果，該為它寫自己的述詞。
         Assert.False(FireReviewParameterLimits.DeclaresZeroCover(
             FireReviewParameterEdit.OfLength("T-1", "測試_另一個長度", 0)));
 
@@ -877,54 +877,44 @@ public sealed class FireReviewLengthCellLimitsTests
     }
 
     /// <summary>
-    /// 那句話要先說「值確實寫進去了」。使用者看到格子變空白，最容易得到的結論是「寫入失敗」，於是把
-    /// 同一個 0 再打一次——C-20 實機看到的就是這個循環。所以這一條同時釘住「說了寫得進去」與
-    /// 「沒有說寫入失敗」。
+    /// 驗證清單 C-20 乙之後 0 讀得回來，那句話只講意思：0 是宣告被覆 0 公分、推定為無防火時效，
+    /// 不是空白。舊的「讀不回 0／顯示為空白／待填被覆」那些說法現在是假話，一個字都不能留。
     /// </summary>
     [Fact]
-    public void The_zero_cover_notice_says_the_value_was_written_and_why_the_cell_still_goes_blank()
+    public void The_zero_cover_notice_says_what_zero_means_and_no_longer_warns_it_cannot_be_read_back()
     {
-        var notice = FireReviewParameterLimits.ZeroCoverRoundTripNotice;
+        var notice = FireReviewParameterLimits.ZeroCoverDeclaredNotice;
 
         Assert.Contains(StructuralMaterialParameters.Cover, notice);
         Assert.Contains("宣告被覆 0 公分", notice);
         Assert.Contains("無防火時效", notice);
-        Assert.Contains("值確實會寫進模型", notice);
-        Assert.Contains("讀不回 0", notice);
-        Assert.Contains("顯示為空白", notice);
-        Assert.Contains("待填被覆", notice);
-        Assert.Contains("值沒有不見", notice);
+        Assert.Contains("請改填實際的被覆厚度", notice);
 
-        // 不可以讀成一次失敗，也不可以讀成「這個值被攔下來了」——它沒有被攔，它寫進去了。
+        Assert.DoesNotContain("讀不回", notice);
+        Assert.DoesNotContain("空白", notice);
+        Assert.DoesNotContain("待填被覆", notice);
         Assert.DoesNotContain("寫入失敗", notice);
-        Assert.DoesNotContain("不會寫入", notice);
     }
 
     /// <summary>
-    /// Code review M-3：同一句話在「沒有真的落地」時是假話。MCP 的 dryRun（內層 commit、外層
-    /// TransactionGroup 回滾）與「寫入失敗整批復原」兩條路，模型裡什麼都沒有，卻會讀到
-    /// 「值確實會寫進模型…值沒有不見」；自動化呼叫端因此以為宣告完成，不再真的寫一次。
+    /// Code review M-3：同一個宣告在「沒有真的落地」時要說沒有落地。MCP 的 dryRun（內層 commit、外層
+    /// TransactionGroup 回滾）與「寫入失敗整批復原」兩條路，模型裡什麼都沒有；自動化呼叫端不可以
+    /// 讀成宣告已完成。
     /// </summary>
     [Fact]
     public void The_unwritten_zero_cover_notice_never_claims_the_value_is_in_the_model()
     {
-        var notice = FireReviewParameterLimits.UnwrittenZeroCoverRoundTripNotice;
+        var notice = FireReviewParameterLimits.UnwrittenZeroCoverDeclaredNotice;
 
         Assert.Contains(StructuralMaterialParameters.Cover, notice);
         Assert.Contains("宣告被覆 0 公分", notice);
+        Assert.Contains("無防火時效", notice);
         Assert.Contains("並未實際寫入模型", notice);
         Assert.Contains("試跑", notice);
         Assert.Contains("整批復原", notice);
         Assert.Contains("模型裡還沒有這個值", notice);
-
-        // 往返限制本身仍要講，否則呼叫端只知道「這次沒寫」，不知道寫了也讀不回來。
-        Assert.Contains("讀不回 0", notice);
-        Assert.Contains("待填被覆", notice);
-
-        // 落地那一句的兩個關鍵說法在這裡都是假話。
-        Assert.DoesNotContain("值確實會寫進模型", notice);
-        Assert.DoesNotContain("值沒有不見", notice);
-        Assert.NotEqual(FireReviewParameterLimits.ZeroCoverRoundTripNotice, notice);
+        Assert.DoesNotContain("讀不回", notice);
+        Assert.NotEqual(FireReviewParameterLimits.ZeroCoverDeclaredNotice, notice);
     }
 
     /// <summary>零噪音：沒有人宣告被覆 0 時，面板的確認視窗與 MCP 的回應都不該多出這一段。</summary>
@@ -958,17 +948,17 @@ public sealed class FireReviewLengthCellLimitsTests
             FireReviewParameterEdit.OfLength("T-1", StructuralMaterialParameters.Cover, 0)
         };
 
-        Assert.Equal(FireReviewParameterLimits.ZeroCoverRoundTripNotice,
+        Assert.Equal(FireReviewParameterLimits.ZeroCoverDeclaredNotice,
             FireReviewParameterLimits.ZeroCoverNotice(batch, written: true));
-        Assert.Equal(FireReviewParameterLimits.UnwrittenZeroCoverRoundTripNotice,
+        Assert.Equal(FireReviewParameterLimits.UnwrittenZeroCoverDeclaredNotice,
             FireReviewParameterLimits.ZeroCoverNotice(batch, written: false));
 
         // 預設是落地那一句：面板的呼叫端不傳這個旗標。
-        Assert.Equal(FireReviewParameterLimits.ZeroCoverRoundTripNotice,
+        Assert.Equal(FireReviewParameterLimits.ZeroCoverDeclaredNotice,
             FireReviewParameterLimits.ZeroCoverNotice(batch));
 
         // 同一個參數在兩個類型上各宣告一次，仍然只是那一句話。
-        Assert.Equal(FireReviewParameterLimits.ZeroCoverRoundTripNotice,
+        Assert.Equal(FireReviewParameterLimits.ZeroCoverDeclaredNotice,
             FireReviewParameterLimits.ZeroCoverNotice(new[]
             {
                 FireReviewParameterEdit.OfLength("T-1", StructuralMaterialParameters.Cover, 0),

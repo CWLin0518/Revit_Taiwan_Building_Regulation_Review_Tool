@@ -540,8 +540,10 @@ public sealed class ReviewTable
             .Select(g => new ReviewTableGroup(grouping, g.Key, label(g.First()), g));
 
     /// <summary>
-    /// Zone names come from the area results of the same run: every zone the run saw has one, even a
-    /// zone that was withheld, and each records <c>zone.name</c>.
+    /// Zone names come from the results of the same run: since 驗證清單 C-21 every result that names a
+    /// zone records <c>zone.name</c> (<c>FireReviewRunner.WithZoneName</c>). Runs saved before that
+    /// only have it on the area, 垂直區劃, 帷幕牆交接 and 第79條之1 results, so a zone none of those
+    /// reported — a stairwell with no door to check — stays nameless until it is reviewed again.
     /// </summary>
     private static IReadOnlyDictionary<string, string> ZoneNames(ReviewRun run)
     {

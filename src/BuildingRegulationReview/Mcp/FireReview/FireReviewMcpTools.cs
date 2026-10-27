@@ -448,11 +448,8 @@ namespace BuildingRegulationReview.Mcp.FireReview
                 "讀取「防火參數批次設定」面板的內容：牆／柱／樑／樓板／門窗／帷幕嵌板的每個類型（結構材料、被覆厚度、設計防火時效、" +
                 "防火門窗、遮煙性能、阻熱性、嵌板種類）、每個區劃（用途、滅火設備、樓層序…）與專案資訊。" +
                 "asks 表示這一列需要填哪些欄位，derived 是依第71～73條由材料與尺寸推定的時效。不會修改模型。" +
-                "注意一個往返限制（驗證清單 C-20）：被覆厚度存的是 0 時，這裡一律回 coverCm 空字串、" +
-                "asks.coverCm=true、derived.kind=CoverMissing，與「從未填寫」長得完全一樣——掃描層只把" +
-                "大於 0 的長度當成有值。所以這一列列為待填被覆，不代表沒有人填過；再送一次" +
-                "fire_review_set_parameters 的 coverCm: 0 也不會讓它變成已填。要確認那個 0 在不在，" +
-                "請看 Revit 的類型屬性。";
+                "被覆厚度存的是 0 時回 coverCm \"0\"（宣告 0 公分，derived 推定為無防火時效），" +
+                "與從未填寫的空字串分得開。";
 
             public override JsonObject InputSchema => JsonSchema.Object(new JsonObject
             {
@@ -510,8 +507,8 @@ namespace BuildingRegulationReview.Mcp.FireReview
                 "這種請求會列在 ignored 並附上理由（要清空只能在 Revit 中直接刪除該參數的值）。" +
                 "面板不會問的欄位（見 fire_review_scan_parameters 的 asks）會被略過並列在 ignored。" +
                 "不會寫入「防火檢討_法規要求防火時效」。dryRun=true 時只回報會寫入什麼，模型不變。" +
-                "回應另有 notices，帶的是「這一批的寫入有什麼限制」：目前只有一種——被覆厚度送 0 的" +
-                "往返限制（0 寫得進模型，但 fire_review_scan_parameters 讀不回 0，該列會回到「待填被覆」）；" +
+                "回應另有 notices，帶的是「這一批的寫入要留意什麼」：目前只有一種——被覆厚度送 0 的" +
+                "意思（宣告 0 公分，依第71～73條推定為無防火時效）；" +
                 "dryRun 或整批復原時那一句會改說本批尚未寫入。沒有這種情形時 notices 是空陣列。";
 
             public override JsonObject InputSchema => JsonSchema.Object(new JsonObject
@@ -522,15 +519,10 @@ namespace BuildingRegulationReview.Mcp.FireReview
                     ["typeElementId"] = JsonSchema.Integer("類型的 ElementId。"),
                     ["panelKind"] = JsonSchema.NullableString("帷幕嵌板種類：實心 或 玻璃；null 清除。"),
                     ["material"] = JsonSchema.NullableString("結構材料：RC、SRC 或 SC；null 清除。"),
-                    // 驗證清單 C-20 甲：schema 原本只講「0 是宣告、不是未填」，沒講這個宣告讀不回來。
-                    // 呼叫端於是會在下一次 scan 看到 coverCm 空白、該列回到待填被覆，而以為寫入失敗，
-                    // 再送一次同樣的 0。限制本身不改（不放寬掃描層的 > 0），但要講出來。
+                    // 驗證清單 C-20（乙）：0 讀得回來了，下次 scan 的 coverCm 就是 "0"。
                     ["coverCm"] = JsonSchema.NullableNumber(
                         "SC 的防火被覆厚度（公分）；0 是「宣告被覆 0 公分」（第73條推定為無防火時效），" +
-                        "不是未填。注意往返限制：0 寫得進模型，但 fire_review_scan_parameters 讀不回 0" +
-                        "（掃描層只把大於 0 的長度當成有值），所以下次掃描這一列的 coverCm 會是空字串、" +
-                        "asks.coverCm 回 true、該列回到「待填被覆」——值沒有不見，是讀不回來。" +
-                        "送 0 時本工具的回應會在 notices 重述這一句。" +
+                        "不是未填，下次 fire_review_scan_parameters 會讀回 0。送 0 時本工具的回應會在 notices 重述這一句。" +
                         "null 不會清除已寫入的值（見本工具說明）。", 0),
                     ["rating"] = JsonSchema.NullableString("防火檢討_設計防火時效，例如 1h、2h、60min；null 清除。"),
                     ["applyDerivedRating"] = JsonSchema.Boolean("改用依第71～73條推定的時效（面板的「套用推定值」）。不可與 rating 同時使用。"),
@@ -631,7 +623,7 @@ namespace BuildingRegulationReview.Mcp.FireReview
                     .Where(r => edits.Any(e => e.ElementUniqueId == r.Source.TypeUniqueId))
                     .ToList();
 
-                // 驗證清單 C-20 甲：這一批有沒有在宣告被覆 0 公分、以及那件事該怎麼講，要等寫入結果
+                // 驗證清單 C-20：這一批有沒有在宣告被覆 0 公分、以及那件事該怎麼講，要等寫入結果
                 // 出來才知道（見下方）。欄位先在這裡佔位，好讓每一條回傳路徑的形狀一致。
                 var result = new JsonObject
                 {
@@ -663,9 +655,8 @@ namespace BuildingRegulationReview.Mcp.FireReview
                     ["reason"] = f.Reason
                 }));
 
-                // 驗證清單 C-20 甲：送 coverCm: 0 是一個宣告，寫得進模型，但掃描層讀不回 0——呼叫端
-                // 下一次 scan 會看到空白並以為寫入失敗，再送一次同樣的 0。限制不改（掃描層的 > 0
-                // 刻意保留，理由見 RevitFireReviewTypeScanner.IsPositiveLength），改成在這裡講出來。
+                // 驗證清單 C-20：送 coverCm: 0 是一個宣告——依第71～73條推定為無防火時效。乙方案之後
+                // 它讀得回來，這裡講的是它的意思，讓只是想「清掉」這一格的呼叫端知道後果。
                 // 述詞與兩句文案都在 Application 的 FireReviewParameterLimits，與面板的確認視窗共用。
                 //
                 // 這一句**必須跟著「這一批到底有沒有落地」走**，所以算在寫入之後：

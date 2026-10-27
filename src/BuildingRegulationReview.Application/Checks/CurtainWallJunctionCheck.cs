@@ -283,8 +283,26 @@ public static class CurtainWallJunctionCheck
                 : ReviewErrorCode.ParameterTypeMismatch;
         }
 
+        // 可能是區劃牆（驗證清單 C-19 第二層）：規則照常跑完，但它答的只是「假設這道牆是區劃牆」那一支；
+        // 另一支下這個交接處根本不受第79條第3、4項管。兩支的結論永遠不同，所以一律人工覆核，訊息與
+        // 證據都帶出假設成立時的結論，審查者確認身分後不必重跑就知道答案。
+        string? verdictIfBoundary = null;
+        if (junction.HostBoundaryDoubt is string boundaryDoubt)
+        {
+            verdictIfBoundary = ReviewStatusText.Label(status);
+            message = $"{subject}：這道牆與區劃的關係存疑（{boundaryDoubt}），無法確定它是區劃牆。" +
+                      $"若它是區劃牆，本交接處為「{verdictIfBoundary}」——{outcome.Message.TrimEnd('。')}；" +
+                      "若它不是，本交接處不受第79條第3項、第4項規範。請人工確認這道牆是否為區劃牆：" +
+                      "若是，請把 Area 邊界對齊到牆的中心線後重新檢討。";
+            status = ReviewStatus.ManualReview;
+            errorCode = ReviewErrorCode.CandidateBoundaryDoubtJunction;
+        }
+
         var evidence = Merge(
             outcome.Evidence.Items,
+            verdictIfBoundary is null
+                ? Enumerable.Empty<ReviewEvidenceItem>()
+                : new[] { new ReviewEvidenceItem("junction.verdictIfBoundary", ReviewValue.OfText(verdictIfBoundary)) },
             JunctionEvidence(junction, zone),
             ProvidedEvidence(provided),
             ProvidedEvidence(protection),
@@ -308,11 +326,16 @@ public static class CurtainWallJunctionCheck
         var doubt = junction.Doubt!;
         var evidence = Merge(JunctionEvidence(junction, zone), DoubtEvidence(doubt));
 
+        // 量不出來的交接處本來就交人工覆核；區劃牆本身也存疑時（C-19 第二層）多講一句，兩件事都要確認。
+        var also = junction.HostBoundaryDoubt is string boundaryDoubt
+            ? $"另外，這道牆與區劃的關係存疑（{boundaryDoubt}），請一併確認它是否為區劃牆。"
+            : string.Empty;
+
         var info = ruleSet.RuleSet;
         var result = new ReviewResult(resultId, runId, set.PackageId, ReviewCheckTypes.CompartmentContinuity,
             junction.SubjectUniqueIds, zone.ZoneIdText, doubt.Status, null, null,
             info.RuleSetId, info.Version, info.FallbackLegalReference,
-            $"{Subject(junction, zone)}：{doubt.Message}", evidence);
+            $"{Subject(junction, zone)}：{doubt.Message}{also}", evidence);
         return new CurtainWallJunctionFinding(junction, result, null, doubt.ErrorCode);
     }
 
@@ -384,6 +407,8 @@ public static class CurtainWallJunctionCheck
         // results alone — so the clause is recorded even for a junction no rule decided.
         if (junction.HostLegalReference is not null)
             yield return new ReviewEvidenceItem("junction.hostLegalReference", ReviewValue.OfText(junction.HostLegalReference));
+        if (junction.HostBoundaryDoubt is not null)
+            yield return new ReviewEvidenceItem("junction.hostBoundaryDoubt", ReviewValue.OfText(junction.HostBoundaryDoubt));
         yield return new ReviewEvidenceItem("zone.name", ReviewValue.OfText(zone.Name));
 
         // §7.1 marks CW-H at its intersection and CW-V over its 層間帶, and the markup plan is rebuilt

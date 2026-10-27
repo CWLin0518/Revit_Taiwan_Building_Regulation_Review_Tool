@@ -53,10 +53,7 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
         var level = view.GenLevel;
         var warnings = new List<string>();
         var zones = ReadZones(request.PackageId, request.AreaPlanUniqueId);
-        var hosts = request.RequiredFireRatingMinutes.Keys
-            .Concat(request.LegalReferences.Keys)
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
+        var hosts = request.Hosts.ToList();
 
         if (hosts.Count == 0)
             warnings.Add("呼叫端未指定任何區劃牆或區劃樓地板，本次僅讀取帷幕牆本身，未產生交接處。");
@@ -772,7 +769,9 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
             PlanUnits.FeetToMillimeters(box.Max.Z),
             request.LegalReferenceOf(wall.UniqueId),
             request.RequiredRatingOf(wall.UniqueId),
-            (wall.WallType as ElementType)?.Name);
+            (wall.WallType as ElementType)?.Name,
+            // 可能是區劃牆（驗證清單 C-19 第二層）：照樣讀，疑義跟著它交給 resolver 與 check。
+            request.BoundaryDoubtOf(wall.UniqueId));
     }
 
     private CompartmentFloorObservation ReadCompartmentFloor(Element floor, CurtainWallReadRequest request, List<string> warnings)
