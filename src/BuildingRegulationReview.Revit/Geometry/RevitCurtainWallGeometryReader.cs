@@ -484,7 +484,7 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
             var extent = Extent(element, wall);
             if (extent is null)
             {
-                warnings.Add($"帷幕嵌板（Id {element.Id}）的尺寸無法讀取，該處的交接帶將判為資料不足。");
+                warnings.Add($"帷幕嵌板（Id {element.Id}）的尺寸無法讀取，已略過這一片（常見於被合併掉的空嵌板槽，該處由合併後的鄰居嵌板涵蓋）；若它不是空槽，請確認交接帶的嵌板是否完整。");
                 continue;
             }
 

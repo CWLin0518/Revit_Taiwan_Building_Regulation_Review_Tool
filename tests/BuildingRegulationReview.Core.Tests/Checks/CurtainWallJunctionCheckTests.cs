@@ -155,12 +155,26 @@ public sealed class CurtainWallJunctionCheckTests
         var underRated = CurtainWallJunction.WallJunction("j-under", ZoneA, "cw-1", "wall-1", 0, 700,
             hostRequiredFireRatingMinutes: 60, minFireRating: ProvidedFireRating.Rated(30));
         var opening = CurtainWallJunction.WallJunction("j-opening", ZoneA, "cw-1", "wall-2", 0, 450,
-            hostRequiredFireRatingMinutes: 60, minFireRating: ProvidedFireRating.Rated(60), hasUnprotectedOpening: true);
+            hostRequiredFireRatingMinutes: 60, minFireRating: ProvidedFireRating.Rated(60));
 
         var review = Review(new[] { underRated, opening });
 
         Assert.All(review.Findings, f => Assert.Equal(ReviewStatus.Fail, f.Status));
-        Assert.Equal(ReviewValue.OfBoolean(true), review.For("j-opening")!.Result.Evidence.Find("junction.hasUnprotectedOpening"));
+        // CW-H 不讀實體外牆上的門窗（§9），證據裡不該出現一個工具沒有查的開口事實。
+        Assert.Null(review.For("j-opening")!.Result.Evidence.Find("junction.hasUnprotectedOpening"));
+    }
+
+    [Fact]
+    public void A_spandrel_reports_whether_its_band_holds_an_unprotected_opening()
+    {
+        // CW-V 讀的是嵌板，所以帶內有沒有未受防護開口是一個查過的事實，規則宣告它、證據印出它。
+        var spandrel = CurtainWallJunction.Spandrel("j-v-opening", ZoneA, "cw-1", "floor-1", 0, 450,
+            hostRequiredFireRatingMinutes: 60, minFireRating: ProvidedFireRating.Rated(60), hasUnprotectedOpening: true);
+
+        var finding = Single(new[] { spandrel });
+
+        Assert.Equal(ReviewStatus.Fail, finding.Status);
+        Assert.Equal(ReviewValue.OfBoolean(true), finding.Result.Evidence.Find("junction.hasUnprotectedOpening"));
     }
 
     [Fact]

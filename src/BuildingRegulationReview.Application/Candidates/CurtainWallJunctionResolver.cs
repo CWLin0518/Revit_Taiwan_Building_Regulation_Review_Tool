@@ -380,9 +380,6 @@ public static class CurtainWallJunctionResolver
             host.RequiredFireRatingMinutes,
             measurement.Rating,
             host.LegalReference,
-            // 實體外牆上另開的門窗不讀，所以這個交接處**沒有**開口的事實可交（docs §9）。供 false
-            // 會讓證據講出一件工具沒有查的事。
-            null,
             panels,
             CurtainWallJunctionPlacement.At(wall.PointAt(at), bandBottom, bandTop),
             measurement.WallUniqueIds,

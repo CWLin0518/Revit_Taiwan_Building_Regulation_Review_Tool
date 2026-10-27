@@ -394,7 +394,6 @@ public sealed class CurtainWallJunction
         double? hostRequiredFireRatingMinutes = null,
         ProvidedFireRating? minFireRating = null,
         string hostLegalReference = CurtainWallJunctionReferences.Article79,
-        bool? hasUnprotectedOpening = null,
         IEnumerable<string>? panelUniqueIds = null,
         CurtainWallJunctionPlacement? placement = null,
         IEnumerable<string>? facadeWallUniqueIds = null,
@@ -405,7 +404,9 @@ public sealed class CurtainWallJunction
 
         return new CurtainWallJunction(junctionId, CurtainWallJunctionKind.WallToCurtainWall, zoneId, curtainWallUniqueId,
             hostUniqueId, hostLegalReference, hostRequiredFireRatingMinutes, minFireRating,
-            projectionDepthMm, continuousFireRatedLengthMm, null, hasUnprotectedOpening, panelUniqueIds,
+            projectionDepthMm, continuousFireRatedLengthMm, null,
+            // CW-H 不讀實體外牆上另開的門窗，沒有開口的事實可交（docs §9）。
+            null, panelUniqueIds,
             facadeWallUniqueIds, placement, null, hostBoundaryDoubt: hostBoundaryDoubt);
     }
 

@@ -131,8 +131,23 @@ namespace BuildingRegulationReview.FireReview
 
         public bool CanEditRating => CarriesRating && IsEditable;
 
-        public IReadOnlyList<string> MaterialChoices { get; } =
-            new[] { "" }.Concat(StructuralMaterialText.All.Select(StructuralMaterialText.Code)).ToList();
+        /// <summary>
+        /// 空白＋RC／SRC／SC；模型裡填了讀不懂的字時，那個原字也列在最後。下拉綁的是 SelectedItem，
+        /// 值不在選項裡就顯示空白，而且一進編輯就可能被 ComboBox 推回 null、在寫入時清掉使用者的原值。
+        /// </summary>
+        public IReadOnlyList<string> MaterialChoices =>
+            _materialChoices ??= BuildMaterialChoices(Source.Material);
+
+        private IReadOnlyList<string> _materialChoices;
+
+        private static IReadOnlyList<string> BuildMaterialChoices(string stored)
+        {
+            var choices = new List<string> { "" };
+            choices.AddRange(StructuralMaterialText.All.Select(StructuralMaterialText.Code));
+            var raw = (stored ?? "").Trim();
+            if (raw.Length > 0 && StructuralMaterialText.Parse(raw) is null) choices.Add(raw);
+            return choices;
+        }
 
         /// <summary>The two kinds a user may declare, blank first — 帷幕牆門窗 is never one of them.</summary>
         public IReadOnlyList<string> PanelKindChoices { get; } =
@@ -439,7 +454,9 @@ namespace BuildingRegulationReview.FireReview
             // every 主要構造, and a 帷幕嵌板 once it is declared 實心.
             if (!CarriesMaterial) yield break;
 
-            if (!Same(_material, Source.Material))
+            // 「鋼筋混凝土造」顯示成 RC 是同一個宣告，不算改過；否則一打開面板這一列就成了待寫入，
+            // 按下寫入時被悄悄改寫成代碼。
+            if (!Same(_material, Source.Material) && !SameMaterial(_material, Source.Material))
                 yield return FireReviewParameterEdit.OfText(Source.TypeUniqueId, StructuralMaterialParameters.Material, _material);
 
             // 驗證清單 C-11：清空（或填了讀不懂的字）不產生這筆編輯。長度參數寫不出「未填」，寫入器
@@ -471,6 +488,10 @@ namespace BuildingRegulationReview.FireReview
 
         private static bool Same(string typed, string stored) =>
             string.Equals((typed ?? "").Trim(), (stored ?? "").Trim(), StringComparison.Ordinal);
+
+        private static bool SameMaterial(string typed, string stored) =>
+            StructuralMaterialText.Parse(typed) is StructuralMaterial a &&
+            StructuralMaterialText.Parse(stored) is StructuralMaterial b && a == b;
 
         private static bool Same(double? typed, double? stored)
         {

@@ -641,7 +641,7 @@ public enum RuleCategory
   "appliesWhen": "building.fireResistiveConstruction == true && junction.kind == \"WallToCurtainWall\"",
   "requiredValue": "junction.projectionDepth >= 500 mm",
   "exemptions": [ "junction.continuousFireRatedLength >= 900 mm" ],
-  "evidenceFields": [ "junction.curtainWallUniqueId", "junction.hostUniqueId", "junction.hostLegalReference", "junction.continuousFireRatedLength", "junction.minFireRating", "junction.hostRequiredFireRating", "junction.hasUnprotectedOpening" ],
+  "evidenceFields": [ "junction.curtainWallUniqueId", "junction.hostUniqueId", "junction.hostLegalReference", "junction.continuousFireRatedLength", "junction.minFireRating", "junction.hostRequiredFireRating" ],
   "severity": "Error"
 }
 ```
@@ -658,7 +658,7 @@ public enum RuleCategory
   "appliesWhen": "building.fireResistiveConstruction == true && junction.kind == \"FloorToCurtainWall\"",
   "requiredValue": "junction.projectionDepth >= 500 mm",
   "exemptions": [ "junction.continuousFireRatedHeight >= 900 mm" ],
-  "evidenceFields": [ "junction.curtainWallUniqueId", "junction.hostUniqueId", "junction.continuousFireRatedHeight", "junction.minFireRating", "junction.hostRequiredFireRating" ],
+  "evidenceFields": [ "junction.curtainWallUniqueId", "junction.hostUniqueId", "junction.continuousFireRatedHeight", "junction.minFireRating", "junction.hostRequiredFireRating", "junction.hasUnprotectedOpening" ],
   "severity": "Error"
 }
 ```
@@ -1308,6 +1308,9 @@ CW-H 的 `continuousFireRatedLength = 0` 精確對應 `FacadeMeasurement.Glazed`
 `evidenceFields` 裡卻永不供給（`:227`），CW-V 供給了（`:533`）卻沒宣告、`JunctionEvidence` 也不印它，
 而且沒有任何規則的 `appliesWhen`／`requiredValue`／`exemptions` 讀它。它被算出來、寫進 `facts`，然後誰也
 看不到。修它（刪掉 CW-H 的宣告，或替 CW-V 補上）**不影響判定，只影響證據可見性，是一個獨立決定。**
+**2026-10-27 已修（兩者都做）**：CW-H 的 `evidenceFields` 拿掉這一欄、`CurtainWallJunction.WallJunction` 也不再收
+這個參數（型別上就供不出來）；CW-V 的 `evidenceFields` 補上，證據會印出帶內有沒有未受防護開口。規則版本未升：
+判定式一字未動。
 
 **一併驗到的既有缺陷（不屬於決議 16，未修）**：`RevitCurtainWallGeometryReader.cs:285` 的警告
 「帷幕嵌板（Id X）的尺寸無法讀取，該處的交接帶將判為資料不足。」把後果說得比實際嚴重——程式碼是
@@ -1315,6 +1318,8 @@ CW-H 的 `continuousFireRatedLength = 0` 精確對應 `FacadeMeasurement.Glazed`
 284310，都在帷幕牆 282773 上）經 `get_solid_triangulation` 證實 `solidCount: 0`、`faceCount: 0`，是被
 合併掉的空嵌板槽（鄰居 284296 寬 2970 mm、10 個面的 L 形，吞掉了兩格），略過是正確處理，該處由合併後的
 鄰居覆蓋，所以 `待確認` 是 0。這段警告自步驟 4（`5abf1ed`）就存在，改它是一個獨立決定。
+**2026-10-27 已改**：警告改為「…的尺寸無法讀取，已略過這一片（常見於被合併掉的空嵌板槽，該處由合併後的鄰居嵌板
+涵蓋）；若它不是空槽，請確認交接帶的嵌板是否完整。」
 
 #### 16f：面板列不出視圖外的型別
 
