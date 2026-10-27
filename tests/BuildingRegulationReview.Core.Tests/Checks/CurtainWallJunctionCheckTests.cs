@@ -480,6 +480,21 @@ public sealed class CurtainWallJunctionCheckTests
     }
 
     [Fact]
+    public void A_curtain_system_with_no_host_does_not_print_empty_brackets()
+    {
+        // 2026-10-28 V-08 第 2 項：帷幕系統兩列人工覆核原本寫「與區劃牆（）之交接處」「與區劃樓地板（）」。
+        var doubt = new CurtainWallJunctionDoubt(CurtainWallJunctionDoubtKind.NonPlanarCurtainWall,
+            "帷幕牆（Id cw-1）為帷幕系統（Curtain System），本版無法解析其定位面，無法以平面量測交接處，需人工覆核。");
+        var review = Review(new[]
+        {
+            CurtainWallJunction.Doubtful("j-h1", CurtainWallJunctionKind.WallToCurtainWall, ZoneA, "cw-1", doubt),
+            CurtainWallJunction.Doubtful("j-v1", CurtainWallJunctionKind.FloorToCurtainWall, ZoneA, "cw-1", doubt)
+        });
+
+        Assert.All(review.Findings, f => Assert.DoesNotContain("（）", f.Result.Message));
+    }
+
+    [Fact]
     public void An_intersection_that_did_not_resolve_is_manual_review()
     {
         var doubt = new CurtainWallJunctionDoubt(CurtainWallJunctionDoubtKind.UnresolvedIntersection,

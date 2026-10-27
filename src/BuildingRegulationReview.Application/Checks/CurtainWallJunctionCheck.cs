@@ -366,11 +366,14 @@ public static class CurtainWallJunctionCheck
         // 室內外未定的那一列講的是整道牆，不是某一個交接處——它沒有區劃牆主體可以指名（docs §4.8）。
         CurtainWallJunctionKind.WallToCurtainWall when junction.Doubt?.Kind == CurtainWallJunctionDoubtKind.ExposureUndecided =>
             $"帷幕牆（{junction.CurtainWallUniqueId}）之室內外判定於區劃「{zone.Name}」",
+        // 沒有交接對象的整道牆疑義（帷幕系統、非平面）：不印一對空括號（2026-10-28 V-08 第 2 項實測）。
+        CurtainWallJunctionKind.WallToCurtainWall when junction.HostUniqueId is null =>
+            $"帷幕牆（{junction.CurtainWallUniqueId}）與區劃牆之交接處於區劃「{zone.Name}」",
         CurtainWallJunctionKind.WallToCurtainWall =>
             $"帷幕牆（{junction.CurtainWallUniqueId}）與區劃牆（{junction.HostUniqueId}）之交接處" +
             $"{Reference(junction)}於區劃「{zone.Name}」",
         // 沒有樓板與它交接的那一列（連跨、或交人工覆核）不能說「與區劃樓地板之層間交接處」：那正是它沒有的東西。
-        CurtainWallJunctionKind.FloorToCurtainWall when junction.Doubt?.Kind is
+        CurtainWallJunctionKind.FloorToCurtainWall when junction.HostUniqueId is null || junction.Doubt?.Kind is
                 CurtainWallJunctionDoubtKind.VerticalCompartmentSpace or CurtainWallJunctionDoubtKind.FloorNotMeetingCurtainWall =>
             $"帷幕牆（{junction.CurtainWallUniqueId}）於本層之層間交接處於區劃「{zone.Name}」",
         CurtainWallJunctionKind.FloorToCurtainWall =>
