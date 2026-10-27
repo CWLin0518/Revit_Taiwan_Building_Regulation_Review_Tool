@@ -506,6 +506,19 @@ public static class CandidateResolver
         switch (hostRelation.Kind)
         {
             case ZoneRelationKind.Boundary:
+                // 一般外牆上的門窗（boundary-edge-elements §3.4）：外牆不是區劃分隔，第79條第1項的防火門窗
+                // 不管它。比帷幕牆多一道把關——牆類型的 Function 要是 Exterior。一般牆的 Function 有宣告
+                // 效力（帷幕牆的 Exterior 只是系統族預設值），而開向未建 Area 走廊的內牆門只看幾何會被
+                // 誤推成外牆門、漏掉該要的防火門。Interior 或沒讀到的照舊當區劃開口檢討。
+                if (host.CurtainWallFunction == CurtainWallFunctionDeclaration.Exterior &&
+                    CurtainWallExposureAt(host, location, zone, zones) is { Verdict.IsExterior: true } facade)
+                {
+                    return new ZoneRelation(zone.ZoneId, ZoneRelationKind.Facade,
+                        Format("{0}位於區劃「{1}」邊界的外牆上：牆類型的 Function 為 Exterior，且牆外側 {2} m 處不屬於任何區劃，為建築物外牆而非區劃分隔。",
+                            label, name, Meters(facade.DepthFeet)),
+                        measurements);
+                }
+
                 return new ZoneRelation(zone.ZoneId, ZoneRelationKind.Boundary,
                     Format("{0}位於區劃「{1}」的邊界牆上（距邊界 {2} m）。", label, name, Meters(distance)), measurements);
             case ZoneRelationKind.Inside:

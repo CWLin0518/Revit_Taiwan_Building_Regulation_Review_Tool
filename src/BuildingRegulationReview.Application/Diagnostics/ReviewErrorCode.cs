@@ -267,7 +267,7 @@ public static class ReviewErrorCode
             { RuleSchemaInvalid, "規則格式不符合 schema" },
             { CandidateAmbiguous, "元素與區劃的空間關係無法判定" },
             { CandidateZoneUnusable, "區劃範圍無法用於檢討" },
-            { CandidateFacadeInferred, "帷幕牆外側無區劃，推定為外牆" },
+            { CandidateFacadeInferred, "開口所在牆外側無區劃，推定為外牆" },
             { CandidateOpeningNotOnBoundary, "開口不在任何區劃邊界上，未列入檢討" },
             { CandidateBoundaryDoubtNotJunctionRead, "邊界關係存疑的牆以「可能是區劃牆」讀入帷幕牆區劃交接" },
             { CandidateBoundaryDoubtJunction, "可能是區劃牆的牆與帷幕牆的交接處需人工覆核" },

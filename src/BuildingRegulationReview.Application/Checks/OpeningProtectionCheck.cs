@@ -405,9 +405,15 @@ public static class OpeningProtectionCheck
             new[] { observation.Source.ElementUniqueId }, zone.ZoneIdText, ReviewStatus.NotApplicable, null, null,
             info.RuleSetId, info.Version, FacadeReference,
             $"{FacadeInferredTag}{Subject(observation)}於區劃「{zone.Name}」：{relation.Message}" +
-            "第79條之防火門窗係指區劃分隔處之開口，外牆開口不在此列；此帷幕牆改依第79條第3項、第79條之3、第79條之4" +
-            "於「帷幕牆區劃交接」檢討，本項不適用。外牆係由「帷幕牆另一側沒有任何區劃」推定，" +
-            "若另一側實為未建 Area 或屬其他工作包之室內空間，此帷幕牆即為區劃分隔，請抽查。" +
+            (opening.Host?.IsCurtainWall == true || observation.Category == CandidateCategory.CurtainPanel
+                ? "第79條之防火門窗係指區劃分隔處之開口，外牆開口不在此列；此帷幕牆改依第79條第3項、第79條之3、第79條之4" +
+                  "於「帷幕牆區劃交接」檢討，本項不適用。外牆係由「帷幕牆另一側沒有任何區劃」推定，" +
+                  "若另一側實為未建 Area 或屬其他工作包之室內空間，此帷幕牆即為區劃分隔，請抽查。"
+                // 一般外牆（boundary-edge-elements §3.4）：交接與層間的檢討只做了帷幕牆，這裡要講清楚沒做的部分。
+                : "第79條之防火門窗係指區劃分隔處之開口，外牆開口不在此列，本項不適用。外牆係由「牆類型 Function 為 Exterior" +
+                  "且牆另一側沒有任何區劃」推定，若另一側實為未建 Area 或屬其他工作包之室內空間，此牆即為區劃分隔，請抽查。" +
+                  "一般外牆與區劃交接處（第79條第3項）、上下樓層間（第79條之3）及外牆本身（第79條之4）的要求，" +
+                  "本工具只對帷幕牆檢討，一般外牆未檢討。") +
             "外牆開口另受第110條防火間隔規定，本工具未檢討。",
             opening.EvidenceFor(zone.ZoneId));
         return new OpeningProtectionFinding(result, observation.Source.ElementUniqueId, observation.Category,

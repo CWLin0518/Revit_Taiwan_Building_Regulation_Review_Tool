@@ -398,6 +398,28 @@ public sealed class OpeningProtectionCheckTests
     }
 
     [Fact]
+    public void A_window_in_a_plain_exterior_wall_is_not_applicable_and_says_what_is_not_reviewed()
+    {
+        var walls = Walls.Where(w => w.Source.ElementUniqueId != "W-left").Append(
+            new MemberObservation(Source("W-left"), CandidateCategory.Wall, new[] { P(0, 0), P(0, 10) }, widthFeet: M(0.2),
+                typeUniqueId: "type-rc200", typeName: "RC 200", isStructural: true,
+                curtainWallFunction: CurtainWallFunctionDeclaration.Exterior));
+        var set = CandidateResolver.Resolve(Observations(ZonesAB(), walls,
+            new[] { Opening("WN-left", "W-left", 0, 5, CandidateCategory.Window) }));
+
+        var finding = Only(Review(set, Inputs(("WN-left", "否"))));
+
+        Assert.Equal(ReviewStatus.NotApplicable, finding.Status);
+        Assert.Equal(ReviewErrorCode.CandidateFacadeInferred, finding.ErrorCode);
+        Assert.Equal(OpeningGroup.Window, finding.Group);
+        Assert.StartsWith(OpeningProtectionCheck.FacadeInferredTag, finding.Result.Message);
+        // 一般外牆沒有帷幕牆交接那一套檢討可以轉介，訊息要說清楚哪些要求本工具沒檢討。
+        Assert.DoesNotContain("帷幕牆區劃交接", finding.Result.Message);
+        Assert.Contains("一般外牆未檢討", finding.Result.Message);
+        Assert.Contains("第110條", finding.Result.Message);
+    }
+
+    [Fact]
     public void A_door_in_the_outer_curtain_wall_is_not_applicable_and_a_linked_door_is_manual_review()
     {
         var curtainDoor = Opening("D-curtain", "CW-right", 20, 5);

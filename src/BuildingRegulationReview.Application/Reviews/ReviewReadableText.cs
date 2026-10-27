@@ -480,7 +480,7 @@ public static class ReviewFieldText
                 ("Boundary", "構成區劃邊界"),
                 ("Crossing", "跨越區劃邊界"),
                 ("Inside", "位於區劃內"),
-                ("Facade", "位於區劃邊界的外牆（帷幕牆）上"),
+                ("Facade", "位於區劃邊界的外牆上"),
                 ("Ambiguous", "無法判定")),
             ["candidate.settledBy"] = Map(
                 ("SameVerdictEitherWay", "不論是否構成邊界，結論相同")),

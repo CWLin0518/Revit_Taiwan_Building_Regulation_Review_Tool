@@ -253,10 +253,8 @@ public sealed class RevitCandidateObservationReader
             typeName: type?.Name,
             isStructural: ReadFlag(wall, BuiltInParameter.WALL_STRUCTURAL_SIGNIFICANT),
             isCurtainWall: type?.Kind == WallKind.Curtain,
-            // 只有帷幕牆需要室內外判定，一般牆讀了也沒人問；讀了反而會讓基準指紋因無關的參數變動而過期。
-            curtainWallFunction: type?.Kind == WallKind.Curtain
-                ? RevitWallFunctionReader.Of(type)
-                : CurtainWallFunctionDeclaration.NotRead);
+            // 帷幕牆用它判室內外；一般牆用它把關外牆上的門窗（boundary-edge-elements §3.4），所以都讀。
+            curtainWallFunction: RevitWallFunctionReader.Of(type));
     }
 
     private MemberObservation ReadColumn(Element column, string documentId, double planeElevationFeet, List<string> warnings)

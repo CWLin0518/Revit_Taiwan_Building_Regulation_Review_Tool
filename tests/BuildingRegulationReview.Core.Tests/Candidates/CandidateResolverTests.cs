@@ -765,4 +765,61 @@ public sealed class CandidateResolverTests
             : relation.Kind.ToString();
 
     private static string Name(Guid zone) => zone == ZoneA ? "A" : zone == ZoneB ? "B" : zone == ZoneC ? "C" : zone.ToString("D");
+
+    // --- 一般外牆上的門窗（docs/regulations/boundary-edge-elements.md §3.4）-------------------------
+    //
+    // W10-left 在 x = 0：A 區在它右側，左側沒有任何區劃。一般牆要「外側無區劃」加上「牆類型 Function
+    // 為 Exterior」才推定為外牆；Function 是 Interior 或沒讀到，就照舊當區劃開口。
+
+    private static MemberObservation PlainWall(string uid, double x0, double y0, double x1, double y1, CurtainWallFunctionDeclaration function) =>
+        new(Source(uid), CandidateCategory.Wall, new[] { P(x0, y0), P(x1, y1) }, widthFeet: M(0.2),
+            typeUniqueId: "type-rc200", typeName: "RC 200", isStructural: true, isCurtainWall: false,
+            curtainWallFunction: function);
+
+    private static CandidateSet WithLeftWall(CurtainWallFunctionDeclaration function, params OpeningObservation[] openings)
+    {
+        var members = Members()
+            .Where(m => m.Source.ElementUniqueId != "W10-left")
+            .Append(PlainWall("W10-left", 0, 0, 0, 10, function))
+            .ToList();
+
+        return CandidateResolver.Resolve(Observations(members: members, openings: openings));
+    }
+
+    [Fact]
+    public void A_window_in_a_plain_exterior_wall_with_nothing_beyond_is_a_facade()
+    {
+        var set = WithLeftWall(CurtainWallFunctionDeclaration.Exterior, Door("WN-left", "W10-left", 0, 5, CandidateCategory.Window));
+
+        var relation = Relation(set, "WN-left", ZoneA)!;
+        Assert.Equal(ZoneRelationKind.Facade, relation.Kind);
+        Assert.Contains("Function 為 Exterior", relation.Message);
+        Assert.Contains("為建築物外牆而非區劃分隔", relation.Message);
+    }
+
+    [Theory]
+    [InlineData(CurtainWallFunctionDeclaration.Interior)]
+    [InlineData(CurtainWallFunctionDeclaration.NotRead)]
+    [InlineData(CurtainWallFunctionDeclaration.Other)]
+    public void A_plain_wall_not_declared_exterior_stays_a_boundary_even_with_nothing_beyond(CurtainWallFunctionDeclaration function)
+    {
+        // 開向未建 Area 走廊的內牆門，只看幾何會被誤推成外牆門而漏掉防火門；所以沒有 Exterior 宣告就不推定。
+        var set = WithLeftWall(function, Door("D-left", "W10-left", 0, 5));
+
+        Assert.Equal(ZoneRelationKind.Boundary, Relation(set, "D-left", ZoneA)!.Kind);
+    }
+
+    [Fact]
+    public void A_plain_wall_declared_exterior_between_two_zones_is_still_a_boundary()
+    {
+        // Function 只是必要條件：兩側都有區劃的牆就是區劃分隔，宣告錯了也不會因此免掉防火門窗。
+        var members = Members()
+            .Where(m => m.Source.ElementUniqueId != "W2-shared")
+            .Append(PlainWall("W2-shared", 10, 0, 10, 10, CurtainWallFunctionDeclaration.Exterior))
+            .ToList();
+        var set = CandidateResolver.Resolve(Observations(members: members));
+
+        Assert.Equal(ZoneRelationKind.Boundary, Relation(set, "D1-shared", ZoneA)!.Kind);
+        Assert.Equal(ZoneRelationKind.Boundary, Relation(set, "D1-shared", ZoneB)!.Kind);
+    }
 }

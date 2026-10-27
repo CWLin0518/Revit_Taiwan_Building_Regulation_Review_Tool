@@ -741,8 +741,11 @@ public static class FireReviewRunner
         var inferred = opening.Findings.Count(f => f.ErrorCode == ReviewErrorCode.CandidateFacadeInferred);
         if (inferred > 0)
         {
+            var inCurtainWalls = opening.Findings.Count(f =>
+                f.ErrorCode == ReviewErrorCode.CandidateFacadeInferred && f.Group == OpeningGroup.CurtainWall);
             log.Add(ReviewErrorCode.CandidateFacadeInferred, ReviewStage.Review, ReviewSeverity.Warning,
-                $"防火門窗：{inferred} 件帷幕牆開口因帷幕牆另一側沒有任何區劃而推定為外牆，判「不適用」。" +
+                $"防火門窗：{inferred} 件開口因所在的牆另一側沒有任何區劃而推定為外牆，判「不適用」" +
+                $"（帷幕牆 {inCurtainWalls} 件、一般外牆 {inferred - inCurtainWalls} 件；一般外牆另須牆類型 Function 為 Exterior）。" +
                 $"另一側若是未建 Area 或屬其他工作包的室內空間，判定即不成立；請在檢討表搜尋「{OpeningProtectionCheck.FacadeInferredTag}」抽查。");
         }
 
