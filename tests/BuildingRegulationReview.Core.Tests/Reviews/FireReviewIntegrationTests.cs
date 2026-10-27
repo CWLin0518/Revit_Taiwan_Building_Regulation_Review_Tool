@@ -1409,6 +1409,7 @@ public sealed class FireReviewIntegrationTests
 
         private readonly double _bandMinutes;
         private readonly Error? _failure;
+        private readonly Exception? _throws;
         private readonly bool _split;
         private readonly bool _throughLevel;
         private readonly string? _warning;
@@ -1419,10 +1420,11 @@ public sealed class FireReviewIntegrationTests
         /// 就是一道「可能是區劃牆」的牆（驗證清單 C-19 第二層），疑義照讀取器的契約從 request 取。
         /// </param>
         public CurtainWalls(double bandMinutes = 60, Error? failure = null, bool split = false,
-            bool throughLevel = false, string? warning = null, string host = "W1-bottom")
+            bool throughLevel = false, string? warning = null, string host = "W1-bottom", Exception? throws = null)
         {
             _bandMinutes = bandMinutes;
             _failure = failure;
+            _throws = throws;
             _split = split;
             _throughLevel = throughLevel;
             _warning = warning;
@@ -1435,6 +1437,7 @@ public sealed class FireReviewIntegrationTests
         public Result<CurtainWallObservationSet> Read(CurtainWallReadRequest request)
         {
             Asked = request;
+            if (_throws is not null) throw _throws;
             if (_failure is not null) return Result.Failure<CurtainWallObservationSet>(_failure);
 
             var zone = new CurtainWallZoneObservation(ZoneA, "A 區",
@@ -1929,6 +1932,20 @@ public sealed class FireReviewIntegrationTests
         Assert.Null(outcome.Run);
         Assert.Equal(error.Code, outcome.Error!.Code);
         Assert.Contains(outcome.Log.Entries, e => e.UserMessage.StartsWith("帷幕牆區劃交接無法檢討"));
+    }
+
+    [Fact]
+    public void A_curtain_wall_reader_that_throws_is_not_turned_into_a_run_without_that_section()
+    {
+        // 驗證清單 V-09 第 1 項的另一半：實機上 Revit API 出錯是丟例外，不是回傳失敗。Runner 不可以把它
+        // 吞掉、交出一份「完成、只是少了帷幕牆區劃交接」的檢討——那會讓一整類未檢討的交接處看起來像沒有問題。
+        // 例外往上交給呼叫端（FireReviewModel.RunAndSave 回報「檢討發生錯誤」，儲存那一步不會執行）。
+        var thrown = new InvalidOperationException("帷幕牆幾何無法解析");
+
+        var caught = Assert.Throws<InvalidOperationException>(
+            () => Run(Request(curtainWalls: new CurtainWalls(throws: thrown))));
+
+        Assert.Same(thrown, caught);
     }
 
     [Fact]
