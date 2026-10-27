@@ -71,6 +71,9 @@ public sealed class ZoneParameterInheritanceOperation
     public ManagedElementKey Key { get; }
     public string ZoneName { get; }
 
+    /// <summary>「區劃名」, or 「區劃名」第 n 塊 from the second part on — the name messages use.</summary>
+    public string QuotedName => ZonePartName.Quoted(ZoneName, Key.PartIndex);
+
     /// <summary>Values every existing Area of the 區劃 agrees on, to be written onto the new one.</summary>
     public IReadOnlyList<InheritedZoneValue> Values { get; }
 
@@ -87,12 +90,12 @@ public sealed class ZoneParameterInheritanceOperation
             var parts = new List<string>();
             if (Values.Count > 0)
                 parts.Add(string.Format(CultureInfo.InvariantCulture,
-                    "「{0}」新建的面積沿用同區劃既有面積的 {1}",
-                    ZoneName, string.Join("、", Values.Select(v => v.Text))));
+                    "{0}新建的面積沿用同區劃既有面積的 {1}",
+                    QuotedName, string.Join("、", Values.Select(v => v.Text))));
             if (Unresolved.Count > 0)
                 parts.Add(string.Format(CultureInfo.InvariantCulture,
-                    "「{0}」既有面積的 {1} 填得不一致或有未填，新建的面積不填，請在「防火參數批次設定」補填",
-                    ZoneName, string.Join("、", Unresolved.Select(ZoneAreaParameters.Label))));
+                    "{0}：同區劃既有面積的 {1} 填得不一致或有未填，新建的面積不填，請在「防火參數批次設定」補填",
+                    QuotedName, string.Join("、", Unresolved.Select(ZoneAreaParameters.Label))));
             return string.Join("；", parts);
         }
     }

@@ -38,10 +38,12 @@ public class ZoneParameterInheritanceTests
             new[] { (ReviewInputSources.FloorNumber, 2), (ReviewInputSources.Sprinklered, 0) },
             operation.Values.Select(v => (v.Parameter, v.Value)));
         Assert.Empty(operation.Unresolved);
-        Assert.Equal("「A」新建的面積沿用同區劃既有面積的 所在樓層序＝2、自動滅火設備＝否", operation.Text);
+        Assert.Equal("「A」第 2 塊新建的面積沿用同區劃既有面積的 所在樓層序＝2、自動滅火設備＝否", operation.Text);
 
         // 計畫帶著它走，寫回才拿得到。
         Assert.Single(ApplyPlan.Build(preview, ApplyPlan.AllKinds).ZoneInheritance);
+        // 「重建」只把不變列改成更新，新增列與它的沿用值照帶。
+        Assert.Single(preview.ForRebuild().ZoneInheritance);
     }
 
     [Fact]

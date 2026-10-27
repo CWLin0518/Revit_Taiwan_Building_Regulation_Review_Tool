@@ -59,9 +59,7 @@ public sealed class ZoneUseOperation
     /// 不相連的區劃每一塊各有一個面積、各一行預覽；不標出是第幾塊，兩行就一字不差、看不出各指哪一塊
     /// （2026-10-27 V-29 實測）。第一塊照舊只寫區劃名。
     /// </summary>
-    private string QuotedName => Key.PartIndex == 0
-        ? "「" + ZoneName + "」"
-        : string.Format(CultureInfo.InvariantCulture, "「{0}」第 {1} 塊", ZoneName, Key.PartIndex + 1);
+    private string QuotedName => ZonePartName.Quoted(ZoneName, Key.PartIndex);
 
     /// <summary>The preview line, naming both ends so the user can see what is being replaced.</summary>
     public string Text => IsClear
@@ -79,6 +77,16 @@ public sealed class ZoneUseOperation
                 CultureInfo.InvariantCulture, "（原為「{0}」）", CurrentUse));
 
     public override string ToString() => Text;
+}
+
+/// <summary>
+/// 一個區劃的某一塊在訊息裡怎麼稱呼：第一塊只寫區劃名，第二塊起加「第 n 塊」，不相連區劃的各塊才分得出來。
+/// </summary>
+public static class ZonePartName
+{
+    public static string Quoted(string zoneName, int partIndex) => partIndex == 0
+        ? "「" + zoneName + "」"
+        : string.Format(CultureInfo.InvariantCulture, "「{0}」第 {1} 塊", zoneName, partIndex + 1);
 }
 
 /// <summary>

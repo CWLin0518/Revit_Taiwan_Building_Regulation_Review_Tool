@@ -29,6 +29,12 @@ public sealed class RevitZoneWriteBack
     private readonly Document _document;
     private readonly Dictionary<ManagedElementKey, ElementId> _written = new Dictionary<ManagedElementKey, ElementId>();
     private readonly List<PlacedArea> _placedAreas = new List<PlacedArea>();
+
+    /// <summary>
+    /// C-22 的結果訊息，等交易群組提交後才交給結果：這幾句講的是寫進去的值，整批復原時它們連同新面積
+    /// 一起不存在，留著會讓結果視窗同時說「整批復原」和「已沿用」。
+    /// </summary>
+    private readonly List<string> _inheritanceNotes = new List<string>();
     private SketchPlane? _sketchPlane;
 
     public RevitZoneWriteBack(Document document) =>
@@ -69,6 +75,7 @@ public sealed class RevitZoneWriteBack
 
         _written.Clear();
         _placedAreas.Clear();
+        _inheritanceNotes.Clear();
         _sketchPlane = null;
 
         using (var group = new TransactionGroup(_document, "寫回防火區劃"))
@@ -98,6 +105,8 @@ public sealed class RevitZoneWriteBack
 
                 if (group.Assimilate() != TransactionStatus.Committed)
                     return log.RolledBack("Revit 無法提交寫回交易。");
+
+                foreach (var note in _inheritanceNotes) log.Note(note);
             }
             catch (Exception exception)
             {
@@ -527,15 +536,17 @@ public sealed class RevitZoneWriteBack
 
             foreach (var operation in plan.ZoneInheritance)
             {
+                var name = operation.QuotedName;
                 var element = Find(plan, operation.Key);
                 if (element is null || !ManagedElementMark.IsOwnedBy(element, plan.PackageId))
                 {
-                    log.Note($"「{operation.ZoneName}」新建的面積找不到，沒有沿用區劃參數；請在「防火參數批次設定」確認該區劃的樓層序等欄位。");
+                    _inheritanceNotes.Add($"{name}新建的面積找不到，沒有沿用區劃參數；請在「防火參數批次設定」確認該區劃的樓層序等欄位。");
                     continue;
                 }
 
                 var written = new List<string>();
                 var refused = new List<string>();
+                var differing = new List<string>();
                 foreach (var value in operation.Values)
                 {
                     var parameter = element.LookupParameter(value.Parameter);
@@ -545,7 +556,14 @@ public sealed class RevitZoneWriteBack
                         continue;
                     }
 
-                    if (parameter.HasValue) continue;
+                    // 已經有值就不蓋過去；跟既有面積不同時要講，否則區劃照樣不一致、檢討照樣資料不足，
+                    // 使用者卻看不到原因。
+                    if (parameter.HasValue)
+                    {
+                        if (parameter.AsInteger() != value.Value)
+                            differing.Add(ZoneAreaParameters.Label(value.Parameter));
+                        continue;
+                    }
 
                     try
                     {
@@ -559,11 +577,13 @@ public sealed class RevitZoneWriteBack
                 }
 
                 if (written.Count > 0)
-                    log.Note($"「{operation.ZoneName}」新建的面積已沿用同區劃既有面積的 {string.Join("、", written)}。");
+                    _inheritanceNotes.Add($"{name}新建的面積已沿用同區劃既有面積的 {string.Join("、", written)}。");
                 if (refused.Count > 0)
-                    log.Note($"「{operation.ZoneName}」新建的面積無法寫入 {string.Join("、", refused)}（參數不存在或唯讀），請在「防火參數批次設定」補填。");
+                    _inheritanceNotes.Add($"{name}新建的面積無法寫入 {string.Join("、", refused)}（參數不存在或唯讀），請在「防火參數批次設定」補填。");
+                if (differing.Count > 0)
+                    _inheritanceNotes.Add($"{name}新建的面積原本就有 {string.Join("、", differing)}，與同區劃既有面積不同，未覆寫；請在「防火參數批次設定」統一。");
                 if (operation.Unresolved.Count > 0)
-                    log.Note($"「{operation.ZoneName}」既有面積的 {string.Join("、", operation.Unresolved.Select(ZoneAreaParameters.Label))} 填得不一致或有未填，新建的面積沒有填，請在「防火參數批次設定」補填。");
+                    _inheritanceNotes.Add($"{name}：同區劃既有面積的 {string.Join("、", operation.Unresolved.Select(ZoneAreaParameters.Label))} 填得不一致或有未填，新建的面積沒有填，請在「防火參數批次設定」補填。");
             }
 
             if (transaction.Commit() != TransactionStatus.Committed)
