@@ -6,7 +6,8 @@
 
 - [整體專案架構](architecture.md)
 - [防火檢討工具完整規格](fire-review-spec.md)
-- [Revit 端待驗證項目清單](revit-verification-checklist.md)
+- [Revit 端待驗證項目清單](revit-verification-checklist.md)：目前進度、缺陷登記與還能做的事
+- [Revit 端驗證紀錄](revit-verification-log.md)：2026-10-04～10-27 各輪驗證的操作與逐字證據（封存）
 - [Phase 1 任務計畫](agent/phase-1-plan.md)
 - [MCP 伺服器：讓 AI 代理操作外掛並驗證](mcp-server.md)
 - [ADR-0001：分層與 Revit 版本適配](adr/0001-layered-architecture-and-revit-versioning.md)

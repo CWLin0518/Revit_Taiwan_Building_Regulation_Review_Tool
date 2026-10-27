@@ -337,4 +337,4 @@ HTTP 200 application/json
 | 長時間工作 | 同步呼叫，沒有進度回報 | 需要時改成 job 模式（`*_start` → `job_status` → `job_result`） |
 | 開發迴圈 | 改完程式要重開 Revit | 評估用薄外殼熱載入核心 DLL |
 | 協定 | 只支援 tools；沒有 resources、prompts、SSE、session | 有需要再加 |
-| Revit 端測試 | 只能實機驗證（`docs/revit-verification-checklist.md` 第 12 輪） | 用 MCP 本身做自動化的回歸驗證 |
+| Revit 端測試 | 只能實機驗證（`docs/revit-verification-log.md` 第 12 輪） | 用 MCP 本身做自動化的回歸驗證 |
