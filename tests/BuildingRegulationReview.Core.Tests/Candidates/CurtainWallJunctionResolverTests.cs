@@ -1688,6 +1688,101 @@ public sealed class CurtainWallJunctionResolverTests
 
     // --- fixtures ---------------------------------------------------------------------------------
 
+    // --- 驗證清單 C-23：豎框讓嵌板碰不到格線與樓板（2026-10-28 實機） ----------------------------------
+    //
+    // Revit 嵌板的寬高是扣掉豎框的淨尺寸：實機一片 3500～4000 的格子，嵌板只有 3525～3950。工具原本
+    // 只容許 0.5 mm 的縫，於是樓板高程上找不到任何嵌板，層間帶一律量成「0 m、0 片嵌板、未符合」。
+
+    private const double Mullion = 25;
+
+    [Fact]
+    public void Panels_shrunk_by_mullions_still_meet_the_grid_line_between_them()
+    {
+        // 案例 8 加上豎框：兩片 60 min 實板各 450 mm，被樓板高程那條 grid line 分開。
+        var set = SpandrelSet(
+            new[]
+            {
+                Panel("S-low", Mullion, WallLengthMm - Mullion, 60, bottom: StoreyMm - 450 + Mullion, top: StoreyMm - Mullion),
+                Panel("S-high", Mullion, WallLengthMm - Mullion, 60, bottom: StoreyMm + Mullion, top: StoreyMm + 450 - Mullion),
+                Panel("G-low", Mullion, WallLengthMm - Mullion, 0, bottom: Mullion, top: StoreyMm - 450 - Mullion),
+                Panel("G-high", Mullion, WallLengthMm - Mullion, 0, bottom: StoreyMm + 450 + Mullion, top: StoreyMm * 2 - Mullion)
+            },
+            gridLines: new[]
+            {
+                Grid("G-1", CurtainGridLineDirection.Horizontal, StoreyMm),
+                Grid("G-low", CurtainGridLineDirection.Horizontal, StoreyMm - 450),
+                Grid("G-high", CurtainGridLineDirection.Horizontal, StoreyMm + 450)
+            });
+
+        var junction = Single(Resolve(set), CurtainWallJunctionKind.FloorToCurtainWall);
+
+        Assert.Equal(CurtainWallJunctionDoubtKind.SplitByGridLine, junction.Doubt!.Kind);
+        Assert.Contains("G-1", junction.Doubt.SubjectUniqueIds);
+    }
+
+    [Fact]
+    public void A_short_solid_band_at_the_walls_own_top_is_unknown_not_zero()
+    {
+        // 實機的樣子：每層一道帷幕牆，牆頂就是上一層樓板；最上排 500 mm 實心、下面玻璃。帶子往上碰到牆頂，
+        // 工具沒讀到上面那一道牆，所以是不知道，不是 0。
+        var junction = Single(Resolve(TopOfWall(lowerSolid: false)), CurtainWallJunctionKind.FloorToCurtainWall);
+
+        Assert.False(junction.IsDoubtful);
+        Assert.Null(junction.ContinuousFireRatedHeightMm);
+        Assert.Contains("S-top", junction.PanelUniqueIds);
+    }
+
+    [Fact]
+    public void Two_solid_rows_at_the_walls_own_top_point_at_the_grid_line_between_them()
+    {
+        var junction = Single(Resolve(TopOfWall(lowerSolid: true)), CurtainWallJunctionKind.FloorToCurtainWall);
+
+        Assert.Equal(CurtainWallJunctionDoubtKind.SplitByGridLine, junction.Doubt!.Kind);
+        Assert.Contains("G-row", junction.Doubt.SubjectUniqueIds);
+    }
+
+    [Fact]
+    public void A_gap_wider_than_a_mullion_or_away_from_any_grid_line_stays_a_hole()
+    {
+        var wall = Wall(
+            new[]
+            {
+                Panel("P-mullion", Mullion, 1500 - Mullion, 60, bottom: Mullion, top: StoreyMm - 50),
+                Panel("P-hole", 1500 + 300, 3000, 60, bottom: Mullion, top: StoreyMm - 300)
+            },
+            new[] { Grid("V-1", CurtainGridLineDirection.Vertical, 1500), Grid("V-2", CurtainGridLineDirection.Vertical, 3000) });
+
+        var snapped = wall.Panels.Single(p => p.UniqueId == "P-mullion");
+        Assert.Equal((0, 1500, 0, StoreyMm), (snapped.StartMm, snapped.EndMm, snapped.BottomMm, snapped.TopMm));
+
+        // 離格線 300 mm 的左緣、離牆頂 300 mm 的上緣都不是豎框，原樣留著；貼著格線的右緣照樣對齊。
+        var hole = wall.Panels.Single(p => p.UniqueId == "P-hole");
+        Assert.Equal((1800, 3000, 0, StoreyMm - 300), (hole.StartMm, hole.EndMm, hole.BottomMm, hole.TopMm));
+    }
+
+    /// <summary>
+    /// 1F 一道 0～3600 的帷幕牆，牆頂就是 2F 樓板。最上排 3100～3600 是 60 min 實板；下面那排由
+    /// <paramref name="lowerSolid"/> 決定實板或玻璃。每片嵌板四周都被豎框吃掉 25 mm。
+    /// </summary>
+    private static CurtainWallObservationSet TopOfWall(bool lowerSolid)
+    {
+        var floor = new CompartmentFloorObservation("F2",
+            new[] { Rectangle(-500, -50, WallLengthMm + 500, 8000) }, StoreyMm, 60);
+        var panels = new[]
+        {
+            Panel("S-top", Mullion, WallLengthMm - Mullion, 60, bottom: StoreyMm - 500 + Mullion, top: StoreyMm - 50),
+            lowerSolid
+                ? Panel("S-low", Mullion, WallLengthMm - Mullion, 60, bottom: Mullion, top: StoreyMm - 500 - Mullion)
+                : Glass("G-low", Mullion, WallLengthMm - Mullion, ProvidedFireProtection.Yes("是"), bottom: Mullion, top: StoreyMm - 500 - Mullion)
+        };
+
+        return new CurtainWallObservationSet(Package, "LVL", "2F", StoreyMm,
+            new[] { Zone() },
+            new[] { Wall(panels, new[] { Grid("G-row", CurtainGridLineDirection.Horizontal, StoreyMm - 500) }, top: StoreyMm) },
+            compartmentFloors: new[] { floor },
+            levelElevationsMm: new[] { 0.0, StoreyMm });
+    }
+
     private static IReadOnlyList<CurtainWallJunction> Resolve(CurtainWallObservationSet set) =>
         CurtainWallJunctionResolver.Resolve(set);
 

@@ -60,6 +60,14 @@ public sealed class CurtainPanelObservation
     /// <summary>Panels this close are touching; a wider gap is a hole in the façade.</summary>
     public const double TouchToleranceMm = 0.5;
 
+    /// <summary>
+    /// 驗證清單 C-23：Revit 嵌板的寬高是扣掉豎框的淨尺寸，相鄰嵌板之間、嵌板與牆頂底之間都隔著豎框
+    /// （實測 25～50 mm）。嵌板邊緣離一條 grid line 或牆的邊界不超過這個距離、而且中間沒有別的格線時，
+    /// 那段縫是豎框，嵌板延伸到那條線——一片嵌板代表它所在的格子。豎框仍然不判定（§4.1），斷點仍然由
+    /// grid line 決定（§4.5）；只有離格線更遠、或附近根本沒有格線的縫，才是立面上真的洞。
+    /// </summary>
+    public const double MullionGapMm = 200.0;
+
     public CurtainPanelObservation(
         string uniqueId,
         double startMm,
@@ -176,6 +184,13 @@ public sealed class CurtainPanelObservation
     public override string ToString() =>
         $"{UniqueId}［{StartMm:0.#}–{EndMm:0.#} × {BottomMm:0.#}–{TopMm:0.#} mm］{Rating}";
 
+    /// <summary>The same panel stretched over its grid cell (C-23); everything but the extents is kept.</summary>
+    internal CurtainPanelObservation WithExtents(double startMm, double endMm, double bottomMm, double topMm) =>
+        startMm == StartMm && endMm == EndMm && bottomMm == BottomMm && topMm == TopMm
+            ? this
+            : new CurtainPanelObservation(UniqueId, startMm, endMm, bottomMm, topMm, Rating, IsOpening, Protection,
+                TypeUniqueId, TypeName, IsOpening ? null : Kind);
+
     private static void Finite(double value, string name)
     {
         if (double.IsNaN(value) || double.IsInfinity(value))
@@ -266,7 +281,7 @@ public sealed class CurtainWallObservation
         var gridList = (gridLines ?? Array.Empty<CurtainGridLineObservation>()).ToList();
         if (gridList.Any(x => x is null)) throw new ArgumentException("The grid lines contain a missing entry.", nameof(gridLines));
 
-        Panels = new ReadOnlyCollection<CurtainPanelObservation>(panelList
+        Panels = new ReadOnlyCollection<CurtainPanelObservation>(SnapToCells(panelList, gridList, LengthMm, baseElevationMm, topElevationMm)
             .OrderBy(x => x.BottomMm).ThenBy(x => x.StartMm).ThenBy(x => x.UniqueId, StringComparer.Ordinal).ToList());
         GridLines = new ReadOnlyCollection<CurtainGridLineObservation>(gridList
             .OrderBy(x => (int)x.Direction).ThenBy(x => x.PositionMm).ThenBy(x => x.UniqueId, StringComparer.Ordinal).ToList());
@@ -393,6 +408,51 @@ public sealed class CurtainWallObservation
             FacetIndex,
             FacetOffsetMm,
             FunctionDeclaration);
+
+    /// <summary>
+    /// 驗證清單 C-23：每片嵌板的四邊延伸到它所在格子的邊界——最近的 grid line，或牆自己的端點與頂底——
+    /// 只要那段縫不超過 <see cref="CurtainPanelObservation.MullionGapMm"/>。縫比這大、或那一側沒有格線時，
+    /// 邊緣留在原處：那是立面上真的洞，不由工具補起來。已經貼齊的嵌板（測試資料、沒有豎框的牆）不變。
+    /// </summary>
+    private static IEnumerable<CurtainPanelObservation> SnapToCells(
+        IReadOnlyList<CurtainPanelObservation> panels,
+        IReadOnlyList<CurtainGridLineObservation> gridLines,
+        double lengthMm,
+        double baseMm,
+        double topMm)
+    {
+        var along = gridLines.Where(g => g.Direction == CurtainGridLineDirection.Vertical).Select(g => g.PositionMm)
+            .Concat(new[] { 0.0, lengthMm }).ToList();
+        var up = gridLines.Where(g => g.Direction == CurtainGridLineDirection.Horizontal).Select(g => g.PositionMm)
+            .Concat(new[] { baseMm, topMm }).ToList();
+
+        foreach (var panel in panels)
+        {
+            yield return panel.WithExtents(
+                Lower(panel.StartMm, along),
+                Upper(panel.EndMm, along),
+                Lower(panel.BottomMm, up),
+                Upper(panel.TopMm, up));
+        }
+    }
+
+    /// <summary>The nearest boundary at or below <paramref name="edge"/> within a mullion's width; the edge itself otherwise.</summary>
+    private static double Lower(double edge, IEnumerable<double> boundaries)
+    {
+        var candidates = boundaries
+            .Where(b => b <= edge + CurtainPanelObservation.TouchToleranceMm && edge - b <= CurtainPanelObservation.MullionGapMm)
+            .ToList();
+        return candidates.Count == 0 ? edge : Math.Min(edge, candidates.Max());
+    }
+
+    /// <summary>The nearest boundary at or above <paramref name="edge"/> within a mullion's width; the edge itself otherwise.</summary>
+    private static double Upper(double edge, IEnumerable<double> boundaries)
+    {
+        var candidates = boundaries
+            .Where(b => b >= edge - CurtainPanelObservation.TouchToleranceMm && b - edge <= CurtainPanelObservation.MullionGapMm)
+            .ToList();
+        return candidates.Count == 0 ? edge : Math.Max(edge, candidates.Min());
+    }
 
     public override string ToString() => FacetIndex is int facet
         ? $"{UniqueId} 第 {facet + 1} 段（{TypeName ?? "帷幕牆"}，{LengthMm:0.#} mm）"
