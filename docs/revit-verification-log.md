@@ -2514,7 +2514,9 @@ FL4 沒有殘留新 Area，FL2 套件為「已檢討」。
 
 ### 其他
 
-- 第 3 項（結構材料下拉）是面板畫面，MCP 驗不到，待人工驗（步驟見驗證清單第 4 節第 3 項）。
+- 第 3 項（結構材料下拉）：使用者在面板上人工確認通過（Edit Type 改「木造」→ 格子與下拉都顯示「木造」、寫入後值不變；
+  改「鋼筋混凝土造」→ 顯示 RC 且不是待寫入），未留逐字。事後 `scan_parameters(onlyNeedingAttention)` 只剩兩個帷幕牆類型
+  （本來就未填材料），沒有類型留著測試值。
 - 第 6 項：原始檔的 Area 316022 仍在（`scan_parameters` 照舊列出 `areaSquareMeters: null`）。這一輪 revit-mcp 伺服器沒有回應（`get_element_info`、`query_elements` 都回 `Error:`），當下沒能刪。
   使用者重開 revit-mcp 後已刪（`delete_element(316022)`「成功刪除元素 ID: 316022」，原始檔，**未存檔**）；
   刪後 FL2 dryRun 仍是 295 列 182／9／2／102，與刪前相同——未放置的 Area 本來就不參與檢討。
