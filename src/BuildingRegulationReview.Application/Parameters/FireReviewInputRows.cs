@@ -33,7 +33,8 @@ public sealed class FireReviewZoneRow
         string? levelId = null,
         bool? linksRefugeFloor = null,
         bool? cannotBeSubdivided = null,
-        string? useGroup = null)
+        string? useGroup = null,
+        string? zoneKey = null)
     {
         if (string.IsNullOrWhiteSpace(elementUniqueId)) throw new ArgumentException("Element UniqueId is required.", nameof(elementUniqueId));
         if (areaSquareMeters is double a && (double.IsNaN(a) || double.IsInfinity(a) || a < 0))
@@ -52,6 +53,7 @@ public sealed class FireReviewZoneRow
         LinksRefugeFloor = linksRefugeFloor;
         CannotBeSubdivided = cannotBeSubdivided;
         UseGroup = Clean(useGroup);
+        ZoneKey = Clean(zoneKey);
         Present = present;
     }
 
@@ -77,6 +79,13 @@ public sealed class FireReviewZoneRow
     /// 混合 (docs/regulations/building-use-groups.md §6).
     /// </summary>
     public string? UseGroup { get; }
+
+    /// <summary>
+    /// Which 防火區劃 this Area is a part of — the same for every Area of one 區劃, from the tool's own
+    /// mark (package and zone). Null for an Area the tool did not write, which then stands alone. The
+    /// panel groups by it so a row can say what the whole 區劃 reads as, not only this Area.
+    /// </summary>
+    public string? ZoneKey { get; }
 
     /// <summary>防火檢討_自動滅火設備; null when the parameter holds no value.</summary>
     public bool? Sprinklered { get; }

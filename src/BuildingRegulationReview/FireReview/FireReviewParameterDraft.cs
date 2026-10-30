@@ -23,6 +23,13 @@ namespace BuildingRegulationReview.FireReview
             Floors = set.Floors;
             foreach (var zone in set.Zones) Zones.Add(new FireReviewZoneRowViewModel(zone, Floors.For(zone.LevelId)));
 
+            // 同一區劃的各塊面積彼此相認，面板才說得出整個區劃讀作什麼（用途類組混合或部分未填）。
+            foreach (var zone in Zones.Where(z => z.Source.ZoneKey != null).GroupBy(z => z.Source.ZoneKey))
+            {
+                var rows = zone.ToList();
+                foreach (var row in rows) row.ZoneRows = rows;
+            }
+
             if (set.Project != null) Project = new FireReviewProjectViewModel(set.Project);
         }
 

@@ -391,6 +391,10 @@ namespace BuildingRegulationReview.Mcp.FireReview
                     ["linksRefugeFloor"] = source.LinksRefugeFloor,
                     ["cannotBeSubdivided"] = source.CannotBeSubdivided
                 },
+                // 整個區劃（同一區劃的各塊面積合起來）讀作什麼：混合時為「混合（…）」，部分未填時為 null。
+                ["zoneAreaCount"] = zone.ZoneRows.Count,
+                ["zoneUseGroup"] = zone.ZoneUseGroup.Value,
+                ["zoneUseGroupNote"] = zone.ZoneUseGroup.PanelNote(zone.ZoneRows.Count),
                 ["derivedFloorNumber"] = zone.DerivedFloorNumber,
                 ["limit"] = zone.LimitText,
                 ["isAtrium"] = zone.IsAtrium,

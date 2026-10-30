@@ -210,19 +210,20 @@ public enum ZoneUseGroupKind
 /// <summary>The 用途類組 one 區劃 reads as — see <see cref="BuildingUseGroups.Combine"/>.</summary>
 public sealed class ZoneUseGroup
 {
-    private ZoneUseGroup(ZoneUseGroupKind kind, string? value, IReadOnlyList<string> groups, string? problem)
+    private ZoneUseGroup(ZoneUseGroupKind kind, string? value, IReadOnlyList<string> groups, string? problem, int blankCount = 0)
     {
         Kind = kind;
         Value = value;
         Groups = groups;
         Problem = problem;
+        BlankCount = blankCount;
     }
 
     public static ZoneUseGroup Blank { get; } = new(ZoneUseGroupKind.Blank, null, Array.Empty<string>(), null);
 
     internal static ZoneUseGroup Partial(int blank, int total) =>
         new(ZoneUseGroupKind.Partial, null, Array.Empty<string>(),
-            $"此區劃的 {total} 個面積中有 {blank} 個未填用途類組，無法判定此區劃有哪些使用類組");
+            $"此區劃的 {total} 個面積中有 {blank} 個未填用途類組，無法判定此區劃有哪些使用類組", blank);
 
     internal static ZoneUseGroup Single(string group) =>
         new(ZoneUseGroupKind.Single, group, new[] { group }, null);
@@ -240,6 +241,28 @@ public sealed class ZoneUseGroup
 
     /// <summary>Why <see cref="Value"/> is null for a <see cref="ZoneUseGroupKind.Partial"/> 區劃.</summary>
     public string? Problem { get; }
+
+    /// <summary>How many Areas left it blank; nonzero only for <see cref="ZoneUseGroupKind.Partial"/>.</summary>
+    public int BlankCount { get; }
+
+    /// <summary>
+    /// What a panel row says about the whole 區劃 it belongs to, or null when the 區劃 is this one Area
+    /// (the row's own reading already says it all) or nothing is filled. A row alone can only say what
+    /// its own box reads as, which misleads exactly when another Area of the 區劃 disagrees or is blank.
+    /// </summary>
+    public string? PanelNote(int areaCount)
+    {
+        if (areaCount <= 1) return null;
+        return Kind switch
+        {
+            ZoneUseGroupKind.Partial =>
+                $"本區劃共 {areaCount} 塊面積，其中 {BlankCount} 塊未填用途類組，檢討會判「資料不足」。",
+            ZoneUseGroupKind.Mixed =>
+                $"本區劃共 {areaCount} 塊面積，整個區劃讀作 {Value}：各類組之規定均應符合，不適用Ｈ－２組的放寬。",
+            ZoneUseGroupKind.Single => $"本區劃共 {areaCount} 塊面積，整個區劃讀作 {Value}。",
+            _ => null
+        };
+    }
 
     public override string ToString() => Value ?? Problem ?? "（未填）";
 }

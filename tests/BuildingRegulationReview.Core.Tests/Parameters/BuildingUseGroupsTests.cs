@@ -257,6 +257,43 @@ public sealed class BuildingUseGroupsTests
     }
 
     /// <summary>The groups of a part nobody filled in are unknown, so the 區劃's are too.</summary>
+    // --- 面板：整個區劃讀作什麼 -------------------------------------------------------------------
+
+    /// <summary>A 區劃 of one Area needs no zone note: the row's own reading is the 區劃's.</summary>
+    [Fact]
+    public void A_zone_of_one_area_has_no_zone_note()
+    {
+        Assert.Null(BuildingUseGroups.Combine(new[] { "H-2" }).PanelNote(1));
+    }
+
+    /// <summary>
+    /// The case a row alone gets wrong: its own box reads H-2, but another Area of the 區劃 is blank,
+    /// so the review reads the 區劃 as unknown.
+    /// </summary>
+    [Fact]
+    public void A_zone_with_a_blank_area_says_the_review_will_find_data_missing()
+    {
+        var note = BuildingUseGroups.Combine(new[] { "H-2", null }).PanelNote(2);
+
+        Assert.Equal("本區劃共 2 塊面積，其中 1 塊未填用途類組，檢討會判「資料不足」。", note);
+    }
+
+    [Fact]
+    public void A_mixed_zone_says_the_proviso_does_not_apply()
+    {
+        var note = BuildingUseGroups.Combine(new[] { "H-2", "B-2" }).PanelNote(2);
+
+        Assert.Equal("本區劃共 2 塊面積，整個區劃讀作 混合（B-2、H-2）：各類組之規定均應符合，不適用Ｈ－２組的放寬。", note);
+    }
+
+    [Fact]
+    public void A_zone_of_one_group_says_so()
+    {
+        Assert.Equal("本區劃共 2 塊面積，整個區劃讀作 H-2。",
+            BuildingUseGroups.Combine(new[] { "H-2", "Ｈ－２組" }).PanelNote(2));
+        Assert.Null(BuildingUseGroups.Combine(new string?[] { null, null }).PanelNote(2));
+    }
+
     [Fact]
     public void A_mixed_value_gives_its_groups_back()
     {

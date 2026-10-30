@@ -42,6 +42,14 @@ public sealed class FireReviewInputRowTests
         Assert.DoesNotContain(typeof(FireReviewZoneRow).GetProperties(), p => p.Name == "AreaSquareMeters" && p.CanWrite);
     }
 
+    /// <summary>The 區劃 an Area belongs to is carried as read; blank means the Area stands alone.</summary>
+    [Fact]
+    public void A_zone_row_carries_which_zone_it_belongs_to()
+    {
+        Assert.Equal("pkg:zone", new FireReviewZoneRow("area-1", "區劃 1", zoneKey: " pkg:zone ").ZoneKey);
+        Assert.Null(new FireReviewZoneRow("area-1", "區劃 1", zoneKey: " ").ZoneKey);
+    }
+
     [Fact]
     public void An_unplaced_zone_shows_no_area_rather_than_zero()
     {

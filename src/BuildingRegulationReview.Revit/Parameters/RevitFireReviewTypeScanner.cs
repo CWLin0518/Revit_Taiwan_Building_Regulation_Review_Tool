@@ -401,9 +401,21 @@ public sealed class RevitFireReviewTypeScanner
                 // 第79條之1 (第79條之1規格 §6). Not a required parameter either, so an Area that does
                 // not carry it reads as 未填 and the panel says so only for the six uses that need it.
                 cannotBeSubdivided: YesNo(area, ReviewInputSources.CannotBeSubdivided),
-                useGroup: Text(area, ReviewInputSources.UseGroup));
+                useGroup: Text(area, ReviewInputSources.UseGroup),
+                zoneKey: ZoneKeyOf(area));
         }
     }
+
+    /// <summary>
+    /// The 區劃 this Area belongs to, from the tool's mark: package and zone, the same pair the review
+    /// groups Areas by. Null for an Area the tool did not write.
+    /// </summary>
+    private static string? ZoneKeyOf(Autodesk.Revit.DB.Area area) =>
+        WriteBack.ManagedElementMark.TryRead(area, out var token, out _) &&
+        Application.WriteBack.ManagedElementKey.TryParse(token, out var key) &&
+        key.Kind == Application.WriteBack.ManagedElementKind.Area
+            ? key.PackageId.ToString("N") + ":" + key.ZoneId.ToString("N")
+            : null;
 
     private string? SchemeOf(Autodesk.Revit.DB.Area area)
     {

@@ -324,10 +324,32 @@ namespace BuildingRegulationReview.FireReview
             set
             {
                 if (!Set(ref _useGroup, value)) return;
-                Raise(nameof(LimitText));
-                Raise(nameof(UseGroupNote));
+                // 同一區劃的其他列讀的是整個區劃的類組，所以這一格一改，它們的提示與上限也要跟著重算。
+                foreach (var row in ZoneRows)
+                {
+                    row.Raise(nameof(LimitText));
+                    row.Raise(nameof(UseGroupNote));
+                }
             }
         }
+
+        private IReadOnlyList<FireReviewZoneRowViewModel> _zoneRows;
+
+        /// <summary>
+        /// Every row of the 區劃 this Area belongs to, itself included — set by the draft from
+        /// <see cref="FireReviewZoneRow.ZoneKey"/>. A row on its own is a 區劃 of one Area.
+        /// </summary>
+        internal IReadOnlyList<FireReviewZoneRowViewModel> ZoneRows
+        {
+            get => _zoneRows ?? new[] { this };
+            set => _zoneRows = value;
+        }
+
+        /// <summary>
+        /// What the review will read the whole 區劃 as, from what every row of it currently holds —
+        /// 混合（…） when the rows disagree, unknown when some are blank (docs/regulations/building-use-groups.md §6).
+        /// </summary>
+        internal ZoneUseGroup ZoneUseGroup => BuildingUseGroups.Combine(ZoneRows.Select(r => r._useGroup));
 
         /// <summary>What the 用途類組 box offers; anything else can still be typed in.</summary>
         public IReadOnlyList<string> UseGroupChoices => UseGroupChoiceList;
@@ -359,6 +381,11 @@ namespace BuildingRegulationReview.FireReview
                     reading = BuildingUseGroups.IsRespelled(typed) ? $"讀作 {code}（證據欄會同時記下你填的字）。" : $"讀作 {code}。";
                 else
                     reading = $"「{typed}」不是第3-3條的使用類組，檢討時會當成非Ｈ－２組，依較嚴的上限判定。";
+
+                // 一個區劃不只一塊面積時，這一格讀作什麼不等於檢討讀作什麼：另一塊填了別的類組就是混合，
+                // 另一塊沒填就是資料不足。把整個區劃的讀法放在最前面。
+                var zone = ZoneUseGroup.PanelNote(ZoneRows.Count);
+                if (zone != null) reading = zone + "\n（這一塊：" + reading + "）";
                 return reading + "\n\n" + UseGroupHintText;
             }
         }
@@ -371,7 +398,13 @@ namespace BuildingRegulationReview.FireReview
 
         /// <summary>Built from what the row currently holds, so an unsaved edit shows its effect.</summary>
         internal ZoneAreaLimit Limit =>
-            ZoneAreaLimit.ForZone(IntegerOf(_floorNumber), YesNoOf(_sprinklered), _useGroup, _use);
+            ZoneAreaLimit.ForZone(IntegerOf(_floorNumber), YesNoOf(_sprinklered), ZoneUseGroupForLimit, _use);
+
+        /// <summary>
+        /// The 用途類組 the limit is worked out with: the whole 區劃's, as the review reads it. Some Areas
+        /// left blank is no value at all, which the limit shows as 未填 — the gap the engine reports.
+        /// </summary>
+        private string ZoneUseGroupForLimit => ZoneRows.Count <= 1 ? _useGroup : ZoneUseGroup.Value;
 
         /// <summary>防火檢討_所在樓層序 — 第70條 counts storeys from the top with it.</summary>
         public string FloorNumber
