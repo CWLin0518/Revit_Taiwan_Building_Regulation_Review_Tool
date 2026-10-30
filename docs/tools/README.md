@@ -38,4 +38,4 @@
 
 ## 新增工具的文件
 
-依 [`AGENT.md`](../../AGENT.md) 原則 3 與 §5：建 `docs/tools/<工具 ID>/SPEC.md`（目的、操作流程、輸入、計算與判定、產出、失敗條件、驗收）與 `ARCHITECTURE.md`（類別、資料流、Transaction、持久化、MCP 工具），並在本表與根 `SPEC.md` 登記。
+依 [`AGENT.md`](../../AGENT.md) 原則 3 與 §5：建 `docs/tools/<工具 ID>/SPEC.md`（目的、操作流程、輸入、計算與判定、產出、失敗條件、驗收）與 `ARCHITECTURE.md`（類別、資料流、Transaction、持久化、MCP 工具），並在本表與根 `SPEC.md` 登記。收到 SPEC 初稿時的歸檔流程見 `AGENT.md` §5.1。

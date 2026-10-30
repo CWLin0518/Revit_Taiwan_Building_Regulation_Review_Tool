@@ -1,6 +1,6 @@
 # AGENT.md — 開發代理工作規範
 
-給在這個專案工作的 AI 代理（Claude Code、Codex 等）與開發者。`CLAUDE.md` 只是指向本文件的入口，規範以本文件為準。
+給在這個專案工作的 AI 代理（Claude Code、Codex 等）與開發者。`CLAUDE.md`（Claude Code）與 `AGENTS.md`（Codex）只是指向本文件的入口，規範以本文件為準。
 
 - 產品要做什麼：[`SPEC.md`](SPEC.md)
 - 程式怎麼組成：[`ARCHITECTURE.md`](ARCHITECTURE.md)
@@ -121,6 +121,23 @@ dotnet test tests/BuildingRegulationReview.Core.Tests
 4. 寫 use case（無 UI）→ 面板項目（`review-items.json` + `IReviewFeature`）→ MCP 工具模組（原則 1、2）。
 5. 單元測試 → build／test → subagent code review ＋ MCP 驗證（原則 5）→ 修正。
 6. 文件同步 → 經使用者同意合併 → 刪分支（原則 6）。
+
+### 5.1 收到新工具的 SPEC 初稿時
+
+使用者丟來新工具（或新法規項目）的 SPEC 初稿要求完善時，**即使沒說要歸檔，也預設依本專案格式歸檔**，
+不只在對話裡回覆修改後的文字：
+
+1. 從最新 `main` 開分支 `docs/<工具 ID>-spec`（原則 6）。
+2. 先判斷歸屬：獨立工具放 `docs/tools/<工具 ID>/`；屬於既有工具的子規則（例如防火檢討的一條條文）放該工具的
+   `rules/<功能 ID>.md`（例：`docs/tools/fire-review/rules/`）。判斷不了就先問使用者，不要自己猜。
+3. 依 §5 第 2 步的章節結構整理成 `SPEC.md`；同時建 `ARCHITECTURE.md` 骨架（章節標題＋已知內容，未定處標「待定」），
+   子規則則只寫一份 `rules/*.md`。
+4. 在根 `SPEC.md` 與 `docs/tools/README.md` 登記工具 ID，狀態寫「規格草擬」。
+5. 初稿裡的法規引用用 `taiwan-building-code` MCP 核對條號與現行條文；初稿未說清楚的地方列成「待確認問題」放在文件末，
+   不要自行補成定案。
+6. 完成後回報：檔案放在哪、改了什麼、待確認問題清單。合併仍須使用者同意。
+
+使用者明說「只要改文字、不用歸檔」時才例外。
 
 ## 6. 文件放哪裡
 
