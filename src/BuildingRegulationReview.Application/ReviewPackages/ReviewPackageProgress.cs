@@ -17,14 +17,22 @@ public sealed class ReviewPackageProgressOutcome
         ReviewPackageStatus previousStatus,
         int previousBoundaryRevision,
         IEnumerable<string> blockers,
-        string message)
+        string message,
+        int unwrittenZoneUses = 0)
     {
         Package = package;
         PreviousStatus = previousStatus;
         PreviousBoundaryRevision = previousBoundaryRevision;
         Blockers = new ReadOnlyCollection<string>(blockers.ToList());
         Message = message;
+        UnwrittenZoneUses = unwrittenZoneUses;
     }
+
+    /// <summary>
+    /// 區劃用途 the run could not write. They do not block the package (驗證清單 C-25) but they are
+    /// still something the user has to fix, so the log marks the state line as a warning.
+    /// </summary>
+    public int UnwrittenZoneUses { get; }
 
     /// <summary>The package as it should now be stored. Identical to the input when nothing moved.</summary>
     public ReviewPackage Package { get; }
@@ -117,6 +125,12 @@ public static class ReviewPackageProgress
         var touched = result.GeometryChangeCount;
         var parameters = result.ParameterWriteCount;
 
+        // 驗證清單 C-25：C-09 的反面。用途寫入失敗（多半是沒跑「防火檢討參數設定」，Area 上沒有
+        // 防火檢討_區劃用途）邊界一樣一動也沒動，卻曾因 FailedCount > 0 被當成阻擋，把套件退回區劃
+        // 草稿——已檢討／已出圖也照退（2026-10-30 空白專案實測 Ready → BoundaryDraft）。補救是去跑參數
+        // 設定，不是重畫邊界，所以它只進訊息與日誌，不進 Blockers。
+        var unwrittenUses = result.ParameterFailureCount;
+
         // 只有這一種情形才可以說「模型已經與草稿一致」：真的一個字都沒寫進去。寫了用途卻說已經一致
         // 是假話，所以純參數的套用必須往下走，由 Message 誠實說出寫了什麼。
         if (touched == 0 && parameters == 0 && result.AreaFindings.Count == 0 && result.FailedCount == 0)
@@ -138,6 +152,13 @@ public static class ReviewPackageProgress
         // does disagree is worth dropping back for, whether or not this run wrote anything.
         if (touched == 0 && blockers.Count == 0 && !AwaitingBoundaries(status)) next = status;
 
+        // A run whose only line is a 用途 that failed wrote nothing and measured nothing, so — like the
+        // early return above — it has no grounds to promote a package still waiting for its boundaries.
+        // Reaching here with no blockers means FailedCount > 0 but no geometry failed, so this catches
+        // exactly the C-25 case; for states past the boundaries it repeats the guard above.
+        var measured = result.AreaFindings.Count > 0;
+        if (touched == 0 && parameters == 0 && !measured && blockers.Count == 0) next = status;
+
         // A boundary that changed invalidates whatever was reviewed or documented on top of it
         // (spec 13.1), so the package drops back to what this run itself can vouch for.
         var advanced = touched > 0
@@ -149,8 +170,17 @@ public static class ReviewPackageProgress
             previousStatus: status,
             previousBoundaryRevision: revision,
             blockers: blockers,
-            message: Message(next, blockers.Count, geometryChanges: touched, parameterWrites: parameters));
+            message: Message(next, blockers.Count, geometryChanges: touched, parameterWrites: parameters, measured: measured)
+                + UnwrittenUsesMessage(unwrittenUses),
+            unwrittenZoneUses: unwrittenUses);
     }
+
+    private static string UnwrittenUsesMessage(int count) => count == 0
+        ? string.Empty
+        : string.Format(
+            CultureInfo.InvariantCulture,
+            "另有 {0} 個面積的區劃用途沒有寫入（原因見寫回明細）；這一項與邊界無關，不影響套件狀態。",
+            count);
 
     /// <summary>The log entries the state change is worth (spec 14).</summary>
     public static ReviewLog Explain(
@@ -174,8 +204,11 @@ public static class ReviewPackageProgress
         log.Add(
             outcome.Blockers.Count == 0 ? ReviewErrorCode.StatusAdvanced : ReviewErrorCode.StatusBlocked,
             ReviewStage.Status,
-            outcome.Blockers.Count == 0 ? ReviewSeverity.Info : ReviewSeverity.Warning,
+            outcome.Blockers.Count == 0 && outcome.UnwrittenZoneUses == 0 ? ReviewSeverity.Info : ReviewSeverity.Warning,
             outcome.Message,
+            suggestion: outcome.Blockers.Count == 0 && outcome.UnwrittenZoneUses > 0
+                ? "依寫回明細處理（多半是尚未執行「防火檢討參數設定」）後重新套用。"
+                : null,
             technicalDetail: string.Format(
                 CultureInfo.InvariantCulture,
                 "Status {0} -> {1}, BoundaryRevision {2} -> {3}",
@@ -213,12 +246,13 @@ public static class ReviewPackageProgress
         // at a boundary problem rather than at a Revit refusal.
         foreach (var finding in result.AreaDisagreements) yield return finding.Message!;
 
-        if (result.FailedCount > 0)
+        // 只數幾何：用途寫入失敗不是邊界問題（驗證清單 C-25），由 UnwrittenUsesMessage 另外說。
+        if (result.GeometryFailureCount > 0)
         {
             yield return string.Format(
                 CultureInfo.InvariantCulture,
                 "有 {0} 個元素沒有寫入模型，草稿與模型還不一致。",
-                result.FailedCount);
+                result.GeometryFailureCount);
         }
     }
 
@@ -228,7 +262,7 @@ public static class ReviewPackageProgress
     /// the boundary moved, but something did reach the model (驗證清單 C-09), and the user has to know
     /// that the review it already has is now out of date even though the package kept its state.
     /// </summary>
-    private static string Message(ReviewPackageStatus status, int blockerCount, int geometryChanges, int parameterWrites)
+    private static string Message(ReviewPackageStatus status, int blockerCount, int geometryChanges, int parameterWrites, bool measured)
     {
         if (blockerCount > 0)
         {
@@ -252,6 +286,9 @@ public static class ReviewPackageProgress
                 Describe(status));
         }
 
-        return "模型未變更；各區劃面積與草算相符，套件狀態為「" + Describe(status) + "」。";
+        // 沒量到任何面積就不能說「相符」（C-25：只有一筆失敗的用途時會走到這裡）。
+        return measured
+            ? "模型未變更；各區劃面積與草算相符，套件狀態為「" + Describe(status) + "」。"
+            : "模型未變更，套件狀態維持「" + Describe(status) + "」。";
     }
 }

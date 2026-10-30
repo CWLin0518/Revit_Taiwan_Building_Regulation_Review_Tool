@@ -436,25 +436,172 @@ public class ReviewPackageProgressTests
     }
 
     /// <summary>
-    /// C-09：一筆用途寫入失敗（FailedCount > 0）同樣擋得住 Ready，revision 照樣不動。
+    /// C-25（C-09 的反面）：用途寫入失敗——多半是沒跑參數設定、Area 上沒有那個參數——邊界一動也沒動，
+    /// 所以不可以把套件退回區劃草稿；已檢討／已出圖更不能因此作廢。失敗仍然要說出來。
+    /// 2026-10-30 空白專案實測：修正前 Ready → BoundaryDraft。
     /// </summary>
-    [Fact]
-    public void AZoneUseThatFailedKeepsThePackageOutOfReadyWithoutAdvancingTheRevision()
+    [Theory]
+    [InlineData(ReviewPackageStatus.Ready)]
+    [InlineData(ReviewPackageStatus.Reviewed)]
+    [InlineData(ReviewPackageStatus.Documented)]
+    [InlineData(ReviewPackageStatus.Stale)]
+    [InlineData(ReviewPackageStatus.Error)]
+    public void AZoneUseThatFailedDoesNotDropThePackageBack(ReviewPackageStatus status)
     {
-        var builder = new ApplyResult.Builder(AppliedPlan());
-        builder.ZoneUse(ApplyOutcome.Failed, ZoneUse(), "Revit 拒絕寫入這個區劃用途。", "existing-area");
-        var result = builder.Complete();
+        var result = ZoneUseFailedBesideAgreeingAreas();
 
         Assert.Equal(0, result.GeometryChangeCount);
         Assert.Equal(0, result.ParameterWriteCount);
         Assert.Equal(1, result.FailedCount);
+        Assert.Equal(1, result.ParameterFailureCount);
+        Assert.Equal(0, result.GeometryFailureCount);
+
+        var outcome = ReviewPackageProgress.After(Package(status, boundaryRevision: 7), result, At);
+
+        Assert.Equal(status, outcome.Status);
+        Assert.Equal(7, outcome.BoundaryRevision);
+        Assert.Empty(outcome.Blockers);
+        Assert.Equal(1, outcome.UnwrittenZoneUses);
+        Assert.Contains("另有 1 個面積的區劃用途沒有寫入", outcome.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("尚不得進入", outcome.Message, StringComparison.Ordinal);
+
+        // 草稿裡的用途還沒進模型，編輯器的「未套用」標記不能被清掉，使用者跑完參數設定後才能再套用。
+        Assert.False(result.IsComplete);
+    }
+
+    /// <summary>C-25：沒擋住狀態不等於沒事——日誌那一行狀態訊息要是警告，不是資訊。</summary>
+    [Fact]
+    public void AZoneUseThatFailedIsAWarningOnTheLog()
+    {
+        var outcome = ReviewPackageProgress.After(
+            Package(ReviewPackageStatus.Ready, boundaryRevision: 7), ZoneUseFailedBesideAgreeingAreas(), At);
+
+        var log = ReviewPackageProgress.Explain(outcome, At);
+
+        var line = Assert.Single(log.Entries);
+        Assert.Equal(ReviewSeverity.Warning, line.Severity);
+        Assert.Contains("區劃用途沒有寫入", line.UserMessage, StringComparison.Ordinal);
+        Assert.Contains("防火檢討參數設定", line.Suggestion!, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// C-25：還在等邊界的套件，若面積都量過且相符，只因一筆用途失敗就不晉升並不合理——
+    /// 與 C-09「用途寫入成功也照樣晉升」一致。釘住它，免得調整新守衛時悄悄改掉。
+    /// </summary>
+    [Theory]
+    [InlineData(ReviewPackageStatus.Setup)]
+    [InlineData(ReviewPackageStatus.BoundaryDraft)]
+    public void AFailedZoneUseBesideAgreeingAreasStillPromotesAPackageAwaitingItsBoundaries(ReviewPackageStatus status)
+    {
+        var outcome = ReviewPackageProgress.After(
+            Package(status, boundaryRevision: 7), ZoneUseFailedBesideAgreeingAreas(), At);
+
+        Assert.Equal(ReviewPackageStatus.Ready, outcome.Status);
+        Assert.Equal(7, outcome.BoundaryRevision);
+        Assert.Empty(outcome.Blockers);
+        Assert.Contains("各區劃面積與草算相符", outcome.Message, StringComparison.Ordinal);
+        Assert.Contains("區劃用途沒有寫入", outcome.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>C-25：幾何有寫、只有用途失敗——revision 照常 +1、進入 Ready，訊息帶上用途那一段。</summary>
+    [Fact]
+    public void AFailedZoneUseBesideWrittenGeometryStillAdvancesTheRevision()
+    {
+        var plan = Plan();
+        var builder = new ApplyResult.Builder(plan);
+        foreach (var step in plan.Steps) builder.Created(step, "new-" + step.Key.ToToken());
+        builder.Area(AreaAgreement.Compare(AreaKey(), "A", 92.9, 92.9));
+        builder.ZoneUse(ApplyOutcome.Failed, ZoneUse(), "這個面積沒有 防火檢討_區劃用途 參數。", "existing-area");
 
         var outcome = ReviewPackageProgress.After(
-            Package(ReviewPackageStatus.Ready, boundaryRevision: 7), result, At);
+            Package(ReviewPackageStatus.Reviewed, boundaryRevision: 7), builder.Complete(), At);
+
+        Assert.Equal(8, outcome.BoundaryRevision);
+        Assert.Equal(ReviewPackageStatus.Ready, outcome.Status);
+        Assert.Empty(outcome.Blockers);
+        Assert.Contains("面積與邊界都已寫入", outcome.Message, StringComparison.Ordinal);
+        Assert.Contains("另有 1 個面積的區劃用途沒有寫入", outcome.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>C-25：同一次有一筆用途寫成、一筆失敗，兩件事都要說。</summary>
+    [Fact]
+    public void AZoneUseThatLandedAndOneThatFailedAreBothReported()
+    {
+        var builder = new ApplyResult.Builder(AppliedPlan());
+        builder.ZoneUse(ApplyOutcome.Updated, ZoneUse(), null, "existing-area");
+        builder.ZoneUse(
+            ApplyOutcome.Failed,
+            new ZoneUseOperation(AreaKey(), "A", null, "管道間", "other-area"),
+            "這個面積沒有 防火檢討_區劃用途 參數。", "other-area");
+
+        var outcome = ReviewPackageProgress.After(
+            Package(ReviewPackageStatus.Reviewed, boundaryRevision: 7), builder.Complete(), At);
+
+        Assert.Equal(ReviewPackageStatus.Reviewed, outcome.Status);
+        Assert.Equal(7, outcome.BoundaryRevision);
+        Assert.Contains("已設定 1 個面積的區劃用途", outcome.Message, StringComparison.Ordinal);
+        Assert.Contains("另有 1 個面積的區劃用途沒有寫入", outcome.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>C-25：只放過用途。同一次套用裡真的有幾何被拒，照舊擋住 Ready。</summary>
+    [Fact]
+    public void AGeometryFailureBesideAFailedZoneUseStillBlocks()
+    {
+        var plan = Plan();
+        var builder = new ApplyResult.Builder(plan);
+        builder.Failed(plan.Steps[0], "邊界線太短。");
+        foreach (var step in plan.Steps.Skip(1)) builder.Created(step, "new-" + step.Key.ToToken());
+        builder.ZoneUse(ApplyOutcome.Failed, ZoneUse(), "這個面積沒有 防火檢討_區劃用途 參數。", "existing-area");
+        var result = builder.Complete();
+
+        Assert.Equal(1, result.GeometryFailureCount);
+        Assert.Equal(1, result.ParameterFailureCount);
+
+        var outcome = ReviewPackageProgress.After(Package(ReviewPackageStatus.Ready, boundaryRevision: 7), result, At);
 
         Assert.Equal(ReviewPackageStatus.BoundaryDraft, outcome.Status);
-        Assert.Contains(outcome.Blockers, b => b.Contains("沒有寫入模型", StringComparison.Ordinal));
+        // 阻擋只數幾何那一筆，不把用途算成「元素沒有寫入」。
+        var blocker = Assert.Single(outcome.Blockers);
+        Assert.Contains("有 1 個元素沒有寫入模型", blocker, StringComparison.Ordinal);
+        Assert.Contains("區劃用途沒有寫入", outcome.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>C-25：面積不符照樣擋得住，不會被用途失敗那段訊息蓋掉。</summary>
+    [Fact]
+    public void AFailedZoneUseDoesNotHideAnAreaThatDisagrees()
+    {
+        var builder = new ApplyResult.Builder(AppliedPlan());
+        builder.ZoneUse(ApplyOutcome.Failed, ZoneUse(), "這個面積沒有 防火檢討_區劃用途 參數。", "existing-area");
+        builder.Area(AreaAgreement.Compare(AreaKey(), "A", 92.9, 70.0));
+
+        var outcome = ReviewPackageProgress.After(
+            Package(ReviewPackageStatus.Reviewed, boundaryRevision: 7), builder.Complete(), At);
+
+        Assert.Equal(ReviewPackageStatus.BoundaryDraft, outcome.Status);
+        Assert.Contains(outcome.Blockers, b => b.Contains("相差", StringComparison.Ordinal));
+        Assert.DoesNotContain(outcome.Blockers, b => b.Contains("沒有寫入模型", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// C-25：一次只有一筆失敗的用途、沒寫幾何、也沒量到任何面積的套用，什麼都沒學到，
+    /// 所以不能把還在等邊界的套件晉升到可開始檢討。
+    /// </summary>
+    [Theory]
+    [InlineData(ReviewPackageStatus.Setup)]
+    [InlineData(ReviewPackageStatus.BoundaryDraft)]
+    public void AFailedZoneUseAloneDoesNotPromoteAPackageStillAwaitingItsBoundaries(ReviewPackageStatus status)
+    {
+        var builder = new ApplyResult.Builder(AppliedPlan());
+        builder.ZoneUse(ApplyOutcome.Failed, ZoneUse(), "這個面積沒有 防火檢討_區劃用途 參數。", "existing-area");
+
+        var outcome = ReviewPackageProgress.After(Package(status, boundaryRevision: 7), builder.Complete(), At);
+
+        Assert.Equal(status, outcome.Status);
         Assert.Equal(7, outcome.BoundaryRevision);
+
+        // 一塊面積都沒量，不能說「相符」。
+        Assert.DoesNotContain("相符", outcome.Message, StringComparison.Ordinal);
+        Assert.Contains("模型未變更，套件狀態維持", outcome.Message, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -553,6 +700,28 @@ public class ReviewPackageProgressTests
     {
         var builder = new ApplyResult.Builder(AppliedPlan());
         builder.ZoneUse(ApplyOutcome.Updated, ZoneUse(), null, "existing-area");
+        return builder.Complete();
+    }
+
+    /// <summary>
+    /// C-25：沒跑參數設定的模型上套用一個用途——Areas 照常量過且相符，只有用途那一筆失敗。
+    /// 這是 2026-10-30 空白專案實測時寫回交出來的形狀。
+    /// </summary>
+    private static ApplyResult ZoneUseFailedBesideAgreeingAreas()
+    {
+        var plan = AppliedPlan();
+        var builder = new ApplyResult.Builder(plan);
+        foreach (var area in plan.UnchangedAreas)
+        {
+            builder.Area(AreaAgreement.Compare(
+                area.Planned!.Key, area.Planned.ZoneName,
+                area.Planned.NetAreaSquareMeters, area.Planned.NetAreaSquareMeters,
+                elementUniqueId: area.ElementUniqueId));
+        }
+
+        builder.ZoneUse(
+            ApplyOutcome.Failed, ZoneUse(),
+            "這個面積沒有 防火檢討_區劃用途 參數，用途未寫入；請先執行「防火檢討參數設定」。", "existing-area");
         return builder.Complete();
     }
 

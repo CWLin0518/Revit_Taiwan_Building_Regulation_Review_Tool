@@ -68,7 +68,7 @@ namespace BuildingRegulationReview.RegionEditor
             {
                 Text = _report.Progress.Message,
                 TextWrapping = TextWrapping.Wrap,
-                Foreground = _report.IsReady ? ReadyBrush : ManualBrush,
+                Foreground = _report.IsReady && _report.Progress.UnwrittenZoneUses == 0 ? ReadyBrush : ManualBrush,
                 Margin = new Thickness(0, 6, 0, 0)
             });
 

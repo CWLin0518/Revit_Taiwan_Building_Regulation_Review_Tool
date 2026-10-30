@@ -165,6 +165,19 @@ public sealed class ApplyResult
         !i.IsParameterOnly &&
         (i.Outcome == ApplyOutcome.Created || i.Outcome == ApplyOutcome.Updated || i.Outcome == ApplyOutcome.Deleted));
 
+    /// <summary>
+    /// Elements whose geometry Revit refused. Only these leave the boundary short of the draft, and so
+    /// only these may keep a package out of Ready (spec 10.6).
+    /// </summary>
+    public int GeometryFailureCount => Items.Count(i => !i.IsParameterOnly && i.Outcome == ApplyOutcome.Failed);
+
+    /// <summary>
+    /// 區劃用途 writes that failed — most often because 「防火檢討參數設定」 was never run, so the Area has
+    /// no 防火檢討_區劃用途 to write to. The boundary is untouched by them (驗證清單 C-25), so they are
+    /// reported, not counted against the package's state.
+    /// </summary>
+    public int ParameterFailureCount => Items.Count(i => i.IsParameterOnly && i.Outcome == ApplyOutcome.Failed);
+
     /// <summary>True when the drafts are now in the model in full, which is what lets the Editor
     /// clear its unapplied-changes mark.</summary>
     public bool IsComplete => !IsRolledBack && FailedCount == 0;
