@@ -11,7 +11,7 @@ namespace BuildingRegulationReview.Application.Checks;
 
 /// <summary>
 /// The three 帷幕牆 checks, and the value each one puts in <c>junction.kind</c>
-/// (docs/regulations/curtain-wall-fire-compartment.md §3). The rules key off this, and they are
+/// (docs/tools/fire-review/rules/curtain-wall-fire-compartment.md §3). The rules key off this, and they are
 /// mutually exclusive: one junction is only ever one of them.
 /// </summary>
 public enum CurtainWallJunctionKind

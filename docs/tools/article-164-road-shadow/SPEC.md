@@ -1,4 +1,6 @@
-# 建築技術規則第 164 條：道路陰影檢討
+# 建築技術規則第 164 條：道路陰影檢討 — 規格
+
+工具 ID：`article-164-road-shadow`｜狀態：已實作，**尚未開放 MCP**（見 [MCP SPEC](../mcp-server/SPEC.md) §2）｜使用說明：[USER-GUIDE.md](USER-GUIDE.md)
 
 ## 1. 功能摘要
 
@@ -135,38 +137,9 @@ As ≤ L × Sw
 
 圖框、文字大小與圖面位置由使用者在 WPF 視窗中設定。
 
-## 7. 程式架構
+## 7～8. 程式架構與結果生命週期
 
-| 類別 | 責任 |
-| --- | --- |
-| `Article164Command` | 主流程、元素收集、使用者選取、投影計算與合規判定 |
-| `Article164ExternalEventHandler` | 從 Dockable Pane 進入第 164 條檢討 |
-| `Article164ElementFilterWindow` | 依牆／樓板類型篩選輸入 |
-| `Article164OptionsWindow` | 道路寬度與永久性空地輸入 |
-| `Article164ReviewSession` | 依 Revit Document 暫存最近一次結果 |
-| `Article164PlanViewBuilder` | 建立檢討平面圖與標註 |
-| `Article164FilledRegionWriter` | 建立或取得填滿區域類型與樣式 |
-| `Article164DrawingCommand` | 驗證結果並協調圖說流程 |
-| `Article164DrawingExternalEventHandler` | 從 Dockable Pane 進入圖說製作 |
-| `Article164TitleBlockWindow` | 選擇圖框與圖例文字大小 |
-| `Article164LayoutPreviewWindow` | 預覽並調整圖面配置 |
-| `Article164DrawingBuilder` | 建立 Sheet、圖例、文字與 Viewport |
-
-## 8. 結果資料與生命週期
-
-`Article164ReviewSession.Result` 保存：
-
-- 合規結果。
-- 建物與陰影 Rhino 曲線。
-- 建築線端點與道路寬度。
-- 面積與容許面積。
-- Level、來源 View、檢討 View 和 FilledRegionType 的 ElementId。
-
-結果只存在記憶體中：
-
-- 關閉 Revit 後消失。
-- 重新開啟模型後必須重新檢討。
-- 使用者刪除結果指向的視圖或類型後，圖說製作可能要求重新檢討。
+已移至 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
 ## 9. 已知限制
 

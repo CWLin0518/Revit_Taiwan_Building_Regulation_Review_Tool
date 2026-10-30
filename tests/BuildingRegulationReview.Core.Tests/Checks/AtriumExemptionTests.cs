@@ -12,7 +12,7 @@ using Xunit;
 namespace BuildingRegulationReview.Core.Tests.Checks;
 
 /// <summary>
-/// 第79條之2第3項's two 款 (docs/regulations/vertical-compartment.md §3.6).
+/// 第79條之2第3項's two 款 (docs/tools/fire-review/rules/vertical-compartment.md §3.6).
 ///
 /// 第3項 is a classification, not a requirement: it says whether an 挑空 has to be 單獨區劃分隔 under
 /// 第1項 at all. So there is no 符合 and no 未符合 here — only 免除成立 (which the review reports as

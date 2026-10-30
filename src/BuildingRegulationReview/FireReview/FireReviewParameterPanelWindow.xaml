@@ -493,7 +493,7 @@
 
                             <!-- 用途類組：逐區劃（逐 Area）填。可編輯下拉，綁 Text 不綁 SelectedItem，理由同區劃用途。
                                  同一區劃各面積可填不同類組，檢討讀成「混合」並依較嚴者判定
-                                 （docs/regulations/building-use-groups.md §6）。 -->
+                                 （docs/tools/fire-review/rules/building-use-groups.md §6）。 -->
                             <DataGridTemplateColumn Header="用途類組" Width="96" SortMemberPath="UseGroup">
                                 <DataGridTemplateColumn.CellStyle>
                                     <Style TargetType="DataGridCell">

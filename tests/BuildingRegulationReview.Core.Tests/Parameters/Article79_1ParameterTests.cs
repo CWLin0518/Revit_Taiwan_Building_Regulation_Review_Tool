@@ -16,7 +16,7 @@ namespace BuildingRegulationReview.Core.Tests.Parameters;
 
 /// <summary>
 /// 第79條之1 步驟 2, the parameter layer
-/// (docs/regulations/article-79-1-area-exemption.md §5.1、§5.2、§6).
+/// (docs/tools/fire-review/rules/article-79-1-area-exemption.md §5.1、§5.2、§6).
 ///
 /// 無法區劃分隔 is a fact only the designer can state — 第79條之1 asks whether the part is one the
 /// building's 構造 or 設備 makes impossible to subdivide, which no geometry answers — so it arrives as

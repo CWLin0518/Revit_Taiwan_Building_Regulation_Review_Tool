@@ -23,7 +23,7 @@ public enum RuleCategory
     /// 第79條之2 垂直區劃: what the article demands of a 昇降機道 or 管道間 <em>beyond</em> the
     /// 一小時牆壁 and 防火設備 every 區劃 boundary already owes — 遮煙性能, and the 維修門's own
     /// 一小時防火時效. Its subject is one (設備, 要求) pair, not an element, so it reads
-    /// <c>shaft.*</c>; see <c>docs/regulations/vertical-compartment.md</c>.
+    /// <c>shaft.*</c>; see <c>docs/tools/fire-review/rules/vertical-compartment.md</c>.
     /// </summary>
     VerticalCompartment
 }

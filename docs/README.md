@@ -1,27 +1,21 @@
-# 專案文件
+# 文件索引
 
-本目錄集中記錄 Revit Taiwan Building Regulation Review Tool 的技術架構與各法規功能設計。
+## 根目錄
 
-## 文件索引
+- [AGENT.md](../AGENT.md)：開發代理工作規範（六條開發原則）；[CLAUDE.md](../CLAUDE.md) 指向它
+- [SPEC.md](../SPEC.md)：整體規格、工具清單、跨工具需求
+- [ARCHITECTURE.md](../ARCHITECTURE.md)：整體架構
+- [DESIGN.md](../DESIGN.md)：檢討面板設計原則、共用元件目錄
 
-- [整體專案架構](architecture.md)
-- [防火檢討工具完整規格](fire-review-spec.md)
-- [Revit 端待驗證項目清單](revit-verification-checklist.md)：目前進度、缺陷登記與還能做的事
-- [Revit 端驗證紀錄](revit-verification-log.md)：2026-10-04～10-27 各輪驗證的操作與逐字證據（封存）
-- [Phase 1 任務計畫](agent/phase-1-plan.md)
-- [MCP 伺服器：讓 AI 代理操作外掛並驗證](mcp-server.md)
-- [ADR-0001：分層與 Revit 版本適配](adr/0001-layered-architecture-and-revit-versioning.md)
-- [ADR-0004：外掛內建 MCP 伺服器](adr/0004-mcp-server-for-agent-verification.md)
-- [Agent Phase 狀態](agent/phase-state.yaml)
-- [Agent 交接](agent/HANDOFF.md)
-- [法規功能總覽](regulations/README.md)
-- [建築技術規則第 164 條：道路陰影檢討](regulations/article-164-road-shadow.md)
+## 工具（`docs/tools/<工具 ID>/`）
 
-## 維護原則
+- [工具總覽](tools/README.md)
+- `review-panel/`：檢討面板（整合既有 Ribbon 工具）
+- `mcp-server/`：MCP 伺服器（[ARCHITECTURE](tools/mcp-server/ARCHITECTURE.md)）
+- `article-164-road-shadow/`：第 164 條（[SPEC](tools/article-164-road-shadow/SPEC.md)、[使用說明](tools/article-164-road-shadow/USER-GUIDE.md)、`history/`）
+- `fire-review/`：建築防火檢討（[SPEC](tools/fire-review/SPEC.md)、`rules/` 各條細部設計、`history/` Phase 1～3 任務與交接紀錄）
 
-新增或修改法規功能時，應同步更新：
+## 其他
 
-1. `regulations/README.md` 的功能清單與狀態。
-2. 該法規的獨立架構文件。
-3. 若新增共用元件或改變呼叫流程，同步更新 `architecture.md`。
-4. 若功能要開放給 AI 代理，依 `mcp-server.md` §9 抽出 use case、加入 MCP 工具，並更新該文件的工具清單。
+- [ADR](adr/)：設計決策
+- [驗證清單](verification/checklist.md)、[驗證紀錄](verification/log.md)

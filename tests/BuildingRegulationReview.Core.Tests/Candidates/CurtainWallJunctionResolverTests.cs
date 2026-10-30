@@ -11,7 +11,7 @@ using Xunit;
 namespace BuildingRegulationReview.Core.Tests.Candidates;
 
 /// <summary>
-/// 帷幕牆區劃交接的幾何層（docs/regulations/curtain-wall-fire-compartment.md §4、§12 步驟 4）。
+/// 帷幕牆區劃交接的幾何層（docs/tools/fire-review/rules/curtain-wall-fire-compartment.md §4、§12 步驟 4）。
 ///
 /// The resolver is where §4 actually happens, so these are the tests of §4: the cases of §10 that do
 /// need real geometry (8, 8b, 8c, 17, 18) are walked through here, and the ones the Check 層 already

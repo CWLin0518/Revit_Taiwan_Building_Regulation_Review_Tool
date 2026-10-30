@@ -22,8 +22,12 @@ namespace BuildingRegulationReview
         private const string DialogTitle = "防火檢討參數批次設定";
 
         public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
+            => Run(commandData.Application, ref message);
+
+        /// <summary>檢討面板與 Ribbon 共用的進入點。</summary>
+        internal static Result Run(UIApplication application, ref string message)
         {
-            var uiDocument = commandData?.Application?.ActiveUIDocument;
+            var uiDocument = application?.ActiveUIDocument;
             var document = uiDocument?.Document;
             if (document == null)
             {
@@ -54,7 +58,7 @@ namespace BuildingRegulationReview
                 }
 
                 var window = new FireReviewParameterPanelWindow(set, view.Name);
-                new System.Windows.Interop.WindowInteropHelper(window).Owner = commandData.Application.MainWindowHandle;
+                new System.Windows.Interop.WindowInteropHelper(window).Owner = application.MainWindowHandle;
 
                 window.Write = edits =>
                 {

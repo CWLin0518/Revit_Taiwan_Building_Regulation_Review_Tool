@@ -5,7 +5,7 @@ namespace BuildingRegulationReview.Revit.Geometry;
 
 /// <summary>
 /// Reads a Wall Type's <c>Function</c> as the declaration
-/// <see cref="CurtainWallFunctionDeclaration"/> names (docs/regulations/curtain-wall-fire-compartment.md §4.8).
+/// <see cref="CurtainWallFunctionDeclaration"/> names (docs/tools/fire-review/rules/curtain-wall-fire-compartment.md §4.8).
 /// </summary>
 /// <remarks>
 /// One reader for both pipelines — <c>RevitCandidateObservationReader</c> and

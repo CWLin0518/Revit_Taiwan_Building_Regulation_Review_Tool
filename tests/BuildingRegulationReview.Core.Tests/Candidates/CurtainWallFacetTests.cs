@@ -10,7 +10,7 @@ using Xunit;
 namespace BuildingRegulationReview.Core.Tests.Candidates;
 
 /// <summary>
-/// 弧形帷幕牆依直向 grid line 拆成平面段（docs/regulations/curtain-wall-fire-compartment.md §4.7）。
+/// 弧形帷幕牆依直向 grid line 拆成平面段（docs/tools/fire-review/rules/curtain-wall-fire-compartment.md §4.7）。
 ///
 /// The model is the one that raised it: a quarter circle of radius 9 m round the origin, from due south
 /// to due east, built as ten flat 9° facets — the outside of the arc is the outside of the building.

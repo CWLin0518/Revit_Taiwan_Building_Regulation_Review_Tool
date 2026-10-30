@@ -21,8 +21,12 @@ namespace BuildingRegulationReview
         private const string DialogTitle = "防火檢討參數一鍵建立";
 
         public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
+            => Run(commandData.Application, ref message);
+
+        /// <summary>檢討面板與 Ribbon 共用的進入點。</summary>
+        internal static Result Run(UIApplication application, ref string message)
         {
-            var document = commandData?.Application?.ActiveUIDocument?.Document;
+            var document = application?.ActiveUIDocument?.Document;
             if (document == null)
             {
                 message = "請先開啟 Revit 專案。";
@@ -39,7 +43,7 @@ namespace BuildingRegulationReview
             {
                 var installer = new RevitFireReviewParameterInstaller(document);
                 var window = new FireReviewParameterSetupWindow(installer.Inspect());
-                new System.Windows.Interop.WindowInteropHelper(window).Owner = commandData.Application.MainWindowHandle;
+                new System.Windows.Interop.WindowInteropHelper(window).Owner = application.MainWindowHandle;
 
                 window.Reinspect = () => installer.Inspect();
                 window.Create = plan =>

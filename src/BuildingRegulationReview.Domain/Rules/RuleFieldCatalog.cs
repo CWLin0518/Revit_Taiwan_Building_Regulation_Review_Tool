@@ -112,7 +112,7 @@ public sealed class RuleFieldCatalog
             new RuleFieldDefinition("zone.levelName", text, "所在樓層名稱", all),
             new RuleFieldDefinition("zone.floorNumber", number, "所在樓層序（地上為正、地下為負）", all),
 
-            // 區劃的建築物使用類組（第3條之3），取代原本整棟一個值的 building.use（docs/regulations/
+            // 區劃的建築物使用類組（第3條之3），取代原本整棟一個值的 building.use（docs/tools/fire-review/rules/
             // building-use-groups.md §6）。同一區劃各 Area 類組不同時值為「混合（B-2、H-2）」，不等於任何
             // 單一組別，所以第83條的Ｈ－２組但書自然不成立——各類組的規定都要符合（內政部國土管理署
             // 115.05.15國署建管字第1150047679號函）。
@@ -124,7 +124,7 @@ public sealed class RuleFieldCatalog
             new RuleFieldDefinition("zone.interiorFinish", text,
                 "由區劃內牆面與天花板類型推導的室內裝修耐燃等級（無／耐燃一級／耐燃一級含底材）", all),
 
-            // 第79條之2第3項 的兩款免除（docs/regulations/vertical-compartment.md §3.6、§3.8）。這幾個欄位
+            // 第79條之2第3項 的兩款免除（docs/tools/fire-review/rules/vertical-compartment.md §3.6、§3.8）。這幾個欄位
             // 是區劃的事實，與 zone.floorNumber 同一類，所以對所有類別開放；但**沒有任何規則讀它們**——
             // 第 3 項是分類而不是要求，沒有可比較的 requiredValue，判定寫在 AtriumExemption.For 這個
             // 純計算裡（決議 24）。它們仍要進白名單，因為組裝層會把整份 zone.* 輸入 ApplyTo 到每個
@@ -160,7 +160,7 @@ public sealed class RuleFieldCatalog
             new RuleFieldDefinition("zone.atriumCompartmentArea", RuleValueType.Quantity(ReviewUnit.SquareMeter),
                 "併入挑空之連通區劃合計樓地板面積（由各樓層區劃推得）", all),
 
-            // 第79條之1「無法區劃分隔部分」（docs/regulations/article-79-1-area-exemption.md §5.2）。
+            // 第79條之1「無法區劃分隔部分」（docs/tools/fire-review/rules/article-79-1-area-exemption.md §5.2）。
             // 與上面兩個欄位完全同一類：Area 實體上、只有設計者能宣告的事實，沒有任何規則讀它
             // （第79條之1 是分類而不是要求，判定寫在 Article79_1Exemption.For 這個純計算裡，決議 1），
             // 但仍要進白名單，因為組裝層會把整份 zone.* 輸入 ApplyTo 到每個受檢主體。也因為
@@ -179,12 +179,12 @@ public sealed class RuleFieldCatalog
             // 的是第79條第3項的交接處構造（突出 50cm 或交接處 90cm 以上且同等時效）與第79條之4 的
             // 半小時外牆時效，兩者都由 junction.* 的規則檢討。這個欄位存在就是為了讓
             // tw-bcr-79-wall-rating 把它排除，否則一片 2.5cm 厚的帷幕牆會被要求一小時防火時效
-            // （docs/regulations/curtain-wall-fire-compartment.md）。
+            // （docs/tools/fire-review/rules/curtain-wall-fire-compartment.md）。
             new RuleFieldDefinition("element.isCurtainWall", boolean, "是否為帷幕牆（Revit WallKind.Curtain）", element),
 
             // 上面那段推理只對**外牆**帷幕牆成立。使用者在建物內建的帷幕牆分隔的是兩個區劃，它就是
             // 第79條第1項的區劃牆壁，排除它會讓那道牆的牆體時效沒有任何規則回答
-            // （docs/regulations/curtain-wall-fire-compartment.md §4.8）。所以排除條件改讀這個欄位：
+            // （docs/tools/fire-review/rules/curtain-wall-fire-compartment.md §4.8）。所以排除條件改讀這個欄位：
             // 每一片 Wall 都有值，不是帷幕牆就是 NotCurtainWall，帷幕牆則是 Exterior／Interior／Unknown。
             // Unknown 不適用牆體時效，但它會在帷幕牆區劃交接拿到一列「室內外未定」的人工覆核，不是靜默略過。
             new RuleFieldDefinition("element.curtainWallExposure", text,
@@ -203,7 +203,7 @@ public sealed class RuleFieldCatalog
             // 的開口問，由 tw-bcr-79-opening-insulation 讀。
             new RuleFieldDefinition("opening.providedInsulation", text, "防火設備是否具一小時以上阻熱性（是／否）", opening),
 
-            // 防火區劃與帷幕牆交接（docs/regulations/curtain-wall-fire-compartment.md §5.2）。
+            // 防火區劃與帷幕牆交接（docs/tools/fire-review/rules/curtain-wall-fire-compartment.md §5.2）。
             // 主體是「交接處」而非單一元素：一個交接處由區劃牆或區劃樓地板、帷幕牆與兩者相交
             // 的那一段牆面共同構成，因此長度、高度、突出深度都是交接處自己的量測值。
             new RuleFieldDefinition("junction.kind", text, "交接種類（WallToCurtainWall／FloorToCurtainWall／CurtainPanelOther）", junction),
@@ -220,7 +220,7 @@ public sealed class RuleFieldCatalog
             new RuleFieldDefinition("junction.projectionDepth", RuleValueType.Quantity(ReviewUnit.Meter), "區劃牆或樓地板突出帷幕牆外牆面之深度", junction),
             new RuleFieldDefinition("junction.hasUnprotectedOpening", boolean, "交接帶內是否有未受防護開口", junction),
 
-            // 第79條之2 垂直區劃（docs/regulations/vertical-compartment.md §5.2）。主體是「一項要求」
+            // 第79條之2 垂直區劃（docs/tools/fire-review/rules/vertical-compartment.md §5.2）。主體是「一項要求」
             // 而非一個元素：管道間的同一扇維修門同時被要求一小時防火時效與遮煙性能，而規則的
             // requiredValue 只能寫一個比較，所以受檢主體是（設備, 要求）這一對，由 shaft.requirement
             // 指名是哪一項要求。這也是三條規則彼此互斥、不會落入引擎 Conflict 路徑的原因。

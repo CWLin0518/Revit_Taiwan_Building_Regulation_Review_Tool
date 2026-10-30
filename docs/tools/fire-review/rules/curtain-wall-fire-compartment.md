@@ -735,7 +735,7 @@ public enum RuleCategory
 
 - **優先序 20，壓在第 79 條的 `tw-bcr-79-area`（優先序 10）之上。** 引擎只讓最高優先序中適用的規則作答，低優先序的規則在高優先序有規則適用時根本不會執行。這裡可以這樣安排，是因為第 83 條的上限在每一階都嚴於第 79 條的一、五○○平方公尺——即使第三款五○○再依第四款加倍，也只到一、○○○——所以十一層以上交給第 83 條決定，不可能放過第 79 條會攔下的區劃。十層以下第 83 條的適用條件不成立，自然落回第 79 條。這與第 70 條（優先序 20）壓在第 79 條時效規則（優先序 10）上是同一套安排。
 - **第四款的「得免計算二分之一」寫成「上限加倍」。** 規則 DSL 比較的實際值是 Revit 的面積本身（規格 11.4 步驟 2），規則不改寫實際值，所以折半寫在門檻那一側。`tw-bcr-79-area` 的一、五○○／三、○○○ 已經是同一個寫法。
-- **第一款、第二款的Ｈ–２組但書讀 `building.use`，比對半角 `"H-2"`。** 這是第 88 條附表印的寫法，也是專案裡 `建築物用途類組` 實際填入的寫法（見 `docs/agent/phase-3-acceptance.md` 的實機記錄）。規則只比這一個字面值；`Ｈ–２組`、`H-2 組`、`Ｈ類第二組` 等條文自己也在用的其他寫法，由 `ReviewInputAssembler` 在參數變成規則輸入時折成正規形，不在規則裡堆 `||`（見 [`building.use` 寫法正規化](building-use-groups.md)）。第三款沒有Ｈ–２組放寬，規則也就沒有。
+- **第一款、第二款的Ｈ–２組但書讀 `building.use`，比對半角 `"H-2"`。** 這是第 88 條附表印的寫法，也是專案裡 `建築物用途類組` 實際填入的寫法（見 `docs/tools/fire-review/history/phase-3-acceptance.md` 的實機記錄）。規則只比這一個字面值；`Ｈ–２組`、`H-2 組`、`Ｈ類第二組` 等條文自己也在用的其他寫法，由 `ReviewInputAssembler` 在參數變成規則輸入時折成正規形，不在規則裡堆 `||`（見 [`building.use` 寫法正規化](building-use-groups.md)）。第三款沒有Ｈ–２組放寬，規則也就沒有。
 - **「除依第七十九條之二規定之垂直區劃外」寫成豁免條件。** 豁免成立即 `NotApplicable`，那些垂直空間由第 79 條之 2 管（規則層已完成，見 [垂直區劃](vertical-compartment.md)）。豁免清單直接取自第 79 條之 2 第 1 項所列的五種垂直空間：`挑空`、`昇降階梯間`、`樓梯間`、`昇降機道`、`管道間`（見 [`zone.use` 用字表](zone-use-vocabulary.md)）。同一份清單也是 `tw-bcr-79-area` 的豁免清單——見該文件「為什麼兩條面積規則共用同一份清單」。條文另有「其他類似部分」，無法逐一列舉，所以清單外的用字一律不豁免，是安全的方向（只會多檢討、不會漏檢討）。
 - **裝修等級沒填 → `InsufficientData`，不是「當作第一款」。** 三段上限差距太大，三元運算式的條件未知且分支不同值時引擎給不出答案，這正好就是規格 11.3 要的：放寬是設計要自己證明的許可，沒填就是判不出來，既不能默認寬的五○○，也不該直接判一○○未符合。填了工具不認得的字（例如 `耐燃二級`）則是「已知不符合放寬條件」，落回第一款的一○○平方公尺。這與第 79 條遇到沒填 `防火檢討_自動滅火設備` 的區劃是同一種答案。
 - **第五款（防火設備一小時以上阻熱性）沒有寫進規則**：阻熱性沒有對應的白名單欄位與參數，`防火檢討_設計防火保護` 只答「是不是防火門窗」。區劃牆上的開口仍由 `tw-bcr-79-opening` 要求防火門窗，牆與樓地板的一小時時效仍由 `tw-bcr-79-wall-rating`／`tw-bcr-79-floor-rating` 要求，兩者不分區劃來源，所以第 83 條這兩項不會漏掉；只有阻熱性這個附加要求不檢討（見 §9）。
@@ -925,7 +925,7 @@ CW-V 的立面**由工具自己建立**，名稱帶著上面說的檢討圖號�
 而**一個套件 = 一個 Area Plan = 一個樓層**，所以同一個套件內不會出現兩個樓層的層間帶；
 套件內同一片牆的多條層間帶（跨多個區劃、多個 part）則確實共用那一個立面——它們都落在該牆的平面定位線
 所在的垂直面上，`SpandrelFrame` 取所有角點的聯集，一個立面就看得完。
-（實測：帷幕牆 257880 在 FL1、FL2 兩個套件都未符合，就是兩個立面；見 `docs/revit-verification-checklist.md` V-10 第 3 項。）
+（實測：帷幕牆 257880 在 FL1、FL2 兩個套件都未符合，就是兩個立面；見 `docs/verification/checklist.md` V-10 第 3 項。）
 
 標示的位置不是在標示時重新讀模型量出來的，而是檢討當下由幾何層寫進結果證據的 `junction.placement`（見 §12 步驟 6b-1）——檢討表與標示計畫都是從已儲存的結果重建的，重新讀會把標示畫到模型現在的位置，而結果說的是當時的狀態。
 
@@ -1955,7 +1955,7 @@ junction.placement                  = 10, 4.79071, 10, 4.79071, 27.55, 28.45
 - `src/BuildingRegulationReview.Application/Candidates/CurtainWallJunctionResolver.cs`：新增
   `PanelLookup`，`WallJunction` 的嵌板列篩選、`Measure` 與 `SolidWallBand` 都改用它回的查詢位置；
   交接處自己的位置（`placement`、所屬區劃、供 CW-O 扣除的已涵蓋帶）一律沿用真實交點。
-- `docs/regulations/curtain-wall-fire-compartment.md`：§4.2 新增「交點落在豎框上」；§9 第三項改寫。
+- `docs/tools/fire-review/rules/curtain-wall-fire-compartment.md`：§4.2 新增「交點落在豎框上」；§9 第三項改寫。
 - `tests/.../Candidates/CurtainWallJunctionResolverTests.cs`：新增兩條測試——
   `A_junction_on_the_end_mullion_measures_the_panel_beside_it_rather_than_no_panel_at_all`（已確認
   在修正前紅：實得 0、期望 2940）與其守門
@@ -2419,8 +2419,8 @@ XAML 的繫結路徑不由編譯器檢查（markup compile 過了不表示 `{Bin
 被當成外牆，套上第 79 條第 3、4 項與第 79 條之 3、之 4 的交接規定。設計見 §4.8。
 
 **實作前先由 codex fire protection agent 做影響審查**，審查請求與完整回覆留在
-`docs/agent/review-request-task1-curtain-wall-exposure.md` 與
-`docs/agent/review-reply-task1-curtain-wall-exposure.md`。審查提出 6 項 bug 與 1 項必要變更，處置如下：
+`docs/tools/fire-review/history/review-request-task1-curtain-wall-exposure.md` 與
+`docs/tools/fire-review/history/review-reply-task1-curtain-wall-exposure.md`。審查提出 6 項 bug 與 1 項必要變更，處置如下：
 
 | 審查項 | 審查意見 | 處置 |
 | --- | --- | --- |

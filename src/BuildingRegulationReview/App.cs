@@ -6,6 +6,7 @@ using Autodesk.Revit.UI;
 using BuildingRegulationReview.ExternalEvents;
 using BuildingRegulationReview.Features;
 using BuildingRegulationReview.Features.Article164;
+using BuildingRegulationReview.Features.FireReview;
 using BuildingRegulationReview.Mcp;
 
 namespace BuildingRegulationReview
@@ -27,24 +28,15 @@ namespace BuildingRegulationReview
             try { application.CreateRibbonTab(tabName); } catch (Autodesk.Revit.Exceptions.ArgumentException) { }
             var panel = application.CreateRibbonPanel(tabName, "法規檢討");
             var path = Assembly.GetExecutingAssembly().Location;
-            panel.AddItem(new PushButtonData("OpenBuildingRegulationReview", "開啟檢討\n面板", path, typeof(ShowReviewPaneCommand).FullName));
-            var button = (PushButton)panel.AddItem(new PushButtonData("ReviewArticle164", "第164條\n道路陰影", path, typeof(Article164Command).FullName));
-            button.ToolTip = "以 RhinoCommon 計算 3.6:1 道路陰影，並在目前平面視圖建立 FilledRegion。";
-            var setupButton = (PushButton)panel.AddItem(new PushButtonData("FireReviewSetup", "防火區劃\n設定", path, typeof(FireReviewSetupCommand).FullName));
-            setupButton.ToolTip = "選擇來源樓層平面、面積配置與 Area Plan 選項，建立檢討套件。";
-            var parameterSetupButton = (PushButton)panel.AddItem(new PushButtonData("FireReviewParameterSetup", "防火參數\n一鍵建立", path, typeof(FireReviewParameterSetupCommand).FullName));
-            parameterSetupButton.ToolTip = "把防火區劃檢討要讀的共用參數一次加進目前專案並綁好類別（專案資訊、面積、牆柱樑樓板、天花板、門窗、帷幕嵌板）。先顯示差異預覽，已綁好的不動，同名但定義不符的不覆蓋只給修正方式。";
-            var parameterButton = (PushButton)panel.AddItem(new PushButtonData("FireReviewParameters", "防火參數\n批次設定", path, typeof(FireReviewParameterPanelCommand).FullName));
-            parameterButton.ToolTip = "收集目前視圖的牆、柱、樓板、門窗類型，批次填寫結構材料與防火時效；RC／SRC／SC 加上斷面尺寸可依第71～73條自動推定時效。";
-            var editorButton = (PushButton)panel.AddItem(new PushButtonData("RegionEditor", "防火區劃\n編輯器", path, typeof(RegionEditorCommand).FullName));
-            editorButton.ToolTip = "讀取 Area Plan 的牆、柱、房間分隔線與輔助線，求解封閉範圍，並以左右鍵編輯防火區劃草稿。模型不會被更動。";
-            var reviewButton = (PushButton)panel.AddItem(new PushButtonData("FireReview", "防火區劃\n檢討", path, typeof(FireReviewCommand).FullName));
-            reviewButton.ToolTip = "前置檢查後一次檢討防火區劃面積、構件防火時效與防火門窗，在專用檢討視圖標示未符合項目，並可定位與人工覆寫。";
+            // Ribbon 只放兩個入口：開啟檢討面板，與「AI 代理」的 MCP 服務開關。檢討工具一律從面板操作，
+            // 不再往 Ribbon 加按鈕（DESIGN.md §3、docs/tools/review-panel/SPEC.md）。
+            var openButton = (PushButton)panel.AddItem(new PushButtonData("OpenBuildingRegulationReview", "開啟檢討\n面板", path, typeof(ShowReviewPaneCommand).FullName));
+            openButton.ToolTip = "開啟「建築技術規則檢討」面板：第164條道路陰影、建築防火檢討等所有檢討工具都在面板中依步驟操作。";
 
             var featureRegistry = new ReviewFeatureRegistry(new IReviewFeature[]
             {
                 new Article164ReviewFeature(),
-                new FireReviewSetupFeature(),
+                new FireReviewFeature(),
             });
             _eventDispatcher = new ReviewExternalEventDispatcher(featureRegistry);
             _eventDispatcher.Initialize();
@@ -75,7 +67,7 @@ namespace BuildingRegulationReview
                 _mcpButton = (PushButton)panel.AddItem(data);
 
                 // The random token needs no one to see it: the server announces it to the bridge through
-                // the endpoint file in the user's profile (docs/mcp-server.md §3).
+                // the endpoint file in the user's profile (docs/tools/mcp-server/ARCHITECTURE.md §3).
                 if (RevitMcpHost.AutoStartRequested)
                 {
                     try

@@ -78,12 +78,12 @@
   不會造出重複；但若模型裡已經有重複的孤兒套件（例如舊版本留下的），使用者會被一個在面板上
   看不見的東西擋住。留案，不在本次範圍。
 - 單元測試：`tests/.../ReviewPackages/ReviewPackageAvailabilityTests.cs`（10 條）。
-  面板接線與 Revit 行為只能實機驗，寫成 `docs/revit-verification-checklist.md` 的 **V-28**（第 10 輪）。
+  面板接線與 Revit 行為只能實機驗，寫成 `docs/verification/checklist.md` 的 **V-28**（第 10 輪）。
 
 ## 影響審查與後續修正（2026-10-06）
 
-送 codex fire protection 做影響審查（`docs/agent/review-request-task2-deleted-area-plan-packages.md`，
-回覆在 `docs/agent/review-reply-task2-deleted-area-plan-packages.md`）。結論是**支持**本方案、認定為
+送 codex fire protection 做影響審查（`docs/tools/fire-review/history/review-request-task2-deleted-area-plan-packages.md`，
+回覆在 `docs/tools/fire-review/history/review-reply-task2-deleted-area-plan-packages.md`）。結論是**支持**本方案、認定為
 必要變更，但指出兩個 bug，都已修正：
 
 1. **`RevitAreaPlanProbe.IsLiveAreaPlan` 吞掉所有例外**（本次實作造成）。`catch (Exception)` 會把文件

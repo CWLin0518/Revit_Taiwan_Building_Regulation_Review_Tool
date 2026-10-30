@@ -16,7 +16,7 @@ using static BuildingRegulationReview.Core.Tests.Candidates.CandidateModel;
 namespace BuildingRegulationReview.Core.Tests.Checks;
 
 /// <summary>
-/// 防火區劃與帷幕牆交接的 Check 層（docs/regulations/curtain-wall-fire-compartment.md §12 步驟 3）。
+/// 防火區劃與帷幕牆交接的 Check 層（docs/tools/fire-review/rules/curtain-wall-fire-compartment.md §12 步驟 3）。
 ///
 /// These run against the shipped rule set, not a hand-written one: the point of the check is that it
 /// adds no judgement of its own. It turns what the geometry measured into facts, lets the rules

@@ -2,7 +2,7 @@
 
 外掛內建一個 [Model Context Protocol](https://modelcontextprotocol.io/) 伺服器。AI 代理（Claude Code、Claude Desktop 等）連上之後，可以呼叫外掛的功能來操作使用者目前開啟的 Revit 模型，並讀回結果做驗證。
 
-設計決策與理由見 [ADR-0004](adr/0004-mcp-server-for-agent-verification.md)。這份文件說明架構、使用方式，以及以後新功能如何接入。
+設計決策與理由見 [ADR-0004](../../adr/0004-mcp-server-for-agent-verification.md)。這份文件說明架構、使用方式，以及以後新功能如何接入。
 
 目前開放的功能：**防火區劃檢討**與**防火參數批次設定**。第 164 條檢討還沒有開放（見 §9）。
 
@@ -223,7 +223,7 @@ HTTP 200 application/json
 | 類型 `applyDerivedRating` | `true`＝面板的「套用推定值」，不能和 `rating` 同時用 |
 | 類型 `panelKind` | `實心`、`玻璃` |
 | 類型 `fireProtection`／`smokeProtection`／`insulation` | `true`／`false`（面板的勾選框沒有「未填」） |
-| 區劃 `use` | 必須和清單上的字逐字相同才有作用（見 `docs/regulations/zone-use-vocabulary.md`）；`null`＝一般區劃 |
+| 區劃 `use` | 必須和清單上的字逐字相同才有作用（見 `docs/tools/fire-review/rules/zone-use-vocabulary.md`）；`null`＝一般區劃 |
 | 區劃 `sprinklered`／`linksRefugeFloor`／`cannotBeSubdivided` | `true`／`false`／`null`（是／否／未填） |
 | 專案 `fireResistiveConstruction` | 同上；不是 `true` 的話整份檢討都會判資料不足 |
 | `deriveFloors` | `true`＝面板的「依樓層推定」，先填樓層序與地上層數，再套用其他值 |
@@ -317,7 +317,7 @@ HTTP 200 application/json
 
 4. **註冊**：在 `RevitMcpHost` 的建構子加一行 `.AddModule(new MyFeatureMcpTools(dispatcher))`。
 5. **回傳值**：遵守 §6.2 的慣例。預期內的失敗用 `McpToolException` 或 `McpToolResult.Failure`，並說明怎麼修正。
-6. **文件**：在本文件 §6 加入工具，在 `docs/revit-verification-checklist.md` 加入實機驗證項目，並更新 `RevitMcpHost.Instructions` 的建議流程。
+6. **文件**：在本文件 §6 加入工具，在 `docs/verification/checklist.md` 加入實機驗證項目，並更新 `RevitMcpHost.Instructions` 的建議流程。
 
 **不要做的事**：
 
@@ -337,4 +337,4 @@ HTTP 200 application/json
 | 長時間工作 | 同步呼叫，沒有進度回報 | 需要時改成 job 模式（`*_start` → `job_status` → `job_result`） |
 | 開發迴圈 | 改完程式要重開 Revit | 評估用薄外殼熱載入核心 DLL |
 | 協定 | 只支援 tools；沒有 resources、prompts、SSE、session | 有需要再加 |
-| Revit 端測試 | 只能實機驗證（`docs/revit-verification-log.md` 第 12 輪） | 用 MCP 本身做自動化的回歸驗證 |
+| Revit 端測試 | 只能實機驗證（`docs/verification/log.md` 第 12 輪） | 用 MCP 本身做自動化的回歸驗證 |

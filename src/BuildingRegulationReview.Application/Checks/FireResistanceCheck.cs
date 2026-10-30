@@ -246,7 +246,7 @@ public static class FireResistanceCheck
                 // （CandidateResolver 已為每一個 boundary 關係登了 CurtainWallExposureUndecided）。
                 // 不在這裡跳過的話，tw-bcr-79-wall-rating 版本 3 的 appliesWhen 明文排除 Unknown，
                 // 這一輪只會得到 NoRuleApplies，於是同一個構件×區劃會同時出現「不適用」與「人工覆核」
-                // 兩列，而規格要的是一列（docs/regulations/curtain-wall-fire-compartment.md §4.8
+                // 兩列，而規格要的是一列（docs/tools/fire-review/rules/curtain-wall-fire-compartment.md §4.8
                 // 的分流表：室內外未定時「另出一列人工覆核（CurtainWallExposureUndecided）」；§5.5
                 // 版本 3 則是三分流的出處：外牆不列入、室內照常列出、室內外未定仍是一列人工覆核）。
                 if (IsExposureUndecidedBoundary(set, member, relation, inputs, merged)) continue;
@@ -369,7 +369,7 @@ public static class FireResistanceCheck
     /// <summary>
     /// Where an 外牆帷幕牆's fire requirements are actually reviewed. It is not a 區劃牆壁 of 第79條第1項
     /// — <c>tw-bcr-79-wall-rating</c> sets it aside — and its own rules are the curtain-wall ones, which
-    /// the 帷幕牆區劃交接 check answers (docs/regulations/curtain-wall-fire-compartment.md §5).
+    /// the 帷幕牆區劃交接 check answers (docs/tools/fire-review/rules/curtain-wall-fire-compartment.md §5).
     /// </summary>
     public const string ExteriorCurtainWallReference =
         "建築技術規則建築設計施工編第79條第3項、第4項；建築技術規則建築設計施工編第79條之3；" +
@@ -531,7 +531,7 @@ public static class FireResistanceCheck
     /// both branches 不適用, which <see cref="Settled"/> would then take as「不論是否構成邊界結論都
     /// 相同」and file as 不適用 without even a 人工覆核. A 室內 curtain wall whose Area boundary runs
     /// along its face instead of through it would silently lose its 第79條第1項 rating check
-    /// (docs/regulations/curtain-wall-fire-compartment.md §4.8).
+    /// (docs/tools/fire-review/rules/curtain-wall-fire-compartment.md §4.8).
     /// </remarks>
     private static MemberCandidate Assuming(MemberCandidate member, Guid zoneId, ZoneRelationKind kind) =>
         new MemberCandidate(

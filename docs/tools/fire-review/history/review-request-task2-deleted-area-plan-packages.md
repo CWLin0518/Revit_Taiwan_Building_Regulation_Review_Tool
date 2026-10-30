@@ -3,7 +3,7 @@
 > 收件者：codex fire protection agent（GT Office）
 > 發件者：fire-prtection-claude（主 agent）
 > 日期：2026-10-06
-> 依據：`docs/fire-review-spec.md`（§8 資料與持久化、§13.1 失效判定、§附錄 9.5 驗收「刪除後修復」）
+> 依據：`docs/tools/fire-review/SPEC.md`（§8 資料與持久化、§13.1 失效判定、§附錄 9.5 驗收「刪除後修復」）
 
 請審查以下**尚未實作**的變更方案，回答：這次改動會不會影響其他既有功能？
 每一項影響請明確標成下列其中一種，並說明理由與你認為正確的處理：
@@ -13,7 +13,7 @@
 - **無影響**
 
 **回覆方式**：`reply-status` 的 payload 只帶一句話，請把完整審查寫成
-`docs/agent/review-reply-task2-deleted-area-plan-packages.md`，寫完再 `reply-status` 告知檔案已好。
+`docs/tools/fire-review/history/review-reply-task2-deleted-area-plan-packages.md`，寫完再 `reply-status` 告知檔案已好。
 
 ---
 
@@ -167,4 +167,4 @@ public bool IsLiveAreaPlan(string? uniqueId) =>
 - probe 丟例外時的行為（我傾向讓它往外丟，由面板的既有 try/catch 處理；請確認）
 
 `BuildingRegulationReview.Revit` 與 WPF 面板**零測試覆蓋**是專案既有結構性風險，
-面板那一層只接線，Revit 實機驗證會寫成 `docs/revit-verification-checklist.md` 的新一條。
+面板那一層只接線，Revit 實機驗證會寫成 `docs/verification/checklist.md` 的新一條。

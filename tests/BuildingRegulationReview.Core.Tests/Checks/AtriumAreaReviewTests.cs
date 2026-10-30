@@ -17,7 +17,7 @@ using static BuildingRegulationReview.Core.Tests.Candidates.CandidateModel;
 namespace BuildingRegulationReview.Core.Tests.Checks;
 
 /// <summary>
-/// 挑空 and the 區劃面積 rules after 第79條之2第3項 (docs/regulations/vertical-compartment.md 決議 31～33),
+/// 挑空 and the 區劃面積 rules after 第79條之2第3項 (docs/tools/fire-review/rules/vertical-compartment.md 決議 31～33),
 /// end to end on the shipped rule set: <see cref="CompartmentAreaCheck"/> derives the three
 /// <c>zone.atrium*</c> facts, and the two atrium rules decide on them.
 /// </summary>

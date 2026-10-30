@@ -265,7 +265,7 @@ namespace BuildingRegulationReview.FireReview
         /// is compared 逐字 (<see cref="ZoneUses.IsVerticalCompartment"/>), so 「電梯井」 or 「梯間」
         /// reads as an ordinary 區劃: the area limit is applied and 第79條之2's extra checks never run,
         /// with nothing on the report to say a word was misspelled
-        /// (docs/regulations/zone-use-vocabulary.md §2.1).
+        /// (docs/tools/fire-review/rules/zone-use-vocabulary.md §2.1).
         /// </summary>
         internal const string UseHintText =
             "一般區劃不必填，留空即可——空白就是「一般區劃，照面積上限檢討」。\n\n" +
@@ -316,7 +316,7 @@ namespace BuildingRegulationReview.FireReview
         /// 防火檢討_用途類組 — this Area's 建築物使用類組 (第3條之3). 第83條第一款、第二款 double their
         /// limit for Ｈ－２組, and 第79條之1 asks for it on three of its six uses. Free text like 區劃用途,
         /// offering 第3-3條's codes; any spelling of one of them is read as that group. Another Area of
-        /// the same 區劃 may hold another group (docs/regulations/building-use-groups.md §6).
+        /// the same 區劃 may hold another group (docs/tools/fire-review/rules/building-use-groups.md §6).
         /// </summary>
         public string UseGroup
         {
@@ -347,7 +347,7 @@ namespace BuildingRegulationReview.FireReview
 
         /// <summary>
         /// What the review will read the whole 區劃 as, from what every row of it currently holds —
-        /// 混合（…） when the rows disagree, unknown when some are blank (docs/regulations/building-use-groups.md §6).
+        /// 混合（…） when the rows disagree, unknown when some are blank (docs/tools/fire-review/rules/building-use-groups.md §6).
         /// </summary>
         internal ZoneUseGroup ZoneUseGroup => BuildingUseGroups.Combine(ZoneRows.Select(r => r._useGroup));
 

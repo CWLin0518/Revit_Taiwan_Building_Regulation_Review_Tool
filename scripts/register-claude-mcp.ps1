@@ -5,7 +5,7 @@ param(
 
 # Registers the stdio bridge with Claude Code for every project (user scope), replacing any older
 # entry of the same name - including the HTTP one with a pasted token that the first MCP release
-# told people to add, which stops working every time Revit restarts (docs/mcp-server.md section 3).
+# told people to add, which stops working every time Revit restarts (docs/tools/mcp-server/ARCHITECTURE.md section 3).
 
 $ErrorActionPreference = 'Stop'
 $serverName = 'building-regulation-review'

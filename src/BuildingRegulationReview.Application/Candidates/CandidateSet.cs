@@ -68,7 +68,7 @@ public enum CandidateAmbiguityKind
     /// <summary>
     /// An opening in a curtain wall the tool could not place: it is neither the building's 外牆 — whose
     /// openings 第79條第1項 does not govern — nor a 區劃分隔 whose openings it does. MVP policy: manual
-    /// review (spec 17.1, 11.6; docs/regulations/curtain-wall-fire-compartment.md §4.8).
+    /// review (spec 17.1, 11.6; docs/tools/fire-review/rules/curtain-wall-fire-compartment.md §4.8).
     /// </summary>
     CurtainWallOpening,
 
@@ -254,7 +254,7 @@ public sealed class MemberCandidate
 
     /// <summary>
     /// 這道帷幕牆是建築物外牆或室內帷幕牆，連同判定依據
-    /// （docs/regulations/curtain-wall-fire-compartment.md §4.8）。只有帷幕牆有值：第79條第1項的區劃
+    /// （docs/tools/fire-review/rules/curtain-wall-fire-compartment.md §4.8）。只有帷幕牆有值：第79條第1項的區劃
     /// 牆壁時效排除的是**外牆**帷幕牆，不是每一片帷幕牆。
     /// </summary>
     public CurtainWallExposureVerdict? CurtainWallExposure { get; }

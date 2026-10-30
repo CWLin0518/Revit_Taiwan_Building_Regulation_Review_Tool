@@ -2,7 +2,7 @@
 
 日期：2026-10-07
 狀態：已採納
-相關：`docs/mcp-server.md`（架構與使用說明）、ADR-0001（分層）
+相關：`docs/tools/mcp-server/ARCHITECTURE.md`（架構與使用說明）、ADR-0001（分層）
 
 ## 脈絡
 
@@ -80,17 +80,17 @@ Use case ───┤
 
 ## 後果
 
-- 新功能要開放給代理時，依 `docs/mcp-server.md`「新增功能的工具」一節的清單做：先抽出 use case，再寫一個 `IMcpToolModule`，最後在 `RevitMcpHost` 註冊一行。不必修改協定層。
+- 新功能要開放給代理時，依 `docs/tools/mcp-server/ARCHITECTURE.md`「新增功能的工具」一節的清單做：先抽出 use case，再寫一個 `IMcpToolModule`，最後在 `RevitMcpHost` 註冊一行。不必修改協定層。
 - 第 164 條檢討目前**沒有**開放給 MCP。它的流程包含 `PickObject`／`PickPoint` 互動選取和兩個對話框，要開放的話得先依第 3 點重構。
 - 長時間的工作目前是同步呼叫，沒有進度回報。如果之後模型大到超過 client 的逾時，再改成 job 模式（`*_start` → `job_status` → `job_result`）。
 - Revit 會鎖住已載入的 DLL，改完程式仍然要重開 Revit 才會生效。代理目前做不到「改程式 → 驗證」的完整循環，熱載入留待之後評估。
-- 協定層有單元測試（`tests/.../Mcp/`）。Revit 端的工具要在 Revit 實際驗證，見 `docs/revit-verification-checklist.md`。
+- 協定層有單元測試（`tests/.../Mcp/`）。Revit 端的工具要在 Revit 實際驗證，見 `docs/verification/checklist.md`。
 
 ## 驗證
 
 - `dotnet build BuildingRegulationReview.sln --configuration Debug`
 - `dotnet test tests/BuildingRegulationReview.Core.Tests/BuildingRegulationReview.Core.Tests.csproj --filter "FullyQualifiedName~Core.Tests.Mcp"`
-- 在 Revit 開啟 MCP 服務後，依 `docs/mcp-server.md`「驗證流程範例」執行一次。
+- 在 Revit 開啟 MCP 服務後，依 `docs/tools/mcp-server/ARCHITECTURE.md`「驗證流程範例」執行一次。
 
 ## 修訂（2026-10-07）：加一層 stdio bridge，預設自動啟動
 
@@ -111,4 +111,4 @@ Claude Code 設定裡的那一組就失效（HTTP 401）；Claude 先於 Revit �
 - 服務**預設隨 Revit 啟動**（`BRR_MCP_AUTOSTART=0` 可關），自動啟動不再要求固定權杖。
   原本「預設關閉」是為了讓使用者決定；使用者已明確要求自動連線，關閉的方法也保留。
 
-詳見 `docs/mcp-server.md` §3。測試：`McpStdioBridgeTests`（含真的走 HTTP 的一條）。
+詳見 `docs/tools/mcp-server/ARCHITECTURE.md` §3。測試：`McpStdioBridgeTests`（含真的走 HTTP 的一條）。

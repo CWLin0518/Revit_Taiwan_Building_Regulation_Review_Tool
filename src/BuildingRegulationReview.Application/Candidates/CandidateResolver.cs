@@ -477,7 +477,7 @@ public static class CandidateResolver
             }
 
             // 室內帷幕牆就是一道區劃分隔：它的區劃邊緣開口與一般牆上的門窗同一條路，由
-            // 防火檢討_設計防火保護 判定是不是防火門窗（docs/regulations/curtain-wall-fire-compartment.md §4.8）。
+            // 防火檢討_設計防火保護 判定是不是防火門窗（docs/tools/fire-review/rules/curtain-wall-fire-compartment.md §4.8）。
             if (exposure is { Verdict.IsInterior: true } interior && hostRelation.Kind == ZoneRelationKind.Boundary)
             {
                 return InteriorCurtainWallOpening(opening, zone, label, name, distance, measurements, interior.Verdict);

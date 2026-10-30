@@ -2,40 +2,34 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              MinWidth="300" Background="#F5F6F7">
+    <!-- 檢討面板：所有檢討工具的唯一人工入口。工具清單與說明來自 Data/review-items.json，
+         動作按鈕來自各工具的 IReviewFeature；新增工具不改這份 XAML（DESIGN.md §2）。 -->
     <Grid Margin="14">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="2*" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="2*" />
         </Grid.RowDefinitions>
 
         <StackPanel>
             <TextBlock Text="建築技術規則檢討" FontSize="20" FontWeight="SemiBold" Foreground="#202124" />
-            <TextBlock Margin="0,4,0,8" Text="選擇要檢討的項目" Foreground="#62666A" />
-            <Border Margin="0,0,0,12" Padding="10" Background="#EAF2FF" BorderBrush="#B8D1F5" BorderThickness="1" CornerRadius="4">
-                <StackPanel>
-                    <TextBlock Text="第164條操作說明" FontWeight="SemiBold" Foreground="#1F5EA8" />
-                    <TextBlock Margin="0,5,0,0" TextWrapping="Wrap" LineHeight="18"
-                               Text="外牆／樓板會自動判斷（牆類型 Function＝Exterior 或自訂參數 Exterior Wall＝Yes，加上所有樓板；可用名為「164條_外牆與樓板」的 Selection Set 覆寫）。&#x0a;1. 選取第164條道路陰影檢討。&#x0a;2. 按開始檢討；於彈出視窗可取消勾選不需要的牆／樓板類型。&#x0a;3. 選取直線建築線。&#x0a;4. 在道路側點一下。&#x0a;5. 輸入道路寬度（可打字或拖拉桿）；系統會直接建立/覆蓋專用的「日照陰影檢討圖」視圖（建物投影＋陰影投影＋建築線），不再畫進目前視圖。&#x0a;6. 結果為「符合」後可按圖說製作：選圖框並用拉桿設定圖例文字大小 → 在排版預覽視窗拖曳調整平面圖／圖例位置 → 產生含圖例表格的圖紙；不符合時圖說製作會被擋下。" />
-                </StackPanel>
-            </Border>
+            <TextBlock Margin="0,4,0,8" Text="選擇檢討工具，依序執行下方的步驟" Foreground="#62666A" TextWrapping="Wrap" />
         </StackPanel>
 
         <Border Grid.Row="1" Background="White" BorderBrush="#D5D8DC" BorderThickness="1" CornerRadius="4">
             <Grid>
                 <TextBox x:Name="SearchBox" Margin="10,8" BorderThickness="0"
                          VerticalContentAlignment="Center" TextChanged="SearchBox_OnTextChanged" />
-                <TextBlock x:Name="SearchHint" Margin="12,8" Text="搜尋項目、法條或關鍵字…"
+                <TextBlock x:Name="SearchHint" Margin="12,8" Text="搜尋工具、法條或關鍵字…"
                            Foreground="#8A8F94" IsHitTestVisible="False" />
             </Grid>
         </Border>
 
         <Grid Grid.Row="2" Margin="0,12,0,6">
-            <TextBlock Text="檢討項目" FontWeight="SemiBold" />
+            <TextBlock Text="檢討工具" FontWeight="SemiBold" />
             <TextBlock x:Name="CountText" HorizontalAlignment="Right" Foreground="#62666A" />
         </Grid>
 
@@ -57,21 +51,36 @@
 
         <Separator Grid.Row="4" Margin="0,10" />
 
-        <ScrollViewer Grid.Row="5" VerticalScrollBarVisibility="Auto">
-            <StackPanel x:Name="DetailPanel">
+        <ScrollViewer Grid.Row="5" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel x:Name="DetailPanel" Visibility="Collapsed">
                 <TextBlock x:Name="DetailTitle" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap" />
                 <TextBlock x:Name="DetailReference" Margin="0,5,0,10" Foreground="#246BCE" TextWrapping="Wrap" />
                 <TextBlock x:Name="DetailDescription" TextWrapping="Wrap" LineHeight="20" />
+                <StackPanel x:Name="StepsSection">
+                    <TextBlock Margin="0,12,0,3" Text="操作步驟" FontWeight="SemiBold" />
+                    <Border Padding="10" Background="#EAF2FF" BorderBrush="#B8D1F5" BorderThickness="1" CornerRadius="4">
+                        <TextBlock x:Name="DetailSteps" TextWrapping="Wrap" LineHeight="18" />
+                    </Border>
+                </StackPanel>
                 <TextBlock Margin="0,12,0,3" Text="預計產出" FontWeight="SemiBold" />
                 <TextBlock x:Name="DetailOutput" Foreground="#62666A" TextWrapping="Wrap" />
+                <StackPanel Margin="0,14,0,0">
+                    <TextBlock x:Name="ActionsHeader" Margin="0,0,0,6" Text="動作" FontWeight="SemiBold" Visibility="Collapsed" />
+                    <TextBlock x:Name="NoActionText" Foreground="#62666A" TextWrapping="Wrap" Visibility="Collapsed"
+                               Text="這個項目尚未提供可執行的動作。" />
+                    <ItemsControl x:Name="ActionsList">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Button Margin="0,0,0,6" Padding="12,8" HorizontalContentAlignment="Left"
+                                        Tag="{Binding ActionId}" ToolTip="{Binding Description}" Click="ActionButton_OnClick">
+                                    <TextBlock Text="{Binding Text}" TextWrapping="Wrap" />
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
             </StackPanel>
         </ScrollViewer>
 
-        <StackPanel Grid.Row="6" Orientation="Horizontal" Margin="0,12,0,0" HorizontalAlignment="Stretch">
-            <Button x:Name="StartReviewButton" Padding="12,9" MinWidth="120"
-                    Content="開始檢討" IsEnabled="False" Click="StartReviewButton_OnClick" />
-            <Button x:Name="DrawReviewButton" Padding="12,9" MinWidth="120" Margin="8,0,0,0"
-                    Content="圖說製作" IsEnabled="False" Click="DrawReviewButton_OnClick" />
-        </StackPanel>
     </Grid>
 </UserControl>

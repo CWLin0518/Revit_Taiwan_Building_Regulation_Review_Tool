@@ -81,9 +81,9 @@ Phase 2 的自動驗證涵蓋的是「工具決定做什麼」。**Revit 是否�
 下列清單合併 P2-T07（18 項）、P2-T08（21 項）與 P2-T09 新增的 12 項，需開著
 `建築防火檢討1.rvt`、**先備份**後依序執行：
 
-1. 逐項執行 `docs/agent/p2-t07-area-plan-write-back.md` 的 18 項手動測試清單。
-2. 逐項執行 `docs/agent/p2-t08-color-scheme-and-drafting-view.md` 的 21 項手動測試清單。
-3. 逐項執行 `docs/agent/p2-t09-phase-2-integration.md` 的 12 項手動測試清單（狀態、失效、日誌）。
+1. 逐項執行 `docs/tools/fire-review/history/p2-t07-area-plan-write-back.md` 的 18 項手動測試清單。
+2. 逐項執行 `docs/tools/fire-review/history/p2-t08-color-scheme-and-drafting-view.md` 的 21 項手動測試清單。
+3. 逐項執行 `docs/tools/fire-review/history/p2-t09-phase-2-integration.md` 的 12 項手動測試清單（狀態、失效、日誌）。
 
 在這三份清單跑完之前，第 10.6 節的四條在 Revit 內的成立與否仍屬未驗證。
 

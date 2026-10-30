@@ -76,7 +76,7 @@ public sealed class FireReviewZoneRow
     /// <summary>
     /// 防火檢討_用途類組 — this Area's 建築物使用類組 (第3條之3), read by 第83條's Ｈ－２組 proviso and
     /// 第79條之1. Another Area of the same 區劃 may hold another group; the review then reads the 區劃 as
-    /// 混合 (docs/regulations/building-use-groups.md §6).
+    /// 混合 (docs/tools/fire-review/rules/building-use-groups.md §6).
     /// </summary>
     public string? UseGroup { get; }
 
@@ -238,7 +238,7 @@ public sealed class FireReviewProjectRow
     /// <summary>
     /// The old Project Information 建築物用途類組, if the model still carries one. The review no longer
     /// reads it — one value for the whole building let a 區劃 nobody filled in borrow another's group —
-    /// so it is shown only to offer 「填入所有未填的區劃」 once (docs/regulations/building-use-groups.md §6).
+    /// so it is shown only to offer 「填入所有未填的區劃」 once (docs/tools/fire-review/rules/building-use-groups.md §6).
     /// </summary>
     public string? LegacyBuildingUse { get; }
 

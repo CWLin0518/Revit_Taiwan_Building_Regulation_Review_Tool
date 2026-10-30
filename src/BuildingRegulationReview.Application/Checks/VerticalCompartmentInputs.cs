@@ -8,7 +8,7 @@ using BuildingRegulationReview.Application.Parameters;
 namespace BuildingRegulationReview.Application.Checks;
 
 /// <summary>
-/// The parameter a 防火設備's 遮煙性能 is read from (docs/regulations/vertical-compartment.md §6). The
+/// The parameter a 防火設備's 遮煙性能 is read from (docs/tools/fire-review/rules/vertical-compartment.md §6). The
 /// review reads it and never writes it. It is a Yes/No parameter on the 門／窗／帷幕嵌板 <em>Type</em>,
 /// like <see cref="FireProtectionParameters.Provided"/> — but a separate parameter from it on
 /// purpose: 設計防火保護 answers「是不是防火門窗等防火設備」, this one answers「這個防火設備有沒有通過
@@ -26,7 +26,7 @@ public static class SmokeProtectionParameters
 
 /// <summary>
 /// What a 垂直區劃 subject answers, and the value each one puts in <c>shaft.requirement</c>
-/// (docs/regulations/vertical-compartment.md §3).
+/// (docs/tools/fire-review/rules/vertical-compartment.md §3).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -35,7 +35,7 @@ public static class SmokeProtectionParameters
 /// <c>tw-bcr-79-wall-rating</c> and its openings are already required to be 防火設備 by
 /// <c>tw-bcr-79-opening</c>, neither of which cares which article created the 區劃. Only what those
 /// rules cannot express is a rule here — the same line 第83條第5款's 阻熱性 was left on
-/// (docs/regulations/curtain-wall-fire-compartment.md §5.3).
+/// (docs/tools/fire-review/rules/curtain-wall-fire-compartment.md §5.3).
 /// </para>
 /// <para>
 /// One 管道間 維修門 owes two of these at once (時效 and 遮煙性能), and a rule's

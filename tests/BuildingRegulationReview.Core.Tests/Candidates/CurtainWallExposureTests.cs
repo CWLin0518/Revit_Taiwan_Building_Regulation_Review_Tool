@@ -9,7 +9,7 @@ using Xunit;
 namespace BuildingRegulationReview.Core.Tests.Candidates;
 
 /// <summary>
-/// 帷幕牆室內外的判定表（docs/regulations/curtain-wall-fire-compartment.md §4.8）。
+/// 帷幕牆室內外的判定表（docs/tools/fire-review/rules/curtain-wall-fire-compartment.md §4.8）。
 ///
 /// <para>
 /// 第79條第3、4項、第79條之3第2項與第79條之4 問的都是**外牆**；室內帷幕牆分隔的是兩個區劃，是

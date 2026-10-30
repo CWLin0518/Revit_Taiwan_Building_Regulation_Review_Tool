@@ -17,7 +17,7 @@ using static BuildingRegulationReview.Core.Tests.Candidates.CandidateModel;
 namespace BuildingRegulationReview.Core.Tests.Checks;
 
 /// <summary>
-/// 垂直區劃的 Check 層（docs/regulations/vertical-compartment.md §12 步驟 4）。
+/// 垂直區劃的 Check 層（docs/tools/fire-review/rules/vertical-compartment.md §12 步驟 4）。
 ///
 /// These run against the shipped rule set, not a hand-written one: the check adds no judgement of
 /// its own. It decides which subjects exist — one (防火設備, 要求) pair per requirement the 區劃用途

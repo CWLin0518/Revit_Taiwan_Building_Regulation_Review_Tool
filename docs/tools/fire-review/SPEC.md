@@ -103,6 +103,9 @@ ReviewPackage:
 
 每一步顯示 `未開始／進行中／完成／需更新／錯誤`。上游資料改變時，下游狀態必須標示為 `需更新`，不可沿用過期結果。
 
+> **2026-10-30 註**：本節的 Phase／Task／Handoff 協議是防火檢討 Phase 1～3 開發時的流程，紀錄已移至 `history/`。
+> 之後的開發（含 Phase 4）改依根目錄 [`AGENT.md`](../../../AGENT.md)：一個功能一個分支、subagent code review＋MCP 驗證。
+
 ### 7.1 四階段執行限制
 
 - 一次執行只允許選擇一個 Phase；不得在同一次執行自動跨越 Phase。
@@ -136,7 +139,7 @@ ReviewPackage:
 1. 確認目前分支與 `git status`；不得覆蓋或納入不屬於本 Task 的既有變更。
 2. 僅 stage 本 Task 允許範圍內的檔案，禁止 `git add .`。
 3. 執行 Task 指定的 Verification，保存命令與結果摘要。
-4. 更新 `docs/agent/phase-state.yaml` 與 `docs/agent/HANDOFF.md`。
+4. 更新 `docs/tools/fire-review/history/phase-state.yaml` 與 `docs/tools/fire-review/history/HANDOFF.md`。
 5. 建立 commit：`feat(fire-review): [P{phase}-T{task}] <summary>`；純測試、修正或文件可用 `test`、`fix`、`docs`。
 6. 取得 commit SHA，補入 handoff。若因此修改 handoff，使用同一 Task 的第二個 `docs` commit；不得 amend 已由其他 Agent 取得的 commit。
 7. 不自動 push、merge、rebase、reset 或切換分支，除非 Orchestrator 另有明確授權。
@@ -145,7 +148,7 @@ ReviewPackage:
 
 ### 7.4 Handoff 格式
 
-`docs/agent/HANDOFF.md` 每次覆寫為最新交棒內容，Git 歷史保留先前版本：
+`docs/tools/fire-review/history/HANDOFF.md` 每次覆寫為最新交棒內容，Git 歷史保留先前版本：
 
 ```markdown
 # Agent Handoff
@@ -165,7 +168,7 @@ ReviewPackage:
 ## Do Not Do
 ```
 
-`docs/agent/phase-state.yaml` 為機器可讀狀態：
+`docs/tools/fire-review/history/phase-state.yaml` 為機器可讀狀態：
 
 ```yaml
 workflow: fire-review-addon
@@ -188,7 +191,7 @@ Agent 完成 commit 與 handoff 後，輸出單一 JSON 事件；外層 CLI Hook
   "completedTask": "P2-T03",
   "nextTask": "P2-T04",
   "commit": "<sha>",
-  "handoffPath": "docs/agent/HANDOFF.md"
+  "handoffPath": "docs/tools/fire-review/history/HANDOFF.md"
 }
 ```
 
@@ -201,7 +204,7 @@ Agent 完成 commit 與 handoff 後，輸出單一 JSON 事件；外層 CLI Hook
   "event": "PHASE_COMPLETE",
   "phase": "P2",
   "commit": "<sha>",
-  "handoffPath": "docs/agent/HANDOFF.md"
+  "handoffPath": "docs/tools/fire-review/history/HANDOFF.md"
 }
 ```
 
@@ -235,9 +238,9 @@ Session Manager 此時不得建立下一階段 Session。
 
 「檢查／建立參數」先產生差異預覽，列出缺少的 Definition、Binding、Category、型別與 GUID 衝突。經確認後才建立或補綁。既有同名但 GUID 或型別不符時禁止直接覆蓋，顯示修正指引。
 
-#### 8.2.1 實作：Ribbon「防火參數一鍵建立」
+#### 8.2.1 實作：「防火參數一鍵建立」
 
-Ribbon `建築法規檢討 > 防火參數一鍵建立`（`FireReviewParameterSetupCommand`）。模式對話框先顯示差異
+檢討面板 › 建築防火檢討 › `1. 參數一鍵建立`（`FireReviewParameterSetupCommand.Run`）。模式對話框先顯示差異
 預覽，按「建立並綁定」才在**一個交易**裡建立與補綁。
 
 - **要建哪些參數不另外手寫一份**：`FireReviewParameterCatalog` 由 `ReviewInputSources.All`（檢討真正會
@@ -694,9 +697,9 @@ ReviewResult:
 1. 支援的 Revit 年份，以及是否需同時支援多版本。
 2. 採用的建築技術規則條文、適用地區、版本與生效日期。
 3. Area Scheme、Area Color Scheme、View Template、Legend Template、Title Block 的公司標準。
-4. 防火時效與門窗防火屬性的既有 Shared Parameter GUID。（`防火檢討_遮煙性能`（YESNO，GUID `…000f`，門／窗／帷幕嵌板類型）已定義在 `assets/SharedParameters/`：第 79 條之 2 對昇降機道防火設備與管道間維修門要求的遮煙性能（第 1 條第 45 款）沒有既有參數可借用，見 [垂直區劃](regulations/vertical-compartment.md) §6。同一輪起 `防火檢討_設計防火時效` 也要綁到**門**，管道間維修門的一小時時效由它提供。公司既有 GUID 若與此不同仍待確認。）
+4. 防火時效與門窗防火屬性的既有 Shared Parameter GUID。（`防火檢討_遮煙性能`（YESNO，GUID `…000f`，門／窗／帷幕嵌板類型）已定義在 `assets/SharedParameters/`：第 79 條之 2 對昇降機道防火設備與管道間維修門要求的遮煙性能（第 1 條第 45 款）沒有既有參數可借用，見 [垂直區劃](rules/vertical-compartment.md) §6。同一輪起 `防火檢討_設計防火時效` 也要綁到**門**，管道間維修門的一小時時效由它提供。公司既有 GUID 若與此不同仍待確認。）
 5. 防火時效提供值的單位與資料型態（分鐘、文字代碼或列舉）。
-6. 區劃面積規則所需的用途、構造、樓層、灑水設備等輸入來源。（用途的**用字**已議定其中會改變判定的部分——第 79 條之 2 第 1 項的五種垂直區劃，見 [`zone.use` 用字表](regulations/zone-use-vocabulary.md)；其餘用途仍為自由文字。那五種用字同時決定一個區劃要受第 79 條之 2 的哪些附加要求，見 [垂直區劃](regulations/vertical-compartment.md) §3.2。建築物用途類組（`building.use`）另有正規形與寫法折疊，第 83 條的Ｈ－２組但書據以比對，見 [`building.use` 寫法正規化](regulations/building-use-groups.md)。第 79 條之 1 另議定六個用字（觀眾席、生產線、教室、體育館、零售市場、停車空間），它們**不**豁免面積、只產生人工覆核，且其中三個要併看 `building.use`，見 [第 79 條之 1 面積免除](regulations/article-79-1-area-exemption.md)。來源本身仍待確認。）
+6. 區劃面積規則所需的用途、構造、樓層、灑水設備等輸入來源。（用途的**用字**已議定其中會改變判定的部分——第 79 條之 2 第 1 項的五種垂直區劃，見 [`zone.use` 用字表](rules/zone-use-vocabulary.md)；其餘用途仍為自由文字。那五種用字同時決定一個區劃要受第 79 條之 2 的哪些附加要求，見 [垂直區劃](rules/vertical-compartment.md) §3.2。建築物用途類組（`building.use`）另有正規形與寫法折疊，第 83 條的Ｈ－２組但書據以比對，見 [`building.use` 寫法正規化](rules/building-use-groups.md)。第 79 條之 1 另議定六個用字（觀眾席、生產線、教室、體育館、零售市場、停車空間），它們**不**豁免面積、只產生人工覆核，且其中三個要併看 `building.use`，見 [第 79 條之 1 面積免除](rules/article-79-1-area-exemption.md)。來源本身仍待確認。）
 7. 防火區劃邊界的實際判定方式，以及柱、梁、板是否依相交、邊界或服務區域納入。
 8. Legend 自動化在目標 Revit API 版本的限制與可接受的樣板替代方案。
 9. 是否納入 Linked Model、Design Option、Phase、Group 與 Worksharing。

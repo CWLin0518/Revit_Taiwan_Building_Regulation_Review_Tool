@@ -70,7 +70,7 @@ public static class ZoneUses
     //
     // 第79條之1 lets six uses out of 第79條第1項's 一、五○○平方公尺 — but only when they 無法區劃
     // 分隔 and 自成一個區劃, and the tool can see neither of those (see
-    // docs/regulations/article-79-1-area-exemption.md §3.7). So unlike the 垂直區劃 above, these six
+    // docs/tools/fire-review/rules/article-79-1-area-exemption.md §3.7). So unlike the 垂直區劃 above, these six
     // words exempt nothing on their own: they only decide which 區劃 gets a 人工覆核 asking a person
     // to confirm the rest. They are deliberately NOT in either area rule's exemption list (§3.6).
 

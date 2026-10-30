@@ -34,7 +34,7 @@ public sealed class McpEndpoint
 }
 
 /// <summary>
-/// The file through which the add-in tells the stdio bridge where it listens (docs/mcp-server.md §3).
+/// The file through which the add-in tells the stdio bridge where it listens (docs/tools/mcp-server/ARCHITECTURE.md §3).
 /// The add-in writes it when its server starts and deletes it when the server stops; the bridge reads
 /// it before every request, so a Revit restart — new random token, maybe another port — needs no
 /// change to the agent's configuration.

@@ -11,7 +11,7 @@ namespace BuildingRegulationReview.Application.Candidates;
 /// Which way a curtain grid line runs on the wall's own plane. A vertical one sits at a distance
 /// along the wall and cuts a horizontal run in two (CW-H); a horizontal one sits at an elevation and
 /// cuts a vertical run (CW-V). The tool never accumulates across one
-/// (docs/regulations/curtain-wall-fire-compartment.md §4.1).
+/// (docs/tools/fire-review/rules/curtain-wall-fire-compartment.md §4.1).
 /// </summary>
 public enum CurtainGridLineDirection
 {

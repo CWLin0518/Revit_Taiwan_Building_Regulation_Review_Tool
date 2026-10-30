@@ -126,7 +126,7 @@ public static class BuildingUseGroups
         text is not null && text.StartsWith(MixedPrefix, StringComparison.Ordinal) && text.EndsWith("）", StringComparison.Ordinal);
 
     /// <summary>
-    /// The 用途類組 of one 區劃 from what each of its Areas holds (docs/regulations/building-use-groups.md §6).
+    /// The 用途類組 of one 區劃 from what each of its Areas holds (docs/tools/fire-review/rules/building-use-groups.md §6).
     /// Spellings of one group count as that group; text that names no group is kept as typed.
     /// </summary>
     public static ZoneUseGroup Combine(IEnumerable<string?> perArea)

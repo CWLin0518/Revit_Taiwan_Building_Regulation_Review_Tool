@@ -10,7 +10,7 @@ namespace BuildingRegulationReview.Mcp.Bridge;
 
 /// <summary>
 /// The MCP server an agent launches over stdio, standing in front of the add-in's HTTP endpoint
-/// (docs/mcp-server.md §3). It exists so that the agent's configuration never changes: the bridge
+/// (docs/tools/mcp-server/ARCHITECTURE.md §3). It exists so that the agent's configuration never changes: the bridge
 /// starts with the agent whether Revit is open or not, finds the add-in through
 /// <see cref="McpEndpointFile"/> on every request, and tells the agent when the tool list changes.
 /// </summary>

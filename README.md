@@ -1,28 +1,31 @@
 # Revit Taiwan Building Regulation Review Tool
 
-Revit 2024 外掛原型，用來搜尋、選擇建築技術規則檢討項目，後續可擴充模型檢核與圖說產生流程。
+Revit 2024 外掛，在模型中檢討台灣《建築技術規則》並產出檢討視圖與圖說。人從「檢討面板」操作，AI 代理經本專案的 MCP 伺服器操作，兩者走同一段程式。
 
-## 目前功能
+## 目前工具
 
-- Revit 功能區「建築技術規則」頁籤與「開啟檢討面板」按鈕
-- 可停駐於 Revit 左側的 WPF 面板
-- 依項目、法條、分類及說明搜尋
-- 點選項目後顯示法規依據、檢討說明與預計產出
-- JSON 格式的檢討項目資料，便於持續新增內容
+- **第 164 條道路陰影**：3.6:1 投影、陰影面積判定、檢討圖與圖紙。
+- **建築防火檢討**：防火參數建立與批次設定、防火區劃設定與編輯器、區劃面積／構件防火時效／防火門窗／帷幕牆交接／垂直區劃檢討。
+- **MCP 伺服器**：讓 Claude Code 等代理操作防火檢討並驗證（Ribbon「AI 代理 › MCP 服務」）。
+
+完整清單與狀態見 [SPEC.md](SPEC.md)。
 
 ## 建置與安裝（Revit 2024）
 
-請先關閉 Revit，再於 PowerShell 執行：
+先關閉 Revit，再於 PowerShell 執行：
 
 ```powershell
 .\scripts\install-revit-2024.ps1
 ```
 
-重新開啟 Revit 後，在「建築技術規則」頁籤點擊「開啟檢討面板」。
+重新開啟 Revit，在「建築法規檢討」頁籤按「開啟檢討面板」。
 
-## 專案結構
+## 文件
 
-- `src/BuildingRegulationReview`：Revit 外掛與 WPF 面板
-- `src/BuildingRegulationReview/Data/review-items.json`：檢討項目資料
-- `BuildingRegulationReview.addin`：Revit Add-in manifest 範本
-- `scripts/install-revit-2024.ps1`：建置並安裝到目前使用者的 Revit 2024 Addins 目錄
+| 文件 | 內容 |
+| --- | --- |
+| [AGENT.md](AGENT.md) | 開發原則與代理工作規範（[CLAUDE.md](CLAUDE.md) 指向它） |
+| [SPEC.md](SPEC.md) | 整體規格、工具清單 |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | 整體架構與目錄結構 |
+| [DESIGN.md](DESIGN.md) | 檢討面板設計原則、共用元件目錄 |
+| [docs/README.md](docs/README.md) | 全部文件索引；各工具文件在 `docs/tools/<工具 ID>/` |

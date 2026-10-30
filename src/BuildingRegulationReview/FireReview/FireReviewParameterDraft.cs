@@ -49,7 +49,7 @@ namespace BuildingRegulationReview.FireReview
         /// <summary>
         /// Fills 用途類組 on every 區劃 whose box is still blank with the old Project Information
         /// 建築物用途類組 — the one-time move for a project written before the group was asked per 區劃
-        /// (docs/regulations/building-use-groups.md §6). Only the boxes: nothing reaches the model until
+        /// (docs/tools/fire-review/rules/building-use-groups.md §6). Only the boxes: nothing reaches the model until
         /// 寫入模型, and a 區劃 that already holds a group is left alone.
         /// </summary>
         /// <returns>How many 區劃 were filled; 0 when there is no old value to hand over.</returns>

@@ -9,7 +9,7 @@ namespace BuildingRegulationReview.Application.Candidates;
 
 /// <summary>
 /// Turns what the adapter read (<see cref="CurtainWallObservationSet"/>) into the junctions the
-/// 帷幕牆區劃交接 check reviews (docs/regulations/curtain-wall-fire-compartment.md §4). No Revit type
+/// 帷幕牆區劃交接 check reviews (docs/tools/fire-review/rules/curtain-wall-fire-compartment.md §4). No Revit type
 /// reaches here, so every rule of §4 is testable as a fixture.
 /// </summary>
 /// <remarks>

@@ -194,7 +194,7 @@ public sealed class ReviewRunValidityTests
     {
         // 審查 4-2：室內外判定改變就換了一套適用規則。一個針對外牆下的人工覆寫不能留在一道已改判為
         // 室內的牆上，所以判定與它的依據（Function、沿牆的區劃）都進基準
-        // （docs/regulations/curtain-wall-fire-compartment.md §4.8）。
+        // （docs/tools/fire-review/rules/curtain-wall-fire-compartment.md §4.8）。
         var model = new Model();
         model.Walls[1] = CurtainWallOf("W-shared", 10, 0, 10, 10, CurtainWallFunctionDeclaration.NotRead);
         var run = Review(model);

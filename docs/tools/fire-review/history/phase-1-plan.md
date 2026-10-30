@@ -1,13 +1,13 @@
 # Phase 1：建立視圖 — Task Boundary
 
-本計畫將[完整功能規格](../fire-review-spec.md)第 8、9 節轉為可交接的工作邊界。一次 Session 僅執行一項 Task，完成後依規格提交、寫入 handoff，並停止於 `NEW_SESSION` 或 `PHASE_COMPLETE`。
+本計畫將[完整功能規格](../SPEC.md)第 8、9 節轉為可交接的工作邊界。一次 Session 僅執行一項 Task，完成後依規格提交、寫入 handoff，並停止於 `NEW_SESSION` 或 `PHASE_COMPLETE`。
 
 ## P1-T01 — 外掛骨架與共通 Domain Contract
 
 - Goal：建立可編譯、可測試且隔離 Revit API 的分層骨架。
 - In Scope：Solution、Domain／Application／Revit Adapter／核心測試專案、模組註冊介面、Result/Error、Revit 2024 版本適配入口、架構 ADR。
 - Out of Scope：專案設定、Shared Parameter、ReviewPackage、DataStorage、UI、Area Plan 建立與任何 Revit 模型寫入。
-- Inputs：既有 Revit 2024 外掛、`docs/fire-review-spec.md`。
+- Inputs：既有 Revit 2024 外掛、`docs/tools/fire-review/SPEC.md`。
 - Deliverables：`BuildingRegulationReview.sln`、三個分層專案、測試專案、ADR-0001。
 - Verification：Solution build；核心測試由乾淨輸出重新執行。
 - Exit Criteria：0 build errors；核心測試全數通過；Domain/Application 不參考 Revit API；架構決策已記錄。

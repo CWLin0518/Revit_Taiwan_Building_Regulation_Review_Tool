@@ -1,7 +1,7 @@
 # P3-T09 — 整合 Phase 3 與驗收
 
 Phase 3 的最後一項任務：把前置檢查、三類檢討、存讀、失效、人工覆寫、檢討視圖標示、取消／Rollback、日誌與效能串成一個指令。
-spec 第 11 節與 16.3 的逐條對照見 `docs/agent/phase-3-acceptance.md`。
+spec 第 11 節與 16.3 的逐條對照見 `docs/tools/fire-review/history/phase-3-acceptance.md`。
 
 ## 完成範圍
 

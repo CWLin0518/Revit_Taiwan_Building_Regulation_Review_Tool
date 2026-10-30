@@ -17,7 +17,7 @@ using Xunit;
 namespace BuildingRegulationReview.Core.Tests.Parameters;
 
 /// <summary>
-/// 防火檢討_用途類組 as the review reads it (docs/regulations/building-use-groups.md).
+/// 防火檢討_用途類組 as the review reads it (docs/tools/fire-review/rules/building-use-groups.md).
 ///
 /// 第83條第一款、第二款 double their 區劃 area limit 「供建築物使用類組Ｈ–２組使用者」, and the rule
 /// compares <c>zone.useGroup</c> against one literal. The code prints that group at least four ways,
@@ -228,7 +228,7 @@ public sealed class BuildingUseGroupsTests
         Assert.Equal("面積：防火檢討_區劃用途", input.Source);
     }
 
-    // --- 一個區劃、多個面積（docs/regulations/building-use-groups.md §6） ---------------------------
+    // --- 一個區劃、多個面積（docs/tools/fire-review/rules/building-use-groups.md §6） ---------------------------
 
     [Fact]
     public void Areas_that_name_one_group_however_spelled_are_that_group()
