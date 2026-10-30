@@ -13,7 +13,7 @@
 
 | 工具 ID | 名稱 | 法規 | 狀態 | 文件 |
 | --- | --- | --- | --- | --- |
-| `review-panel` | 檢討面板（所有工具的入口） | — | 雛形已有；整合既有 Ribbon 工具**規格已定、未實作** | [SPEC](docs/tools/review-panel/SPEC.md)／[ARCH](docs/tools/review-panel/ARCHITECTURE.md) |
+| `review-panel` | 檢討面板（所有工具的入口） | — | 已實作並實機驗證（2026-10-30）；動作可用性與狀態列待做 | [SPEC](docs/tools/review-panel/SPEC.md)／[ARCH](docs/tools/review-panel/ARCHITECTURE.md) |
 | `mcp-server` | MCP 伺服器（代理入口） | — | 已實作；目前開放防火檢討 | [SPEC](docs/tools/mcp-server/SPEC.md)／[ARCH](docs/tools/mcp-server/ARCHITECTURE.md) |
 | `article-164-road-shadow` | 第 164 條道路陰影檢討與圖說 | 建築設計施工編第 164 條 | 已實作；**尚未開放 MCP** | [SPEC](docs/tools/article-164-road-shadow/SPEC.md)／[ARCH](docs/tools/article-164-road-shadow/ARCHITECTURE.md) |
 | `fire-review` | 建築防火檢討（防火區劃面積、構件防火時效、防火門窗、帷幕牆交接、垂直區劃、第 79 條之 1） | 建築設計施工編第 70、79、79-1～79-4、83 條等 | Phase 1～3 完成並實機驗證；Phase 4（圖說）未開始 | [SPEC](docs/tools/fire-review/SPEC.md)／[ARCH](docs/tools/fire-review/ARCHITECTURE.md) |

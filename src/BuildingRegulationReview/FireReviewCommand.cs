@@ -24,8 +24,11 @@ namespace BuildingRegulationReview
         private static RequestHandler _handler;
 
         public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
+            => Run(commandData.Application, ref message);
+
+        /// <summary>檢討面板與 Ribbon 共用的進入點。</summary>
+        internal static Result Run(UIApplication application, ref string message)
         {
-            var application = commandData.Application;
             var document = application.ActiveUIDocument?.Document;
             if (document == null)
             {

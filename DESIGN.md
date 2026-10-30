@@ -46,6 +46,7 @@
 - 動作由 `IReviewFeature` 宣告（ID、名稱、說明、是否可用、不可用的原因），面板依宣告產生按鈕，
   不再只有固定的「開始檢討／圖說製作」兩顆。
 - 動作不可用時按鈕停用，並以文字說明原因與先做哪一步（例如「需先完成開始檢討且結果為符合」）。
+  （尚未實作，見 review-panel SPEC §7；目前由動作本身在執行時擋下並說明。）
 - 動作名稱用動詞開頭、與實際結果一致（「開啟編輯器」開的就是編輯器，見 C-12 的教訓）。
 
 ### 2.4 狀態看得見
@@ -84,7 +85,7 @@
 | AI 代理 | MCP 服務（啟動／停止） | 保留在 Ribbon，不整合進檢討面板 |
 
 - **不再新增任何檢討工具按鈕到 Ribbon。**
-- 既有的檢討按鈕在面板整合完成、驗證通過後移除（過渡期可並存，見 review-panel SPEC）。
+- 既有的檢討按鈕已於 2026-10-30 整合進面板並移除（見 review-panel SPEC §7）。
 
 ## 4. 共用元件目錄
 
@@ -96,7 +97,7 @@
 | --- | --- | --- |
 | 檢討面板 | `ReviewPaneControl.xaml(.cs)`、`ReviewPaneProvider` | 所有工具的入口與動作按鈕 |
 | 工具目錄資料 | `Data/review-items.json`、`ReviewItem` | 面板的項目、法條、說明 |
-| 工具註冊與派送 | `Features/IReviewFeature`、`ReviewFeatureRegistry`、`ExternalEvents/ReviewExternalEventDispatcher` | 面板動作 → API context |
+| 工具註冊與派送 | `Features/IReviewFeature`、`ReviewFeatureAction`、`ReviewFeatureRegistry`、`ExternalEvents/ReviewExternalEventDispatcher` | 宣告工具的有序動作；面板動作 → API context |
 | 套件選擇視窗 | `RegionEditor/RegionEditorDialogs.cs` 的 `PackagePickerWindow`（文字可由建構式參數覆寫） | 選擇要處理的 Area Plan／檢討套件 |
 | 文字輸入、色彩選擇 | 同上的 `TextPromptWindow`、`ZoneColorPickerWindow` | 簡單輸入對話框 |
 | 檢討結果視窗 | `FireReview/FireReviewWindow.cs` | 前置檢查、進度／取消、檢討表、明細、覆寫、日誌；新工具的結果視窗以它為範本 |

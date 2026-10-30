@@ -5,15 +5,15 @@
 
 ## 1. 動作與入口
 
-| 動作 | 目前入口（Ribbon） | Command／視窗 | use case | MCP |
+| 面板動作 | 原 Ribbon 按鈕（已移除） | Command／視窗 | use case | MCP |
 | --- | --- | --- | --- | --- |
-| 參數一鍵建立 | 防火參數一鍵建立 | `FireReviewParameterSetupCommand`、`FireReviewParameterSetupWindow` | `FireReviewParameterSetupPlanner`、`RevitFireReviewParameterInstaller` | — |
-| 區劃設定 | 防火區劃設定 | `FireReviewSetupCommand`、`FireReviewSetupWindow`（modeless） | `ReviewPackageSetup`、`AreaPlanProvisioning` | — |
-| 參數批次設定 | 防火參數批次設定 | `FireReviewParameterPanelCommand`、`FireReviewParameterPanelWindow` | `FireReviewParameterDraft`、`RevitFireReviewParameterWriter` | `fire_review_scan_parameters`、`_set_parameters` |
-| 區劃編輯器 | 防火區劃編輯器 | `RegionEditorCommand`、`RegionEditor/*`（modeless） | `RegionEditorSession`、`RegionSolver`、`ApplyPlan`、`RevitZoneWriteBack` | — |
-| 開始檢討 | 防火區劃檢討 | `FireReviewCommand`、`FireReviewWindow`（modeless） | `FireReviewModel`（`AvailablePackages`／`TryScan`／`RunAndSave`）→ `FireReviewRunner` | `fire_review_list_packages`、`_check`、`_run`、`_get_results`、`_describe_result` |
+| 1. 參數一鍵建立 | 防火參數一鍵建立 | `FireReviewParameterSetupCommand`、`FireReviewParameterSetupWindow` | `FireReviewParameterSetupPlanner`、`RevitFireReviewParameterInstaller` | — |
+| 2. 防火區劃設定 | 防火區劃設定 | `FireReviewSetupCommand`、`FireReviewSetupWindow`（modeless） | `ReviewPackageSetup`、`AreaPlanProvisioning` | — |
+| 3. 參數批次設定 | 防火參數批次設定 | `FireReviewParameterPanelCommand`、`FireReviewParameterPanelWindow` | `FireReviewParameterDraft`、`RevitFireReviewParameterWriter` | `fire_review_scan_parameters`、`_set_parameters` |
+| 4. 開啟防火區劃編輯器 | 防火區劃編輯器 | `RegionEditorCommand`、`RegionEditor/*`（modeless） | `RegionEditorSession`、`RegionSolver`、`ApplyPlan`、`RevitZoneWriteBack` | — |
+| 5. 開始檢討 | 防火區劃檢討 | `FireReviewCommand`、`FireReviewWindow`（modeless） | `FireReviewModel`（`AvailablePackages`／`TryScan`／`RunAndSave`）→ `FireReviewRunner` | `fire_review_list_packages`、`_check`、`_run`、`_get_results`、`_describe_result` |
 
-依 [review-panel SPEC](../review-panel/SPEC.md)，五個動作將整合進檢討面板的 `fire-review` 項目，Ribbon 按鈕移除。
+五個動作在檢討面板的 `fire-review` 項目中依序列出（`Features/FireReview/FireReviewFeature.cs`），見 [review-panel SPEC](../review-panel/SPEC.md)。
 
 ## 2. 分層對應
 

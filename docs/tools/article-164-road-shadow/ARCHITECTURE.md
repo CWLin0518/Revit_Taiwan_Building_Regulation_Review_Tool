@@ -1,6 +1,6 @@
 # 第 164 條道路陰影檢討 — 架構
 
-規格見 [SPEC.md](SPEC.md)。程式位於 `src/BuildingRegulationReview/Article164*.cs`，入口為 `Features/Article164/Article164ReviewFeature.cs`（面板）與 `Article164Command`（Ribbon，整合後移除）。
+規格見 [SPEC.md](SPEC.md)。程式位於 `src/BuildingRegulationReview/Article164*.cs`，入口為 `Features/Article164/Article164ReviewFeature.cs`（面板）。`Article164Command` 仍是 `IExternalCommand`，但已不掛在 Ribbon。
 
 > 註：下表中的 `Article164ExternalEventHandler`、`Article164DrawingExternalEventHandler` 已由共用的 `ReviewExternalEventDispatcher` 取代。
 

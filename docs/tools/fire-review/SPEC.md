@@ -238,9 +238,9 @@ Session Manager 此時不得建立下一階段 Session。
 
 「檢查／建立參數」先產生差異預覽，列出缺少的 Definition、Binding、Category、型別與 GUID 衝突。經確認後才建立或補綁。既有同名但 GUID 或型別不符時禁止直接覆蓋，顯示修正指引。
 
-#### 8.2.1 實作：Ribbon「防火參數一鍵建立」
+#### 8.2.1 實作：「防火參數一鍵建立」
 
-Ribbon `建築法規檢討 > 防火參數一鍵建立`（`FireReviewParameterSetupCommand`）。模式對話框先顯示差異
+檢討面板 › 建築防火檢討 › `1. 參數一鍵建立`（`FireReviewParameterSetupCommand.Run`）。模式對話框先顯示差異
 預覽，按「建立並綁定」才在**一個交易**裡建立與補綁。
 
 - **要建哪些參數不另外手寫一份**：`FireReviewParameterCatalog` 由 `ReviewInputSources.All`（檢討真正會
