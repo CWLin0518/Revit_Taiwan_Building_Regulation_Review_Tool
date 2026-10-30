@@ -34,6 +34,9 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
 
     private readonly Document _document;
 
+    // 只在一次 Read 期間有值，而且只在開關檔存在時（見 CurtainOpeningDiagnostics）。
+    private CurtainOpeningDiagnostics? _diagnostics;
+
     public RevitCurtainWallGeometryReader(Document document) =>
         _document = document ?? throw new ArgumentNullException(nameof(document));
 
@@ -51,6 +54,20 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
         }
 
         var level = view.GenLevel;
+        _diagnostics = CurtainOpeningDiagnostics.StartIfEnabled(level);
+        try
+        {
+            return Read(request, level);
+        }
+        finally
+        {
+            _diagnostics?.Flush();
+            _diagnostics = null;
+        }
+    }
+
+    private Result<CurtainWallObservationSet> Read(CurtainWallReadRequest request, Level level)
+    {
         var warnings = new List<string>();
         var zones = ReadZones(request.PackageId, request.AreaPlanUniqueId);
         var hosts = request.Hosts.ToList();
@@ -482,6 +499,15 @@ public sealed class RevitCurtainWallGeometryReader : ICurtainWallGeometryReader
             if (element.Category?.BuiltInCategory == BuiltInCategory.OST_CurtainWallMullions) continue;
 
             var extent = Extent(element, wall);
+            if (_diagnostics is not null &&
+                element.Category?.BuiltInCategory is BuiltInCategory.OST_Doors or BuiltInCategory.OST_Windows)
+            {
+                _diagnostics.Record(element, _document.GetElement(element.GetTypeId())?.Name,
+                    Size(element, BuiltInParameter.CURTAIN_WALL_PANELS_WIDTH, BuiltInParameter.FAMILY_WIDTH_PARAM, BuiltInParameter.DOOR_WIDTH, BuiltInParameter.WINDOW_WIDTH),
+                    Size(element, BuiltInParameter.CURTAIN_WALL_PANELS_HEIGHT, BuiltInParameter.FAMILY_HEIGHT_PARAM, BuiltInParameter.DOOR_HEIGHT, BuiltInParameter.WINDOW_HEIGHT),
+                    extent);
+            }
+
             if (extent is null)
             {
                 warnings.Add($"帷幕嵌板（Id {element.Id}）的尺寸無法讀取，已略過這一片（常見於被合併掉的空嵌板槽，該處由合併後的鄰居嵌板涵蓋）；若它不是空槽，請確認交接帶的嵌板是否完整。");
