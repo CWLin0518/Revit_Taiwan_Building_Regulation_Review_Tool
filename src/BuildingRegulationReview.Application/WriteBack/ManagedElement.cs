@@ -257,7 +257,8 @@ public sealed class ExistingManagedElement
         string signature,
         string? description = null,
         string? zoneUse = null,
-        IReadOnlyDictionary<string, int?>? zoneParameters = null)
+        IReadOnlyDictionary<string, int?>? zoneParameters = null,
+        string? zoneUseGroup = null)
     {
         if (string.IsNullOrWhiteSpace(elementUniqueId)) throw new ArgumentException("An element UniqueId is required.", nameof(elementUniqueId));
         if (string.IsNullOrWhiteSpace(keyToken)) throw new ArgumentException("A managed element needs its key token.", nameof(keyToken));
@@ -267,6 +268,7 @@ public sealed class ExistingManagedElement
         Signature = (signature ?? string.Empty).Trim();
         ZoneUse = zoneUse?.Trim();
         _zoneParameters = zoneParameters ?? new Dictionary<string, int?>();
+        ZoneUseGroup = string.IsNullOrWhiteSpace(zoneUseGroup) ? null : zoneUseGroup!.Trim();
         HasKey = ManagedElementKey.TryParse(KeyToken, out var key);
         Key = key;
         Description = string.IsNullOrWhiteSpace(description)
@@ -295,6 +297,12 @@ public sealed class ExistingManagedElement
     /// </summary>
     public int? ZoneParameter(string parameter) =>
         _zoneParameters.TryGetValue(parameter, out var value) ? value : null;
+
+    /// <summary>
+    /// 防火檢討_用途類組 as this Area carries it now; null when blank, unbound or not an Area. Text, so
+    /// it does not fit <see cref="ZoneParameter"/>, but it has to survive a re-placed 區劃 the same way.
+    /// </summary>
+    public string? ZoneUseGroup { get; }
 
     public string Description { get; }
 

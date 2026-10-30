@@ -161,7 +161,7 @@ public sealed class SharedParameterFileTests
         var params_ = Lines().Where(l => l.StartsWith("PARAM\t", StringComparison.Ordinal))
             .Select(l => l.Split('\t')).ToList();
 
-        Assert.Equal(17, params_.Count);
+        Assert.Equal(18, params_.Count);
         Assert.Equal(params_.Count, params_.Select(f => f[1]).Distinct(StringComparer.Ordinal).Count());
         Assert.Equal(params_.Count, params_.Select(f => f[2]).Distinct(StringComparer.Ordinal).Count());
     }

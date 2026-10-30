@@ -35,7 +35,7 @@ public sealed class ZoneAreaLimitTests
     [InlineData(false, 1500)]
     public void Below_the_eleventh_storey_the_panel_shows_the_article_79_limit(bool sprinklered, double limit)
     {
-        var shown = ZoneAreaLimit.For(9, sprinklered, interiorFinish: null, buildingUse: null);
+        var shown = ZoneAreaLimit.For(9, sprinklered, interiorFinish: null, useGroup: null);
 
         Assert.Equal(limit, shown.SquareMeters);
         Assert.Equal("第79條", shown.Clause);
@@ -126,7 +126,7 @@ public sealed class ZoneAreaLimitTests
         var shown = ZoneAreaLimit.For(11, null, null, null);
 
         Assert.Equal(
-            ZoneAreaLimitGap.InteriorFinish | ZoneAreaLimitGap.BuildingUse | ZoneAreaLimitGap.Sprinklered,
+            ZoneAreaLimitGap.InteriorFinish | ZoneAreaLimitGap.UseGroup | ZoneAreaLimitGap.Sprinklered,
             shown.Gaps);
         Assert.Equal("未填模型牆面／天花板耐燃等級、用途類組、滅火設備，無法判定上限", shown.Description);
     }
@@ -230,7 +230,7 @@ public sealed class ZoneAreaLimitTests
     [InlineData(ZoneUses.CarPark, true, 3000)]
     public void An_article_79_1_use_keeps_the_article_79_limit(string use, bool sprinklered, double limit)
     {
-        var shown = ZoneAreaLimit.For(9, sprinklered, interiorFinish: null, buildingUse: null, use);
+        var shown = ZoneAreaLimit.For(9, sprinklered, interiorFinish: null, useGroup: null, use);
 
         Assert.Equal(limit, shown.SquareMeters);
         Assert.Equal("第79條", shown.Clause);
@@ -397,7 +397,7 @@ public sealed class ZoneAreaLimitTests
             .Set("zone.atriumMerged", false);
 
         if (sprinklered is bool value) facts = facts.Set("zone.sprinklered", value);
-        if (buildingUse is not null) facts = facts.Set("building.use", buildingUse);
+        if (buildingUse is not null) facts = facts.Set("zone.useGroup", buildingUse);
         if (finish is not null) facts = facts.Set("zone.interiorFinish", finish);
         return facts;
     }

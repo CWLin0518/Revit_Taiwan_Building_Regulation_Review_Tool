@@ -102,7 +102,6 @@ public sealed class RuleFieldCatalog
         return new RuleFieldCatalog(new[]
         {
             new RuleFieldDefinition("building.fireResistiveConstruction", boolean, "是否為防火構造建築物", all),
-            new RuleFieldDefinition("building.use", text, "建築物用途類組", all),
             new RuleFieldDefinition("building.floorsAboveGround", number, "地上層數", all),
             new RuleFieldDefinition("building.height", RuleValueType.Quantity(ReviewUnit.Meter), "建築物高度", all),
 
@@ -112,6 +111,12 @@ public sealed class RuleFieldCatalog
             new RuleFieldDefinition("zone.sprinklered", boolean, "是否設有自動滅火設備", all),
             new RuleFieldDefinition("zone.levelName", text, "所在樓層名稱", all),
             new RuleFieldDefinition("zone.floorNumber", number, "所在樓層序（地上為正、地下為負）", all),
+
+            // 區劃的建築物使用類組（第3條之3），取代原本整棟一個值的 building.use（docs/regulations/
+            // building-use-groups.md §6）。同一區劃各 Area 類組不同時值為「混合（B-2、H-2）」，不等於任何
+            // 單一組別，所以第83條的Ｈ－２組但書自然不成立——各類組的規定都要符合（內政部國土管理署
+            // 115.05.15國署建管字第1150047679號函）。
+            new RuleFieldDefinition("zone.useGroup", text, "區劃用途類組（第3條之3；混合時為「混合（…）」）", all),
 
             // 第83條 第一款至第三款以室內裝修的耐燃等級決定區劃面積上限（100／200／500 ㎡）。等級是
             // 設計者宣告的事實，不是模型量得的，所以是一個輸入欄位；寫不出等級的區劃落回第一款的
@@ -137,6 +142,12 @@ public sealed class RuleFieldCatalog
                 "第3項第二款：挑空連通區劃之合計樓地板面積（由各樓層區劃推得）", all),
             new RuleFieldDefinition("zone.atriumBaseFloor", number,
                 "挑空起始樓層序（最低開口的下一層，由各樓層區劃推得）", all),
+
+            // 併入挑空之連通區劃的使用類組：各樓層所在區劃（與起始樓層正下方區劃）的 zone.useGroup 合併，
+            // 合併規則同一區劃內各 Area（不同就是混合）。挑空 Area 本身不計，與連通區劃面積一致。
+            // 沒有輸入來源，由 ReviewInputAssembler 推得。
+            new RuleFieldDefinition("zone.connectedUseGroup", text,
+                "挑空連通區劃之使用類組（由各樓層區劃推得；混合時為「混合（…）」）", all),
 
             // 第3項免除成立的挑空不再是第79條之2之垂直區劃，第83條本文的除外不再涵蓋它，其連通區劃
             // 回到第79條、第83條的面積檢討（同函第4點；決議 32）。以下三個欄位**沒有輸入來源**，由

@@ -46,8 +46,8 @@ public enum ZoneAreaLimitGap
     /// <summary>室內裝修等級 — 第83條's three tiers.</summary>
     InteriorFinish = 2,
 
-    /// <summary>建築物用途類組 — the Ｈ－２組 proviso in 第83條第一款、第二款.</summary>
-    BuildingUse = 4,
+    /// <summary>區劃用途類組 — the Ｈ－２組 proviso in 第83條第一款、第二款.</summary>
+    UseGroup = 4,
 
     /// <summary>自動滅火設備 — doubles the limit in both articles.</summary>
     Sprinklered = 8
@@ -171,7 +171,7 @@ public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
     /// 第79條's 一、五○○平方公尺. Whichever decides, a 第79條之2 垂直區劃 is exempt from it.
     /// </summary>
     public static ZoneAreaLimit For(
-        int? floorNumber, bool? sprinklered, string? interiorFinish, string? buildingUse, string? use = null)
+        int? floorNumber, bool? sprinklered, string? interiorFinish, string? useGroup, string? use = null)
     {
         // 樓層序 is the rule's applicability, so until it is filled neither article is known to apply.
         if (floorNumber is null) return Unknown(ZoneAreaLimitGap.FloorNumber);
@@ -186,7 +186,7 @@ public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
             return new ZoneAreaLimit(null, clause, ZoneAreaLimitGap.None, false, true, atrium: atrium);
         }
 
-        if (floorNumber >= 11) return Article83(sprinklered, interiorFinish, buildingUse);
+        if (floorNumber >= 11) return Article83(sprinklered, interiorFinish, useGroup);
 
         // 第79條之1 only lets a 區劃 out of 前條第一項, which is 第79條第1項 — from the eleventh storey
         // up 第83條 decides and the article cannot reach it (第79條之1規格 §2.3). So the note follows
@@ -199,7 +199,7 @@ public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
     /// The limit for a 區劃 as the panel currently holds it — the typed values, not the stored ones,
     /// so each box shows its consequence as it is filled.
     /// </summary>
-    public static ZoneAreaLimit ForZone(int? floorNumber, bool? sprinklered, string? buildingUse, string? use)
+    public static ZoneAreaLimit ForZone(int? floorNumber, bool? sprinklered, string? useGroup, string? use)
     {
         // The grade is derived during review from the modelled walls and ceilings. The batch panel
         // no longer pretends an Area carries that fact, so it can only show the Article 79 limit —
@@ -208,14 +208,14 @@ public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
         // no such box any more (驗證清單 B-09).
         return floorNumber >= 11 && !ZoneUses.IsVerticalCompartment(use)
             ? AwaitingModelDerivedFinish()
-            : For(floorNumber, sprinklered, null, buildingUse, use);
+            : For(floorNumber, sprinklered, null, useGroup, use);
     }
 
     /// <summary>The limit for a zone as it currently stands in the model.</summary>
-    public static ZoneAreaLimit For(FireReviewZoneRow zone, string? buildingUse)
+    public static ZoneAreaLimit For(FireReviewZoneRow zone)
     {
         if (zone is null) throw new ArgumentNullException(nameof(zone));
-        return ForZone(zone.FloorNumber, zone.Sprinklered, buildingUse, zone.Use);
+        return ForZone(zone.FloorNumber, zone.Sprinklered, zone.UseGroup, zone.Use);
     }
 
     /// <summary>
@@ -237,7 +237,7 @@ public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
             ? Unknown(ZoneAreaLimitGap.Sprinklered)
             : new ZoneAreaLimit(sprinklered == true ? 3000 : 1500, "第79條", ZoneAreaLimitGap.None, false, false);
 
-    private static ZoneAreaLimit Article83(bool? sprinklered, string? interiorFinish, string? buildingUse)
+    private static ZoneAreaLimit Article83(bool? sprinklered, string? interiorFinish, string? useGroup)
     {
         var finish = string.IsNullOrWhiteSpace(interiorFinish) ? null : interiorFinish!.Trim();
         var substrate = string.Equals(finish, InteriorFinishGrades.ClassOneWithSubstrate, StringComparison.Ordinal);
@@ -245,14 +245,14 @@ public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
         var gaps = ZoneAreaLimitGap.None;
         if (finish is null) gaps |= ZoneAreaLimitGap.InteriorFinish;
         // 第三款 names no use group, so Ｈ－２組 changes nothing there and the rule never reads it.
-        if (!substrate && string.IsNullOrWhiteSpace(buildingUse)) gaps |= ZoneAreaLimitGap.BuildingUse;
+        if (!substrate && string.IsNullOrWhiteSpace(useGroup)) gaps |= ZoneAreaLimitGap.UseGroup;
         if (sprinklered is null) gaps |= ZoneAreaLimitGap.Sprinklered;
         if (gaps != ZoneAreaLimitGap.None) return Unknown(gaps);
 
         // 第三款 is the one tier that gets here without a 用途類組, because it never reads one. The
         // spelling is read exactly as ReviewInputAssembler reads it before handing it to the rule,
         // so 「Ｈ－２組」 raises the limit in the panel and in the review alike.
-        var h2 = BuildingUseGroups.IsH2(buildingUse);
+        var h2 = BuildingUseGroups.IsH2(useGroup);
         var baseLimit = substrate
             ? 500
             : string.Equals(finish, InteriorFinishGrades.ClassOne, StringComparison.Ordinal)
@@ -273,7 +273,7 @@ public readonly struct ZoneAreaLimit : IEquatable<ZoneAreaLimit>
     {
         if ((gaps & ZoneAreaLimitGap.FloorNumber) != 0) yield return "樓層序";
         if ((gaps & ZoneAreaLimitGap.InteriorFinish) != 0) yield return "模型牆面／天花板耐燃等級";
-        if ((gaps & ZoneAreaLimitGap.BuildingUse) != 0) yield return "用途類組";
+        if ((gaps & ZoneAreaLimitGap.UseGroup) != 0) yield return "用途類組";
         if ((gaps & ZoneAreaLimitGap.Sprinklered) != 0) yield return "滅火設備";
     }
 

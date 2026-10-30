@@ -1,11 +1,15 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using BuildingRegulationReview.Application.Candidates;
 using BuildingRegulationReview.Application.Checks;
 using BuildingRegulationReview.Application.Parameters;
 using BuildingRegulationReview.Application.Reviews;
 using BuildingRegulationReview.Application.Rules;
+using BuildingRegulationReview.Core.Tests.Candidates;
+using BuildingRegulationReview.Domain.Geometry;
 using BuildingRegulationReview.Domain.Reviews;
 using BuildingRegulationReview.Domain.Rules;
 using Xunit;
@@ -13,10 +17,10 @@ using Xunit;
 namespace BuildingRegulationReview.Core.Tests.Parameters;
 
 /// <summary>
-/// 建築物用途類組 as the review reads it (docs/regulations/building-use-groups.md).
+/// 防火檢討_用途類組 as the review reads it (docs/regulations/building-use-groups.md).
 ///
 /// 第83條第一款、第二款 double their 區劃 area limit 「供建築物使用類組Ｈ–２組使用者」, and the rule
-/// compares <c>building.use</c> against one literal. The code prints that group at least four ways,
+/// compares <c>zone.useGroup</c> against one literal. The code prints that group at least four ways,
 /// so the spelling is canonicalised where a parameter becomes a rule input. What these tests guard
 /// is that the widening is exactly that — a spelling question — and never lets text that names no
 /// group be read as one.
@@ -140,7 +144,11 @@ public sealed class BuildingUseGroupsTests
         var requirement = Shipped().OfCategory(RuleCategory.CompartmentArea)
             .Single(x => x.RuleId == "tw-bcr-83-area").Rule.RequiredValue.Source;
 
-        Assert.Contains($"building.use == \"{BuildingUseGroups.H2}\"", requirement, StringComparison.Ordinal);
+        Assert.Contains($"zone.useGroup == \"{BuildingUseGroups.H2}\"", requirement, StringComparison.Ordinal);
+
+        var atrium = Shipped().OfCategory(RuleCategory.CompartmentArea)
+            .Single(x => x.RuleId == "tw-bcr-83-area-atrium").Rule.RequiredValue.Source;
+        Assert.Contains($"zone.connectedUseGroup == \"{BuildingUseGroups.H2}\"", atrium, StringComparison.Ordinal);
     }
 
     // --- 從參數到規則：兩邊讀出同一個上限 -------------------------------------------------------
@@ -190,7 +198,7 @@ public sealed class BuildingUseGroupsTests
         var input = Assemble("Ｈ–２組")!;
 
         Assert.Equal(ReviewValue.OfText(BuildingUseGroups.H2), input.Value);
-        Assert.Equal("專案資訊：建築物用途類組（填「Ｈ–２組」，判讀為 H-2）", input.Source);
+        Assert.Equal("面積：防火檢討_用途類組（填「Ｈ–２組」，判讀為 H-2）", input.Source);
     }
 
     /// <summary>
@@ -206,10 +214,10 @@ public sealed class BuildingUseGroupsTests
         var input = Assemble(text)!;
 
         Assert.Equal(ReviewValue.OfText(text), input.Value);
-        Assert.Equal("專案資訊：建築物用途類組", input.Source);
+        Assert.Equal("面積：防火檢討_用途類組", input.Source);
     }
 
-    /// <summary>Only 建築物用途類組 is folded; every other text field is passed through as typed.</summary>
+    /// <summary>Only 用途類組 is folded; every other text field is passed through as typed.</summary>
     [Fact]
     public void No_other_text_field_is_folded()
     {
@@ -220,14 +228,166 @@ public sealed class BuildingUseGroupsTests
         Assert.Equal("面積：防火檢討_區劃用途", input.Source);
     }
 
+    // --- 一個區劃、多個面積（docs/regulations/building-use-groups.md §6） ---------------------------
+
+    [Fact]
+    public void Areas_that_name_one_group_however_spelled_are_that_group()
+    {
+        var group = BuildingUseGroups.Combine(new[] { "H-2", "Ｈ－２組", " h2 " });
+
+        Assert.Equal(ZoneUseGroupKind.Single, group.Kind);
+        Assert.Equal("H-2", group.Value);
+    }
+
+    /// <summary>
+    /// 「如同一空間有多種使用類組者，應同時符合各使用類組之規定」（內政部國土管理署115.05.15
+    /// 國署建管字第1150047679號函）: the value names every group, in 第3-3條's order, and is no group itself.
+    /// </summary>
+    [Fact]
+    public void Areas_that_name_several_groups_are_mixed()
+    {
+        var group = BuildingUseGroups.Combine(new[] { "H-2", "B-2", "Ｈ－２組", "辦公" });
+
+        Assert.Equal(ZoneUseGroupKind.Mixed, group.Kind);
+        Assert.Equal(new[] { "B-2", "H-2", "辦公" }, group.Groups);
+        Assert.Equal("混合（B-2、H-2、辦公）", group.Value);
+        Assert.True(BuildingUseGroups.IsMixed(group.Value));
+        Assert.Null(BuildingUseGroups.Canonical(group.Value));
+        Assert.False(BuildingUseGroups.IsH2(group.Value));
+    }
+
+    /// <summary>The groups of a part nobody filled in are unknown, so the 區劃's are too.</summary>
+    [Fact]
+    public void A_mixed_value_gives_its_groups_back()
+    {
+        Assert.Equal(new[] { "B-2", "H-2", "辦公" }, BuildingUseGroups.GroupsOf("混合（B-2、H-2、辦公）"));
+        Assert.Empty(BuildingUseGroups.GroupsOf("H-2"));
+        Assert.Empty(BuildingUseGroups.GroupsOf(null));
+    }
+
+    [Fact]
+    public void Some_areas_left_blank_cannot_be_told()
+    {
+        var group = BuildingUseGroups.Combine(new[] { "H-2", null, "  " });
+
+        Assert.Equal(ZoneUseGroupKind.Partial, group.Kind);
+        Assert.Null(group.Value);
+        Assert.Contains("3 個面積中有 2 個未填", group.Problem);
+    }
+
+    [Fact]
+    public void No_area_filled_in_is_nothing_supplied()
+    {
+        Assert.Equal(ZoneUseGroupKind.Blank, BuildingUseGroups.Combine(new string?[] { null, "" }).Kind);
+        Assert.Equal(ZoneUseGroupKind.Blank, BuildingUseGroups.Combine(Array.Empty<string?>()).Kind);
+    }
+
+    /// <summary>A 區劃 that is partly Ｈ－２組 does not get the Ｈ－２組 limit — in the rule and the panel alike.</summary>
+    [Fact]
+    public void A_mixed_zone_gets_the_stricter_limit()
+    {
+        var mixed = BuildingUseGroups.Mixed(new[] { "B-2", "H-2" });
+
+        var outcome = Outcome(mixed, areaSquareMeters: 150);
+
+        Assert.Equal(ReviewValue.Quantity(100, ReviewUnit.SquareMeter), outcome.RequiredValue);
+        Assert.Equal(ReviewStatus.Fail, outcome.Status);
+        Assert.Equal(100, ZoneAreaLimit.For(11, false, InteriorFinishGrades.None, mixed).SquareMeters);
+    }
+
+    [Fact]
+    public void A_two_area_zone_of_one_group_reads_as_that_group()
+    {
+        var input = ZoneOfTwo("H-2", "Ｈ類第二組");
+
+        Assert.Equal(ReviewValue.OfText("H-2"), input!.Value);
+        Assert.Equal("面積：防火檢討_用途類組（填「Ｈ類第二組」，判讀為 H-2）", input.Source);
+    }
+
+    /// <summary>
+    /// Unlike every other 區劃 parameter, Areas that disagree are no gap: the 區劃 is mixed, and the
+    /// evidence says what each Area holds.
+    /// </summary>
+    [Fact]
+    public void A_two_area_zone_of_two_groups_reads_as_mixed_and_says_why()
+    {
+        var input = ZoneOfTwo("H-2", "B-2");
+
+        Assert.False(input!.IsUnreadable);
+        Assert.Equal(ReviewValue.OfText("混合（B-2、H-2）"), input.Value);
+        Assert.Contains("各面積分別填 「H-2」、「B-2」", input.Source);
+        Assert.Contains("各類組之規定均應符合", input.Source);
+    }
+
+    [Fact]
+    public void A_two_area_zone_with_one_part_blank_is_unreadable()
+    {
+        var input = ZoneOfTwo("H-2", null);
+
+        Assert.True(input!.IsUnreadable);
+        Assert.Contains("未填用途類組", input.UnreadableReason);
+    }
+
+    [Fact]
+    public void A_two_area_zone_left_blank_supplies_nothing()
+    {
+        Assert.Null(ZoneOfTwo(null, null));
+    }
+
+    /// <summary>
+    /// The old Project Information value is no source at all: a 區劃 nobody filled in must not borrow
+    /// the building-wide group (and with it 第83條's Ｈ－２組 limit).
+    /// </summary>
+    [Fact]
+    public void The_old_project_value_never_stands_in_for_a_zone()
+    {
+        var project = new Dictionary<string, ParameterReading>
+        {
+            [ReviewInputSources.LegacyBuildingUse] = ParameterReading.OfText("H-2")
+        };
+        var snapshot = new ReviewParameterSnapshot(null, project, AreasHolding(null, null));
+
+        var assembly = ReviewInputAssembler.Assemble(TwoAreaZone(), snapshot);
+
+        Assert.Empty(assembly.Area.ForZone(CandidateModel.ZoneA));
+        Assert.DoesNotContain(assembly.Area.Building, i => i.Field.Contains("use", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static ReviewInput? ZoneOfTwo(string? first, string? second)
+    {
+        var snapshot = new ReviewParameterSnapshot(null, null, AreasHolding(first, second));
+        return ReviewInputAssembler.Assemble(TwoAreaZone(), snapshot).Area.ForZone(CandidateModel.ZoneA)
+            .SingleOrDefault(i => i.Field == "zone.useGroup");
+    }
+
+    private static IReadOnlyDictionary<string, IReadOnlyDictionary<string, ParameterReading>> AreasHolding(string? first, string? second) =>
+        new Dictionary<string, IReadOnlyDictionary<string, ParameterReading>>
+        {
+            ["area-1"] = new Dictionary<string, ParameterReading> { [ReviewInputSources.UseGroup] = ParameterReading.OfText(first) },
+            ["area-2"] = new Dictionary<string, ParameterReading> { [ReviewInputSources.UseGroup] = ParameterReading.OfText(second) }
+        };
+
+    /// <summary>One 區劃 drawn as two Areas side by side.</summary>
+    private static CandidateSet TwoAreaZone() =>
+        CandidateResolver.Resolve(new CandidateObservationSet(CandidateModel.PackageId, "level-1F", "1F",
+            new[]
+            {
+                new ZoneObservation(CandidateModel.ZoneA, "A 區", new[]
+                {
+                    new ZonePartObservation("area-1", new[] { CandidateModel.Rect(0, 0, 10, 10) }, PlanUnits.SquareMetersToSquareFeet(100)),
+                    new ZonePartObservation("area-2", new[] { CandidateModel.Rect(10, 0, 20, 10) }, PlanUnits.SquareMetersToSquareFeet(100))
+                })
+            },
+            Array.Empty<MemberObservation>(), Array.Empty<OpeningObservation>()));
+
     private static ReviewInput? Assemble(string text) => ReviewInputAssembler.Convert(
-        RuleFieldCatalog.Default.Find("building.use")!, ParameterReading.OfText(text), "專案資訊：建築物用途類組");
+        RuleFieldCatalog.Default.Find("zone.useGroup")!, ParameterReading.OfText(text), "面積：防火檢討_用途類組");
 
     /// <summary>
     /// A 十一層 zone whose 用途類組 went through the assembler, so the rule sees exactly what a real
     /// review would put in front of it.
     /// </summary>
-    private static RuleOutcome Outcome(string buildingUse, double areaSquareMeters)
+    private static RuleOutcome Outcome(string useGroup, double areaSquareMeters)
     {
         var facts = new RuleFacts(RuleFieldCatalog.Default)
             .Set("building.fireResistiveConstruction", true)
@@ -241,7 +401,7 @@ public sealed class BuildingUseGroupsTests
             // 檢查層對每個不是「第3項免除成立之挑空」的區劃都設這個值（決議 32）。
             .Set("zone.atriumMerged", false);
 
-        Assemble(buildingUse)!.ApplyTo(facts);
+        Assemble(useGroup)!.ApplyTo(facts);
         return new RuleEngine(Shipped()).Evaluate(RuleCategory.CompartmentArea, facts, Today);
     }
 

@@ -52,13 +52,9 @@ namespace BuildingRegulationReview.FireReview
             {
                 _project = _draft.Project;
                 ProjectPanel.DataContext = _project;
-                _project.PropertyChanged += (_, e) =>
-                {
-                    ShowProjectWarnings();
-                    if (e.PropertyName == nameof(FireReviewProjectViewModel.BuildingUse)) PushBuildingUse();
-                };
+                _project.PropertyChanged += (_, e) => ShowProjectWarnings();
                 ShowProjectWarnings();
-                PushBuildingUse();
+                if (_project.HasLegacyBuildingUse) LegacyBuildingUseBox.Visibility = Visibility.Visible;
             }
             else
             {
@@ -171,11 +167,18 @@ namespace BuildingRegulationReview.FireReview
         }
 
         /// <summary>
-        /// Hands every zone the 用途類組 the 專案資訊 tab currently holds, so the limit each row
-        /// shows accounts for 第83條's Ｈ－２組 proviso as soon as that box changes. Display only —
-        /// the value is written from the project row, once, and never from a zone.
+        /// Hands the old Project Information 建築物用途類組 to every 區劃 whose 用途類組 is blank — the
+        /// one-time move for a project written before the group was asked per 區劃. Fills the boxes only.
         /// </summary>
-        private void PushBuildingUse() => _draft.PushBuildingUse();
+        private void FillUseGroups_OnClick(object sender, RoutedEventArgs e)
+        {
+            CommitEdit();
+            var filled = _draft.FillBlankUseGroupsFromProject();
+            ZoneGrid.Items.Refresh();
+            StatusText.Text = filled == 0
+                ? "所有區劃都已填用途類組，沒有需要填入的。"
+                : $"已把「{_project.LegacyBuildingUse}」填入 {filled} 個用途類組未填的區劃。尚未寫入模型；一棟有多種用途時請再逐一修正。";
+        }
 
         private void FillZones_OnClick(object sender, RoutedEventArgs e)
         {
@@ -193,6 +196,7 @@ namespace BuildingRegulationReview.FireReview
             foreach (var zone in selected)
             {
                 if (chooser.Use != null) zone.Use = chooser.Use;
+                if (chooser.UseGroup != null) zone.UseGroup = chooser.UseGroup;
                 if (chooser.Sprinklered != null) zone.Sprinklered = chooser.Sprinklered;
                 if (chooser.FloorNumber != null) zone.FloorNumber = chooser.FloorNumber;
                 if (chooser.LinksRefugeFloor != null) zone.LinksRefugeFloor = chooser.LinksRefugeFloor;
@@ -385,6 +389,14 @@ namespace BuildingRegulationReview.FireReview
             IsTextSearchEnabled = false
         };
 
+        private readonly ComboBox _useGroup = new ComboBox
+        {
+            Margin = new Thickness(0, 4, 0, 12),
+            MinWidth = 220,
+            IsEditable = true,
+            IsTextSearchEnabled = false
+        };
+
         private readonly ComboBox _sprinklered = new ComboBox { Margin = new Thickness(0, 4, 0, 12), MinWidth = 220 };
         private readonly TextBox _floorNumber = new TextBox { Margin = new Thickness(0, 4, 0, 12), MinWidth = 220 };
         private readonly ComboBox _linksRefugeFloor = new ComboBox { Margin = new Thickness(0, 4, 0, 12), MinWidth = 220 };
@@ -406,6 +418,12 @@ namespace BuildingRegulationReview.FireReview
             _use.Items.Add(Heading(FireReviewZoneRowViewModel.Article79_1Heading));
             foreach (var use in ZoneUses.Article79_1Uses) _use.Items.Add(use);
             _use.SelectedIndex = 0;
+
+            _useGroup.Items.Add(Unchanged);
+            foreach (var group in FireReviewZoneRowViewModel.UseGroupChoiceList.Where(g => g.Length > 0)) _useGroup.Items.Add(group);
+            _useGroup.SelectedIndex = 0;
+            _useGroup.ToolTip = FireReviewZoneRowViewModel.UseGroupHintText;
+            ToolTipService.SetShowDuration(_useGroup, 60000);
 
             _sprinklered.Items.Add(Unchanged);
             _sprinklered.Items.Add(FireReviewEditableRow.YesText);
@@ -435,6 +453,12 @@ namespace BuildingRegulationReview.FireReview
             _use.ToolTip = FireReviewZoneRowViewModel.UseHintText;
             ToolTipService.SetShowDuration(_use, 60000);
             panel.Children.Add(_use);
+            panel.Children.Add(new TextBlock
+            {
+                Text = "用途類組（例如 H-2；同一區劃各面積可填不同類組）",
+                ToolTip = FireReviewZoneRowViewModel.UseGroupHintText
+            });
+            panel.Children.Add(_useGroup);
             panel.Children.Add(new TextBlock { Text = "自動滅火設備" });
             panel.Children.Add(_sprinklered);
             panel.Children.Add(new TextBlock { Text = "所在樓層序（留白代表不變更）" });
@@ -483,6 +507,13 @@ namespace BuildingRegulationReview.FireReview
         /// and it is the one value that decides whether a 區劃 is reviewed at all.
         /// </summary>
         public string Use => string.IsNullOrWhiteSpace(_use.Text) || _use.Text == Unchanged ? null : _use.Text.Trim();
+
+        /// <summary>
+        /// 用途類組, or null to leave each zone as it is. No 「清除」 for the same reason as 區劃用途:
+        /// a blank box is 不變更.
+        /// </summary>
+        public string UseGroup =>
+            string.IsNullOrWhiteSpace(_useGroup.Text) || _useGroup.Text == Unchanged ? null : _useGroup.Text.Trim();
 
         /// <summary>是／否 as the grid spells it, or null to leave each zone as it is.</summary>
         public string Sprinklered => _sprinklered.SelectedIndex <= 0 ? null : (string)_sprinklered.SelectedItem;

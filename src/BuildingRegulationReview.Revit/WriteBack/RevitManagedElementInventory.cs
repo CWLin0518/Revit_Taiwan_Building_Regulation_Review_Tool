@@ -71,7 +71,8 @@ public sealed class RevitManagedElementInventory
                 signature,
                 Describe(element),
                 ZoneUseOf(element),
-                ZoneParametersOf(element)));
+                ZoneParametersOf(element),
+                ZoneUseGroupOf(element)));
         }
     }
 
@@ -93,6 +94,17 @@ public sealed class RevitManagedElementInventory
         }
 
         return values;
+    }
+
+    /// <summary>防火檢討_用途類組 as an Area carries it; null when blank, unbound or not an Area.</summary>
+    private static string? ZoneUseGroupOf(Element element)
+    {
+        if (!(element is Autodesk.Revit.DB.Area)) return null;
+
+        var parameter = element.LookupParameter(ReviewInputSources.UseGroup);
+        if (parameter is null || parameter.StorageType != StorageType.String) return null;
+        var text = parameter.AsString();
+        return string.IsNullOrWhiteSpace(text) ? null : text.Trim();
     }
 
     /// <summary>

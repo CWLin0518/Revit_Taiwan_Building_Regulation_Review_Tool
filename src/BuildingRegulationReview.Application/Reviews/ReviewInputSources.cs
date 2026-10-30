@@ -116,7 +116,18 @@ public sealed class ReviewInputSource
 public static class ReviewInputSources
 {
     public const string FireResistiveConstruction = "防火檢討_防火構造建築物";
-    public const string BuildingUse = "建築物用途類組";
+    /// <summary>
+    /// 每個區劃的建築物使用類組（第3條之3），填在 Area 上。同一區劃各 Area 可以填不同類組，此時
+    /// 各類組的規定都要符合（內政部國土管理署115.05.15國署建管字第1150047679號函；
+    /// docs/regulations/building-use-groups.md §6）。
+    /// </summary>
+    public const string UseGroup = "防火檢討_用途類組";
+
+    /// <summary>
+    /// 舊的專案資訊參數。檢討已不再讀它——整棟一個值會讓沒填的區劃誤用別人的類組——只在批次設定面板裡
+    /// 提供「填入所有未填的區劃」，讓舊專案搬到 <see cref="UseGroup"/>。
+    /// </summary>
+    public const string LegacyBuildingUse = "建築物用途類組";
     public const string FloorsAboveGround = "地上層數";
     public const string ZoneUse = "防火檢討_區劃用途";
     public const string Sprinklered = "防火檢討_自動滅火設備";
@@ -167,13 +178,15 @@ public static class ReviewInputSources
     public static IReadOnlyList<ReviewInputSource> All { get; } = new ReadOnlyCollection<ReviewInputSource>(new[]
     {
         new ReviewInputSource("building.fireResistiveConstruction", FireResistiveConstruction, ReviewParameterLevel.Instance, "是否為防火構造建築物", ReviewParameterHost.ProjectInformation),
-        new ReviewInputSource("building.use", BuildingUse, ReviewParameterLevel.Instance, "建築物用途類組", ReviewParameterHost.ProjectInformation),
         new ReviewInputSource("building.floorsAboveGround", FloorsAboveGround, ReviewParameterLevel.Instance, "地上層數", ReviewParameterHost.ProjectInformation),
         // 唯一帶 BlankIsDeclaredValue 的欄位：留空就是「一般區劃」這個明確宣告（見該屬性的 remarks）。
         new ReviewInputSource("zone.use", ZoneUse, ReviewParameterLevel.Instance, "區劃用途", ReviewParameterHost.Areas)
             .DeclaringBlankAsValue(),
         new ReviewInputSource("zone.sprinklered", Sprinklered, ReviewParameterLevel.Instance, "是否設有自動滅火設備", ReviewParameterHost.Areas),
         new ReviewInputSource("zone.floorNumber", FloorNumber, ReviewParameterLevel.Instance, "所在樓層序", ReviewParameterHost.Areas),
+        // 第83條Ｈ－２組但書、第79條之1 讀它。合併規則與其他區劃參數不同：各 Area 不一致不是讀不懂，
+        // 而是「混合」（ReviewInputAssembler.ZoneInput、BuildingUseGroups.Combine）。
+        new ReviewInputSource("zone.useGroup", UseGroup, ReviewParameterLevel.Instance, "區劃用途類組", ReviewParameterHost.Areas),
         new ReviewInputSource("zone.interiorFinish", InteriorFinish, ReviewParameterLevel.Type, "室內裝修耐燃等級", ReviewParameterHost.Walls, ReviewParameterHost.Ceilings),
         new ReviewInputSource("element.providedFireRating", FireRatingParameters.Provided, ReviewParameterLevel.Type, "設計／認證防火時效", FireRatingHosts.ToArray()),
         new ReviewInputSource("opening.providedFireProtection", FireProtectionParameters.Provided, ReviewParameterLevel.Type, "設計防火保護", OpeningHosts.ToArray()),

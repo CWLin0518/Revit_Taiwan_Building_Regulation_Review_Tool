@@ -204,6 +204,8 @@ public static class ReviewFieldText
     /// <summary>The fields the checks record themselves, in the words the 檢討表 uses for them.</summary>
     private static readonly IReadOnlyDictionary<string, string> Labels = new Dictionary<string, string>(StringComparer.Ordinal)
     {
+        // 已從欄位目錄移除（改為逐區劃的 zone.useGroup），只為讀得懂之前存下的結果。
+        ["building.use"] = "建築物用途類組（舊，整棟一個值）",
         ["zone.id"] = "區劃編號",
         ["zone.name"] = "區劃名稱",
         ["zone.problems"] = "區劃資料問題",
@@ -508,6 +510,8 @@ public static class ReviewFieldText
                 ("None", "無"),
                 ("CannotBeSubdivided", "無法區劃分隔（防火檢討_無法區劃分隔）"),
                 ("FireResistiveConstruction", "防火構造建築物"),
+                ("UseGroup", "區劃用途類組（防火檢討_用途類組）"),
+                // 改為逐區劃讀用途類組之前存下的結果。
                 ("BuildingUse", "建築物使用類組")),
             ["atrium.gaps"] = Map(
                 ("None", "無"),

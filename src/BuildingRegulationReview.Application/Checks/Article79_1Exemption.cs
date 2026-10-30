@@ -40,8 +40,11 @@ public enum Article79_1Gap
     /// <summary>（甲）防火構造建築物 — without it, whether 第79條第1項 applies at all is unknown.</summary>
     FireResistiveConstruction = 2,
 
-    /// <summary>（乙）建築物使用類組 — asked for only by the three uses that carry a group condition.</summary>
-    BuildingUse = 4
+    /// <summary>
+    /// （乙）建築物使用類組 — 防火檢討_用途類組 of this 區劃, asked for only by the three uses that carry
+    /// a group condition.
+    /// </summary>
+    UseGroup = 4
 }
 
 /// <summary>
@@ -112,12 +115,15 @@ public sealed class Article79_1Exemption
     /// is the same kind of gap as 「未填」 and neither picks a value.
     /// </summary>
     /// <param name="fireResistive">（甲）<c>building.fireResistiveConstruction</c>.</param>
-    /// <param name="buildingUse">（乙）<c>building.use</c>, in any spelling 第3-3條 prints.</param>
+    /// <param name="useGroup">
+    /// （乙）<c>zone.useGroup</c>, in any spelling 第3-3條 prints, or <c>混合（…）</c> for a 區劃 of
+    /// several groups.
+    /// </param>
     /// <param name="zoneUse">（乙）<c>zone.use</c>, compared exactly against the six agreed words.</param>
     /// <param name="cannotBeSubdivided">（丙）<c>zone.cannotBeSubdivided</c>.</param>
     public static Article79_1Exemption For(
         bool? fireResistive,
-        string? buildingUse,
+        string? useGroup,
         string? zoneUse,
         bool? cannotBeSubdivided)
     {
@@ -129,7 +135,7 @@ public sealed class Article79_1Exemption
         // construction settles whether there is anything to be exempt from before the 款 are read.
         if (fireResistive == false) return Settled("非防火構造建築物，第79條第1項本不適用，無免除可言。");
 
-        var clause = ReadClauses(buildingUse, zoneUse);
+        var clause = ReadClauses(useGroup, zoneUse);
         if (clause.IsFailed) return Inapplicable(clause.Reason);
 
         var gaps = clause.Gaps;
@@ -157,7 +163,7 @@ public sealed class Article79_1Exemption
     /// layer never asks about such a 區劃 at all (決議 10); this answer is for the panel, which shows
     /// every 區劃.
     /// </remarks>
-    private static ClauseReading ReadClauses(string? buildingUse, string? zoneUse)
+    private static ClauseReading ReadClauses(string? useGroup, string? zoneUse)
     {
         var use = string.IsNullOrWhiteSpace(zoneUse) ? null : zoneUse!.Trim();
         if (use is null) return ClauseReading.Failed("區劃用途未填");
@@ -175,11 +181,27 @@ public sealed class Article79_1Exemption
         // A 類組 that was filled in but names no group of 第3-3條 reads as 「不是這幾組」, not as a gap —
         // the same reading ZoneAreaLimit gives 第83條's Ｈ－２組 proviso, so one unrecognised spelling
         // is judged the same way everywhere. Only 未填 leaves the 款 undecided.
-        var group = BuildingUseGroups.Canonical(buildingUse);
-        if (group is null && string.IsNullOrWhiteSpace(buildingUse)) return ClauseReading.Waiting(Article79_1Gap.BuildingUse);
+        //
+        // A 區劃 of several groups has to meet every group's rules（內政部國土管理署115.05.15
+        // 國署建管字第1150047679號函）, and the article lifts the limit for the named groups alone. A mix
+        // holds the 款 only when every one of its groups is named (教室 of D-3 and D-4); one group outside
+        // the list is given no such exemption, so the mix fails.
+        if (BuildingUseGroups.IsMixed(useGroup))
+        {
+            var mixed = BuildingUseGroups.GroupsOf(useGroup);
+            var outside = mixed.Where(g => !groups.Contains(g, StringComparer.Ordinal)).ToList();
+            return outside.Count == 0
+                ? ClauseReading.Held(clause, $"{use}、用途類組 {string.Join("、", mixed)}")
+                : ClauseReading.Failed(
+                    $"{use}，本區劃有多種使用類組 {useGroup!.Trim()}，各類組之規定均應符合，其中 " +
+                    $"{string.Join("、", outside)} 非 {string.Join("、", groups)}");
+        }
+
+        var group = BuildingUseGroups.Canonical(useGroup);
+        if (group is null && string.IsNullOrWhiteSpace(useGroup)) return ClauseReading.Waiting(Article79_1Gap.UseGroup);
 
         if (group is null || !groups.Contains(group, StringComparer.Ordinal))
-            return ClauseReading.Failed($"{use}，用途類組 {group ?? buildingUse!.Trim()} 非 {string.Join("、", groups)}");
+            return ClauseReading.Failed($"{use}，用途類組 {group ?? useGroup!.Trim()} 非 {string.Join("、", groups)}");
 
         return ClauseReading.Held(clause, $"{use}、用途類組 {group}");
     }
@@ -206,7 +228,7 @@ public sealed class Article79_1Exemption
     {
         if ((gaps & Article79_1Gap.CannotBeSubdivided) != 0) yield return "無法區劃分隔";
         if ((gaps & Article79_1Gap.FireResistiveConstruction) != 0) yield return "建築物防火構造";
-        if ((gaps & Article79_1Gap.BuildingUse) != 0) yield return "建築物用途類組";
+        if ((gaps & Article79_1Gap.UseGroup) != 0) yield return "區劃用途類組";
     }
 
     /// <summary>The 款 as they read: one held, settled as not held with a reason, or waiting on a fact.</summary>

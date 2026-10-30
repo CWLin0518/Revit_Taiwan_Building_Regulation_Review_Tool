@@ -379,6 +379,7 @@ public sealed class RevitFireReviewTypeScanner
             if (Find(area, ReviewInputSources.FloorNumber) is not null) present |= FireReviewZoneParameters.FloorNumber;
             if (Find(area, ReviewInputSources.LinksRefugeFloor) is not null) present |= FireReviewZoneParameters.LinksRefugeFloor;
             if (Find(area, ReviewInputSources.CannotBeSubdivided) is not null) present |= FireReviewZoneParameters.CannotBeSubdivided;
+            if (Find(area, ReviewInputSources.UseGroup) is not null) present |= FireReviewZoneParameters.UseGroup;
 
             yield return new FireReviewZoneRow(
                 area.UniqueId,
@@ -399,7 +400,8 @@ public sealed class RevitFireReviewTypeScanner
                 linksRefugeFloor: YesNo(area, ReviewInputSources.LinksRefugeFloor),
                 // 第79條之1 (第79條之1規格 §6). Not a required parameter either, so an Area that does
                 // not carry it reads as 未填 and the panel says so only for the six uses that need it.
-                cannotBeSubdivided: YesNo(area, ReviewInputSources.CannotBeSubdivided));
+                cannotBeSubdivided: YesNo(area, ReviewInputSources.CannotBeSubdivided),
+                useGroup: Text(area, ReviewInputSources.UseGroup));
         }
     }
 
@@ -424,13 +426,12 @@ public sealed class RevitFireReviewTypeScanner
 
         var present = FireReviewProjectParameters.None;
         if (Find(info, ReviewInputSources.FireResistiveConstruction) is not null) present |= FireReviewProjectParameters.FireResistive;
-        if (Find(info, ReviewInputSources.BuildingUse) is not null) present |= FireReviewProjectParameters.BuildingUse;
         if (Find(info, ReviewInputSources.FloorsAboveGround) is not null) present |= FireReviewProjectParameters.FloorsAboveGround;
 
         return new FireReviewProjectRow(
             info.UniqueId,
             fireResistiveConstruction: YesNo(info, ReviewInputSources.FireResistiveConstruction),
-            buildingUse: Text(info, ReviewInputSources.BuildingUse),
+            legacyBuildingUse: Text(info, ReviewInputSources.LegacyBuildingUse),
             floorsAboveGround: Integer(info, ReviewInputSources.FloorsAboveGround),
             present: present);
     }

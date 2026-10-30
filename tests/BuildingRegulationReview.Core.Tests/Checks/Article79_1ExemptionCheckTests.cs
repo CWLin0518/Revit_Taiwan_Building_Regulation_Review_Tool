@@ -64,17 +64,17 @@ public sealed class Article79_1ExemptionCheckTests
         string? use = ZoneUses.Auditorium,
         bool? cannotBeSubdivided = true,
         bool? fireResistive = true,
-        string? buildingUse = "A-1",
+        string? useGroup = "A-1",
         int? floorNumber = 9,
         bool? sprinklered = false,
         Guid? zone = null)
     {
         var building = new List<ReviewInput>();
         if (fireResistive is bool f) building.Add(ReviewInput.Known("building.fireResistiveConstruction", f, "專案資訊"));
-        if (buildingUse is not null) building.Add(ReviewInput.Known("building.use", buildingUse, "專案資訊"));
 
         var zoneInputs = new List<ReviewInput>();
         if (use is not null) zoneInputs.Add(ReviewInput.Known("zone.use", use, ReviewInputSources.ZoneUse));
+        if (useGroup is not null) zoneInputs.Add(ReviewInput.Known("zone.useGroup", useGroup, ReviewInputSources.UseGroup));
         if (cannotBeSubdivided is bool c)
             zoneInputs.Add(ReviewInput.Known("zone.cannotBeSubdivided", c, ReviewInputSources.CannotBeSubdivided));
         if (floorNumber is int n)
@@ -240,7 +240,7 @@ public sealed class Article79_1ExemptionCheckTests
         foreach (var construction in flags)
         {
             var review = Review(OneZone(), Inputs(use: use, cannotBeSubdivided: declared,
-                fireResistive: construction, buildingUse: group));
+                fireResistive: construction, useGroup: group));
             foreach (var finding in review.Findings)
             {
                 Assert.NotEqual(ReviewStatus.Pass, finding.Status);
@@ -278,7 +278,7 @@ public sealed class Article79_1ExemptionCheckTests
         Assert.Equal(ReviewValue.OfText(ZoneA.ToString("D")), evidence.Find("zone.id"));
         Assert.Equal(ReviewValue.OfText("A 區"), evidence.Find("zone.name"));
         Assert.Equal(ReviewValue.OfText(ZoneUses.Auditorium), evidence.Find("zone.use"));
-        Assert.Equal(ReviewValue.OfText("A-1"), evidence.Find("building.use"));
+        Assert.Equal(ReviewValue.OfText("A-1"), evidence.Find("zone.useGroup"));
         Assert.Equal(ReviewValue.OfBoolean(true), evidence.Find("building.fireResistiveConstruction"));
         Assert.Equal(ReviewValue.OfBoolean(true), evidence.Find("zone.cannotBeSubdivided"));
         Assert.Equal(9, Assert.IsType<ReviewValue>(evidence.Find("zone.floorNumber")).Number);

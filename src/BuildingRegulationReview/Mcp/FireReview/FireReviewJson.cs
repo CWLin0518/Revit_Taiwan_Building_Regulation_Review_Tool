@@ -385,6 +385,7 @@ namespace BuildingRegulationReview.Mcp.FireReview
                 ["values"] = new JsonObject
                 {
                     ["use"] = zone.Use,
+                    ["useGroup"] = source.UseGroup,
                     ["sprinklered"] = source.Sprinklered,
                     ["floorNumber"] = source.FloorNumber,
                     ["linksRefugeFloor"] = source.LinksRefugeFloor,
@@ -407,10 +408,11 @@ namespace BuildingRegulationReview.Mcp.FireReview
                 ["values"] = new JsonObject
                 {
                     ["fireResistiveConstruction"] = source.FireResistiveConstruction,
-                    ["buildingUse"] = source.BuildingUse,
                     ["floorsAboveGround"] = source.FloorsAboveGround
                 },
-                ["buildingUseNote"] = project.BuildingUseNote,
+                // 舊的專案資訊 建築物用途類組：檢討不再讀，只供搬到各區劃的 防火檢討_用途類組。
+                ["legacyBuildingUse"] = source.LegacyBuildingUse,
+                ["legacyBuildingUseNote"] = project.HasLegacyBuildingUse ? project.LegacyBuildingUseNote : null,
                 ["fireResistiveWarning"] = project.HasFireResistiveWarning ? project.FireResistiveWarning : null,
                 ["missingParameters"] = JsonValue.Array(source.MissingParameters)
             };

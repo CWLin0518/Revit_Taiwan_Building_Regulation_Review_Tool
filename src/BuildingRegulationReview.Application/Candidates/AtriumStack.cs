@@ -27,7 +27,8 @@ public sealed class StoreyZone
         double? revitAreaSquareFeet,
         IEnumerable<IReadOnlyList<Point2D>> boundaryLoops,
         IEnumerable<string>? areaUniqueIds = null,
-        string? problem = null)
+        string? problem = null,
+        IEnumerable<string?>? useGroups = null)
     {
         if (packageId == Guid.Empty) throw new ArgumentException("Package ID cannot be empty.", nameof(packageId));
         if (zoneId == Guid.Empty) throw new ArgumentException("Zone ID cannot be empty.", nameof(zoneId));
@@ -46,6 +47,8 @@ public sealed class StoreyZone
         BoundaryLoops = new ReadOnlyCollection<IReadOnlyList<Point2D>>(boundaryLoops.Where(l => l is not null && l.Count >= 3).ToList());
         AreaUniqueIds = new ReadOnlyCollection<string>((areaUniqueIds ?? Array.Empty<string>()).OrderBy(x => x, StringComparer.Ordinal).ToList());
         Problem = string.IsNullOrWhiteSpace(problem) ? null : problem!.Trim();
+        UseGroups = new ReadOnlyCollection<string?>((useGroups ?? Array.Empty<string?>())
+            .Select(t => string.IsNullOrWhiteSpace(t) ? null : t!.Trim()).ToList());
         Shape = new PlanShape(BoundaryLoops);
     }
 
@@ -73,6 +76,13 @@ public sealed class StoreyZone
     /// an Area copied to another storey — or null. A 挑空 that touches such a 區劃 is not traced.
     /// </summary>
     public string? Problem { get; }
+
+    /// <summary>
+    /// 防火檢討_用途類組 as each Area of this 區劃 holds it, blank as null — one entry per Area, so the
+    /// 連通區劃 of a 挑空 can be combined Area by Area (<see cref="BuildingUseGroups.Combine"/>). Empty
+    /// when the parameter was not read at all.
+    /// </summary>
+    public IReadOnlyList<string?> UseGroups { get; }
 
     public bool IsAtrium => string.Equals(Use, ZoneUses.Atrium, StringComparison.Ordinal);
 

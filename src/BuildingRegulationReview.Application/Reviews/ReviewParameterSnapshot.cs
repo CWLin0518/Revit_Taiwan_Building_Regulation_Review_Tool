@@ -411,7 +411,7 @@ public static class ReviewInputAssembler
         {
             var reason = model.StoreysUnavailable ?? "此挑空不在各樓層的區劃中（尚未寫入區劃範圍，或區劃用途與其他樓層讀到的不一致）";
             const string tracedSource = "由跨樓層區劃推得";
-            return new[] { "zone.spannedFloors", "zone.atriumBaseFloor", "zone.connectedArea" }
+            return new[] { "zone.spannedFloors", "zone.atriumBaseFloor", "zone.connectedArea", ConnectedUseGroupField }
                 .Where(f => catalog.Find(f) is not null)
                 .Select(f => ReviewInput.Unreadable(f, reason, tracedSource))
                 .ToList();
@@ -441,6 +441,9 @@ public static class ReviewInputAssembler
                 : ReviewInput.Unreadable("zone.connectedArea", stack.AreaProblem!, source));
         }
 
+        if (catalog.Find(ConnectedUseGroupField) is not null && ConnectedUseGroupInput(stack, source) is { } connectedGroup)
+            inputs.Add(connectedGroup);
+
         return inputs;
     }
 
@@ -449,6 +452,8 @@ public static class ReviewInputAssembler
         var sourceText = "面積：" + source.ParameterName;
         var readings = zone.AreaUniqueIds
             .Select(uid => snapshot.Element(uid, source.ParameterName)).ToList();
+        if (string.Equals(field.Name, UseGroupField, StringComparison.Ordinal))
+            return UseGroupInput(field.Name, readings, sourceText);
         if (readings.Count == 0 || readings.All(r => !r.HasValue))
         {
             // 參數綁著、而且這個區劃的每一個面積都留空時，帶 BlankIsDeclaredValue 的欄位（只有
@@ -503,7 +508,7 @@ public static class ReviewInputAssembler
     }
 
     /// <summary>
-    /// 建築物用途類組 respelled as the rules compare it, or null when this is another field or the
+    /// 防火檢討_用途類組 respelled as the rules compare it, or null when this is another field or the
     /// text names no 使用類組. 第83條第一款、第二款's Ｈ－２組 proviso compares one literal, and the
     /// code prints that group at least four ways, so the spelling is settled here — the one place a
     /// parameter becomes a rule input — rather than by piling <c>||</c> into the rule
@@ -512,12 +517,76 @@ public static class ReviewInputAssembler
     /// </summary>
     private static ReviewInput? UseGroup(string field, ParameterReading reading, string source)
     {
-        if (!string.Equals(field, "building.use", StringComparison.Ordinal)) return null;
+        if (!string.Equals(field, UseGroupField, StringComparison.Ordinal)) return null;
         if (reading.Kind != ParameterReadingKind.Text) return null;
         if (!BuildingUseGroups.IsRespelled(reading.Text)) return null;
 
         var code = BuildingUseGroups.Canonical(reading.Text)!;
         return ReviewInput.Known(field, code, $"{source}（填「{reading.Text}」，判讀為 {code}）");
+    }
+
+    private const string UseGroupField = "zone.useGroup";
+    private const string ConnectedUseGroupField = "zone.connectedUseGroup";
+
+    /// <summary>
+    /// 防火檢討_用途類組 of one 區劃. Unlike every other 區劃 parameter, Areas that disagree are not a
+    /// gap: one 防火區劃 may hold several 使用類組, and then 「應同時符合各使用類組之規定」
+    /// （內政部國土管理署115.05.15國署建管字第1150047679號函）, so the value is <c>混合（…）</c> — no
+    /// single group, hence never the Ｈ－２組 of 第83條's proviso. Only some Areas left blank is a gap:
+    /// the groups of the blank parts are unknown (docs/regulations/building-use-groups.md §6).
+    /// </summary>
+    private static ReviewInput? UseGroupInput(string field, IReadOnlyList<ParameterReading> readings, string source)
+    {
+        if (readings.Count == 0 || readings.All(r => r.Kind == ParameterReadingKind.Absent)) return null;
+        if (readings.Any(r => r.HasValue && r.Kind != ParameterReadingKind.Text && r.Kind != ParameterReadingKind.Integer))
+        {
+            var odd = readings.First(r => r.HasValue && r.Kind != ParameterReadingKind.Text && r.Kind != ParameterReadingKind.Integer);
+            return ReviewInput.Unreadable(field, $"「{odd.Raw}」不是文字", source);
+        }
+
+        var typed = readings.Select(r => r.HasValue ? r.Raw : null).ToList();
+        var group = BuildingUseGroups.Combine(typed);
+        switch (group.Kind)
+        {
+            case ZoneUseGroupKind.Blank:
+                return null;
+            case ZoneUseGroupKind.Partial:
+                return ReviewInput.Unreadable(field, group.Problem!, source);
+            case ZoneUseGroupKind.Mixed:
+                return ReviewInput.Known(field, group.Value!,
+                    $"{source}（各面積分別填 {string.Join("、", typed.Select(t => $"「{t}」"))}；" +
+                    "同一區劃有多種使用類組，各類組之規定均應符合）");
+            default:
+                var respelled = typed.Where(BuildingUseGroups.IsRespelled).Distinct(StringComparer.Ordinal).ToList();
+                return respelled.Count == 0
+                    ? ReviewInput.Known(field, group.Value!, source)
+                    : ReviewInput.Known(field, group.Value!,
+                        $"{source}（填{string.Join("、", respelled.Select(t => $"「{t}」"))}，判讀為 {group.Value}）");
+        }
+    }
+
+    /// <summary>
+    /// The 使用類組 of a merged 挑空's 連通區劃: every Area of every 區劃 its 連通區劃面積 adds up, combined
+    /// the way one 區劃's Areas are. The 挑空 Areas are not counted, exactly as they are not counted in
+    /// the area (垂直區劃規格 §3.8).
+    /// </summary>
+    private static ReviewInput? ConnectedUseGroupInput(AtriumStack stack, string source)
+    {
+        if (stack.AreaProblem is not null) return ReviewInput.Unreadable(ConnectedUseGroupField, stack.AreaProblem, source);
+
+        var typed = stack.Contributors.SelectMany(c => c.Zone.UseGroups).ToList();
+        var group = BuildingUseGroups.Combine(typed);
+        switch (group.Kind)
+        {
+            case ZoneUseGroupKind.Blank:
+                return null;
+            case ZoneUseGroupKind.Partial:
+                var blank = stack.Contributors.Where(c => c.Zone.UseGroups.Any(t => t is null)).Select(c => c.Zone.Label);
+                return ReviewInput.Unreadable(ConnectedUseGroupField,
+                    $"連通區劃中 {string.Join("、", blank)} 有面積未填防火檢討_用途類組", source);
+            default:
+                return ReviewInput.Known(ConnectedUseGroupField, group.Value!, source);
+        }
     }
 
     private static ReviewInput TextInput(string field, ParameterReading reading, string source) => reading.Kind switch

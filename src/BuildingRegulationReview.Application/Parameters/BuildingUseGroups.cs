@@ -6,13 +6,13 @@ using System.Text;
 namespace BuildingRegulationReview.Application.Parameters;
 
 /// <summary>
-/// 建築物使用類組 (<c>building.use</c>) as the rules compare it: the half-width code 第88條's own table
-/// prints, e.g. <c>H-2</c>.
+/// 建築物使用類組 (<c>zone.useGroup</c>, filled per 區劃 on the Areas) as the rules compare it: the
+/// half-width code 第88條's own table prints, e.g. <c>H-2</c>.
 /// </summary>
 /// <remarks>
 /// <para>
 /// 第83條第一款、第二款 double their 區劃 area limit 「供建築物使用類組Ｈ–２組使用者」, and the rule
-/// expression compares <c>building.use</c> against one literal. The code itself spells one group at
+/// expression compares <c>zone.useGroup</c> against one literal. The code itself spells one group at
 /// least four ways — 「Ｈ–２組」 (第83條, full-width letter and an en dash), 「H-2 組」 (第86條),
 /// 「H-2」 (第88條's table) and 「Ｈ類第二組」 (第310條) — so a project that types any of them is
 /// typing the group the article names. Matching one spelling and quietly falling back to the
@@ -100,6 +100,62 @@ public static class BuildingUseGroups
         Canonical(text) is string code && !string.Equals(code, text?.Trim(), StringComparison.Ordinal);
 
     /// <summary>
+    /// What a 區劃 whose Areas name more than one group reads as, e.g. <c>混合（B-2、H-2）</c>. It is
+    /// deliberately no group code, so a rule comparing <c>zone.useGroup == "H-2"</c> finds it false and
+    /// the stricter limit applies — 「如同一空間有多種使用類組者，應同時符合各使用類組之規定」
+    /// （內政部國土管理署115.05.15國署建管字第1150047679號函）.
+    /// </summary>
+    public const string MixedPrefix = "混合（";
+
+    /// <summary>The value a 區劃 of several groups reads as.</summary>
+    public static string Mixed(IEnumerable<string> groups) =>
+        MixedPrefix + string.Join("、", groups) + "）";
+
+    /// <summary>
+    /// The groups a <see cref="Mixed"/> value names, in its order; empty for anything else. Lets a check
+    /// that only sees the rule input ask whether every group of the mix meets its condition.
+    /// </summary>
+    public static IReadOnlyList<string> GroupsOf(string? mixed) =>
+        IsMixed(mixed)
+            ? mixed!.Substring(MixedPrefix.Length, mixed.Length - MixedPrefix.Length - 1)
+                .Split(new[] { '、' }, StringSplitOptions.RemoveEmptyEntries)
+            : Array.Empty<string>();
+
+    /// <summary>True for a value produced by <see cref="Mixed"/>.</summary>
+    public static bool IsMixed(string? text) =>
+        text is not null && text.StartsWith(MixedPrefix, StringComparison.Ordinal) && text.EndsWith("）", StringComparison.Ordinal);
+
+    /// <summary>
+    /// The 用途類組 of one 區劃 from what each of its Areas holds (docs/regulations/building-use-groups.md §6).
+    /// Spellings of one group count as that group; text that names no group is kept as typed.
+    /// </summary>
+    public static ZoneUseGroup Combine(IEnumerable<string?> perArea)
+    {
+        if (perArea is null) throw new ArgumentNullException(nameof(perArea));
+
+        var typed = perArea.Select(t => string.IsNullOrWhiteSpace(t) ? null : t!.Trim()).ToList();
+        if (typed.Count == 0 || typed.All(t => t is null)) return ZoneUseGroup.Blank;
+        if (typed.Any(t => t is null))
+            return ZoneUseGroup.Partial(typed.Count(t => t is null), typed.Count);
+
+        var groups = typed
+            .Select(t => Normalize(t)!)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(Order)
+            .ThenBy(g => g, StringComparer.Ordinal)
+            .ToList();
+        return groups.Count == 1 ? ZoneUseGroup.Single(groups[0]) : ZoneUseGroup.OfMixed(groups);
+    }
+
+    /// <summary>第3-3條's order for a known code; anything else after all of them.</summary>
+    private static int Order(string group)
+    {
+        for (var i = 0; i < All.Count; i++)
+            if (string.Equals(All[i], group, StringComparison.Ordinal)) return i;
+        return All.Count;
+    }
+
+    /// <summary>
     /// The text stripped down to letter, optional dash and digit: full-width mapped to half-width,
     /// every dash the code prints mapped to <c>-</c>, Chinese numerals mapped to digits, whitespace
     /// and the 「類」「第」「組」 of 「Ｈ類第二組」 removed, and the letter upper-cased.
@@ -133,4 +189,57 @@ public static class BuildingUseGroups
 
     /// <summary>The scaffolding of 「Ｈ類第二組」 and 「H-2 組」, which carries no information.</summary>
     private const string Dropped = "類第組";
+}
+
+/// <summary>How the Areas of one 區劃 answer 防火檢討_用途類組.</summary>
+public enum ZoneUseGroupKind
+{
+    /// <summary>Every Area left it blank: nothing was supplied.</summary>
+    Blank,
+
+    /// <summary>Some Areas filled it and some did not, so the 區劃's groups cannot be told.</summary>
+    Partial,
+
+    /// <summary>Every Area names the same group (or the same text).</summary>
+    Single,
+
+    /// <summary>The Areas name more than one group; every one of them has to be satisfied.</summary>
+    Mixed
+}
+
+/// <summary>The 用途類組 one 區劃 reads as — see <see cref="BuildingUseGroups.Combine"/>.</summary>
+public sealed class ZoneUseGroup
+{
+    private ZoneUseGroup(ZoneUseGroupKind kind, string? value, IReadOnlyList<string> groups, string? problem)
+    {
+        Kind = kind;
+        Value = value;
+        Groups = groups;
+        Problem = problem;
+    }
+
+    public static ZoneUseGroup Blank { get; } = new(ZoneUseGroupKind.Blank, null, Array.Empty<string>(), null);
+
+    internal static ZoneUseGroup Partial(int blank, int total) =>
+        new(ZoneUseGroupKind.Partial, null, Array.Empty<string>(),
+            $"此區劃的 {total} 個面積中有 {blank} 個未填用途類組，無法判定此區劃有哪些使用類組");
+
+    internal static ZoneUseGroup Single(string group) =>
+        new(ZoneUseGroupKind.Single, group, new[] { group }, null);
+
+    internal static ZoneUseGroup OfMixed(IReadOnlyList<string> groups) =>
+        new(ZoneUseGroupKind.Mixed, BuildingUseGroups.Mixed(groups), groups, null);
+
+    public ZoneUseGroupKind Kind { get; }
+
+    /// <summary>What the rules compare: the group, <c>混合（…）</c>, or null when it cannot be told.</summary>
+    public string? Value { get; }
+
+    /// <summary>Every group the 區劃 holds, in 第3-3條's order; empty when blank or partial.</summary>
+    public IReadOnlyList<string> Groups { get; }
+
+    /// <summary>Why <see cref="Value"/> is null for a <see cref="ZoneUseGroupKind.Partial"/> 區劃.</summary>
+    public string? Problem { get; }
+
+    public override string ToString() => Value ?? Problem ?? "（未填）";
 }

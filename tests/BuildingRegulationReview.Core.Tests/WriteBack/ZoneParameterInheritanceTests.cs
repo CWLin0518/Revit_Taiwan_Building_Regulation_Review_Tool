@@ -108,6 +108,71 @@ public class ZoneParameterInheritanceTests
         Assert.Equal(new[] { "將「A」的區劃用途設為「管道間」", "將「A」第 2 塊的區劃用途設為「管道間」" }, lines);
     }
 
+    /// <summary>
+    /// 用途類組 rides along with the integer parameters: a re-placed or split 區劃 deletes and recreates
+    /// Areas, and the old Areas are the only record of the group the user filled in.
+    /// </summary>
+    [Fact]
+    public void A_new_part_takes_over_the_use_group_its_zone_agrees_on()
+    {
+        var model = Written(Zone(Left), Values(floor: 2), useGroup: "H-2");
+
+        var operation = Assert.Single(ApplyPreview.Build(PackageId, TwoRooms, Zone(Left, Right), model).ZoneInheritance);
+
+        Assert.Equal("H-2", operation.UseGroup);
+        Assert.Empty(operation.Unresolved);
+        Assert.Equal("「A」第 2 塊新建的面積沿用同區劃既有面積的 所在樓層序＝2、用途類組＝H-2", operation.Text);
+    }
+
+    /// <summary>
+    /// A 區劃 of several groups is legal, but which part of the redrawn 區劃 holds which group is the
+    /// user's to say — the tool picks none and asks for it.
+    /// </summary>
+    [Fact]
+    public void A_mixed_zone_leaves_the_new_parts_use_group_to_the_user()
+    {
+        var three = Solve(Rectangle(0, 0, 10, 10, "LEFT")
+            .Concat(Rectangle(40, 0, 10, 10, "RIGHT"))
+            .Concat(Rectangle(80, 0, 10, 10, "FAR")));
+        var model = ZoneWritePlan.Build(PackageId, three, Zone(three, Left, Right), Tolerance)
+            .Select(planned => Existing(planned, Values(floor: 3), planned.Key.PartIndex == 0 ? "H-2" : "B-2"))
+            .ToList();
+
+        var operation = Assert.Single(ApplyPreview.Build(PackageId, three, Zone(three, Left, Right, Far), model).ZoneInheritance);
+
+        Assert.Null(operation.UseGroup);
+        Assert.Equal(new[] { ReviewInputSources.UseGroup }, operation.Unresolved);
+    }
+
+    /// <summary>Two spellings of one group are one group: the new part takes it over in its canonical form.</summary>
+    [Fact]
+    public void Two_spellings_of_one_group_are_taken_over_as_that_group()
+    {
+        var three = Solve(Rectangle(0, 0, 10, 10, "LEFT")
+            .Concat(Rectangle(40, 0, 10, 10, "RIGHT"))
+            .Concat(Rectangle(80, 0, 10, 10, "FAR")));
+        var model = ZoneWritePlan.Build(PackageId, three, Zone(three, Left, Right), Tolerance)
+            .Select(planned => Existing(planned, Values(floor: 3), planned.Key.PartIndex == 0 ? "H-2" : "Ｈ－２組"))
+            .ToList();
+
+        var operation = Assert.Single(ApplyPreview.Build(PackageId, three, Zone(three, Left, Right, Far), model).ZoneInheritance);
+
+        Assert.Equal("H-2", operation.UseGroup);
+        Assert.Empty(operation.Unresolved);
+    }
+
+    /// <summary>Nobody filled the group in: nothing to take over, and nothing to complain about.</summary>
+    [Fact]
+    public void A_zone_with_no_use_group_hands_none_over()
+    {
+        var model = Written(Zone(Left), Values(floor: 2));
+
+        var operation = Assert.Single(ApplyPreview.Build(PackageId, TwoRooms, Zone(Left, Right), model).ZoneInheritance);
+
+        Assert.Null(operation.UseGroup);
+        Assert.DoesNotContain(ReviewInputSources.UseGroup, operation.Unresolved);
+    }
+
     // ---- fixtures ----------------------------------------------------------------------------
 
     private static readonly (double X, double Y) Left = (5, 5);
@@ -130,17 +195,20 @@ public class ZoneParameterInheritanceTests
     };
 
     /// <summary>The model as an earlier run left it, every Area carrying <paramref name="values"/>.</summary>
-    private static IReadOnlyList<ExistingManagedElement> Written(ZoneDraftSet zones, IReadOnlyDictionary<string, int?> values) =>
-        ZoneWritePlan.Build(PackageId, TwoRooms, zones, Tolerance).Select(p => Existing(p, values)).ToList();
+    private static IReadOnlyList<ExistingManagedElement> Written(
+        ZoneDraftSet zones, IReadOnlyDictionary<string, int?> values, string? useGroup = null) =>
+        ZoneWritePlan.Build(PackageId, TwoRooms, zones, Tolerance).Select(p => Existing(p, values, useGroup)).ToList();
 
-    private static ExistingManagedElement Existing(PlannedElement planned, IReadOnlyDictionary<string, int?> values) =>
+    private static ExistingManagedElement Existing(
+        PlannedElement planned, IReadOnlyDictionary<string, int?> values, string? useGroup = null) =>
         new ExistingManagedElement(
             "uid-" + planned.Key.ToToken(),
             planned.Key.ToToken(),
             planned.Signature,
             planned.Description,
             planned.Key.Kind == ManagedElementKind.Area ? string.Empty : null,
-            planned.Key.Kind == ManagedElementKind.Area ? values : null);
+            planned.Key.Kind == ManagedElementKind.Area ? values : null,
+            planned.Key.Kind == ManagedElementKind.Area ? useGroup : null);
 
     private static PlanRegionMap Solve(IEnumerable<Segment2D> segments)
     {

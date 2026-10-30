@@ -32,7 +32,8 @@ public sealed class FireReviewZoneRow
         FireReviewZoneParameters present = FireReviewZoneParameters.None,
         string? levelId = null,
         bool? linksRefugeFloor = null,
-        bool? cannotBeSubdivided = null)
+        bool? cannotBeSubdivided = null,
+        string? useGroup = null)
     {
         if (string.IsNullOrWhiteSpace(elementUniqueId)) throw new ArgumentException("Element UniqueId is required.", nameof(elementUniqueId));
         if (areaSquareMeters is double a && (double.IsNaN(a) || double.IsInfinity(a) || a < 0))
@@ -50,6 +51,7 @@ public sealed class FireReviewZoneRow
         FloorNumber = floorNumber;
         LinksRefugeFloor = linksRefugeFloor;
         CannotBeSubdivided = cannotBeSubdivided;
+        UseGroup = Clean(useGroup);
         Present = present;
     }
 
@@ -68,6 +70,13 @@ public sealed class FireReviewZoneRow
 
     /// <summary>防火檢討_區劃用途.</summary>
     public string? Use { get; }
+
+    /// <summary>
+    /// 防火檢討_用途類組 — this Area's 建築物使用類組 (第3條之3), read by 第83條's Ｈ－２組 proviso and
+    /// 第79條之1. Another Area of the same 區劃 may hold another group; the review then reads the 區劃 as
+    /// 混合 (docs/regulations/building-use-groups.md §6).
+    /// </summary>
+    public string? UseGroup { get; }
 
     /// <summary>防火檢討_自動滅火設備; null when the parameter holds no value.</summary>
     public bool? Sprinklered { get; }
@@ -121,6 +130,7 @@ public sealed class FireReviewZoneRow
             if ((Present & FireReviewZoneParameters.Use) == 0) missing.Add(ReviewInputSources.ZoneUse);
             if ((Present & FireReviewZoneParameters.Sprinklered) == 0) missing.Add(ReviewInputSources.Sprinklered);
             if ((Present & FireReviewZoneParameters.FloorNumber) == 0) missing.Add(ReviewInputSources.FloorNumber);
+            if ((Present & FireReviewZoneParameters.UseGroup) == 0) missing.Add(ReviewInputSources.UseGroup);
             if (IsAtrium && (Present & FireReviewZoneParameters.LinksRefugeFloor) == 0)
                 missing.Add(ReviewInputSources.LinksRefugeFloor);
 
@@ -150,7 +160,10 @@ public enum FireReviewZoneParameters
     /// <summary>
     /// 防火檢討_無法區劃分隔 (第79條之1); only the six uses that article names need it.
     /// </summary>
-    CannotBeSubdivided = 32
+    CannotBeSubdivided = 32,
+
+    /// <summary>防火檢討_用途類組 — 第83條's Ｈ－２組 proviso and 第79條之1 read it.</summary>
+    UseGroup = 64
 }
 
 /// <summary>
@@ -195,7 +208,7 @@ public sealed class FireReviewProjectRow
     public FireReviewProjectRow(
         string elementUniqueId,
         bool? fireResistiveConstruction = null,
-        string? buildingUse = null,
+        string? legacyBuildingUse = null,
         int? floorsAboveGround = null,
         FireReviewProjectParameters present = FireReviewProjectParameters.None)
     {
@@ -203,7 +216,7 @@ public sealed class FireReviewProjectRow
 
         ElementUniqueId = elementUniqueId.Trim();
         FireResistiveConstruction = fireResistiveConstruction;
-        BuildingUse = string.IsNullOrWhiteSpace(buildingUse) ? null : buildingUse!.Trim();
+        LegacyBuildingUse = string.IsNullOrWhiteSpace(legacyBuildingUse) ? null : legacyBuildingUse!.Trim();
         FloorsAboveGround = floorsAboveGround;
         Present = present;
     }
@@ -213,8 +226,12 @@ public sealed class FireReviewProjectRow
     /// <summary>防火檢討_防火構造建築物 — the switch every rule's applicability hangs on.</summary>
     public bool? FireResistiveConstruction { get; }
 
-    /// <summary>建築物用途類組.</summary>
-    public string? BuildingUse { get; }
+    /// <summary>
+    /// The old Project Information 建築物用途類組, if the model still carries one. The review no longer
+    /// reads it — one value for the whole building let a 區劃 nobody filled in borrow another's group —
+    /// so it is shown only to offer 「填入所有未填的區劃」 once (docs/regulations/building-use-groups.md §6).
+    /// </summary>
+    public string? LegacyBuildingUse { get; }
 
     /// <summary>地上層數, which 第70條 counts storeys from the top with.</summary>
     public int? FloorsAboveGround { get; }
@@ -227,7 +244,6 @@ public sealed class FireReviewProjectRow
         {
             var missing = new List<string>();
             if ((Present & FireReviewProjectParameters.FireResistive) == 0) missing.Add(ReviewInputSources.FireResistiveConstruction);
-            if ((Present & FireReviewProjectParameters.BuildingUse) == 0) missing.Add(ReviewInputSources.BuildingUse);
             if ((Present & FireReviewProjectParameters.FloorsAboveGround) == 0) missing.Add(ReviewInputSources.FloorsAboveGround);
             return missing;
         }
@@ -239,7 +255,6 @@ public enum FireReviewProjectParameters
 {
     None = 0,
     FireResistive = 1,
-    BuildingUse = 2,
     FloorsAboveGround = 4
 }
 

@@ -53,7 +53,7 @@ public sealed class Article83AreaRuleTests
         string zoneUse = "辦公") =>
         new RuleFacts(RuleFieldCatalog.Default)
             .Set("building.fireResistiveConstruction", true)
-            .Set("building.use", buildingUse)
+            .Set("zone.useGroup", buildingUse)
             .Set("building.floorsAboveGround", 15, ReviewUnit.None)
             .Set("zone.id", "zone-1")
             .Set("zone.use", zoneUse)
@@ -285,7 +285,7 @@ public sealed class Article83AreaRuleTests
     {
         var facts = new RuleFacts(RuleFieldCatalog.Default)
             .Set("building.fireResistiveConstruction", true)
-            .Set("building.use", "B-2")
+            .Set("zone.useGroup", "B-2")
             .Set("zone.floorNumber", 11, ReviewUnit.None)
             .Set("zone.area", 900, ReviewUnit.SquareMeter)
             .Set("zone.sprinklered", false)

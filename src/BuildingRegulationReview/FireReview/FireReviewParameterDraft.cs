@@ -24,7 +24,6 @@ namespace BuildingRegulationReview.FireReview
             foreach (var zone in set.Zones) Zones.Add(new FireReviewZoneRowViewModel(zone, Floors.For(zone.LevelId)));
 
             if (set.Project != null) Project = new FireReviewProjectViewModel(set.Project);
-            PushBuildingUse();
         }
 
         public FireReviewParameterSet Set { get; }
@@ -41,14 +40,25 @@ namespace BuildingRegulationReview.FireReview
         public FloorNumbering Floors { get; }
 
         /// <summary>
-        /// Hands every zone the 用途類組 the project row currently holds, so the limit each zone shows
-        /// accounts for 第83條's Ｈ－２組 proviso. Display only — the value is written from the
-        /// project row, once, and never from a zone.
+        /// Fills 用途類組 on every 區劃 whose box is still blank with the old Project Information
+        /// 建築物用途類組 — the one-time move for a project written before the group was asked per 區劃
+        /// (docs/regulations/building-use-groups.md §6). Only the boxes: nothing reaches the model until
+        /// 寫入模型, and a 區劃 that already holds a group is left alone.
         /// </summary>
-        public void PushBuildingUse()
+        /// <returns>How many 區劃 were filled; 0 when there is no old value to hand over.</returns>
+        public int FillBlankUseGroupsFromProject()
         {
-            if (Project == null) return;
-            foreach (var zone in Zones) zone.BuildingUse = Project.BuildingUse;
+            var legacy = Project?.Source.LegacyBuildingUse;
+            if (string.IsNullOrWhiteSpace(legacy)) return 0;
+
+            var filled = 0;
+            foreach (var zone in Zones.Where(z => string.IsNullOrWhiteSpace(z.UseGroup)))
+            {
+                zone.UseGroup = legacy;
+                filled++;
+            }
+
+            return filled;
         }
 
         /// <summary>

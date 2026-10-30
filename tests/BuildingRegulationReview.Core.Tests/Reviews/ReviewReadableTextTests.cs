@@ -170,8 +170,14 @@ public sealed class ReviewReadableTextTests
 
     [Fact]
     public void A_flags_enum_reads_as_a_list_of_what_is_missing() =>
-        Assert.Equal("無法區劃分隔（防火檢討_無法區劃分隔）、建築物使用類組",
-            ReviewFieldText.Value("article79_1.gaps", ReviewValue.OfText("CannotBeSubdivided, BuildingUse")));
+        Assert.Equal("無法區劃分隔（防火檢討_無法區劃分隔）、區劃用途類組（防火檢討_用途類組）",
+            ReviewFieldText.Value("article79_1.gaps", ReviewValue.OfText("CannotBeSubdivided, UseGroup")));
+
+    /// <summary>A result stored before 用途類組 moved to the 區劃 still reads.</summary>
+    [Fact]
+    public void A_gap_stored_under_the_old_name_still_reads() =>
+        Assert.Equal("建築物使用類組",
+            ReviewFieldText.Value("article79_1.gaps", ReviewValue.OfText("BuildingUse")));
 
     [Fact]
     public void An_evidence_list_of_elements_reads_as_element_ids() =>

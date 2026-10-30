@@ -162,7 +162,7 @@ public sealed class Article79_1AreaExemptionTests
     private static RuleFacts Zone(int floorNumber, double areaSquareMeters, string use) =>
         new RuleFacts(RuleFieldCatalog.Default)
             .Set("building.fireResistiveConstruction", true)
-            .Set("building.use", "A-1")
+            .Set("zone.useGroup", "A-1")
             .Set("building.floorsAboveGround", 15, ReviewUnit.None)
             .Set("zone.id", "zone-1")
             .Set("zone.use", use)

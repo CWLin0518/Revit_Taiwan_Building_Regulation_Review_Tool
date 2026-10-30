@@ -181,8 +181,58 @@ public sealed class Article79_1ExemptionTests
         var exemption = Exemption(fireResistive: true, null, ZoneUses.Auditorium, cannotBeSubdivided: true);
 
         Assert.True(exemption.IsUndecided);
-        Assert.Equal(Article79_1Gap.BuildingUse, exemption.Gaps);
-        Assert.Equal("缺建築物用途類組，無法判定是否符合第79條之1。", exemption.Description);
+        Assert.Equal(Article79_1Gap.UseGroup, exemption.Gaps);
+        Assert.Equal("缺區劃用途類組，無法判定是否符合第79條之1。", exemption.Description);
+    }
+
+    /// <summary>
+    /// A 區劃 that is partly Ａ－１組 and partly something else has to meet every group's rules
+    /// （內政部國土管理署115.05.15國署建管字第1150047679號函）. 第79條之1 lifts the limit for the named
+    /// groups alone, so the mix does not hold the 款 even though one of its groups is named.
+    /// </summary>
+    [Fact]
+    public void A_zone_of_several_groups_does_not_hold_a_clause_that_names_one_of_them()
+    {
+        var exemption = Exemption(fireResistive: true, "混合（A-1、B-2）", ZoneUses.Auditorium, cannotBeSubdivided: true);
+
+        Assert.True(exemption.IsInapplicable);
+        Assert.Equal(Article79_1Clause.None, exemption.Clause);
+        Assert.Contains("本區劃有多種使用類組 混合（A-1、B-2）", exemption.Description);
+        Assert.Contains("其中 B-2 非 A-1、D-2", exemption.Description);
+    }
+
+    /// <summary>
+    /// A mix whose every group the 款 names meets every group's rules, so it holds: 教室 of D-3 and D-4
+    /// are both 第二款's (code review 2026-10-30).
+    /// </summary>
+    [Theory]
+    [InlineData("混合（D-3、D-4）", "教室", Article79_1Clause.SecondClause)]
+    [InlineData("混合（A-1、D-2）", "觀眾席", Article79_1Clause.FirstClause)]
+    [InlineData("混合（C-1、C-2）", "生產線", Article79_1Clause.SecondClause)]
+    public void A_zone_of_several_groups_all_named_by_the_clause_holds_it(string useGroup, string use, Article79_1Clause clause)
+    {
+        var exemption = Exemption(fireResistive: true, useGroup, use, cannotBeSubdivided: true);
+
+        Assert.True(exemption.Holds);
+        Assert.Equal(clause, exemption.Clause);
+    }
+
+    [Fact]
+    public void A_mix_with_one_group_the_clause_does_not_name_fails()
+    {
+        var exemption = Exemption(fireResistive: true, "混合（B-2、D-3）", "教室", cannotBeSubdivided: true);
+
+        Assert.True(exemption.IsInapplicable);
+        Assert.Contains("其中 B-2 非 D-3、D-4", exemption.Description);
+    }
+
+    /// <summary>The three uses with no group condition do not read the group, so a mix changes nothing.</summary>
+    [Fact]
+    public void A_use_with_no_group_condition_ignores_a_mix()
+    {
+        var exemption = Exemption(fireResistive: true, "混合（B-2、C-1）", ZoneUses.Gymnasium, cannotBeSubdivided: true);
+
+        Assert.True(exemption.Holds);
     }
 
     /// <summary>（丙）＝否 settles the article on its own: 第79條第1項 applies as usual.</summary>
@@ -235,9 +285,9 @@ public sealed class Article79_1ExemptionTests
         var exemption = Exemption(fireResistive: null, null, ZoneUses.Auditorium, cannotBeSubdivided: null);
 
         Assert.Equal(
-            Article79_1Gap.CannotBeSubdivided | Article79_1Gap.FireResistiveConstruction | Article79_1Gap.BuildingUse,
+            Article79_1Gap.CannotBeSubdivided | Article79_1Gap.FireResistiveConstruction | Article79_1Gap.UseGroup,
             exemption.Gaps);
-        Assert.Equal("缺無法區劃分隔、建築物防火構造、建築物用途類組，無法判定是否符合第79條之1。", exemption.Description);
+        Assert.Equal("缺無法區劃分隔、建築物防火構造、區劃用途類組，無法判定是否符合第79條之1。", exemption.Description);
     }
 
     // --- 用字表 ---------------------------------------------------------------------------------

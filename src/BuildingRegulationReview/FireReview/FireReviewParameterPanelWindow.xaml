@@ -491,6 +491,31 @@
                                 </DataGridTemplateColumn.CellEditingTemplate>
                             </DataGridTemplateColumn>
 
+                            <!-- 用途類組：逐區劃（逐 Area）填。可編輯下拉，綁 Text 不綁 SelectedItem，理由同區劃用途。
+                                 同一區劃各面積可填不同類組，檢討讀成「混合」並依較嚴者判定
+                                 （docs/regulations/building-use-groups.md §6）。 -->
+                            <DataGridTemplateColumn Header="用途類組" Width="96" SortMemberPath="UseGroup">
+                                <DataGridTemplateColumn.CellStyle>
+                                    <Style TargetType="DataGridCell">
+                                        <Setter Property="ToolTip" Value="{Binding UseGroupNote}" />
+                                        <Setter Property="ToolTipService.ShowDuration" Value="60000" />
+                                    </Style>
+                                </DataGridTemplateColumn.CellStyle>
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding UseGroup}" Margin="6,0" VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                                <DataGridTemplateColumn.CellEditingTemplate>
+                                    <DataTemplate>
+                                        <ComboBox IsEditable="True" IsTextSearchEnabled="False"
+                                                  ItemsSource="{Binding UseGroupChoices}"
+                                                  Text="{Binding UseGroup, UpdateSourceTrigger=PropertyChanged}" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellEditingTemplate>
+                            </DataGridTemplateColumn>
+
                             <DataGridComboBoxColumn Header="自動滅火設備" Width="110"
                                                     SelectedItemBinding="{Binding Sprinklered, UpdateSourceTrigger=PropertyChanged}">
                                 <DataGridComboBoxColumn.ElementStyle>
@@ -652,11 +677,17 @@
                                   SelectedItem="{Binding FireResistive, UpdateSourceTrigger=PropertyChanged}" />
                         <TextBlock x:Name="FireResistiveWarningText" Style="{StaticResource FieldHint}" Foreground="#B3261E" />
 
-                        <TextBlock Style="{StaticResource FieldLabel}" Text="建築物用途類組" />
-                        <ComboBox MinWidth="200" HorizontalAlignment="Left" IsEditable="True"
-                                  ItemsSource="{Binding BuildingUseChoices}"
-                                  Text="{Binding BuildingUse, UpdateSourceTrigger=LostFocus}" />
-                        <TextBlock Style="{StaticResource FieldHint}" Text="{Binding BuildingUseNote}" />
+                        <!-- 用途類組已改為逐區劃填（「區劃」分頁的「用途類組」欄）。舊專案若還有專案資訊的
+                             建築物用途類組，只在這裡顯示並提供一次性填入，檢討不再讀它。 -->
+                        <Border x:Name="LegacyBuildingUseBox" Padding="10" Margin="0,4,0,16" Visibility="Collapsed"
+                                Background="#FFF6E5" BorderBrush="#F0C987" BorderThickness="1" CornerRadius="4">
+                            <StackPanel>
+                                <TextBlock Text="用途類組改為逐區劃填寫" FontWeight="SemiBold" />
+                                <TextBlock Margin="0,4,0,8" TextWrapping="Wrap" Text="{Binding LegacyBuildingUseNote}" />
+                                <Button x:Name="FillUseGroupsButton" Content="填入所有未填的區劃" HorizontalAlignment="Left"
+                                        MinWidth="150" Click="FillUseGroups_OnClick" />
+                            </StackPanel>
+                        </Border>
 
                         <TextBlock Style="{StaticResource FieldLabel}" Text="地上層數" />
                         <TextBox MinWidth="120" HorizontalAlignment="Left"
@@ -683,7 +714,7 @@
             <Button x:Name="SetMaterialButton" Content="選取列設為…" Click="SetMaterial_OnClick" MinWidth="110"
                     ToolTip="把選取的列一次設成同一個結構材料。" />
             <Button x:Name="FillZonesButton" Content="區劃批次填入…" Click="FillZones_OnClick" MinWidth="120"
-                    ToolTip="把「區劃」分頁選取的列一次設成同樣的滅火設備與樓層序。" />
+                    ToolTip="把「區劃」分頁選取的列一次設成同樣的區劃用途、用途類組、滅火設備與樓層序（Ctrl+A 可全選）。" />
             <Button x:Name="DeriveFloorsButton" Content="依樓層填入樓層序" Click="DeriveFloors_OnClick" MinWidth="140"
                     ToolTip="依模型樓層高程填入每個區劃的所在樓層序，並把地上層數帶入專案資訊；尚未寫入模型。" />
             <TextBlock x:Name="StatusText" VerticalAlignment="Center" Margin="12,0,0,0"

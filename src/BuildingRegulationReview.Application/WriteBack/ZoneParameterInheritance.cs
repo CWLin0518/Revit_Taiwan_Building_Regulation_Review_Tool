@@ -57,7 +57,8 @@ public sealed class ZoneParameterInheritanceOperation
         ManagedElementKey key,
         string? zoneName,
         IEnumerable<InheritedZoneValue> values,
-        IEnumerable<string> unresolved)
+        IEnumerable<string> unresolved,
+        string? useGroup = null)
     {
         if (key.Kind != ManagedElementKind.Area)
             throw new ArgumentException("Zone parameters live on an Area.", nameof(key));
@@ -66,6 +67,7 @@ public sealed class ZoneParameterInheritanceOperation
         ZoneName = string.IsNullOrWhiteSpace(zoneName) ? "區劃" : zoneName!.Trim();
         Values = new ReadOnlyCollection<InheritedZoneValue>((values ?? throw new ArgumentNullException(nameof(values))).ToList());
         Unresolved = new ReadOnlyCollection<string>((unresolved ?? throw new ArgumentNullException(nameof(unresolved))).ToList());
+        UseGroup = string.IsNullOrWhiteSpace(useGroup) ? null : useGroup!.Trim();
     }
 
     public ManagedElementKey Key { get; }
@@ -83,15 +85,26 @@ public sealed class ZoneParameterInheritanceOperation
     /// </summary>
     public IReadOnlyList<string> Unresolved { get; }
 
+    /// <summary>
+    /// 防火檢討_用途類組 every existing Area of the 區劃 agrees on, to be written onto the new one; null
+    /// when there is nothing to take over. A 區劃 of several groups lands in <see cref="Unresolved"/>:
+    /// which part of the redrawn 區劃 holds which group is the user's to say.
+    /// </summary>
+    public string? UseGroup { get; }
+
+    /// <summary>What <see cref="UseGroup"/> reads as in a message.</summary>
+    public string? UseGroupText => UseGroup is null ? null : ZoneAreaParameters.Label(ReviewInputSources.UseGroup) + "＝" + UseGroup;
+
     public string Text
     {
         get
         {
             var parts = new List<string>();
-            if (Values.Count > 0)
+            var taken = Values.Select(v => v.Text).Concat(UseGroupText is null ? Array.Empty<string>() : new[] { UseGroupText }).ToList();
+            if (taken.Count > 0)
                 parts.Add(string.Format(CultureInfo.InvariantCulture,
                     "{0}新建的面積沿用同區劃既有面積的 {1}",
-                    QuotedName, string.Join("、", Values.Select(v => v.Text))));
+                    QuotedName, string.Join("、", taken)));
             if (Unresolved.Count > 0)
                 parts.Add(string.Format(CultureInfo.InvariantCulture,
                     "{0}：同區劃既有面積的 {1} 填得不一致或有未填，新建的面積不填，請在「防火參數批次設定」補填",
@@ -161,8 +174,19 @@ public sealed class ZoneParameterInheritance : IReadOnlyList<ZoneParameterInheri
                     unresolved.Add(parameter);
             }
 
-            if (values.Count == 0 && unresolved.Count == 0) continue;
-            operations.Add(new ZoneParameterInheritanceOperation(element.Key, element.ZoneName, values, unresolved));
+            // 用途類組是文字，而且同一區劃可以本來就是混合——那種區劃重畫後哪一塊是哪一類，工具說不出來。
+            string? useGroup = null;
+            // 比的是判讀後的組別：「H-2」與「Ｈ－２組」是同一組，不該因寫法不同就不沿用。
+            var groups = siblings.Select(s => s.ZoneUseGroup).ToList();
+            if (groups.Any(g => g is not null))
+            {
+                var distinct = groups.Select(Parameters.BuildingUseGroups.Normalize).Distinct(StringComparer.Ordinal).ToList();
+                if (distinct.Count == 1 && distinct[0] is not null) useGroup = distinct[0];
+                else unresolved.Add(ReviewInputSources.UseGroup);
+            }
+
+            if (values.Count == 0 && unresolved.Count == 0 && useGroup is null) continue;
+            operations.Add(new ZoneParameterInheritanceOperation(element.Key, element.ZoneName, values, unresolved, useGroup));
         }
 
         return operations.Count == 0

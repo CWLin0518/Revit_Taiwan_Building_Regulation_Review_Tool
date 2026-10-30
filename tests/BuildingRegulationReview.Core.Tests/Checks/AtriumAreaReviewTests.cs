@@ -373,14 +373,22 @@ public sealed class AtriumAreaReviewTests
         return Context(zone);
     }
 
-    private static CompartmentAreaInputs Context(IEnumerable<ReviewInput> zone) =>
-        new(new[]
+    /// <summary>
+    /// The building facts, and a B-2 用途類組 for the 區劃 and its 連通區劃 unless the zone list names
+    /// its own.
+    /// </summary>
+    private static CompartmentAreaInputs Context(IEnumerable<ReviewInput> zone)
+    {
+        var inputs = zone.ToList();
+        if (!inputs.Any(i => i.Field == "zone.useGroup")) inputs.Add(ReviewInput.Known("zone.useGroup", "B-2"));
+        if (!inputs.Any(i => i.Field == "zone.connectedUseGroup")) inputs.Add(ReviewInput.Known("zone.connectedUseGroup", "B-2"));
+        return new(new[]
             {
                 ReviewInput.Known("building.fireResistiveConstruction", true),
-                ReviewInput.Known("building.use", "B-2"),
                 ReviewInput.Known("building.floorsAboveGround", 15, ReviewUnit.None)
             },
-            new Dictionary<Guid, IEnumerable<ReviewInput>> { [ZoneA] = zone });
+            new Dictionary<Guid, IEnumerable<ReviewInput>> { [ZoneA] = inputs });
+    }
 
     /// <summary>A 區 alone, 10 m × 10 m — the 挑空's own 100 ㎡, which no atrium rule reads.</summary>
     private static ZoneAreaFinding Review(CompartmentAreaInputs inputs, double revitSquareMeters = 100)

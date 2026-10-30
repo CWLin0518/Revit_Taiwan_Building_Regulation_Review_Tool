@@ -170,18 +170,18 @@ namespace BuildingRegulationReview.FireReview
         private string _use;
         private string _sprinklered;
         private string _floorNumber;
-        private string _buildingUse;
+        private string _useGroup;
         private string _linksRefugeFloor;
         private string _cannotBeSubdivided;
 
-        public FireReviewZoneRowViewModel(FireReviewZoneRow source, int? derivedFloorNumber = null, string buildingUse = null)
+        public FireReviewZoneRowViewModel(FireReviewZoneRow source, int? derivedFloorNumber = null)
         {
             Source = source ?? throw new ArgumentNullException(nameof(source));
             DerivedFloorNumber = derivedFloorNumber;
             _use = source.Use ?? "";
             _sprinklered = TextOf(source.Sprinklered);
             _floorNumber = TextOf(source.FloorNumber);
-            _buildingUse = buildingUse ?? "";
+            _useGroup = source.UseGroup ?? "";
             _linksRefugeFloor = TextOf(source.LinksRefugeFloor);
             _cannotBeSubdivided = TextOf(source.CannotBeSubdivided);
         }
@@ -313,15 +313,53 @@ namespace BuildingRegulationReview.FireReview
         }
 
         /// <summary>
-        /// 建築物用途類組 as the 專案資訊 tab currently holds it, because 第83條第一款、第二款 double
-        /// their limit for Ｈ－２組. Pushed in by the panel; not written from this row.
+        /// 防火檢討_用途類組 — this Area's 建築物使用類組 (第3條之3). 第83條第一款、第二款 double their
+        /// limit for Ｈ－２組, and 第79條之1 asks for it on three of its six uses. Free text like 區劃用途,
+        /// offering 第3-3條's codes; any spelling of one of them is read as that group. Another Area of
+        /// the same 區劃 may hold another group (docs/regulations/building-use-groups.md §6).
         /// </summary>
-        public string BuildingUse
+        public string UseGroup
         {
-            get => _buildingUse;
+            get => _useGroup;
             set
             {
-                if (Set(ref _buildingUse, value)) Raise(nameof(LimitText));
+                if (!Set(ref _useGroup, value)) return;
+                Raise(nameof(LimitText));
+                Raise(nameof(UseGroupNote));
+            }
+        }
+
+        /// <summary>What the 用途類組 box offers; anything else can still be typed in.</summary>
+        public IReadOnlyList<string> UseGroupChoices => UseGroupChoiceList;
+
+        internal static readonly IReadOnlyList<string> UseGroupChoiceList =
+            new[] { "" }.Concat(BuildingUseGroups.All).ToList();
+
+        /// <summary>
+        /// What the cell's ToolTip says, shared with the batch window: what the field does, that a
+        /// mixed 區劃 is legal and read strictly, and how the review will read what is in the box now.
+        /// </summary>
+        internal const string UseGroupHintText =
+            "這個區劃（Area）的建築物使用類組，例如 H-2、B-2。第83條第一款、第二款的Ｈ－２組但書與" +
+            "第79條之1（觀眾席、教室、生產線）會讀它。\n\n" +
+            "同一區劃的各個面積可以填不同類組；此時各類組的規定都要符合（內政部國土管理署" +
+            "115.05.15國署建管字第1150047679號函），所以只要混有非Ｈ－２組，就不能用Ｈ－２組的放寬。\n\n" +
+            "同一區劃若有面積填了、有面積沒填，檢討會判「資料不足」。全形、各種破折號與「類」「第」「組」字樣都認得。";
+
+        /// <summary>How the review will read this row's box, said as the cell's ToolTip.</summary>
+        public string UseGroupNote
+        {
+            get
+            {
+                var typed = (_useGroup ?? "").Trim();
+                string reading;
+                if (typed.Length == 0)
+                    reading = "未填：十一層以上（裝修非耐燃一級含底材）的區劃面積與第79條之1 會判「資料不足」。";
+                else if (BuildingUseGroups.Canonical(typed) is string code)
+                    reading = BuildingUseGroups.IsRespelled(typed) ? $"讀作 {code}（證據欄會同時記下你填的字）。" : $"讀作 {code}。";
+                else
+                    reading = $"「{typed}」不是第3-3條的使用類組，檢討時會當成非Ｈ－２組，依較嚴的上限判定。";
+                return reading + "\n\n" + UseGroupHintText;
             }
         }
 
@@ -333,7 +371,7 @@ namespace BuildingRegulationReview.FireReview
 
         /// <summary>Built from what the row currently holds, so an unsaved edit shows its effect.</summary>
         internal ZoneAreaLimit Limit =>
-            ZoneAreaLimit.ForZone(IntegerOf(_floorNumber), YesNoOf(_sprinklered), _buildingUse, _use);
+            ZoneAreaLimit.ForZone(IntegerOf(_floorNumber), YesNoOf(_sprinklered), _useGroup, _use);
 
         /// <summary>防火檢討_所在樓層序 — 第70條 counts storeys from the top with it.</summary>
         public string FloorNumber
@@ -416,6 +454,10 @@ namespace BuildingRegulationReview.FireReview
             if (!Same(_use, Source.Use))
                 yield return FireReviewParameterEdit.OfText(Source.ElementUniqueId, ReviewInputSources.ZoneUse, _use);
 
+            // 文字參數，設成空字串就真的是空白，所以沒有 C-05 那種清不回未填的問題。
+            if (!Same(_useGroup, Source.UseGroup))
+                yield return FireReviewParameterEdit.OfText(Source.ElementUniqueId, ReviewInputSources.UseGroup, _useGroup);
+
             // 這四格都是 YESNO／Integer，清不回未填（C-05），所以先問 Blocked 認不認得這一格：認得就
             // 不產生那筆註定被寫入器拒絕的編輯，由 Blocked 去把理由說給使用者聽。
             if (YesNoOf(_sprinklered) != Source.Sprinklered && SprinkleredProblem == null)
@@ -487,14 +529,12 @@ namespace BuildingRegulationReview.FireReview
     internal sealed class FireReviewProjectViewModel : FireReviewEditableRow
     {
         private string _fireResistive;
-        private string _buildingUse;
         private string _floorsAboveGround;
 
         public FireReviewProjectViewModel(FireReviewProjectRow source)
         {
             Source = source ?? throw new ArgumentNullException(nameof(source));
             _fireResistive = TextOf(source.FireResistiveConstruction);
-            _buildingUse = source.BuildingUse ?? "";
             _floorsAboveGround = TextOf(source.FloorsAboveGround);
         }
 
@@ -523,46 +563,18 @@ namespace BuildingRegulationReview.FireReview
         public bool HasFireResistiveWarning => FireResistiveWarning.Length > 0;
 
         /// <summary>
-        /// 建築物用途類組 — 第83條第一款、第二款 double their 區劃 area limit for Ｈ－２組. Still free
-        /// text, because no list of ours decides what a building is; the box offers 第3-3條's codes
-        /// because those are the values the review can read (see <see cref="BuildingUseGroups"/>),
-        /// and any spelling of one of them is read as that group.
+        /// The old Project Information 建築物用途類組, which the review no longer reads (用途類組 is now
+        /// filled per 區劃). Shown only so an older project can hand it to its 區劃 once.
         /// </summary>
-        public string BuildingUse
-        {
-            get => _buildingUse;
-            set
-            {
-                if (Set(ref _buildingUse, value)) Raise(nameof(BuildingUseNote));
-            }
-        }
+        public string LegacyBuildingUse => Source.LegacyBuildingUse ?? "";
 
-        /// <summary>What the 用途類組 box offers; anything else can still be typed in.</summary>
-        public IReadOnlyList<string> BuildingUseChoices { get; } =
-            new[] { "" }.Concat(BuildingUseGroups.All).ToList();
+        public bool HasLegacyBuildingUse => Source.LegacyBuildingUse != null;
 
-        /// <summary>
-        /// How the review will read the box — said out loud, because the box takes any text and only
-        /// 第3-3條's codes change an answer. A respelled group says so rather than being silently
-        /// rewritten; text that names no group says what the consequence is.
-        /// </summary>
-        public string BuildingUseNote
-        {
-            get
-            {
-                var typed = (_buildingUse ?? "").Trim();
-                if (typed.Length == 0)
-                    return "第83條第一款、第二款的Ｈ－２組但書會讀它；未填時十一層以上的區劃面積判「資料不足」。";
-
-                var code = BuildingUseGroups.Canonical(typed);
-                if (code is null)
-                    return $"「{typed}」不是第3-3條的使用類組，檢討時會當成非Ｈ－２組，十一層以上的區劃面積依較嚴的上限判定。";
-
-                return BuildingUseGroups.IsRespelled(typed)
-                    ? $"讀作 {code}（全形、各種破折號與「類」「第」「組」字樣都認得，檢討的證據欄會同時記下你填的字）。"
-                    : $"讀作 {code}。";
-            }
-        }
+        public string LegacyBuildingUseNote => HasLegacyBuildingUse
+            ? $"專案資訊仍有舊的「建築物用途類組」＝「{Source.LegacyBuildingUse}」。檢討已改為逐區劃讀「防火檢討_用途類組」，" +
+              "不再讀這個值——整棟一個值會讓沒填的區劃誤用別的類組。可按下方按鈕把它填入「區劃」分頁中所有用途類組未填的區劃" +
+              "（只填進格子，按「寫入模型」才會寫入）；一棟有多種用途時，請再逐一修正各區劃。"
+            : "";
 
         /// <summary>地上層數 — 第70條 needs it to count a storey's position from the top.</summary>
         public string FloorsAboveGround
@@ -586,9 +598,6 @@ namespace BuildingRegulationReview.FireReview
                     YesNoParameterText(YesNoOf(_fireResistive)));
             }
 
-            if (!Same(_buildingUse, Source.BuildingUse))
-                yield return FireReviewParameterEdit.OfText(Source.ElementUniqueId, ReviewInputSources.BuildingUse, _buildingUse);
-
             if (IntegerOf(_floorsAboveGround) != Source.FloorsAboveGround && FloorsAboveGroundProblem == null)
             {
                 yield return FireReviewParameterEdit.OfText(
@@ -596,8 +605,7 @@ namespace BuildingRegulationReview.FireReview
             }
         }
 
-        // 防火構造建築物 是 YESNO、地上層數 是 Integer，兩者都清不回未填（C-05）。建築物用途類組是
-        // 文字參數，設成空字串就真的是空白，所以不在這裡。
+        // 防火構造建築物 是 YESNO、地上層數 是 Integer，兩者都清不回未填（C-05）。
         private string FireResistiveProblem => FireReviewParameterLimits.YesNoCellProblem(
             "防火構造建築物", Source.FireResistiveConstruction, _fireResistive);
 

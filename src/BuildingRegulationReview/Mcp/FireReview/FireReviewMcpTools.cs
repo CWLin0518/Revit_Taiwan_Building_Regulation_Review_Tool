@@ -535,6 +535,9 @@ namespace BuildingRegulationReview.Mcp.FireReview
                     ["elementUniqueId"] = JsonSchema.String("區劃（Area）的 UniqueId；或改用 elementId。"),
                     ["elementId"] = JsonSchema.Integer("區劃（Area）的 ElementId。"),
                     ["use"] = JsonSchema.NullableString("防火檢討_區劃用途；一般區劃留空（null）。必須與清單逐字相符才有作用，例如 挑空、樓梯間、昇降機道、管道間、觀眾席。"),
+                    ["useGroup"] = JsonSchema.NullableString(
+                        "防火檢討_用途類組：這個 Area 的建築物使用類組，例如 H-2、B-2；文字參數，null 清成空白。" +
+                        "同一區劃各 Area 可填不同類組，檢討讀成「混合（…）」，各類組規定都要符合（Ｈ－２組但書不適用）。"),
                     ["sprinklered"] = JsonSchema.NullableBoolean("防火檢討_自動滅火設備；null 不會清除已寫入的值（見本工具說明）。"),
                     ["floorNumber"] = JsonSchema.NullableInteger("防火檢討_所在樓層序；null 不會清除已寫入的值（見本工具說明）。"),
                     ["linksRefugeFloor"] = JsonSchema.NullableBoolean("防火檢討_避難層通達（只有挑空需要）；null 不會清除已寫入的值。"),
@@ -545,7 +548,6 @@ namespace BuildingRegulationReview.Mcp.FireReview
                     ["fireResistiveConstruction"] = JsonSchema.NullableBoolean(
                         "防火檢討_防火構造建築物；未填時整份檢討都會是資料不足，明確填 false 則四類規則的適用條件都不成立、" +
                         "每一列都判「不適用」（不代表合格）。null 不會清除已寫入的值（見本工具說明）。"),
-                    ["buildingUse"] = JsonSchema.NullableString("建築物用途類組，例如 H-2；文字參數，null 清成空白。"),
                     ["floorsAboveGround"] = JsonSchema.NullableInteger("地上層數；null 不會清除已寫入的值（見本工具說明）。")
                 }),
                 ["deriveFloors"] = JsonSchema.Boolean("先依樓層高程填入每個區劃的樓層序與地上層數（面板的「依樓層推定」），再套用其他值。", false),
@@ -789,6 +791,11 @@ namespace BuildingRegulationReview.Mcp.FireReview
                     zone.Use = item.OptionalString("use") ?? string.Empty;
                     Ask("use", ReviewInputSources.ZoneUse);
                 }
+                if (item.Has("useGroup"))
+                {
+                    zone.UseGroup = item.OptionalString("useGroup") ?? string.Empty;
+                    Ask("useGroup", ReviewInputSources.UseGroup);
+                }
                 if (item.Has("sprinklered"))
                 {
                     zone.Sprinklered = YesNo(item.OptionalNullableBool("sprinklered"));
@@ -835,9 +842,8 @@ namespace BuildingRegulationReview.Mcp.FireReview
                 }
                 if (item.Has("buildingUse"))
                 {
-                    project.BuildingUse = item.OptionalString("buildingUse") ?? string.Empty;
-                    draft.PushBuildingUse();
-                    Ask("buildingUse", ReviewInputSources.BuildingUse);
+                    throw new McpToolException(
+                        "project.buildingUse 已停用：用途類組改為逐區劃填寫，請改用 zones[].useGroup（防火檢討_用途類組）。");
                 }
                 if (item.Has("floorsAboveGround"))
                 {

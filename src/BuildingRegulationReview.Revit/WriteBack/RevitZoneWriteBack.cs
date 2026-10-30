@@ -576,6 +576,31 @@ public sealed class RevitZoneWriteBack
                     }
                 }
 
+                if (operation.UseGroup is not null)
+                {
+                    var label = ZoneAreaParameters.Label(ReviewInputSources.UseGroup);
+                    var parameter = element.LookupParameter(ReviewInputSources.UseGroup);
+                    if (parameter is null || parameter.StorageType != StorageType.String || parameter.IsReadOnly)
+                        refused.Add(label);
+                    else if (!string.IsNullOrWhiteSpace(parameter.AsString()))
+                    {
+                        if (!string.Equals(parameter.AsString().Trim(), operation.UseGroup, StringComparison.Ordinal))
+                            differing.Add(label);
+                    }
+                    else
+                    {
+                        try
+                        {
+                            if (parameter.Set(operation.UseGroup)) written.Add(operation.UseGroupText!);
+                            else refused.Add(label);
+                        }
+                        catch (RevitApplicationException)
+                        {
+                            refused.Add(label);
+                        }
+                    }
+                }
+
                 if (written.Count > 0)
                     _inheritanceNotes.Add($"{name}新建的面積已沿用同區劃既有面積的 {string.Join("、", written)}。");
                 if (refused.Count > 0)

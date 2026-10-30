@@ -84,7 +84,8 @@ public sealed class FireReviewParameterDefinition
 /// 逐一手填：結構材料 與 防火被覆厚度。
 ///
 /// 不在清單裡的是 防火檢討_法規要求防火時效（主檔 …000a）：那是保留給回寫的欄位，沒有任何規則或
-/// 面板讀它，建了只是多一個沒人填的格子。
+/// 面板讀它，建了只是多一個沒人填的格子。專案資訊的 建築物用途類組（主檔 …0002）也不在：檢討改讀
+/// 各區劃的 防火檢討_用途類組（…0017），舊參數只留給面板做一次性的搬移。
 /// </remarks>
 public static class FireReviewParameterCatalog
 {
@@ -99,9 +100,10 @@ public static class FireReviewParameterCatalog
             [ReviewInputSources.FireResistiveConstruction] = new Declaration("01", SharedParameterValueType.YesNo,
                 FireReviewParameterGroup.FireProtection,
                 "本案是否為防火構造建築物。沒勾（或沒填）整套規則都不啟動，檢討結果會全是資料不足。"),
-            [ReviewInputSources.BuildingUse] = new Declaration("02", SharedParameterValueType.Text,
+            [ReviewInputSources.UseGroup] = new Declaration("17", SharedParameterValueType.Text,
                 FireReviewParameterGroup.FireProtection,
-                "建築技術規則的建築物用途類組，例如 A-1、B-2。第79條之1的用途豁免要靠它。"),
+                "每個區劃的建築物使用類組，填在 Area 上，例如 H-2、B-2。第83條Ｈ－２組但書與第79條之1 讀它；" +
+                "同一區劃各 Area 可填不同類組，此時各類組的規定都要符合。"),
             [ReviewInputSources.FloorsAboveGround] = new Declaration("03", SharedParameterValueType.Integer,
                 FireReviewParameterGroup.FireProtection,
                 "地上層數。可由「防火參數批次設定」面板依各樓層高程提案。"),

@@ -154,8 +154,8 @@ public sealed class VerticalCompartmentExemptionTests
     [MemberData(nameof(VerticalCompartments))]
     public void The_panel_shows_the_exemption_the_rules_apply(string use)
     {
-        var below = ZoneAreaLimit.ForZone(9, sprinklered: null, buildingUse: null, use);
-        var above = ZoneAreaLimit.ForZone(11, sprinklered: null, buildingUse: null, use);
+        var below = ZoneAreaLimit.ForZone(9, sprinklered: null, useGroup: null, use);
+        var above = ZoneAreaLimit.ForZone(11, sprinklered: null, useGroup: null, use);
 
         Assert.True(below.IsExempt);
         Assert.True(above.IsExempt);
@@ -173,7 +173,7 @@ public sealed class VerticalCompartmentExemptionTests
     [Fact]
     public void An_exempt_zone_waits_on_no_other_box()
     {
-        var shown = ZoneAreaLimit.ForZone(11, sprinklered: null, buildingUse: null, ZoneUses.Stairwell);
+        var shown = ZoneAreaLimit.ForZone(11, sprinklered: null, useGroup: null, ZoneUses.Stairwell);
 
         Assert.Equal(ZoneAreaLimitGap.None, shown.Gaps);
         Assert.DoesNotContain("未填", shown.Description);
@@ -183,7 +183,7 @@ public sealed class VerticalCompartmentExemptionTests
     [Fact]
     public void With_no_storey_the_panel_still_names_only_the_storey()
     {
-        var shown = ZoneAreaLimit.ForZone(null, sprinklered: null, buildingUse: null, ZoneUses.Stairwell);
+        var shown = ZoneAreaLimit.ForZone(null, sprinklered: null, useGroup: null, ZoneUses.Stairwell);
 
         Assert.False(shown.IsExempt);
         Assert.Equal(ZoneAreaLimitGap.FloorNumber, shown.Gaps);
@@ -192,7 +192,7 @@ public sealed class VerticalCompartmentExemptionTests
     [Fact]
     public void A_use_outside_the_list_leaves_the_panel_showing_the_limit()
     {
-        var shown = ZoneAreaLimit.ForZone(9, sprinklered: false, buildingUse: null, "辦公");
+        var shown = ZoneAreaLimit.ForZone(9, sprinklered: false, useGroup: null, "辦公");
 
         Assert.False(shown.IsExempt);
         Assert.Equal(1500, shown.SquareMeters);
@@ -208,7 +208,7 @@ public sealed class VerticalCompartmentExemptionTests
     private static RuleFacts Zone(int floorNumber, double areaSquareMeters, string use) =>
         new RuleFacts(RuleFieldCatalog.Default)
             .Set("building.fireResistiveConstruction", true)
-            .Set("building.use", "B-2")
+            .Set("zone.useGroup", "B-2")
             .Set("building.floorsAboveGround", 15, ReviewUnit.None)
             .Set("zone.id", "zone-1")
             .Set("zone.use", use)

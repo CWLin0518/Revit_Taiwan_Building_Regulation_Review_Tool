@@ -80,7 +80,8 @@ public sealed class RevitStoreyZoneReader
                     areas.All(a => a > 0) ? areas.Sum() : (double?)null,
                     onLevel.SelectMany(p => p.Loops),
                     onLevel.Select(p => p.Area.UniqueId),
-                    problem));
+                    problem,
+                    onLevel.Select(p => Text(p.Area, ReviewInputSources.UseGroup))));
             }
         }
 

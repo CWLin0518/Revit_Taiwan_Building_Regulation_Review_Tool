@@ -30,7 +30,7 @@ namespace BuildingRegulationReview.Core.Tests.Reviews;
 public sealed class FireReviewIntegrationTests
 {
     private const string RuleSetId = "tw-bcr-fire";
-    private const string ShippedVersion = "2026.10-provisional";
+    private const string ShippedVersion = "2026.11-provisional";
 
     [Fact]
     public void Interior_finish_is_a_model_derived_wall_and_ceiling_type_fact_not_an_area_input()
@@ -218,8 +218,11 @@ public sealed class FireReviewIntegrationTests
         // 第70條 decides a column's required rating from where its storey sits, counted from the top.
         Assert.Contains("building.floorsAboveGround", fields);
         Assert.Contains("zone.floorNumber", fields);
-        // 第83條 reads the 用途類組 for its H-2 但書 and the 裝修等級 for its 100／200／500 ㎡ tiers.
-        Assert.Contains("building.use", fields);
+        // 第83條 reads the 用途類組 for its H-2 但書 and the 裝修等級 for its 100／200／500 ㎡ tiers —
+        // the 區劃's own group, and for a merged 挑空 that of its 連通區劃.
+        Assert.Contains("zone.useGroup", fields);
+        Assert.Contains("zone.connectedUseGroup", fields);
+        Assert.DoesNotContain("building.use", fields);
         Assert.Contains("zone.interiorFinish", fields);
         Assert.DoesNotContain("element.typeName", fields); // evidence only
 
@@ -234,7 +237,7 @@ public sealed class FireReviewIntegrationTests
         Assert.Equal(new[]
         {
             ReviewInputSources.FireResistiveConstruction, ReviewInputSources.FloorsAboveGround,
-            ReviewInputSources.BuildingUse, FireRatingParameters.Provided,
+            FireRatingParameters.Provided,
             // 決議 16：junction.panelKind 是 第79條之4 兩路作答的前提，沒綁定就判不出適用哪一條。
             CurtainPanelKindParameters.Provided,
             FireProtectionParameters.Provided,
@@ -244,8 +247,9 @@ public sealed class FireReviewIntegrationTests
             // a 管道間之維修門. Two fields with different categories, so the pre-review check needs both.
             FireRatingParameters.Provided, SmokeProtectionParameters.Provided,
             ReviewInputSources.FloorNumber, ReviewInputSources.InteriorFinish, ReviewInputSources.Sprinklered,
-            ReviewInputSources.ZoneUse
+            ReviewInputSources.ZoneUse, ReviewInputSources.UseGroup
         }, needed);
+        Assert.DoesNotContain(needed, n => n == ReviewInputSources.LegacyBuildingUse);
         Assert.DoesNotContain(needed, n => n == FireRatingParameters.Required);
 
         // shaft.requirement and shaft.elevatorLobbyProtected are not typed into a parameter: the first
@@ -664,23 +668,43 @@ public sealed class FireReviewIntegrationTests
     }
 
     /// <summary>
-    /// 建築物用途類組 used to be evidence only. 第83條第一款但書 raises the 區劃 limit to 二○○平方公尺
-    /// for Ｈ－２組, so the rules read it now and the project has to carry it — 所在樓層序 went the same
-    /// way when 第70條 started counting storeys from the top.
+    /// 第83條第一款但書 raises the 區劃 limit to 二○○平方公尺 for Ｈ－２組, so the rules read the
+    /// 用途類組 and the Areas have to carry it — per 區劃, since one building may hold several groups
+    /// (docs/regulations/building-use-groups.md §6).
     /// </summary>
     [Fact]
-    public void Building_use_is_a_required_parameter_now_that_a_rule_reads_it()
+    public void Use_group_is_a_required_area_parameter_now_that_a_rule_reads_it()
     {
         var parameters = new Parameters();
-        parameters.Bindings.RemoveAll(b => b.Key == ReviewInputSources.BuildingUse);
+        parameters.Bindings.RemoveAll(b => b.Key == ReviewInputSources.UseGroup);
 
         var report = Readiness(parameters: parameters);
 
         Assert.False(report.CanRun);
         var item = Assert.Single(report.Blocking);
         Assert.Equal(ReviewErrorCode.ParameterMissing, item.Code);
-        Assert.Contains(ReviewInputSources.BuildingUse, item.Message);
-        Assert.Contains("專案資訊", item.Fix);
+        Assert.Contains(ReviewInputSources.UseGroup, item.Message);
+        Assert.Contains("面積", item.Fix);
+    }
+
+    /// <summary>
+    /// The old Project Information 建築物用途類組 is no longer read: a project that still carries it,
+    /// and carries nothing per 區劃, gets no group at all rather than the building-wide one — handing
+    /// it to an unfilled 區劃 would let that 區劃 borrow another's Ｈ－２組 limit.
+    /// </summary>
+    [Fact]
+    public void The_old_building_wide_use_group_is_not_read()
+    {
+        var parameters = new Parameters();
+        parameters.Bindings.Add(new KeyValuePair<string, ReviewParameterHost>(ReviewInputSources.LegacyBuildingUse, ReviewParameterHost.ProjectInformation));
+        parameters.Project[ReviewInputSources.LegacyBuildingUse] = ParameterReading.OfText("H-2");
+
+        Assert.True(Readiness(parameters: parameters).CanRun);
+        var assembly = ReviewInputAssembler.Assemble(Set(), parameters.Snapshot());
+
+        Assert.DoesNotContain(assembly.Area.Building, i => i.Field == "building.use");
+        Assert.All(assembly.Area.ZoneIds, id =>
+            Assert.DoesNotContain(assembly.Area.ForZone(id), i => i.Field == "zone.useGroup"));
     }
 
     /// <summary>建築物高度 is measured, not typed: no Project Information parameter supplies it.</summary>
@@ -763,7 +787,6 @@ public sealed class FireReviewIntegrationTests
     [Fact]
     public void The_shared_building_parameters_carry_no_review_prefix()
     {
-        Assert.Equal("建築物用途類組", ReviewInputSources.BuildingUse);
         Assert.Equal("地上層數", ReviewInputSources.FloorsAboveGround);
         Assert.DoesNotContain(ReviewInputSources.ParameterNames,
             name => name.StartsWith("防火檢討_建築物", StringComparison.Ordinal) ||
@@ -861,7 +884,7 @@ public sealed class FireReviewIntegrationTests
         Assert.True(ReviewInputAssembler.Convert(Field("zone.sprinklered"), ParameterReading.OfYesNo(2), "s")!.IsUnreadable);
         Assert.True(ReviewInputAssembler.Convert(Field("building.floorsAboveGround"), ParameterReading.OfText("十層"), "s")!.IsUnreadable);
         Assert.True(ReviewInputAssembler.Convert(Field("building.floorsAboveGround"), ParameterReading.OfYesNo(1), "s")!.IsUnreadable);
-        Assert.True(ReviewInputAssembler.Convert(Field("building.use"), ParameterReading.OfYesNo(1), "s")!.IsUnreadable);
+        Assert.True(ReviewInputAssembler.Convert(Field("zone.useGroup"), ParameterReading.OfYesNo(1), "s")!.IsUnreadable);
     }
 
     [Fact]
@@ -2427,11 +2450,11 @@ public sealed class FireReviewIntegrationTests
     }
     // --- 第79條之1 的結果（第79條之1文件 §7.1、§12 步驟 3）---------------------------------------
 
-    /// <summary>The fixture with A 區 declared an 觀眾席 that cannot be subdivided, in an Ａ－１組 building.</summary>
-    private static Parameters AuditoriumParameters(int? cannotBeSubdivided = 1, string? buildingUse = "A-1")
+    /// <summary>The fixture with A 區 declared an 觀眾席 that cannot be subdivided, used as Ａ－１組.</summary>
+    private static Parameters AuditoriumParameters(int? cannotBeSubdivided = 1, string? useGroup = "A-1")
     {
         var parameters = new Parameters();
-        if (buildingUse is not null) parameters.Project[ReviewInputSources.BuildingUse] = ParameterReading.OfText(buildingUse);
+        if (useGroup is not null) parameters.Elements["area-a"][ReviewInputSources.UseGroup] = ParameterReading.OfText(useGroup);
         parameters.Elements["area-a"][ReviewInputSources.ZoneUse] = ParameterReading.OfText(ZoneUses.Auditorium);
         if (cannotBeSubdivided is int declared)
             parameters.Elements["area-a"][ReviewInputSources.CannotBeSubdivided] = ParameterReading.OfYesNo(declared);
@@ -2742,7 +2765,7 @@ public sealed class FireReviewIntegrationTests
         // 第83條's ceiling is read off the 裝修等級 and the 用途類組; 耐燃一級 also settles 第3項's 第一款,
         // which has no area ceiling of its own, so the 挑空 is merged however large its 連通區劃 is.
         parameters.Elements["area-a"][ReviewInputSources.InteriorFinish] = ParameterReading.OfText(InteriorFinishGrades.ClassOne);
-        parameters.Project[ReviewInputSources.BuildingUse] = ParameterReading.OfText("A-1");
+        parameters.Elements["area-a"][ReviewInputSources.UseGroup] = ParameterReading.OfText("A-1");
         var zones = new[] { AtriumAreaLargerThanItsBoundary(130), Zones()[1] };
 
         var outcome = Run(Request(parameters: parameters, zones: zones, model: AtriumStoreysToppingOutAt11F()));
@@ -2757,6 +2780,47 @@ public sealed class FireReviewIntegrationTests
         Assert.Equal(ReviewErrorCode.AreaDisagrees, entry.Code);
         Assert.Equal("BCR-AREA-001", entry.Code);
         Assert.Equal(ReviewSeverity.Warning, entry.Severity);
+    }
+
+    /// <summary>
+    /// A 挑空 merged into its 連通區劃 is held to <c>tw-bcr-83-area-atrium</c>, whose Ｈ－２組 proviso reads
+    /// the groups of every 區劃 the 連通區劃 adds up (the 挑空 Areas themselves are not counted, just as
+    /// in the area). All Ｈ－２組 doubles 耐燃一級's 二○○ to 四○○; one other group in the mix takes it
+    /// back, because each group's rules have to be met.
+    /// </summary>
+    [Theory]
+    [InlineData("H-2", "Ｈ－２組", 400)]
+    [InlineData("H-2", "B-2", 200)]
+    public void A_merged_atriums_limit_reads_the_groups_of_its_whole_connected_compartment(
+        string surrounding, string below, double limit)
+    {
+        var parameters = AtriumParameters();
+        parameters.Elements["area-a"][ReviewInputSources.FloorNumber] = ParameterReading.OfInteger(11);
+        parameters.Elements["area-a"][ReviewInputSources.InteriorFinish] = ParameterReading.OfText(InteriorFinishGrades.ClassOne);
+        var model = AtriumStoreysToppingOutAt11F(surrounding, below);
+
+        var outcome = Run(Request(parameters: parameters, zones: new[] { AtriumAreaLargerThanItsBoundary(130), Zones()[1] }, model: model));
+
+        Assert.True(outcome.IsCompleted, outcome.Message);
+        var area = ResultOf(outcome.Run!, ReviewCheckTypes.CompartmentArea, "area-a", ZoneA);
+        Assert.Equal("tw-bcr-83-area-atrium", area.RuleId);
+        Assert.Equal(ReviewValue.Quantity(limit, ReviewUnit.SquareMeter), area.RequiredValue);
+    }
+
+    /// <summary>A 連通區劃 with a part whose group nobody filled in cannot be judged under the proviso.</summary>
+    [Fact]
+    public void A_merged_atrium_whose_connected_compartment_is_partly_unfilled_is_insufficient_data()
+    {
+        var parameters = AtriumParameters();
+        parameters.Elements["area-a"][ReviewInputSources.FloorNumber] = ParameterReading.OfInteger(11);
+        parameters.Elements["area-a"][ReviewInputSources.InteriorFinish] = ParameterReading.OfText(InteriorFinishGrades.ClassOne);
+        var model = AtriumStoreysToppingOutAt11F("H-2", below: null);
+
+        var outcome = Run(Request(parameters: parameters, zones: new[] { AtriumAreaLargerThanItsBoundary(130), Zones()[1] }, model: model));
+
+        var area = ResultOf(outcome.Run!, ReviewCheckTypes.CompartmentArea, "area-a", ZoneA);
+        Assert.Equal(ReviewStatus.InsufficientData, area.Status);
+        Assert.Contains("大廳", area.Evidence.Find("source[zone.connectedUseGroup]")?.Text + area.Message);
     }
 
     /// <summary>
@@ -2996,15 +3060,21 @@ public sealed class FireReviewIntegrationTests
     /// 挑空 and its 所在區劃 on 11F, one 區劃 under both on 10F. 連跨 2 層 from 10F, so 所跨最高樓層序 is 11
     /// and 第83條's 區劃面積 rule takes over from 第79條's (決議 34).
     /// </summary>
-    private static ReviewModelFacts AtriumStoreysToppingOutAt11F() =>
+    /// <remarks>
+    /// The 連通區劃 (B 區 and 大廳) are given a 用途類組, which <c>tw-bcr-83-area-atrium</c> reads for
+    /// its Ｈ－２組 proviso; pass <paramref name="surrounding"/> and <paramref name="below"/> to give them others.
+    /// </remarks>
+    private static ReviewModelFacts AtriumStoreysToppingOutAt11F(string? surrounding = "A-1", string? below = "A-1") =>
         ReviewModelFacts.None.WithStoreys(new StoreyZoneMap(new[]
         {
             new StoreyZone(PackageId, ZoneA, "level-1F", 10, "11F", "A 區", ZoneUses.Atrium, 11,
                 PlanUnits.SquareMetersToSquareFeet(100), new[] { Rect(0, 0, 10, 10) }, new[] { "area-a" }),
             new StoreyZone(PackageId, ZoneB, "level-1F", 10, "11F", "B 區", "辦公", 11,
-                PlanUnits.SquareMetersToSquareFeet(300), new[] { Rect(10, 0, 20, 10) }, new[] { "area-b" }),
+                PlanUnits.SquareMetersToSquareFeet(300), new[] { Rect(10, 0, 20, 10) }, new[] { "area-b" },
+                useGroups: new[] { surrounding }),
             new StoreyZone(LowerPackageId, LowerZoneId, "level-below", 0, "10F", "大廳", "辦公", 10,
-                PlanUnits.SquareMetersToSquareFeet(600), new[] { Rect(0, 0, 20, 10) }, new[] { "area-1f" })
+                PlanUnits.SquareMetersToSquareFeet(600), new[] { Rect(0, 0, 20, 10) }, new[] { "area-1f" },
+                useGroups: new[] { below })
         }));
 
     /// <summary>The 挑空 A 區, whose Revit Area no longer agrees with the boundary that encloses it.</summary>

@@ -23,7 +23,7 @@ public sealed class FireReviewInputRowTests
         double? areaM2 = 71.59,
         FireReviewZoneParameters present =
             FireReviewZoneParameters.Use | FireReviewZoneParameters.Sprinklered |
-            FireReviewZoneParameters.FloorNumber,
+            FireReviewZoneParameters.FloorNumber | FireReviewZoneParameters.UseGroup,
         bool? linksRefugeFloor = null,
         bool? cannotBeSubdivided = null) =>
         new(uid, name, number: "1", levelName: "FL9", areaSchemeName: "防火區劃",
@@ -54,7 +54,7 @@ public sealed class FireReviewInputRowTests
         var zone = Zone(present: FireReviewZoneParameters.Use);
 
         Assert.Equal(
-            new[] { ReviewInputSources.Sprinklered, ReviewInputSources.FloorNumber },
+            new[] { ReviewInputSources.Sprinklered, ReviewInputSources.FloorNumber, ReviewInputSources.UseGroup },
             zone.MissingParameters);
         Assert.Empty(Zone().MissingParameters);
     }
@@ -85,7 +85,7 @@ public sealed class FireReviewInputRowTests
     public void The_third_paragraphs_parameters_are_only_missed_on_an_atrium()
     {
         var everything = FireReviewZoneParameters.Use | FireReviewZoneParameters.Sprinklered |
-                         FireReviewZoneParameters.FloorNumber;
+                         FireReviewZoneParameters.FloorNumber | FireReviewZoneParameters.UseGroup;
 
         Assert.Empty(Zone(use: "辦公", present: everything).MissingParameters);
         Assert.False(Zone(use: "辦公", present: everything).IsAtrium);
@@ -124,7 +124,7 @@ public sealed class FireReviewInputRowTests
     public void The_subdivision_parameter_is_only_missed_on_an_article_79_1_use(string use)
     {
         var everything = FireReviewZoneParameters.Use | FireReviewZoneParameters.Sprinklered |
-                         FireReviewZoneParameters.FloorNumber;
+                         FireReviewZoneParameters.FloorNumber | FireReviewZoneParameters.UseGroup;
 
         var zone = Zone(use: use, present: everything);
         Assert.True(zone.IsArticle79_1Use);
@@ -142,7 +142,7 @@ public sealed class FireReviewInputRowTests
     public void A_use_outside_the_article_is_never_asked_for_a_subdivision_declaration(string? use)
     {
         var everything = FireReviewZoneParameters.Use | FireReviewZoneParameters.Sprinklered |
-                         FireReviewZoneParameters.FloorNumber |
+                         FireReviewZoneParameters.FloorNumber | FireReviewZoneParameters.UseGroup |
                          FireReviewZoneParameters.LinksRefugeFloor;
 
         var zone = Zone(use: use, present: everything);
@@ -162,8 +162,7 @@ public sealed class FireReviewInputRowTests
     {
         var project = new FireReviewProjectRow("info", present: FireReviewProjectParameters.FireResistive);
 
-        Assert.Equal(new[] { ReviewInputSources.BuildingUse, ReviewInputSources.FloorsAboveGround },
-            project.MissingParameters);
+        Assert.Equal(new[] { ReviewInputSources.FloorsAboveGround }, project.MissingParameters);
     }
 
     /// <summary>建築物高度 is measured from the model, so the panel has nothing to offer for it.</summary>

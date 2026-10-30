@@ -93,7 +93,7 @@ public static class Article79_1ExemptionCheck
     private const string FloorNumberField = "zone.floorNumber";
     private const string CannotBeSubdividedField = "zone.cannotBeSubdivided";
     private const string FireResistiveField = "building.fireResistiveConstruction";
-    private const string BuildingUseField = "building.use";
+    private const string UseGroupField = "zone.useGroup";
 
     /// <summary>
     /// The storey from which 第83條 decides the 區劃面積 instead — <c>tw-bcr-83-area</c>'s own
@@ -109,7 +109,7 @@ public static class Article79_1ExemptionCheck
 
     /// <summary>The fields the judgement reads, in the order §3.2 lists them as evidence.</summary>
     private static readonly string[] ReadFields =
-        { "zone.id", ZoneUseField, BuildingUseField, FireResistiveField, CannotBeSubdividedField, FloorNumberField };
+        { "zone.id", ZoneUseField, UseGroupField, FireResistiveField, CannotBeSubdividedField, FloorNumberField };
 
     public static Result<Article79_1ExemptionReview> Review(
         CandidateSet set,
@@ -166,10 +166,10 @@ public static class Article79_1ExemptionCheck
         Guid resultId)
     {
         var fireResistive = Flag(supplied, FireResistiveField);
-        var buildingUse = Text(supplied, BuildingUseField);
+        var useGroup = Text(supplied, UseGroupField);
         var cannotBeSubdivided = Flag(supplied, CannotBeSubdividedField);
 
-        var exemption = Article79_1Exemption.For(fireResistive, buildingUse, use, cannotBeSubdivided);
+        var exemption = Article79_1Exemption.For(fireResistive, useGroup, use, cannotBeSubdivided);
 
         // 樓層序 decides which article limits the area, so it decides what an exemption from
         // 第79條第1項 would even be worth. It is asked for last and only when the exemption might
@@ -191,7 +191,7 @@ public static class Article79_1ExemptionCheck
 
         var evidence = new ReviewEvidence(
             ZoneEvidence(zone)
-                .Concat(FactEvidence(fireResistive, buildingUse, use, cannotBeSubdivided, floorNumber))
+                .Concat(FactEvidence(fireResistive, useGroup, use, cannotBeSubdivided, floorNumber))
                 .Concat(ExemptionEvidence(exemption))
                 .Concat(InputEvidence(supplied)));
 
@@ -239,11 +239,11 @@ public static class Article79_1ExemptionCheck
     /// a 區劃 with no 用途 never gets this far.
     /// </summary>
     private static IEnumerable<ReviewEvidenceItem> FactEvidence(
-        bool? fireResistive, string? buildingUse, string use, bool? cannotBeSubdivided, int? floorNumber)
+        bool? fireResistive, string? useGroup, string use, bool? cannotBeSubdivided, int? floorNumber)
     {
         yield return new ReviewEvidenceItem(ZoneUseField, ReviewValue.OfText(use));
-        if (buildingUse is not null)
-            yield return new ReviewEvidenceItem(BuildingUseField, ReviewValue.OfText(buildingUse));
+        if (useGroup is not null)
+            yield return new ReviewEvidenceItem(UseGroupField, ReviewValue.OfText(useGroup));
         if (fireResistive is bool construction)
             yield return new ReviewEvidenceItem(FireResistiveField, ReviewValue.OfBoolean(construction));
         if (cannotBeSubdivided is bool declared)
