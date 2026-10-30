@@ -1,0 +1,183 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Globalization;
+using System.Linq;
+using BuildingRegulationReview.Application.Parameters;
+
+namespace BuildingRegulationReview.FireReview
+{
+    /// <summary>
+    /// What 防火參數批次設定 is editing: one row per Type, per 區劃 and for the project, each holding
+    /// what has been typed so far. No WPF in here — the panel binds to these rows, and the MCP tools
+    /// fill the same rows and ask them for their edits, so both write exactly the same values
+    /// (docs/adr/0004).
+    /// </summary>
+    internal sealed class FireReviewParameterDraft
+    {
+        public FireReviewParameterDraft(FireReviewParameterSet set)
+        {
+            Set = set ?? throw new ArgumentNullException(nameof(set));
+            foreach (var row in set.Types.Rows) Rows.Add(new FireReviewTypeRowViewModel(row));
+
+            Floors = set.Floors;
+            foreach (var zone in set.Zones) Zones.Add(new FireReviewZoneRowViewModel(zone, Floors.For(zone.LevelId)));
+
+            // 同一區劃的各塊面積彼此相認，面板才說得出整個區劃讀作什麼（用途類組混合或部分未填）。
+            foreach (var zone in Zones.Where(z => z.Source.ZoneKey != null).GroupBy(z => z.Source.ZoneKey))
+            {
+                var rows = zone.ToList();
+                foreach (var row in rows) row.ZoneRows = rows;
+            }
+
+            if (set.Project != null) Project = new FireReviewProjectViewModel(set.Project);
+        }
+
+        public FireReviewParameterSet Set { get; }
+
+        public ObservableCollection<FireReviewTypeRowViewModel> Rows { get; } =
+            new ObservableCollection<FireReviewTypeRowViewModel>();
+
+        public ObservableCollection<FireReviewZoneRowViewModel> Zones { get; } =
+            new ObservableCollection<FireReviewZoneRowViewModel>();
+
+        /// <summary>Null when the document has no readable Project Information.</summary>
+        public FireReviewProjectViewModel Project { get; }
+
+        public FloorNumbering Floors { get; }
+
+        /// <summary>
+        /// Fills 用途類組 on every 區劃 whose box is still blank with the old Project Information
+        /// 建築物用途類組 — the one-time move for a project written before the group was asked per 區劃
+        /// (docs/regulations/building-use-groups.md §6). Only the boxes: nothing reaches the model until
+        /// 寫入模型, and a 區劃 that already holds a group is left alone.
+        /// </summary>
+        /// <returns>How many 區劃 were filled; 0 when there is no old value to hand over.</returns>
+        public int FillBlankUseGroupsFromProject()
+        {
+            var legacy = Project?.Source.LegacyBuildingUse;
+            if (string.IsNullOrWhiteSpace(legacy)) return 0;
+
+            var filled = 0;
+            foreach (var zone in Zones.Where(z => string.IsNullOrWhiteSpace(z.UseGroup)))
+            {
+                zone.UseGroup = legacy;
+                filled++;
+            }
+
+            return filled;
+        }
+
+        /// <summary>
+        /// Fills every zone's 所在樓層序 from the levels, and 地上層數 with the count that goes with it.
+        /// Both go into the rows, not into the model: 第70條 divides one by the other, so a storey
+        /// number accepted without the matching count would compute a position nobody meant.
+        /// </summary>
+        /// <returns>What was filled; null when the model has no levels to number storeys by.</returns>
+        public FloorDerivation DeriveFloors()
+        {
+            if (Floors.IsEmpty) return null;
+
+            var filled = 0;
+            var unknown = new List<string>();
+            foreach (var zone in Zones)
+            {
+                if (zone.DerivedFloorNumber.HasValue)
+                {
+                    zone.ApplyDerivedFloorNumber();
+                    filled++;
+                }
+                else unknown.Add(zone.DisplayName);
+            }
+
+            if (Project != null) Project.FloorsAboveGround = Floors.FloorsAboveGround.ToString(CultureInfo.InvariantCulture);
+            return new FloorDerivation(filled, unknown, Floors.FloorsAboveGround);
+        }
+
+        /// <summary>Only what differs from the model, grouped as 寫入模型 reports it.</summary>
+        /// <remarks>
+        /// 驗證清單 C-05：做不到的清除（以及整數格裡的非數字）不混在 edits 裡送去碰運氣，而是另外收在
+        /// Blocked。類型列也有一格：它的是否類欄位走 OfYesNo（勾或不勾，沒有「清除」這個狀態），文字
+        /// 欄位設成空字串就真的是空白，但**被覆厚度是長度，一樣清不回未填**——寫入器只能 Set，而寫 0
+        /// 是「宣告 0 公分」（第73條推定為無防火時效），不是使用者要的「未填」（C-11）。
+        /// </remarks>
+        public FireReviewParameterEditBatch CollectEdits() =>
+            new FireReviewParameterEditBatch(
+                Rows.SelectMany(r => r.Edits()).ToList(),
+                Zones.SelectMany(z => z.Edits()).ToList(),
+                Project == null ? new List<FireReviewParameterEdit>() : Project.Edits().ToList(),
+                Rows.Where(r => r.IsDirty).ToList(),
+                Zones.Count(z => z.IsDirty),
+                Rows.Count(r => r.PanelKindIsProposed),
+                Rows.SelectMany(r => r.Blocked())
+                    .Concat(Zones.SelectMany(z => z.Blocked()))
+                    .Concat(Project == null ? Enumerable.Empty<FireReviewBlockedEdit>() : Project.Blocked())
+                    .ToList());
+    }
+
+    internal sealed class FloorDerivation
+    {
+        public FloorDerivation(int filled, IReadOnlyList<string> unknownZones, int floorsAboveGround)
+        {
+            Filled = filled;
+            UnknownZones = unknownZones;
+            FloorsAboveGround = floorsAboveGround;
+        }
+
+        public int Filled { get; }
+
+        /// <summary>The zones whose level could not be numbered, by display name.</summary>
+        public IReadOnlyList<string> UnknownZones { get; }
+
+        public int FloorsAboveGround { get; }
+    }
+
+    /// <summary>The edits one press of 寫入模型 sends, and what they reach.</summary>
+    internal sealed class FireReviewParameterEditBatch
+    {
+        public FireReviewParameterEditBatch(
+            IReadOnlyList<FireReviewParameterEdit> typeEdits,
+            IReadOnlyList<FireReviewParameterEdit> zoneEdits,
+            IReadOnlyList<FireReviewParameterEdit> projectEdits,
+            IReadOnlyList<FireReviewTypeRowViewModel> dirtyTypes,
+            int dirtyZoneCount,
+            int proposedPanelKindCount,
+            IReadOnlyList<FireReviewBlockedEdit> blocked)
+        {
+            TypeEdits = typeEdits;
+            ZoneEdits = zoneEdits;
+            ProjectEdits = projectEdits;
+            DirtyTypes = dirtyTypes;
+            DirtyZoneCount = dirtyZoneCount;
+            ProposedPanelKindCount = proposedPanelKindCount;
+            Blocked = blocked ?? new List<FireReviewBlockedEdit>();
+        }
+
+        public IReadOnlyList<FireReviewParameterEdit> TypeEdits { get; }
+        public IReadOnlyList<FireReviewParameterEdit> ZoneEdits { get; }
+        public IReadOnlyList<FireReviewParameterEdit> ProjectEdits { get; }
+
+        public IReadOnlyList<FireReviewParameterEdit> All => TypeEdits.Concat(ZoneEdits).Concat(ProjectEdits).ToList();
+
+        public bool IsEmpty => TypeEdits.Count == 0 && ZoneEdits.Count == 0 && ProjectEdits.Count == 0;
+
+        public IReadOnlyList<FireReviewTypeRowViewModel> DirtyTypes { get; }
+
+        /// <summary>Type parameters reach every instance in the project, not only the view's.</summary>
+        public int AffectedInstances => DirtyTypes.Sum(r => r.Source.ProjectInstanceCount);
+
+        public int DirtyZoneCount { get; }
+
+        /// <summary>
+        /// 帷幕嵌板 rows whose 嵌板種類 is the tool's proposal, left as it was. A proposal is written
+        /// like any other value once 寫入模型 is pressed (決議 16、D3), so it is counted out loud.
+        /// </summary>
+        public int ProposedPanelKindCount { get; }
+
+        /// <summary>
+        /// Cells whose content is not being written because it cannot be (驗證清單 C-05). Never silent:
+        /// 寫入模型 names them, and the MCP tool reports them as the reason that field was ignored.
+        /// </summary>
+        public IReadOnlyList<FireReviewBlockedEdit> Blocked { get; }
+    }
+}

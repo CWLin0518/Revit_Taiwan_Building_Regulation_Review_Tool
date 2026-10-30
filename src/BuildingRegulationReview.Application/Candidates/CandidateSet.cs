@@ -1,0 +1,667 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Globalization;
+using System.Linq;
+using System.Text;
+using BuildingRegulationReview.Application.Diagnostics;
+using BuildingRegulationReview.Domain.Geometry;
+using BuildingRegulationReview.Domain.Reviews;
+using BuildingRegulationReview.Domain.Rules;
+
+namespace BuildingRegulationReview.Application.Candidates;
+
+/// <summary>How one element sits relative to one 區劃 in plan.</summary>
+public enum ZoneRelationKind
+{
+    /// <summary>The element forms part of the zone's boundary: a wall or beam along it, a column it runs through.</summary>
+    Boundary,
+
+    /// <summary>The element runs across the boundary, partly inside the zone and partly outside.</summary>
+    Crossing,
+
+    /// <summary>The element lies inside the zone without forming its boundary.</summary>
+    Inside,
+
+    /// <summary>
+    /// An opening in a curtain wall that bounds the zone where no zone lies beyond it: the wall is the
+    /// building's outer facade, not a 區劃分隔 between two parts of the building. 第79條 does not ask
+    /// such an opening to be a 防火設備; the facade answers to 第79條之3、第79條之4 instead
+    /// (帷幕牆區劃交接). Openings only.
+    /// </summary>
+    Facade,
+
+    /// <summary>The geometry does not decide it; the result is ManualReview (spec 11.0 P3-T03).</summary>
+    Ambiguous
+}
+
+/// <summary>Why a relation, or a zone, could not be decided from the model.</summary>
+public enum CandidateAmbiguityKind
+{
+    /// <summary>The Area boundary runs inside the member's thickness but not along its centreline.</summary>
+    BoundaryOffCenterline,
+
+    /// <summary>The Area boundary runs along a column face instead of through the column.</summary>
+    BoundaryAlongOutline,
+
+    /// <summary>
+    /// 一道牆或梁的中心線**跨越**區劃邊界：一段在區劃內、一段在區劃外，而落在邊界上（或落在構件厚度
+    /// 內）的長度都不到門檻（<see cref="ZoneRelationKind.Crossing"/>，驗證清單 C-18）。幾何沒說它構成
+    /// 邊界，也沒說它不構成——牆可能就是那道區劃牆而 Area 邊界畫偏了，也可能只是一道穿過去的隔間牆。
+    /// 不登這一筆，<c>element.isCompartmentBoundary</c> 會逕自取 false，第79條第1項的
+    /// <c>tw-bcr-79-wall-rating</c> 便整列「不適用」而靜默免除（同一個 resolver 對開口的 host 牆跨越
+    /// 邊界已經是 <see cref="HostRelationAmbiguous"/> 的人工覆核，牆自己卻不是，前後不一致）。
+    /// 它與前兩者同屬「只是不確定**是否**構成邊界」的疑義，所以納入
+    /// <c>FireResistanceCheck.IsBoundaryDoubt</c>：兩種假設結論相同時逕行判定，衝突時才人工覆核。
+    /// </summary>
+    BoundaryCrossed,
+
+    /// <summary>The element has no plan geometry to measure.</summary>
+    NoPlanGeometry,
+
+    /// <summary>The opening's host wall is itself ambiguous at this boundary.</summary>
+    HostRelationAmbiguous,
+
+    /// <summary>The opening names a host the review did not read, or a host that is not a wall.</summary>
+    HostNotResolved,
+
+    /// <summary>
+    /// An opening in a curtain wall the tool could not place: it is neither the building's 外牆 — whose
+    /// openings 第79條第1項 does not govern — nor a 區劃分隔 whose openings it does. MVP policy: manual
+    /// review (spec 17.1, 11.6; docs/regulations/curtain-wall-fire-compartment.md §4.8).
+    /// </summary>
+    CurtainWallOpening,
+
+    /// <summary>
+    /// 室內帷幕牆的區劃邊緣上，一片宣告為**實心**的嵌板（§4.8）。它是構造而非防火設備，第79條第1項的
+    /// 防火門窗規則回答不了它，交人工覆核；判「不是防火門窗」會把一片可能本來就有時效的實心板說成未符合。
+    /// </summary>
+    CurtainPanelIsConstruction,
+
+    /// <summary>
+    /// 室內帷幕牆的區劃邊緣上，一片**未宣告種類**的嵌板（<c>防火檢討_嵌板種類</c> 空白，決議 16）。
+    /// 分不出該讀防火保護還是該讀時效，是資料不足而不是未符合。
+    /// </summary>
+    CurtainPanelKindUndeclared,
+
+    /// <summary>
+    /// 一道帷幕牆判不出是建築物外牆或室內帷幕牆（§4.8）。它的牆體時效因此沒有規則回答——
+    /// <c>tw-bcr-79-wall-rating</c> 版本 3 把 <c>Unknown</c> 排除在外，而外牆的三項交接規定也不適用
+    /// 一道不確定是外牆的牆。這一列存在是為了讓那個空缺出現在檢討表上，不依賴帷幕牆區劃交接那一端
+    /// 是否也判了 <c>Unknown</c>：兩端的探測輸入不同，一端判外牆、另一端判未定時，少了這一列整片牆
+    /// 的牆體時效會靜默無答案。
+    /// </summary>
+    CurtainWallExposureUndecided,
+
+    /// <summary>An opening without a host near the boundary. MVP policy: manual review (spec 11.6).</summary>
+    NonHostedOpening,
+
+    /// <summary>The opening has no plan location to test.</summary>
+    OpeningLocationUnknown,
+
+    /// <summary>
+    /// 開口的平面位置偏離 host 牆的位置線超過半牆厚＋容許值（驗證清單 C-16）。
+    /// <see cref="OpeningObservation.Location"/> 的契約是「落在 host 的位置線上」，判它在不在區劃邊界上
+    /// 用的也是以那條線為軸的一條帶；位置偏出去，量到的就不是「距邊界多遠」而是「量體伸出牆面多遠」。
+    /// 不登這一筆，一扇就在區劃邊界牆上的門會被判成「離邊界太遠」→ Inside → 被
+    /// <c>IncludeInteriorOpenings</c> 濾空 → 併入 <c>UnrelatedOpeningCount</c>，檢討表與日誌兩邊都
+    /// 不留痕跡（實機是一扇帷幕牆門的外接矩形含 90 度開啟的門扇，中心被拉離牆面 502 mm）。
+    /// 位置本身既然不可信，就不替它選一個答案，交人工覆核。
+    /// </summary>
+    OpeningOffHostCenterline,
+
+    /// <summary>An element from a linked model. MVP policy: manual review (spec 17.1).</summary>
+    LinkedElement,
+
+    /// <summary>One of the zone's Areas is not enclosed, so the zone's extent is unknown.</summary>
+    ZoneNotEnclosed,
+
+    /// <summary>The zone's Areas overlap another zone's, so an element could belong to either.</summary>
+    ZonesOverlap
+}
+
+/// <summary>
+/// The lengths a relation was decided on, in feet. Each one is only present when the kind of element
+/// measures it, so an absent value means "not measured", never zero.
+/// </summary>
+public sealed class RelationMeasurements
+{
+    public static readonly RelationMeasurements None = new RelationMeasurements();
+
+    public RelationMeasurements(
+        double? boundaryLengthFeet = null,
+        double? bandLengthFeet = null,
+        double? insideLengthFeet = null,
+        double? outsideLengthFeet = null,
+        double? throughLengthFeet = null,
+        double? distanceToBoundaryFeet = null)
+    {
+        BoundaryLengthFeet = Check(boundaryLengthFeet, nameof(boundaryLengthFeet));
+        BandLengthFeet = Check(bandLengthFeet, nameof(bandLengthFeet));
+        InsideLengthFeet = Check(insideLengthFeet, nameof(insideLengthFeet));
+        OutsideLengthFeet = Check(outsideLengthFeet, nameof(outsideLengthFeet));
+        ThroughLengthFeet = Check(throughLengthFeet, nameof(throughLengthFeet));
+        DistanceToBoundaryFeet = Check(distanceToBoundaryFeet, nameof(distanceToBoundaryFeet));
+    }
+
+    /// <summary>Length of the centreline lying on the boundary.</summary>
+    public double? BoundaryLengthFeet { get; }
+
+    /// <summary>Length lying along the boundary within the member's own thickness.</summary>
+    public double? BandLengthFeet { get; }
+
+    public double? InsideLengthFeet { get; }
+    public double? OutsideLengthFeet { get; }
+
+    /// <summary>Length of the zone boundary running through the element's outline.</summary>
+    public double? ThroughLengthFeet { get; }
+
+    /// <summary>Distance from an opening's location to the zone boundary.</summary>
+    public double? DistanceToBoundaryFeet { get; }
+
+    internal IEnumerable<(string Field, double Feet)> Present()
+    {
+        if (BoundaryLengthFeet.HasValue) yield return ("candidate.boundaryLength", BoundaryLengthFeet.Value);
+        if (BandLengthFeet.HasValue) yield return ("candidate.bandLength", BandLengthFeet.Value);
+        if (InsideLengthFeet.HasValue) yield return ("candidate.insideLength", InsideLengthFeet.Value);
+        if (OutsideLengthFeet.HasValue) yield return ("candidate.outsideLength", OutsideLengthFeet.Value);
+        if (ThroughLengthFeet.HasValue) yield return ("candidate.throughLength", ThroughLengthFeet.Value);
+        if (DistanceToBoundaryFeet.HasValue) yield return ("candidate.distanceToBoundary", DistanceToBoundaryFeet.Value);
+    }
+
+    private static double? Check(double? value, string name)
+    {
+        if (value.HasValue && (double.IsNaN(value.Value) || double.IsInfinity(value.Value) || value.Value < 0))
+            throw new ArgumentOutOfRangeException(name, "A measurement must be a finite, non-negative length.");
+        return value;
+    }
+}
+
+/// <summary>One element's relation to one zone, with the measurements and the sentence that explain it.</summary>
+public sealed class ZoneRelation
+{
+    public ZoneRelation(
+        Guid zoneId,
+        ZoneRelationKind kind,
+        string message,
+        RelationMeasurements? measurements = null,
+        CandidateAmbiguityKind? ambiguity = null)
+    {
+        if (zoneId == Guid.Empty) throw new ArgumentException("Zone ID cannot be empty.", nameof(zoneId));
+        if (!Enum.IsDefined(typeof(ZoneRelationKind), kind)) throw new ArgumentOutOfRangeException(nameof(kind));
+        if (string.IsNullOrWhiteSpace(message)) throw new ArgumentException("A relation must say why.", nameof(message));
+        if (kind == ZoneRelationKind.Ambiguous && !ambiguity.HasValue)
+            throw new ArgumentException("An ambiguous relation must name what made it ambiguous.", nameof(ambiguity));
+
+        // 唯一一個「關係已經定了，卻仍帶著疑義」的組合（驗證清單 C-18）：一道跨越區劃邊界的牆或梁。
+        // Crossing 本身是量得出來的事實（區劃內外各一段），所以它不是 Ambiguous——規則引擎仍讀得到
+        // 它的 facts，兩種假設才評得下去；但「它到底算不算這道區劃的邊界」沒有答案，所以仍要掛一個
+        // BoundaryCrossed，否則 element.isCompartmentBoundary 逕取 false，第79條第1項就被靜默免除。
+        // 其餘非 Ambiguous 的關係一律不得帶疑義：帶了就表示某處把「已判定」與「存疑」混為一談。
+        if (kind != ZoneRelationKind.Ambiguous && ambiguity.HasValue &&
+            !(kind == ZoneRelationKind.Crossing && ambiguity == CandidateAmbiguityKind.BoundaryCrossed))
+            throw new ArgumentException(
+                "Only an ambiguous relation, or a Crossing one carrying BoundaryCrossed, names an ambiguity.",
+                nameof(ambiguity));
+
+        // 白名單的另一半：BoundaryCrossed 講的是「中心線跨過去了，但算不算這道區劃的邊界沒有答案」，
+        // 那句話只有在關係確實是 Crossing 時才成立。掛到別的 kind 上，IsBoundaryDoubt 仍會收它、
+        // Settled 仍會評兩支，等於用一個量不出來的前提去推論，所以一併擋掉。
+        if (ambiguity == CandidateAmbiguityKind.BoundaryCrossed && kind != ZoneRelationKind.Crossing)
+            throw new ArgumentException(
+                "BoundaryCrossed belongs to a Crossing relation and no other.", nameof(ambiguity));
+
+        ZoneId = zoneId;
+        Kind = kind;
+        Message = message.Trim();
+        Measurements = measurements ?? RelationMeasurements.None;
+        Ambiguity = ambiguity;
+    }
+
+    public Guid ZoneId { get; }
+    public ZoneRelationKind Kind { get; }
+    public string Message { get; }
+    public RelationMeasurements Measurements { get; }
+    public CandidateAmbiguityKind? Ambiguity { get; }
+    public bool IsAmbiguous => Kind == ZoneRelationKind.Ambiguous;
+    public bool IsBoundary => Kind == ZoneRelationKind.Boundary;
+    public bool IsFacade => Kind == ZoneRelationKind.Facade;
+
+    /// <summary>
+    /// 這個關係帶著一筆疑義：<see cref="IsAmbiguous"/> 的關係，或一道跨越邊界的
+    /// <see cref="ZoneRelationKind.Crossing"/>（<see cref="CandidateAmbiguityKind.BoundaryCrossed"/>）。
+    /// 每一個這樣的關係都由 <c>CandidateResolver</c> 登一筆 <see cref="CandidateAmbiguity"/>，所以
+    /// 「主迴圈跳過它」與「ambiguity 迴圈接手它」兩端都問這個述詞，跳掉幾列就補回幾列（驗證清單 C-18）。
+    /// </summary>
+    public bool CarriesAmbiguity => Ambiguity.HasValue;
+}
+
+/// <summary>A wall, column, beam or floor with the zones it relates to.</summary>
+public sealed class MemberCandidate
+{
+    public MemberCandidate(
+        MemberObservation observation,
+        IEnumerable<ZoneRelation> relations,
+        CurtainWallExposureVerdict? curtainWallExposure = null)
+    {
+        Observation = observation ?? throw new ArgumentNullException(nameof(observation));
+        Relations = CandidateOrdering.Relations(relations);
+        CurtainWallExposure = curtainWallExposure;
+    }
+
+    public MemberObservation Observation { get; }
+    public IReadOnlyList<ZoneRelation> Relations { get; }
+
+    /// <summary>
+    /// 這道帷幕牆是建築物外牆或室內帷幕牆，連同判定依據
+    /// （docs/regulations/curtain-wall-fire-compartment.md §4.8）。只有帷幕牆有值：第79條第1項的區劃
+    /// 牆壁時效排除的是**外牆**帷幕牆，不是每一片帷幕牆。
+    /// </summary>
+    public CurtainWallExposureVerdict? CurtainWallExposure { get; }
+
+    /// <summary>規則讀的 <c>element.curtainWallExposure</c>：不是帷幕牆就是 <c>NotCurtainWall</c>.</summary>
+    public string CurtainWallExposureText => Observation.IsCurtainWall
+        ? CurtainWallExposureVerdict.Text(CurtainWallExposure?.Exposure ?? Candidates.CurtainWallExposure.Unknown)
+        : NotCurtainWallText;
+
+    /// <summary>非帷幕牆的 <c>element.curtainWallExposure</c> 值.</summary>
+    public const string NotCurtainWallText = "NotCurtainWall";
+
+    public CandidateSource Source => Observation.Source;
+    public CandidateCategory Category => Observation.Category;
+
+    public ZoneRelation? RelationTo(Guid zoneId) => Relations.FirstOrDefault(r => r.ZoneId == zoneId);
+
+    /// <summary>The source evidence a result about this member and zone carries (spec 11.3 evidence).</summary>
+    public ReviewEvidence EvidenceFor(Guid zoneId)
+    {
+        var relation = RelationTo(zoneId) ?? throw new ArgumentException("The member has no relation to this zone.", nameof(zoneId));
+        var items = CandidateEvidence.Relation(relation).ToList();
+        items.AddRange(CandidateEvidence.Source(Source, Category, Observation.TypeName));
+        if (Observation.WidthFeet.HasValue) items.Add(CandidateEvidence.Length("source.width", Observation.WidthFeet.Value));
+
+        // 室內外判定與它的依據：審查者要能分辨「這道牆被判成外牆所以不要求一小時時效」是量到的還是猜的。
+        if (Observation.IsCurtainWall)
+        {
+            items.Add(new ReviewEvidenceItem("source.curtainWallExposure", ReviewValue.OfText(CurtainWallExposureText)));
+            if (CurtainWallExposure is not null)
+                items.Add(new ReviewEvidenceItem("source.curtainWallExposureReason",
+                    ReviewValue.OfText(CurtainWallExposure.Describe())));
+        }
+
+        return new ReviewEvidence(items);
+    }
+}
+
+/// <summary>A door, window or curtain panel with the zones it relates to.</summary>
+public sealed class OpeningCandidate
+{
+    public OpeningCandidate(OpeningObservation observation, IEnumerable<ZoneRelation> relations, MemberObservation? host)
+    {
+        Observation = observation ?? throw new ArgumentNullException(nameof(observation));
+        Relations = CandidateOrdering.Relations(relations);
+        Host = host;
+    }
+
+    public OpeningObservation Observation { get; }
+    public IReadOnlyList<ZoneRelation> Relations { get; }
+
+    /// <summary>The host wall the review resolved, or null when there was none to resolve.</summary>
+    public MemberObservation? Host { get; }
+
+    public CandidateSource Source => Observation.Source;
+    public CandidateCategory Category => Observation.Category;
+
+    /// <summary>Hosted by a wall the review read; curtain walls count, their policy is decided per relation.</summary>
+    public bool HasResolvedHost => Host is not null;
+
+    public ZoneRelation? RelationTo(Guid zoneId) => Relations.FirstOrDefault(r => r.ZoneId == zoneId);
+
+    public ReviewEvidence EvidenceFor(Guid zoneId)
+    {
+        var relation = RelationTo(zoneId) ?? throw new ArgumentException("The opening has no relation to this zone.", nameof(zoneId));
+        var items = CandidateEvidence.Relation(relation).ToList();
+        items.AddRange(CandidateEvidence.Source(Source, Category, Observation.TypeName));
+        if (Observation.HostUniqueId is not null) items.Add(new ReviewEvidenceItem("source.hostUniqueId", ReviewValue.OfText(Observation.HostUniqueId)));
+        if (Host is not null) items.Add(new ReviewEvidenceItem("source.hostIsCurtainWall", ReviewValue.OfBoolean(Host.IsCurtainWall)));
+        return new ReviewEvidence(items);
+    }
+}
+
+/// <summary>One Area of a zone as the review measured it.</summary>
+public sealed class CandidateZonePart
+{
+    public CandidateZonePart(ZonePartObservation observation, double? geometricAreaSquareFeet)
+    {
+        Observation = observation ?? throw new ArgumentNullException(nameof(observation));
+        GeometricAreaSquareFeet = geometricAreaSquareFeet;
+    }
+
+    public ZonePartObservation Observation { get; }
+    public string AreaUniqueId => Observation.AreaUniqueId;
+    public bool IsEnclosed => Observation.IsEnclosed;
+    public double? RevitAreaSquareMeters => Observation.RevitAreaSquareFeet is double feet ? PlanUnits.SquareFeetToSquareMeters(feet) : (double?)null;
+
+    /// <summary>Outer loop minus holes of the boundary Revit reported; the cross-check of spec 11.4 step 2.</summary>
+    public double? GeometricAreaSquareFeet { get; }
+
+    public double? GeometricAreaSquareMeters => GeometricAreaSquareFeet is double feet ? PlanUnits.SquareFeetToSquareMeters(feet) : (double?)null;
+}
+
+/// <summary>A 區劃 as the review sees it: its Areas and whether its extent can be relied on.</summary>
+public sealed class CandidateZone
+{
+    public CandidateZone(Guid zoneId, string name, IEnumerable<CandidateZonePart> parts, IEnumerable<CandidateAmbiguityKind>? problems = null)
+    {
+        if (zoneId == Guid.Empty) throw new ArgumentException("Zone ID cannot be empty.", nameof(zoneId));
+        if (parts is null) throw new ArgumentNullException(nameof(parts));
+
+        ZoneId = zoneId;
+        Name = string.IsNullOrWhiteSpace(name) ? zoneId.ToString("D") : name.Trim();
+        Parts = new ReadOnlyCollection<CandidateZonePart>(parts.OrderBy(p => p.AreaUniqueId, StringComparer.Ordinal).ToList());
+        Problems = new ReadOnlyCollection<CandidateAmbiguityKind>((problems ?? Array.Empty<CandidateAmbiguityKind>()).Distinct().OrderBy(p => p).ToList());
+    }
+
+    public Guid ZoneId { get; }
+
+    /// <summary>The zone ID as rules and results carry it (<c>zone.id</c>, <see cref="ReviewResult.ZoneId"/>).</summary>
+    public string ZoneIdText => ZoneId.ToString("D");
+
+    public string Name { get; }
+    public IReadOnlyList<CandidateZonePart> Parts { get; }
+    public IReadOnlyList<CandidateAmbiguityKind> Problems { get; }
+
+    /// <summary>No zone-level problem: every Area is enclosed and none overlaps another zone.</summary>
+    public bool IsClear => Problems.Count == 0;
+
+    /// <summary>At least one enclosed Area, so elements can be measured against it at all.</summary>
+    public bool IsMeasurable => Parts.Any(p => p.IsEnclosed);
+
+    public IEnumerable<string> AreaUniqueIds => Parts.Select(p => p.AreaUniqueId);
+
+    /// <summary>Sum of Revit's own Area values, or null when any Area did not report one.</summary>
+    public double? RevitAreaSquareMeters =>
+        Parts.All(p => p.RevitAreaSquareMeters.HasValue) ? Parts.Sum(p => p.RevitAreaSquareMeters!.Value) : (double?)null;
+
+    /// <summary>Sum of the measured boundaries, or null when any Area is not enclosed.</summary>
+    public double? GeometricAreaSquareMeters =>
+        Parts.All(p => p.GeometricAreaSquareMeters.HasValue) ? Parts.Sum(p => p.GeometricAreaSquareMeters!.Value) : (double?)null;
+}
+
+/// <summary>
+/// Something candidate resolution could not decide. It becomes a ManualReview result rather than a
+/// guess (spec 11.0 P3-T03: 歧義回傳 ManualReview).
+/// </summary>
+public sealed class CandidateAmbiguity
+{
+    public CandidateAmbiguity(
+        CandidateAmbiguityKind kind,
+        IEnumerable<string> subjectUniqueIds,
+        Guid? zoneId,
+        string message,
+        ReviewEvidence? evidence = null)
+    {
+        if (!Enum.IsDefined(typeof(CandidateAmbiguityKind), kind)) throw new ArgumentOutOfRangeException(nameof(kind));
+        if (subjectUniqueIds is null) throw new ArgumentNullException(nameof(subjectUniqueIds));
+        if (zoneId == Guid.Empty) throw new ArgumentException("Zone ID cannot be empty.", nameof(zoneId));
+        if (string.IsNullOrWhiteSpace(message)) throw new ArgumentException("An ambiguity must say why.", nameof(message));
+
+        var subjects = subjectUniqueIds.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim())
+            .Distinct(StringComparer.Ordinal).OrderBy(x => x, StringComparer.Ordinal).ToList();
+        if (subjects.Count == 0) throw new ArgumentException("An ambiguity must name the elements it is about.", nameof(subjectUniqueIds));
+
+        Kind = kind;
+        SubjectUniqueIds = new ReadOnlyCollection<string>(subjects);
+        ZoneId = zoneId;
+        Message = message.Trim();
+        Evidence = evidence ?? ReviewEvidence.Empty;
+    }
+
+    public CandidateAmbiguityKind Kind { get; }
+    public IReadOnlyList<string> SubjectUniqueIds { get; }
+    public Guid? ZoneId { get; }
+    public string Message { get; }
+    public ReviewEvidence Evidence { get; }
+
+    /// <summary>The spec 14 error code a log entry about this ambiguity carries.</summary>
+    public string ErrorCode => Kind == CandidateAmbiguityKind.ZoneNotEnclosed || Kind == CandidateAmbiguityKind.ZonesOverlap
+        ? ReviewErrorCode.CandidateZoneUnusable
+        : ReviewErrorCode.CandidateAmbiguous;
+
+    /// <summary>
+    /// The ManualReview result of a check that met this ambiguity. No rule decided it, so — like the
+    /// engine's NoRule outcome — it is attributed to the rule set itself.
+    /// </summary>
+    public ReviewResult ToReviewResult(Guid resultId, Guid runId, Guid packageId, string checkType, CompiledRuleSet ruleSet)
+    {
+        if (ruleSet is null) throw new ArgumentNullException(nameof(ruleSet));
+        var set = ruleSet.RuleSet;
+        return new ReviewResult(resultId, runId, packageId, checkType, SubjectUniqueIds, ZoneId?.ToString("D"),
+            ReviewStatus.ManualReview, null, null, set.RuleSetId, set.Version, set.FallbackLegalReference,
+            Message, Evidence);
+    }
+
+    public override string ToString() => $"{Kind} [{string.Join(",", SubjectUniqueIds)}]: {Message}";
+}
+
+/// <summary>
+/// 一個讀到了、但不是任何區劃候選的開口（驗證清單 C-16）。
+/// </summary>
+/// <remarks>
+/// 這一類開口原本只進 <see cref="CandidateSet.UnrelatedOpeningCount"/> 一個數字，而那個數字只進基準
+/// 指紋與候選元素總數——換句話說，一個本該檢討的開口若因位置讀錯而落到這裡，檢討表、日誌、統計三邊
+/// 都看不出有東西消失。留下每一件的身分與它離最近邊界多遠，<c>FireReviewRunner</c> 才有東西可以在
+/// 日誌上講一句話（比照 <c>BCR-CAND-003</c> 對推定為外牆的那些開口所做的）。
+/// 構件那一側仍只有計數：構件的「與任何區劃無關」是量得出來的事實（整個樓層都讀進來，多數構件
+/// 本來就不在任何區劃邊界上），不像開口會因為位置讀錯而假性落空。
+/// </remarks>
+public sealed class UnrelatedOpening
+{
+    public UnrelatedOpening(
+        CandidateSource source,
+        CandidateCategory category,
+        string? typeName,
+        double? nearestBoundaryDistanceFeet,
+        bool isInsideAZone)
+    {
+        Source = source ?? throw new ArgumentNullException(nameof(source));
+        if (!CandidateCategories.IsOpening(category)) throw new ArgumentOutOfRangeException(nameof(category), "Not an opening category.");
+        if (nearestBoundaryDistanceFeet.HasValue &&
+            (double.IsNaN(nearestBoundaryDistanceFeet.Value) || double.IsInfinity(nearestBoundaryDistanceFeet.Value) ||
+             nearestBoundaryDistanceFeet.Value < 0))
+            throw new ArgumentOutOfRangeException(nameof(nearestBoundaryDistanceFeet));
+
+        Category = category;
+        TypeName = string.IsNullOrWhiteSpace(typeName) ? null : typeName!.Trim();
+        NearestBoundaryDistanceFeet = nearestBoundaryDistanceFeet;
+        IsInsideAZone = isInsideAZone;
+    }
+
+    public CandidateSource Source { get; }
+    public CandidateCategory Category { get; }
+    public string? TypeName { get; }
+
+    /// <summary>離最近一個可量區劃邊界多遠，或 null 表示它連平面位置都沒有。</summary>
+    public double? NearestBoundaryDistanceFeet { get; }
+
+    /// <summary>它落在某個區劃內部（關係是 Inside，被 <c>IncludeInteriorOpenings</c> 濾掉），而不是不屬於任何區劃。</summary>
+    public bool IsInsideAZone { get; }
+
+    public override string ToString() => $"{CandidateCategories.Label(Category)} {Source}";
+}
+
+/// <summary>
+/// The outcome of candidate resolution for one package: every zone, every member and opening that
+/// relates to one, and everything that could not be decided. Ordered canonically, so the same model
+/// always yields the same set (spec 11.0 P3-T03: 固定模型的候選集合可重現).
+/// </summary>
+public sealed class CandidateSet
+{
+    public CandidateSet(
+        Guid packageId,
+        string levelUniqueId,
+        string? levelName,
+        IEnumerable<CandidateZone> zones,
+        IEnumerable<MemberCandidate> members,
+        IEnumerable<OpeningCandidate> openings,
+        IEnumerable<CandidateAmbiguity> ambiguities,
+        int unrelatedMemberCount,
+        IEnumerable<UnrelatedOpening> unrelatedOpenings,
+        IEnumerable<string>? warnings = null)
+    {
+        if (packageId == Guid.Empty) throw new ArgumentException("Package ID cannot be empty.", nameof(packageId));
+        if (string.IsNullOrWhiteSpace(levelUniqueId)) throw new ArgumentException("Level UniqueId is required.", nameof(levelUniqueId));
+        if (unrelatedMemberCount < 0) throw new ArgumentOutOfRangeException(nameof(unrelatedMemberCount));
+
+        PackageId = packageId;
+        LevelUniqueId = levelUniqueId.Trim();
+        LevelName = string.IsNullOrWhiteSpace(levelName) ? null : levelName!.Trim();
+        Zones = new ReadOnlyCollection<CandidateZone>((zones ?? throw new ArgumentNullException(nameof(zones))).OrderBy(z => z.ZoneId).ToList());
+        Members = new ReadOnlyCollection<MemberCandidate>((members ?? throw new ArgumentNullException(nameof(members)))
+            .OrderBy(m => m.Category).ThenBy(m => m.Source, CandidateOrdering.Sources).ToList());
+        Openings = new ReadOnlyCollection<OpeningCandidate>((openings ?? throw new ArgumentNullException(nameof(openings)))
+            .OrderBy(o => o.Category).ThenBy(o => o.Source, CandidateOrdering.Sources).ToList());
+        Ambiguities = new ReadOnlyCollection<CandidateAmbiguity>((ambiguities ?? throw new ArgumentNullException(nameof(ambiguities)))
+            .OrderBy(a => a.ZoneId?.ToString("D") ?? string.Empty, StringComparer.Ordinal)
+            .ThenBy(a => a.SubjectUniqueIds[0], StringComparer.Ordinal)
+            .ThenBy(a => a.Kind)
+            .ToList());
+        UnrelatedMemberCount = unrelatedMemberCount;
+        UnrelatedOpenings = new ReadOnlyCollection<UnrelatedOpening>(
+            (unrelatedOpenings ?? throw new ArgumentNullException(nameof(unrelatedOpenings)))
+                .OrderBy(o => o.Category).ThenBy(o => o.Source, CandidateOrdering.Sources).ToList());
+        Warnings = new ReadOnlyCollection<string>((warnings ?? Array.Empty<string>()).ToList());
+    }
+
+    public Guid PackageId { get; }
+    public string LevelUniqueId { get; }
+    public string? LevelName { get; }
+    public IReadOnlyList<CandidateZone> Zones { get; }
+    public IReadOnlyList<MemberCandidate> Members { get; }
+    public IReadOnlyList<OpeningCandidate> Openings { get; }
+    public IReadOnlyList<CandidateAmbiguity> Ambiguities { get; }
+
+    /// <summary>Members read from the storey that relate to no zone at all.</summary>
+    public int UnrelatedMemberCount { get; }
+
+    /// <summary>
+    /// Openings read from the storey that are candidates for no zone, each with why (驗證清單 C-16).
+    /// </summary>
+    public IReadOnlyList<UnrelatedOpening> UnrelatedOpenings { get; }
+
+    /// <summary>Openings read from the storey that are candidates for no zone.</summary>
+    public int UnrelatedOpeningCount => UnrelatedOpenings.Count;
+
+    public IReadOnlyList<string> Warnings { get; }
+
+    /// <summary>
+    /// Spec 11.1 前置檢查「來源元素與區劃空間關係可解析」: at least one zone, and every zone
+    /// measurable. Individual ambiguities do not block; they become ManualReview results.
+    /// </summary>
+    public bool CanReview => Zones.Count > 0 && Zones.All(z => z.IsMeasurable);
+
+    public CandidateZone? Zone(Guid zoneId) => Zones.FirstOrDefault(z => z.ZoneId == zoneId);
+
+    public IEnumerable<MemberCandidate> MembersOf(Guid zoneId) => Members.Where(m => m.RelationTo(zoneId) is not null);
+
+    public IEnumerable<OpeningCandidate> OpeningsOf(Guid zoneId) => Openings.Where(o => o.RelationTo(zoneId) is not null);
+
+    /// <summary>
+    /// A canonical text of the whole set, one line per fact, lengths rounded to a micrometre. Two
+    /// resolutions of the same model produce the same text whatever order the elements were read in.
+    /// </summary>
+    public string Signature()
+    {
+        var text = new StringBuilder();
+        text.Append("package|").Append(PackageId.ToString("D")).Append('|').Append(LevelUniqueId).Append('\n');
+
+        foreach (var zone in Zones)
+        {
+            text.Append("zone|").Append(zone.ZoneIdText).Append('|').Append(zone.Name)
+                .Append("|parts=").Append(zone.Parts.Count.ToString(CultureInfo.InvariantCulture))
+                .Append("|enclosed=").Append(zone.Parts.Count(p => p.IsEnclosed).ToString(CultureInfo.InvariantCulture))
+                .Append("|area=").Append(Number(zone.GeometricAreaSquareMeters))
+                .Append("|problems=").Append(string.Join(",", zone.Problems)).Append('\n');
+        }
+
+        foreach (var member in Members)
+            AppendRelations(text, "member", member.Category, member.Source, member.Relations);
+
+        foreach (var opening in Openings)
+            AppendRelations(text, "opening", opening.Category, opening.Source, opening.Relations);
+
+        foreach (var ambiguity in Ambiguities)
+        {
+            text.Append("ambiguity|").Append(ambiguity.Kind).Append('|')
+                .Append(ambiguity.ZoneId?.ToString("D") ?? "-").Append('|')
+                .Append(string.Join(",", ambiguity.SubjectUniqueIds)).Append('\n');
+        }
+
+        text.Append("unrelated|members=").Append(UnrelatedMemberCount.ToString(CultureInfo.InvariantCulture))
+            .Append("|openings=").Append(UnrelatedOpeningCount.ToString(CultureInfo.InvariantCulture)).Append('\n');
+        return text.ToString();
+    }
+
+    private static void AppendRelations(StringBuilder text, string prefix, CandidateCategory category, CandidateSource source, IEnumerable<ZoneRelation> relations)
+    {
+        foreach (var relation in relations)
+        {
+            var m = relation.Measurements;
+            text.Append(prefix).Append('|').Append(category).Append('|').Append(source).Append('|')
+                .Append(relation.ZoneId.ToString("D")).Append('|').Append(relation.Kind)
+                .Append('|').Append(relation.Ambiguity?.ToString() ?? "-")
+                .Append("|b=").Append(Length(m.BoundaryLengthFeet))
+                .Append("|w=").Append(Length(m.BandLengthFeet))
+                .Append("|i=").Append(Length(m.InsideLengthFeet))
+                .Append("|o=").Append(Length(m.OutsideLengthFeet))
+                .Append("|t=").Append(Length(m.ThroughLengthFeet))
+                .Append("|d=").Append(Length(m.DistanceToBoundaryFeet)).Append('\n');
+        }
+    }
+
+    private static string Length(double? feet) => Number(feet is double f ? PlanUnits.FeetToMeters(f) : (double?)null);
+
+    private static string Number(double? value) =>
+        value is double v ? Math.Round(v, 6, MidpointRounding.AwayFromZero).ToString("0.######", CultureInfo.InvariantCulture) : "-";
+}
+
+internal static class CandidateOrdering
+{
+    public static readonly IComparer<CandidateSource> Sources = Comparer<CandidateSource>.Create(CandidateSource.Compare);
+
+    public static IReadOnlyList<ZoneRelation> Relations(IEnumerable<ZoneRelation> relations)
+    {
+        if (relations is null) throw new ArgumentNullException(nameof(relations));
+        var list = relations.ToList();
+        if (list.Any(r => r is null)) throw new ArgumentException("Relations cannot contain null.", nameof(relations));
+        if (list.GroupBy(r => r.ZoneId).Any(g => g.Count() > 1))
+            throw new ArgumentException("An element relates to one zone at most once.", nameof(relations));
+        return new ReadOnlyCollection<ZoneRelation>(list.OrderBy(r => r.ZoneId).ToList());
+    }
+}
+
+internal static class CandidateEvidence
+{
+    public static IEnumerable<ReviewEvidenceItem> Relation(ZoneRelation relation)
+    {
+        yield return new ReviewEvidenceItem("candidate.zoneId", ReviewValue.OfText(relation.ZoneId.ToString("D")));
+        yield return new ReviewEvidenceItem("candidate.relation", ReviewValue.OfText(relation.Kind.ToString()));
+        if (relation.Ambiguity.HasValue)
+            yield return new ReviewEvidenceItem("candidate.ambiguity", ReviewValue.OfText(relation.Ambiguity.Value.ToString()));
+        foreach (var (field, feet) in relation.Measurements.Present())
+            yield return Length(field, feet);
+    }
+
+    public static IEnumerable<ReviewEvidenceItem> Source(CandidateSource source, CandidateCategory category, string? typeName)
+    {
+        yield return new ReviewEvidenceItem("source.elementUniqueId", ReviewValue.OfText(source.ElementUniqueId));
+        yield return new ReviewEvidenceItem("source.documentUniqueId", ReviewValue.OfText(source.DocumentUniqueId));
+        if (source.LinkInstanceUniqueId is not null)
+            yield return new ReviewEvidenceItem("source.linkInstanceUniqueId", ReviewValue.OfText(source.LinkInstanceUniqueId));
+        yield return new ReviewEvidenceItem("source.category", ReviewValue.OfText(CandidateCategories.RuleText(category)));
+        if (typeName is not null) yield return new ReviewEvidenceItem("source.typeName", ReviewValue.OfText(typeName));
+    }
+
+    public static ReviewEvidenceItem Length(string field, double feet) =>
+        new ReviewEvidenceItem(field, ReviewValue.Quantity(PlanUnits.FeetToMeters(feet), ReviewUnit.Meter));
+}

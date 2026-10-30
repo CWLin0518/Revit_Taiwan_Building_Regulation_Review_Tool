@@ -1,0 +1,729 @@
+<Window x:Class="BuildingRegulationReview.FireReview.FireReviewParameterPanelWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:sys="clr-namespace:System;assembly=mscorlib"
+        Title="防火檢討參數批次設定" Width="1240" Height="760" MinWidth="900" MinHeight="560"
+        WindowStartupLocation="CenterScreen" Background="#F5F6F7">
+    <Window.Resources>
+        <SolidColorBrush x:Key="Muted" Color="#62666A" />
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+
+        <!--
+            驗證清單 C-10（c）：同一段說明要同時掛在儲存格與欄位標題上——使用者的直覺是停在
+            標題上找說明，而停用的那幾欄連格子都點不到。字串放成資源，兩邊引用同一份，免得
+            日後只改了其中一邊。
+        -->
+        <sys:String x:Key="TipPanelKind">只有帷幕嵌板要填。實心＝以自己的防火時效作答（第79條第4項、第79條之3第2項的交接帶量的就是嵌板的時效）；玻璃＝以防火門窗作答，同一片玻璃窗。留白＝未宣告，檢討會答資料不足，不會猜成其中一種。</sys:String>
+        <sys:String x:Key="TipCoverCm">僅 SC（鋼骨造）需要：第71～73條以防火被覆單面厚度計時效。</sys:String>
+        <sys:String x:Key="TipProtection">勾選＝此門窗型號是防火門窗。未勾選＝不是，區劃邊界上的這個型號會判未符合。</sys:String>
+        <sys:String x:Key="TipInsulation">勾選＝此型號的防火設備具一小時以上阻熱性。第79條第1項要求區劃分隔處的防火設備具一小時以上阻熱性；已勾「防火門窗」的型號都要回答，未勾＝否。</sys:String>
+        <sys:String x:Key="TipSmokeProtection">勾選＝此型號通過遮煙性能試驗（第1條第45款）。第79條之2第1項要求昇降機道裝設之防火設備與管道間之維修門具遮煙性能；這與左邊的「防火門窗」是兩個不同的問題。</sys:String>
+        <sys:String x:Key="TipDerivedFloor">依樓層高程推定：高程 0 以上由下往上 1、2、3…，以下 −1、−2…。</sys:String>
+        <sys:String x:Key="TipFloorNumber">整數；1 = 一樓、-1 = 地下一層。第70條用它算「自頂層起算第幾層」。</sys:String>
+        <sys:String x:Key="TipLinksRefugeFloor">只有挑空需要填。第79條之2第3項第一款：避難層通達其直上層或直下層，且室內牆面與天花板以耐燃一級材料裝修者，得免依第1項單獨區劃。</sys:String>
+        <sys:String x:Key="TipCannotBeSubdivided">只有第79條之1 的六個用途（觀眾席、生產線、教室、體育館、零售市場、停車空間）需要填。第79條之1：防火構造建築物內，這些部分因建築物構造或設備而無法區劃分隔者，得不受第79條第1項之面積限制，但仍須以一小時以上防火時效之牆壁、防火門窗等防火設備與該處防火構造之樓地板自成一個區劃（第2項並要求該防火設備具一小時以上阻熱性）。工具看不到後面這兩件事，所以填「是」只會產生一筆待人工確認的結果，面積上限照樣適用。未填＝資料不足；已經填過的值無法在這裡清回未填（Revit 的是否類參數只能設值），只能改填另一個答案，或回 Revit 刪掉該參數的值。</sys:String>
+
+        <!--
+            這些說明動輒上百字，而 ToolTip 預設不換行、也沒有寬度上限，整段會拉成一條比螢幕還
+            寬的線（條文說明幾乎都是這種長度）。限寬＋換行才看得完，所以用隱含樣式一次套到這個
+            視窗的所有 tooltip；內容是字串，所以 ContentTemplate 綁 {Binding} 就是那個字串本身。
+        -->
+        <Style TargetType="ToolTip">
+            <Setter Property="MaxWidth" Value="480" />
+            <Setter Property="ContentTemplate">
+                <Setter.Value>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding}" TextWrapping="Wrap" />
+                    </DataTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!--
+            欄位標題的說明樣式。掛在 DataGridColumnHeader 上：它是 ButtonBase（按下去會排序），
+            本來就在收滑鼠事件，所以 tooltip 一定觸發得到。標題的 DataContext 不是那一列的
+            ViewModel，所以這裡只能放靜態字串，不能綁 {Binding}。
+        -->
+        <Style x:Key="HeaderTip" TargetType="DataGridColumnHeader">
+            <Setter Property="ToolTipService.ShowDuration" Value="60000" />
+        </Style>
+
+        <Style TargetType="Button">
+            <Setter Property="Padding" Value="12,6" />
+            <Setter Property="Margin" Value="0,0,8,0" />
+            <Setter Property="MinWidth" Value="96" />
+        </Style>
+        <Style x:Key="FieldLabel" TargetType="TextBlock">
+            <Setter Property="Margin" Value="0,0,0,4" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style x:Key="FieldHint" TargetType="TextBlock">
+            <Setter Property="Margin" Value="0,4,0,16" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Foreground" Value="{StaticResource Muted}" />
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="14">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel>
+            <TextBlock Text="防火檢討參數批次設定" FontSize="20" FontWeight="SemiBold" Foreground="#202124" />
+            <TextBlock x:Name="ScopeText" Margin="0,4,0,0" Foreground="{StaticResource Muted}" TextWrapping="Wrap" />
+        </StackPanel>
+
+        <Border x:Name="WarningBox" Grid.Row="1" Margin="0,10,0,0" Padding="10" Visibility="Collapsed"
+                Background="#FDECEA" BorderBrush="#F3B5AE" BorderThickness="1" CornerRadius="4">
+            <TextBlock x:Name="WarningText" TextWrapping="Wrap" Foreground="#8A2C22" />
+        </Border>
+
+        <TabControl Grid.Row="2" Margin="0,12,0,0" Background="White" BorderBrush="#D5D8DC">
+
+            <!-- ============================ 構件類型 ============================ -->
+            <TabItem Header="構件類型">
+                <Grid Margin="10">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <Border Padding="10" Background="#FFF4E5" BorderBrush="#F0C48A" BorderThickness="1" CornerRadius="4">
+                        <StackPanel>
+                            <TextBlock Text="這些是「類型參數」" FontWeight="SemiBold" Foreground="#8A5200" />
+                            <TextBlock Margin="0,4,0,0" TextWrapping="Wrap" LineHeight="18" Foreground="#6B4A12"
+                                       Text="防火時效、結構材料、防火被覆厚度與門窗的防火門窗、遮煙性能勾選都掛在類型上，改一列會套用到整個專案中該類型的所有實體，不只目前視圖看得到的那些。「數量」欄的第二個數字就是專案中的實體數。門的「設計防火時效」是給管道間維修門用的（第79條之2第1項要一小時以上）。帷幕嵌板要先在「嵌板種類」選實心或玻璃，右邊才知道該填時效還是勾防火門窗；黃底並標「（提案）」的是工具由嵌板材料猜的初值，還沒寫進模型，留著不動也要按「寫入模型」才算宣告。" />
+                        </StackPanel>
+                    </Border>
+
+                    <DataGrid x:Name="Grid" Grid.Row="1" Margin="0,10,0,0" AutoGenerateColumns="False"
+                              CanUserAddRows="False" CanUserDeleteRows="False" HeadersVisibility="Column"
+                              GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#E3E5E8"
+                              RowHeaderWidth="0" SelectionMode="Extended" SelectionUnit="FullRow"
+                              AlternatingRowBackground="#FAFBFC" Background="White" BorderBrush="#D5D8DC">
+                        <DataGrid.RowStyle>
+                            <Style TargetType="DataGridRow">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HasMissingParameters}" Value="True">
+                                        <Setter Property="Background" Value="#FDECEA" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGrid.RowStyle>
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="類別" Binding="{Binding CategoryLabel}" IsReadOnly="True" Width="64" />
+                            <DataGridTextColumn Header="類型" Binding="{Binding DisplayName}" IsReadOnly="True" Width="2*" />
+                            <DataGridTextColumn Header="數量" Binding="{Binding Counts}" IsReadOnly="True" Width="76">
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="ToolTip" Value="{Binding CountsTooltip}" />
+                                    </Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
+                            <DataGridTextColumn Header="斷面尺寸" Binding="{Binding DimensionText}" IsReadOnly="True" Width="122">
+                                <DataGridTextColumn.CellStyle>
+                                    <Style TargetType="DataGridCell">
+                                        <Style.Triggers>
+                                            <!-- 保留型別那一列的厚度不是嵌板自己的（它沒有量體），是來源牆型別的（步驟 16h）。 -->
+                                            <DataTrigger Binding="{Binding IsSubstituted}" Value="True">
+                                                <Setter Property="Background" Value="#EDF3FA" />
+                                                <Setter Property="ToolTip" Value="{Binding SubstitutionNote}" />
+                                                <Setter Property="ToolTipService.ShowDuration" Value="60000" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </DataGridTextColumn.CellStyle>
+                            </DataGridTextColumn>
+
+                            <!-- 決議 16。這一欄決定右邊要填哪一格：實心嵌板是構造，答「設計防火時效」
+                                 （並由結構材料＋嵌板厚推定）；玻璃嵌板是防火設備，答「防火門窗」。留白
+                                 是未宣告，兩邊都亮著，檢討答資料不足而不替設計者猜。只有帷幕嵌板有這一欄。
+                                 綁 Text 而非 SelectedItem：模型裡填了讀不懂的字時（例如「膠合」），清單裡
+                                 找不到那個字，綁 SelectedItem 會把它清成空白再寫回模型，把使用者原本填的
+                                 內容弄掉——與「區劃用途」同一個理由。 -->
+                            <DataGridTemplateColumn Header="嵌板種類" Width="126" SortMemberPath="PanelKind">
+                                <DataGridTemplateColumn.HeaderStyle>
+                                    <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource HeaderTip}">
+                                        <Setter Property="ToolTip" Value="{StaticResource TipPanelKind}" />
+                                    </Style>
+                                </DataGridTemplateColumn.HeaderStyle>
+                                <DataGridTemplateColumn.CellStyle>
+                                    <Style TargetType="DataGridCell">
+                                        <Setter Property="ToolTip" Value="{StaticResource TipPanelKind}" />
+                                        <Setter Property="ToolTipService.ShowDuration" Value="60000" />
+                                        <!-- C-10（b）：下面的觸發程序會把整格停用，而 WPF 預設不在停用的元素上顯示
+                                             tooltip；這一行讓保留型別那一列的說明也看得到。 -->
+                                        <Setter Property="ToolTipService.ShowOnDisabled" Value="True" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsCurtainPanel}" Value="False">
+                                                <Setter Property="IsEnabled" Value="False" />
+                                                <Setter Property="Background" Value="#F0F1F2" />
+                                                <Setter Property="ToolTip" Value="{x:Null}" />
+                                            </DataTrigger>
+                                            <!-- 提案不是模型裡的值，所以看得出來是提案：底色加上「（提案）」，
+                                                 免得使用者以為型別已經填好而跳過這一列（決議 16、D3）。 -->
+                                            <DataTrigger Binding="{Binding PanelKindIsProposed}" Value="True">
+                                                <Setter Property="Background" Value="#FFF8E1" />
+                                                <Setter Property="ToolTip" Value="{Binding PanelKindProposalNote}" />
+                                            </DataTrigger>
+                                            <!-- 保留型別（System Panel : Wall）：Revit 把它的每一個參數都設成
+                                                 唯讀，這一列填不了。值改由帷幕牆型別的 Curtain Panel 所指的牆
+                                                 型別供給，種類是實心。整列留著讓使用者看得到它存在，只是改不得
+                                                 ——要改請改那個牆型別那一列（決議 16、步驟 16h）。 -->
+                                            <DataTrigger Binding="{Binding IsEditable}" Value="False">
+                                                <Setter Property="IsEnabled" Value="False" />
+                                                <Setter Property="Background" Value="#EDF3FA" />
+                                                <Setter Property="ToolTip" Value="{Binding SubstitutionNote}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </DataGridTemplateColumn.CellStyle>
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" Margin="6,0" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding PanelKind}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="（提案）" Foreground="#8A5200"
+                                                       Visibility="{Binding PanelKindIsProposed, Converter={StaticResource BoolToVis}}" />
+                                            <TextBlock Text="（取自牆型別）" Foreground="#1F5EA8"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       Visibility="{Binding IsSubstituted, Converter={StaticResource BoolToVis}}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                                <DataGridTemplateColumn.CellEditingTemplate>
+                                    <DataTemplate>
+                                        <ComboBox IsEditable="True" IsTextSearchEnabled="False"
+                                                  ItemsSource="{Binding PanelKindChoices}"
+                                                  Text="{Binding PanelKind, UpdateSourceTrigger=PropertyChanged}" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellEditingTemplate>
+                            </DataGridTemplateColumn>
+
+                            <!-- 亮不亮看 CarriesMaterial，不看 SupportsDerivation：問的是「這一列填不填
+                                 結構材料」，不是「填了推不推出時效」。梁兩者不同（第71～73條三款沒有給梁
+                                 尺寸門檻，所以推不出時效，但梁仍然要填材料，MissingParameters 也一直在要
+                                 它）；帷幕嵌板則是宣告實心之後才亮（決議 16）。 -->
+                            <DataGridComboBoxColumn Header="結構材料" Width="96"
+                                                    SelectedItemBinding="{Binding Material, UpdateSourceTrigger=PropertyChanged}">
+                                <DataGridComboBoxColumn.HeaderStyle>
+                                    <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource HeaderTip}">
+                                        <Setter Property="ToolTip" Value="可填 RC（鋼筋混凝土造）、SRC（鋼骨鋼筋混凝土造）、SC（鋼骨造）；留白＝未宣告。第71～73條用它與斷面尺寸推定防火時效，只有 SC 要再填右邊的「被覆厚度 cm」。灰掉＝這一列不問結構材料（例如門窗，以及宣告為玻璃或還沒宣告種類的帷幕嵌板），或整列唯讀（保留型別，值取自牆型別）。" />
+                                    </Style>
+                                </DataGridComboBoxColumn.HeaderStyle>
+                                <DataGridComboBoxColumn.CellStyle>
+                                    <Style TargetType="DataGridCell">
+                                        <!-- C-10（b）：這一欄的格子只在「保留型別」那一列有說明（下面的觸發程序才掛
+                                             ToolTip），而且格子本身不停用——停用的是格子裡的 ComboBox（ElementStyle 綁
+                                             CanEditMaterial）。ShowOnDisabled 會往下傳給那個停用的 ComboBox，所以保留型別
+                                             那一列滑鼠停在灰掉的下拉上也看得到。其餘灰掉的列（不問結構材料的）格子上沒有
+                                             任何 ToolTip，停上去本來就沒有說明，那一段說明改掛在欄位標題上。 -->
+                                        <Setter Property="ToolTipService.ShowOnDisabled" Value="True" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsEditable}" Value="False">
+                                                <Setter Property="Background" Value="#EDF3FA" />
+                                                <Setter Property="ToolTip" Value="{Binding SubstitutionNote}" />
+                                                <Setter Property="ToolTipService.ShowDuration" Value="60000" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </DataGridComboBoxColumn.CellStyle>
+                                <DataGridComboBoxColumn.ElementStyle>
+                                    <Style TargetType="ComboBox">
+                                        <Setter Property="ItemsSource" Value="{Binding MaterialChoices}" />
+                                        <Setter Property="IsEnabled" Value="{Binding CanEditMaterial}" />
+                                    </Style>
+                                </DataGridComboBoxColumn.ElementStyle>
+                                <DataGridComboBoxColumn.EditingElementStyle>
+                                    <Style TargetType="ComboBox">
+                                        <Setter Property="ItemsSource" Value="{Binding MaterialChoices}" />
+                                        <Setter Property="IsEnabled" Value="{Binding CanEditMaterial}" />
+                                    </Style>
+                                </DataGridComboBoxColumn.EditingElementStyle>
+                            </DataGridComboBoxColumn>
+
+                            <DataGridTextColumn Header="被覆厚度 cm" Width="96"
+                                                Binding="{Binding CoverCm, UpdateSourceTrigger=LostFocus}">
+                                <DataGridTextColumn.HeaderStyle>
+                                    <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource HeaderTip}">
+                                        <Setter Property="ToolTip" Value="{StaticResource TipCoverCm}" />
+                                    </Style>
+                                </DataGridTextColumn.HeaderStyle>
+                                <DataGridTextColumn.CellStyle>
+                                    <Style TargetType="DataGridCell">
+                                        <Setter Property="ToolTip" Value="{StaticResource TipCoverCm}" />
+                                        <!-- C-10（b）：不是 SC 的列整格停用，沒有這一行就看不到「為什麼不能填」。 -->
+                                        <Setter Property="ToolTipService.ShowOnDisabled" Value="True" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding NeedsCover}" Value="False">
+                                                <Setter Property="IsEnabled" Value="False" />
+                                                <Setter Property="Background" Value="#F0F1F2" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </DataGridTextColumn.CellStyle>
+                            </DataGridTextColumn>
+
+                            <DataGridTextColumn Header="推定時效" Binding="{Binding DerivedText}" IsReadOnly="True" Width="84">
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="FontWeight" Value="SemiBold" />
+                                        <Setter Property="Foreground" Value="#1F5EA8" />
+                                        <Setter Property="ToolTip" Value="{Binding DerivedBasis}" />
+                                    </Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
+
+                            <DataGridTextColumn Header="設計防火時效" Width="110"
+                                                Binding="{Binding Rating, UpdateSourceTrigger=LostFocus}">
+                                <DataGridTextColumn.HeaderStyle>
+                                    <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource HeaderTip}">
+                                        <Setter Property="ToolTip" Value="設計要求的防火時效；填在這一欄並按「寫入模型」才算宣告，留白＝未宣告，檢討會答資料不足。左邊的「推定時效」只是工具依結構材料與斷面尺寸算出的建議值，要按「套用推定值」才會填進這一欄。灰掉＝這一列不問時效（例如窗，以及宣告為玻璃的帷幕嵌板），或整列唯讀（保留型別，時效取自牆型別）。" />
+                                    </Style>
+                                </DataGridTextColumn.HeaderStyle>
+                                <DataGridTextColumn.CellStyle>
+                                    <Style TargetType="DataGridCell">
+                                        <!-- C-10（b）：下面兩個觸發程序會把整格停用（不帶時效的構件、保留型別），
+                                             而停用的格子預設不顯示 tooltip，保留型別那一句就永遠看不到。 -->
+                                        <Setter Property="ToolTipService.ShowOnDisabled" Value="True" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding RatingDiffers}" Value="True">
+                                                <Setter Property="Background" Value="#FFF8E1" />
+                                                <Setter Property="ToolTip" Value="目前填的值與推定值不同。" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding CarriesRating}" Value="False">
+                                                <Setter Property="IsEnabled" Value="False" />
+                                                <Setter Property="Background" Value="#F0F1F2" />
+                                            </DataTrigger>
+                                            <!-- 保留型別那一列：時效顯示的是來源牆型別的宣告，改不得（步驟 16h）。 -->
+                                            <DataTrigger Binding="{Binding IsEditable}" Value="False">
+                                                <Setter Property="IsEnabled" Value="False" />
+                                                <Setter Property="Background" Value="#EDF3FA" />
+                                                <Setter Property="ToolTip" Value="{Binding SubstitutionNote}" />
+                                                <Setter Property="ToolTipService.ShowDuration" Value="60000" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </DataGridTextColumn.CellStyle>
+                            </DataGridTextColumn>
+
+                            <DataGridCheckBoxColumn Header="防火門窗" Width="84"
+                                                    Binding="{Binding Protection, UpdateSourceTrigger=PropertyChanged}">
+                                <DataGridCheckBoxColumn.HeaderStyle>
+                                    <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource HeaderTip}">
+                                        <Setter Property="ToolTip" Value="{StaticResource TipProtection}" />
+                                    </Style>
+                                </DataGridCheckBoxColumn.HeaderStyle>
+                                <DataGridCheckBoxColumn.ElementStyle>
+                                    <Style TargetType="CheckBox">
+                                        <Setter Property="HorizontalAlignment" Value="Center" />
+                                        <Setter Property="IsEnabled" Value="{Binding CarriesProtection}" />
+                                        <Setter Property="ToolTip" Value="{StaticResource TipProtection}" />
+                                        <!-- C-10（b）：上面那一行會在不帶此參數的列停用這個 CheckBox，而 tooltip 就掛在
+                                             它身上；沒有這一行，被停用的那些列一律看不到說明。 -->
+                                        <Setter Property="ToolTipService.ShowOnDisabled" Value="True" />
+                                    </Style>
+                                </DataGridCheckBoxColumn.ElementStyle>
+                                <DataGridCheckBoxColumn.EditingElementStyle>
+                                    <Style TargetType="CheckBox">
+                                        <Setter Property="HorizontalAlignment" Value="Center" />
+                                        <Setter Property="IsEnabled" Value="{Binding CarriesProtection}" />
+                                    </Style>
+                                </DataGridCheckBoxColumn.EditingElementStyle>
+                            </DataGridCheckBoxColumn>
+
+                            <DataGridCheckBoxColumn Header="阻熱性" Width="72"
+                                                    Binding="{Binding Insulation, UpdateSourceTrigger=PropertyChanged}">
+                                <DataGridCheckBoxColumn.HeaderStyle>
+                                    <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource HeaderTip}">
+                                        <Setter Property="ToolTip" Value="{StaticResource TipInsulation}" />
+                                    </Style>
+                                </DataGridCheckBoxColumn.HeaderStyle>
+                                <DataGridCheckBoxColumn.ElementStyle>
+                                    <Style TargetType="CheckBox">
+                                        <Setter Property="HorizontalAlignment" Value="Center" />
+                                        <Setter Property="IsEnabled" Value="{Binding CarriesProtection}" />
+                                        <Setter Property="ToolTip" Value="{StaticResource TipInsulation}" />
+                                        <!-- C-10（b）：同「防火門窗」，停用的列也要看得到說明。 -->
+                                        <Setter Property="ToolTipService.ShowOnDisabled" Value="True" />
+                                    </Style>
+                                </DataGridCheckBoxColumn.ElementStyle>
+                                <DataGridCheckBoxColumn.EditingElementStyle>
+                                    <Style TargetType="CheckBox">
+                                        <Setter Property="HorizontalAlignment" Value="Center" />
+                                        <Setter Property="IsEnabled" Value="{Binding CarriesProtection}" />
+                                    </Style>
+                                </DataGridCheckBoxColumn.EditingElementStyle>
+                            </DataGridCheckBoxColumn>
+
+                            <DataGridCheckBoxColumn Header="遮煙性能" Width="84"
+                                                    Binding="{Binding SmokeProtection, UpdateSourceTrigger=PropertyChanged}">
+                                <DataGridCheckBoxColumn.HeaderStyle>
+                                    <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource HeaderTip}">
+                                        <Setter Property="ToolTip" Value="{StaticResource TipSmokeProtection}" />
+                                    </Style>
+                                </DataGridCheckBoxColumn.HeaderStyle>
+                                <DataGridCheckBoxColumn.ElementStyle>
+                                    <Style TargetType="CheckBox">
+                                        <Setter Property="HorizontalAlignment" Value="Center" />
+                                        <Setter Property="IsEnabled" Value="{Binding CarriesSmokeProtection}" />
+                                        <Setter Property="ToolTip" Value="{StaticResource TipSmokeProtection}" />
+                                        <!-- C-10（b）：同「防火門窗」，停用的列也要看得到說明。 -->
+                                        <Setter Property="ToolTipService.ShowOnDisabled" Value="True" />
+                                    </Style>
+                                </DataGridCheckBoxColumn.ElementStyle>
+                                <DataGridCheckBoxColumn.EditingElementStyle>
+                                    <Style TargetType="CheckBox">
+                                        <Setter Property="HorizontalAlignment" Value="Center" />
+                                        <Setter Property="IsEnabled" Value="{Binding CarriesSmokeProtection}" />
+                                    </Style>
+                                </DataGridCheckBoxColumn.EditingElementStyle>
+                            </DataGridCheckBoxColumn>
+
+                            <DataGridTextColumn Header="依據／提醒" IsReadOnly="True" Width="3*"
+                                                Binding="{Binding DerivedBasis}">
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+                                        <Setter Property="Foreground" Value="{StaticResource Muted}" />
+                                        <Setter Property="ToolTip" Value="{Binding DerivedBasis}" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding HasMissingParameters}" Value="True">
+                                                <Setter Property="Text" Value="{Binding MissingParameters}" />
+                                                <Setter Property="Foreground" Value="#B3261E" />
+                                                <Setter Property="ToolTip" Value="{Binding MissingParameters}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </TabItem>
+
+            <!-- ============================== 區劃 ============================== -->
+            <TabItem Header="區劃">
+                <Grid Margin="10">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <StackPanel>
+                        <Border Padding="10" Background="#EAF2FF" BorderBrush="#B8D1F5" BorderThickness="1" CornerRadius="4">
+                            <StackPanel>
+                                <TextBlock Text="這些是 Area 的「實體參數」" FontWeight="SemiBold" Foreground="#1F5EA8" />
+                                <TextBlock Margin="0,4,0,0" TextWrapping="Wrap" LineHeight="18" Foreground="#2C4A76"
+                                           Text="每一列只影響那一個區劃。「自動滅火設備」決定面積上限是 1500 還是 3000 m²，沒填就算不出上限、該區劃會判資料不足。「所在樓層序」是第70條計算「自頂層起算第幾層」用的，地上為正、地下為負。面積由 Revit 量測，不能在這裡改。" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border x:Name="FloorsBox" Margin="0,8,0,0" Padding="10" Visibility="Collapsed"
+                                Background="#FFF4E5" BorderBrush="#F0C48A" BorderThickness="1" CornerRadius="4">
+                            <StackPanel>
+                                <TextBlock Text="樓層序可以依模型樓層自動推定" FontWeight="SemiBold" Foreground="#8A5200" />
+                                <TextBlock x:Name="FloorsText" Margin="0,4,0,0" TextWrapping="Wrap"
+                                           LineHeight="18" Foreground="#6B4A12" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <DataGrid x:Name="ZoneGrid" Grid.Row="1" Margin="0,10,0,0" AutoGenerateColumns="False"
+                              CanUserAddRows="False" CanUserDeleteRows="False" HeadersVisibility="Column"
+                              GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#E3E5E8"
+                              RowHeaderWidth="0" SelectionMode="Extended" SelectionUnit="FullRow"
+                              AlternatingRowBackground="#FAFBFC" Background="White" BorderBrush="#D5D8DC">
+                        <DataGrid.RowStyle>
+                            <Style TargetType="DataGridRow">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HasMissingParameters}" Value="True">
+                                        <Setter Property="Background" Value="#FDECEA" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGrid.RowStyle>
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="區劃" Binding="{Binding DisplayName}" IsReadOnly="True" Width="2*" />
+                            <DataGridTextColumn Header="樓層" Binding="{Binding LevelName}" IsReadOnly="True" Width="90" />
+                            <DataGridTextColumn Header="面積配置" Binding="{Binding AreaSchemeName}" IsReadOnly="True" Width="130" />
+                            <DataGridTextColumn Header="面積" Binding="{Binding AreaText}" IsReadOnly="True" Width="96" />
+
+                            <!-- 可選的下拉，但仍可自行輸入：清單只列會改變判定的字樣，其餘用途是自由
+                                 文字，綁 Text 而非 SelectedItem 才不會被清單清成空值。清單分兩段，因為
+                                 兩段的後果不同——第79條之2 那五個字免掉面積上限，第79條之1 那六個字上限
+                                 照樣適用，只是多一筆待人工確認的結果（第79條之1規格 §7.3、決議 11）。 -->
+                            <DataGridTemplateColumn Header="區劃用途" Width="140" SortMemberPath="Use">
+                                <DataGridTemplateColumn.CellStyle>
+                                    <Style TargetType="DataGridCell">
+                                        <Setter Property="ToolTip" Value="{Binding UseHint}" />
+                                        <Setter Property="ToolTipService.ShowDuration" Value="60000" />
+                                    </Style>
+                                </DataGridTemplateColumn.CellStyle>
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Use}" Margin="6,0" VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                                <DataGridTemplateColumn.CellEditingTemplate>
+                                    <DataTemplate>
+                                        <ComboBox IsEditable="True" IsTextSearchEnabled="False"
+                                                  ItemsSource="{Binding UseChoices}"
+                                                  Text="{Binding Use, UpdateSourceTrigger=PropertyChanged}">
+                                            <!-- 分段標題是清單裡的一項，但停用，所以點不到也跳不到。 -->
+                                            <ComboBox.ItemContainerStyle>
+                                                <Style TargetType="ComboBoxItem">
+                                                    <Setter Property="IsEnabled" Value="{Binding IsSelectable}" />
+                                                </Style>
+                                            </ComboBox.ItemContainerStyle>
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding Label}" />
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellEditingTemplate>
+                            </DataGridTemplateColumn>
+
+                            <!-- 用途類組：逐區劃（逐 Area）填。可編輯下拉，綁 Text 不綁 SelectedItem，理由同區劃用途。
+                                 同一區劃各面積可填不同類組，檢討讀成「混合」並依較嚴者判定
+                                 （docs/regulations/building-use-groups.md §6）。 -->
+                            <DataGridTemplateColumn Header="用途類組" Width="96" SortMemberPath="UseGroup">
+                                <DataGridTemplateColumn.CellStyle>
+                                    <Style TargetType="DataGridCell">
+                                        <Setter Property="ToolTip" Value="{Binding UseGroupNote}" />
+                                        <Setter Property="ToolTipService.ShowDuration" Value="60000" />
+                                    </Style>
+                                </DataGridTemplateColumn.CellStyle>
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding UseGroup}" Margin="6,0" VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                                <DataGridTemplateColumn.CellEditingTemplate>
+                                    <DataTemplate>
+                                        <ComboBox IsEditable="True" IsTextSearchEnabled="False"
+                                                  ItemsSource="{Binding UseGroupChoices}"
+                                                  Text="{Binding UseGroup, UpdateSourceTrigger=PropertyChanged}" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellEditingTemplate>
+                            </DataGridTemplateColumn>
+
+                            <DataGridComboBoxColumn Header="自動滅火設備" Width="110"
+                                                    SelectedItemBinding="{Binding Sprinklered, UpdateSourceTrigger=PropertyChanged}">
+                                <DataGridComboBoxColumn.ElementStyle>
+                                    <Style TargetType="ComboBox">
+                                        <Setter Property="ItemsSource" Value="{Binding YesNoChoices}" />
+                                    </Style>
+                                </DataGridComboBoxColumn.ElementStyle>
+                                <DataGridComboBoxColumn.EditingElementStyle>
+                                    <Style TargetType="ComboBox">
+                                        <Setter Property="ItemsSource" Value="{Binding YesNoChoices}" />
+                                    </Style>
+                                </DataGridComboBoxColumn.EditingElementStyle>
+                            </DataGridComboBoxColumn>
+
+                            <DataGridTextColumn Header="適用上限" Binding="{Binding LimitText}" IsReadOnly="True" Width="190">
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="#1F5EA8" />
+                                        <Setter Property="FontWeight" Value="SemiBold" />
+                                    </Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
+
+                            <DataGridTextColumn Header="樓層序（推定）" Binding="{Binding DerivedFloorText}"
+                                                IsReadOnly="True" Width="104">
+                                <DataGridTextColumn.HeaderStyle>
+                                    <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource HeaderTip}">
+                                        <Setter Property="ToolTip" Value="{StaticResource TipDerivedFloor}" />
+                                    </Style>
+                                </DataGridTextColumn.HeaderStyle>
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="FontWeight" Value="SemiBold" />
+                                        <Setter Property="Foreground" Value="#1F5EA8" />
+                                        <Setter Property="ToolTip" Value="{StaticResource TipDerivedFloor}" />
+                                    </Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
+
+                            <DataGridTextColumn Header="所在樓層序" Width="96"
+                                                Binding="{Binding FloorNumber, UpdateSourceTrigger=LostFocus}">
+                                <DataGridTextColumn.HeaderStyle>
+                                    <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource HeaderTip}">
+                                        <Setter Property="ToolTip" Value="{StaticResource TipFloorNumber}" />
+                                    </Style>
+                                </DataGridTextColumn.HeaderStyle>
+                                <DataGridTextColumn.CellStyle>
+                                    <Style TargetType="DataGridCell">
+                                        <Setter Property="ToolTip" Value="{StaticResource TipFloorNumber}" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding FloorNumberDiffers}" Value="True">
+                                                <Setter Property="Background" Value="#FFF8E1" />
+                                                <Setter Property="ToolTip" Value="目前填的值與依樓層推定的值不同。" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </DataGridTextColumn.CellStyle>
+                            </DataGridTextColumn>
+
+                            <!-- 第79條之2第3項第一款只寫給挑空，所以這欄在用途不是「挑空」時不必填。連跨樓層數與
+                                 連通區劃面積由各樓層的區劃推得，沒有欄位（垂直區劃規格決議 35）。 -->
+
+                            <DataGridComboBoxColumn Header="避難層通達" Width="104"
+                                                    SelectedItemBinding="{Binding LinksRefugeFloor, UpdateSourceTrigger=PropertyChanged}">
+                                <DataGridComboBoxColumn.HeaderStyle>
+                                    <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource HeaderTip}">
+                                        <Setter Property="ToolTip" Value="{StaticResource TipLinksRefugeFloor}" />
+                                    </Style>
+                                </DataGridComboBoxColumn.HeaderStyle>
+                                <!-- C-10（a）：說明掛在格子上，不能掛在 ElementStyle。DataGridComboBoxColumn 的
+                                     非編輯態顯示元素是 WPF 內部的 TextBlockComboBox（只畫文字的樣板），滑鼠碰不
+                                     到它，掛在那裡的 tooltip 永遠不觸發；滑鼠實際落在 DataGridCell 上。 -->
+                                <DataGridComboBoxColumn.CellStyle>
+                                    <Style TargetType="DataGridCell">
+                                        <Setter Property="ToolTip" Value="{StaticResource TipLinksRefugeFloor}" />
+                                        <Setter Property="ToolTipService.ShowDuration" Value="60000" />
+                                    </Style>
+                                </DataGridComboBoxColumn.CellStyle>
+                                <DataGridComboBoxColumn.ElementStyle>
+                                    <Style TargetType="ComboBox">
+                                        <Setter Property="ItemsSource" Value="{Binding YesNoChoices}" />
+                                    </Style>
+                                </DataGridComboBoxColumn.ElementStyle>
+                                <DataGridComboBoxColumn.EditingElementStyle>
+                                    <Style TargetType="ComboBox">
+                                        <Setter Property="ItemsSource" Value="{Binding YesNoChoices}" />
+                                    </Style>
+                                </DataGridComboBoxColumn.EditingElementStyle>
+                            </DataGridComboBoxColumn>
+
+                            <!-- 第79條之1 的（丙）。只有那六個用途需要填，其餘停用：這個參數對別的
+                                 區劃沒有意義，能填會讓人以為它有作用（第79條之1規格 §7.3）。已經有值
+                                 的列不停用，因為「是／否」是面板對用途改掉後留下的那個值唯一還能做的
+                                 更正；清成未填做不到——Revit 的是否類參數只能設值，要清只能回 Revit
+                                 刪掉該參數的值（驗證清單 C-05）。三個選項而不是打勾：未填是資料不足、
+                                 否是不適用，檢討分得出來這兩件事，而打勾連「未填」都顯示不出來。 -->
+                            <DataGridComboBoxColumn Header="無法區劃分隔" Width="112"
+                                                    SelectedItemBinding="{Binding CannotBeSubdivided, UpdateSourceTrigger=PropertyChanged}">
+                                <DataGridComboBoxColumn.HeaderStyle>
+                                    <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource HeaderTip}">
+                                        <Setter Property="ToolTip" Value="{StaticResource TipCannotBeSubdivided}" />
+                                    </Style>
+                                </DataGridComboBoxColumn.HeaderStyle>
+                                <!-- C-10：這一欄同時中兩個原因。（a）說明要掛在格子上，因為非編輯態的顯示元素是
+                                     WPF 內部的 TextBlockComboBox，滑鼠碰不到；（b）下面的觸發程序把六個用途以外的
+                                     格子整格停用，而停用的格子預設不顯示 tooltip，所以搬過來之後仍要 ShowOnDisabled
+                                     ——否則最需要這段說明的那些列反而看不到。 -->
+                                <DataGridComboBoxColumn.CellStyle>
+                                    <Style TargetType="DataGridCell">
+                                        <Setter Property="ToolTip" Value="{StaticResource TipCannotBeSubdivided}" />
+                                        <Setter Property="ToolTipService.ShowDuration" Value="60000" />
+                                        <Setter Property="ToolTipService.ShowOnDisabled" Value="True" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding CanEditCannotBeSubdivided}" Value="False">
+                                                <Setter Property="IsEnabled" Value="False" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </DataGridComboBoxColumn.CellStyle>
+                                <DataGridComboBoxColumn.ElementStyle>
+                                    <Style TargetType="ComboBox">
+                                        <Setter Property="ItemsSource" Value="{Binding YesNoChoices}" />
+                                    </Style>
+                                </DataGridComboBoxColumn.ElementStyle>
+                                <DataGridComboBoxColumn.EditingElementStyle>
+                                    <Style TargetType="ComboBox">
+                                        <Setter Property="ItemsSource" Value="{Binding YesNoChoices}" />
+                                    </Style>
+                                </DataGridComboBoxColumn.EditingElementStyle>
+                            </DataGridComboBoxColumn>
+
+                            <DataGridTextColumn Header="提醒" Binding="{Binding MissingParameters}" IsReadOnly="True" Width="*">
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+                                        <Setter Property="Foreground" Value="#B3261E" />
+                                        <Setter Property="ToolTip" Value="{Binding MissingParameters}" />
+                                    </Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </TabItem>
+
+            <!-- ============================ 專案資訊 ============================ -->
+            <TabItem Header="專案資訊">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="ProjectPanel" Margin="18" MaxWidth="640" HorizontalAlignment="Left">
+
+                        <Border x:Name="ProjectMissingBox" Padding="10" Margin="0,0,0,16" Visibility="Collapsed"
+                                Background="#FDECEA" BorderBrush="#F3B5AE" BorderThickness="1" CornerRadius="4">
+                            <TextBlock x:Name="ProjectMissingText" TextWrapping="Wrap" Foreground="#B3261E" />
+                        </Border>
+
+                        <TextBlock Style="{StaticResource FieldLabel}" Text="防火構造建築物" />
+                        <ComboBox x:Name="FireResistiveBox" MinWidth="120" HorizontalAlignment="Left"
+                                  ItemsSource="{Binding YesNoChoices}"
+                                  SelectedItem="{Binding FireResistive, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBlock x:Name="FireResistiveWarningText" Style="{StaticResource FieldHint}" Foreground="#B3261E" />
+
+                        <!-- 用途類組已改為逐區劃填（「區劃」分頁的「用途類組」欄）。舊專案若還有專案資訊的
+                             建築物用途類組，只在這裡顯示並提供一次性填入，檢討不再讀它。 -->
+                        <Border x:Name="LegacyBuildingUseBox" Padding="10" Margin="0,4,0,16" Visibility="Collapsed"
+                                Background="#FFF6E5" BorderBrush="#F0C987" BorderThickness="1" CornerRadius="4">
+                            <StackPanel>
+                                <TextBlock Text="用途類組改為逐區劃填寫" FontWeight="SemiBold" />
+                                <TextBlock Margin="0,4,0,8" TextWrapping="Wrap" Text="{Binding LegacyBuildingUseNote}" />
+                                <Button x:Name="FillUseGroupsButton" Content="填入所有未填的區劃" HorizontalAlignment="Left"
+                                        MinWidth="150" Click="FillUseGroups_OnClick" />
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock Style="{StaticResource FieldLabel}" Text="地上層數" />
+                        <TextBox MinWidth="120" HorizontalAlignment="Left"
+                                 Text="{Binding FloorsAboveGround, UpdateSourceTrigger=LostFocus}" />
+                        <TextBlock Style="{StaticResource FieldHint}"
+                                   Text="整數。第70條用「地上層數 − 所在樓層序」算出自頂層起算的層位，再決定柱、樑、承重牆壁與樓地板的要求時效；沒填的話所有構件都會判資料不足。" />
+
+                        <Border Padding="10" Background="#F0F1F2" BorderBrush="#D5D8DC" BorderThickness="1" CornerRadius="4">
+                            <StackPanel>
+                                <TextBlock Text="建築物高度不需要填" FontWeight="SemiBold" />
+                                <TextBlock Margin="0,4,0,0" TextWrapping="Wrap" Foreground="{StaticResource Muted}"
+                                           Text="外掛會直接量測模型：最低樓層高程到最高構件頂端，地形與連結模型不計。檢討結果的證據欄會註明量測基準。" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,12,0,0">
+            <Button x:Name="ApplyAllButton" Content="套用推定值（全部）" Click="ApplyAll_OnClick" MinWidth="140"
+                    ToolTip="把每一列的推定防火時效填進「設計防火時效」欄；尚未寫入模型。僅影響「構件類型」分頁。" />
+            <Button x:Name="ApplySelectedButton" Content="套用推定值（選取列）" Click="ApplySelected_OnClick" MinWidth="150" />
+            <Button x:Name="SetMaterialButton" Content="選取列設為…" Click="SetMaterial_OnClick" MinWidth="110"
+                    ToolTip="把選取的列一次設成同一個結構材料。" />
+            <Button x:Name="FillZonesButton" Content="區劃批次填入…" Click="FillZones_OnClick" MinWidth="120"
+                    ToolTip="把「區劃」分頁選取的列一次設成同樣的區劃用途、用途類組、滅火設備與樓層序（Ctrl+A 可全選）。" />
+            <Button x:Name="DeriveFloorsButton" Content="依樓層填入樓層序" Click="DeriveFloors_OnClick" MinWidth="140"
+                    ToolTip="依模型樓層高程填入每個區劃的所在樓層序，並把地上層數帶入專案資訊；尚未寫入模型。" />
+            <TextBlock x:Name="StatusText" VerticalAlignment="Center" Margin="12,0,0,0"
+                       Foreground="{StaticResource Muted}" TextWrapping="Wrap" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button x:Name="WriteButton" Content="寫入模型" Click="Write_OnClick" MinWidth="120" FontWeight="SemiBold" />
+            <Button Content="關閉" Click="Close_OnClick" IsCancel="True" Margin="0" />
+        </StackPanel>
+    </Grid>
+</Window>

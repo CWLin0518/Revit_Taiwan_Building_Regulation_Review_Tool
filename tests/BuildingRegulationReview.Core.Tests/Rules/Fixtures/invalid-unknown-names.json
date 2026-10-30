@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "1.0",
+  "ruleSetId": "tw-bcr-fire",
+  "version": "2024.1",
+  "rules": [
+    {
+      "ruleId": "tw-bcr-79-area",
+      "version": "1",
+      "category": "compartmentArea",
+      "legalReference": "建築技術規則建築設計施工編第79條",
+      "effectiveDate": "2024-01-01",
+      "jurisdiction": "TW",
+      "priority": 10,
+      "appliesWhen": "true",
+      "requiredValue": "1500 m2",
+      "severity": "1"
+    }
+  ]
+}

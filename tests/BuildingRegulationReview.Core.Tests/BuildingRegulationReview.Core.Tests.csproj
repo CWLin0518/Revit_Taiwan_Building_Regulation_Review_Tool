@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Rules\Fixtures\*.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\src\BuildingRegulationReview\Data\fire-review-rules.json" Link="Rules\BuiltIn\fire-review-rules.json" CopyToOutputDirectory="PreserveNewest" />
+    <!--
+      共用參數主檔，讓 SharedParameterFileTests 能逐位元組驗它。Revit 的 DefinitionFile parser 以
+      OS ANSI codepage 讀取，所以這個檔是 Big5／cp950 ＋ CRLF；MSBuild 的複製是逐位元組的，
+      編碼不會在複製時被改掉。
+    -->
+    <None Include="..\..\assets\SharedParameters\fire-review-shared-params.txt" Link="Assets\fire-review-shared-params.txt" CopyToOutputDirectory="PreserveNewest" />
+    <!--
+      load_shared_parameters 實際綁定門、窗與帷幕嵌板用的那一份。同樣是 Big5／cp950，但換行是 LF，
+      與主檔的 CRLF 不同——這個不一致是刻意的，OpeningsSharedParameterFileTests 逐位元組守著它。
+    -->
+    <None Include="..\..\assets\SharedParameters\fire-review-openings-type.txt" Link="Assets\fire-review-openings-type.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\BuildingRegulationReview.Domain\BuildingRegulationReview.Domain.csproj" />
+    <ProjectReference Include="..\..\src\BuildingRegulationReview.Application\BuildingRegulationReview.Application.csproj" />
+    <ProjectReference Include="..\..\src\BuildingRegulationReview.Mcp\BuildingRegulationReview.Mcp.csproj" />
+  </ItemGroup>
+</Project>
+

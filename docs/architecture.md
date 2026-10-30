@@ -14,6 +14,7 @@
 | BIM API | RevitAPI / RevitAPIUI | 模型查詢、交易與圖面建立 |
 | 幾何運算 | RhinoCommon 8 | 投影輪廓與布林運算 |
 | 功能目錄 | JSON | 面板顯示的法規項目資料 |
+| AI 代理介面 | MCP（Streamable HTTP，loopback） | 讓 AI 代理操作外掛功能並驗證，見 `mcp-server.md` |
 
 ## 3. 目錄結構
 
@@ -23,8 +24,10 @@ Revit_Taiwan_Building_Regulation_Review_Tool/
 ├─ scripts/
 │  ├─ install-revit-2024.ps1          建置與安裝外掛
 │  └─ redeploy.bat                    等待 Revit 關閉後重新部署
+├─ src/BuildingRegulationReview.Mcp/  MCP 協定層（JSON、JSON-RPC、HTTP；不參考 Revit）
 ├─ src/BuildingRegulationReview/
 │  ├─ App.cs                          Revit 外掛啟動點
+│  ├─ Mcp/                            MCP 伺服器的 Revit 端：派送器、Host、工具
 │  ├─ ShowReviewPaneCommand.cs        開啟 Dockable Pane
 │  ├─ ReviewPaneProvider.cs           註冊面板內容
 │  ├─ ReviewPaneControl.xaml(.cs)     法規清單與操作介面
@@ -111,7 +114,15 @@ ReviewPaneControl（使用者操作）
 
 目前 `main` 已包含功能 Registry 與共用 ExternalEvent Dispatcher。新增法規時應實作 `IReviewFeature`、註冊至 `ReviewFeatureRegistry`，並沿用共用的 `ReviewExternalEventDispatcher`，不再為每項法規建立成對的專用 ExternalEvent。
 
-## 9. 共用設計原則
+## 9. AI 代理（MCP）介面
+
+外掛內建 MCP 伺服器（Ribbon「AI 代理 › MCP 服務」，預設關閉），讓 AI 代理呼叫與按鈕相同的 use case，用來操作與驗證功能。
+工具呼叫經由 `RevitMcpDispatcher` 的單一 ExternalEvent 佇列進入 Revit API context。詳見 `mcp-server.md` 與 ADR-0004。
+
+**新功能的規範**：流程寫成不依賴 WPF 的 use case，視窗與 MCP 工具都呼叫它；原本要問使用者的事改成參數。
+不要只為了 MCP 另外寫一條路。
+
+## 10. 共用設計原則
 
 - 法規 ID 必須在 JSON、UI 派送與功能實作間保持一致。
 - 計算值在 Revit API 邊界使用 internal feet；顯示與輸入時才轉換成公制。

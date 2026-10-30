@@ -1,0 +1,237 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Linq;
+using BuildingRegulationReview.Domain.Reviews;
+using BuildingRegulationReview.Domain.Rules.Expressions;
+
+namespace BuildingRegulationReview.Domain.Rules;
+
+/// <summary>
+/// One field a rule expression may read. A field is the only way data enters an expression: there
+/// are no variables, calls or member access beyond this whitelist (spec 11.2 "白名單欄位").
+/// </summary>
+public sealed class RuleFieldDefinition
+{
+    public RuleFieldDefinition(string name, RuleValueType type, string description, IEnumerable<RuleCategory> availableIn)
+    {
+        if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("Field name is required.", nameof(name));
+        var trimmed = name.Trim();
+        if (!IsWellFormedName(trimmed))
+            throw new ArgumentException($"Field name '{trimmed}' must be scope.name made of letters, digits and underscores.", nameof(name));
+        if (availableIn is null) throw new ArgumentNullException(nameof(availableIn));
+
+        var categories = availableIn.Distinct().ToList();
+        if (categories.Count == 0) throw new ArgumentException("A field must be available to at least one rule category.", nameof(availableIn));
+
+        Name = trimmed;
+        Type = type;
+        Description = description?.Trim() ?? string.Empty;
+        AvailableIn = new ReadOnlyCollection<RuleCategory>(categories);
+    }
+
+    public string Name { get; }
+    public RuleValueType Type { get; }
+    public string Description { get; }
+
+    /// <summary>The rule categories whose subjects can supply this field.</summary>
+    public IReadOnlyList<RuleCategory> AvailableIn { get; }
+
+    public bool IsAvailableIn(RuleCategory category) => AvailableIn.Contains(category);
+
+    private static bool IsWellFormedName(string name)
+    {
+        var parts = name.Split('.');
+        return parts.Length >= 2 && parts.All(part =>
+            part.Length > 0 &&
+            (char.IsLetter(part[0]) || part[0] == '_') &&
+            part.All(c => char.IsLetterOrDigit(c) || c == '_'));
+    }
+}
+
+/// <summary>The whitelist of fields rule expressions may read.</summary>
+public sealed class RuleFieldCatalog
+{
+    private readonly Dictionary<string, RuleFieldDefinition> _byName;
+
+    public RuleFieldCatalog(IEnumerable<RuleFieldDefinition> fields)
+    {
+        if (fields is null) throw new ArgumentNullException(nameof(fields));
+
+        var list = fields.ToList();
+        if (list.Any(x => x is null)) throw new ArgumentException("The catalog cannot hold a missing field.", nameof(fields));
+        var duplicate = list.GroupBy(x => x.Name, StringComparer.Ordinal).FirstOrDefault(g => g.Count() > 1);
+        if (duplicate is not null)
+            throw new ArgumentException($"Field '{duplicate.Key}' is defined more than once.", nameof(fields));
+
+        Fields = new ReadOnlyCollection<RuleFieldDefinition>(list);
+        _byName = list.ToDictionary(x => x.Name, StringComparer.Ordinal);
+    }
+
+    public IReadOnlyList<RuleFieldDefinition> Fields { get; }
+
+    public RuleFieldDefinition? Find(string name) =>
+        name is not null && _byName.TryGetValue(name.Trim(), out var field) ? field : null;
+
+    /// <summary>
+    /// The fields the review can supply today. <c>building.*</c> and <c>zone.*</c> describe the
+    /// compartment and are open to every category; <c>element.*</c> only exists for fire-resistance
+    /// subjects, <c>opening.*</c> only for opening-protection subjects, <c>junction.*</c> only for
+    /// compartment-continuity subjects and <c>shaft.*</c> only for 第79條之2 垂直區劃 subjects.
+    /// </summary>
+    public static RuleFieldCatalog Default { get; } = CreateDefault();
+
+    private static RuleFieldCatalog CreateDefault()
+    {
+        var all = new[]
+        {
+            RuleCategory.CompartmentArea,
+            RuleCategory.FireResistance,
+            RuleCategory.OpeningProtection,
+            RuleCategory.CompartmentContinuity,
+            RuleCategory.VerticalCompartment
+        };
+        var element = new[] { RuleCategory.FireResistance };
+        var opening = new[] { RuleCategory.OpeningProtection };
+        var junction = new[] { RuleCategory.CompartmentContinuity };
+        var shaft = new[] { RuleCategory.VerticalCompartment };
+        var boolean = RuleValueType.Boolean;
+        var text = RuleValueType.Text;
+        var number = RuleValueType.Quantity(ReviewUnit.None);
+
+        return new RuleFieldCatalog(new[]
+        {
+            new RuleFieldDefinition("building.fireResistiveConstruction", boolean, "是否為防火構造建築物", all),
+            new RuleFieldDefinition("building.floorsAboveGround", number, "地上層數", all),
+            new RuleFieldDefinition("building.height", RuleValueType.Quantity(ReviewUnit.Meter), "建築物高度", all),
+
+            new RuleFieldDefinition("zone.id", text, "區劃 Zone ID", all),
+            new RuleFieldDefinition("zone.use", text, "區劃用途", all),
+            new RuleFieldDefinition("zone.area", RuleValueType.Quantity(ReviewUnit.SquareMeter), "區劃面積（Revit Area）", all),
+            new RuleFieldDefinition("zone.sprinklered", boolean, "是否設有自動滅火設備", all),
+            new RuleFieldDefinition("zone.levelName", text, "所在樓層名稱", all),
+            new RuleFieldDefinition("zone.floorNumber", number, "所在樓層序（地上為正、地下為負）", all),
+
+            // 區劃的建築物使用類組（第3條之3），取代原本整棟一個值的 building.use（docs/regulations/
+            // building-use-groups.md §6）。同一區劃各 Area 類組不同時值為「混合（B-2、H-2）」，不等於任何
+            // 單一組別，所以第83條的Ｈ－２組但書自然不成立——各類組的規定都要符合（內政部國土管理署
+            // 115.05.15國署建管字第1150047679號函）。
+            new RuleFieldDefinition("zone.useGroup", text, "區劃用途類組（第3條之3；混合時為「混合（…）」）", all),
+
+            // 第83條 第一款至第三款以室內裝修的耐燃等級決定區劃面積上限（100／200／500 ㎡）。等級是
+            // 設計者宣告的事實，不是模型量得的，所以是一個輸入欄位；寫不出等級的區劃落回第一款的
+            // 100 ㎡，沒有填的區劃則是資料不足，不會被當成符合第一款（規格 11.3）。
+            new RuleFieldDefinition("zone.interiorFinish", text,
+                "由區劃內牆面與天花板類型推導的室內裝修耐燃等級（無／耐燃一級／耐燃一級含底材）", all),
+
+            // 第79條之2第3項 的兩款免除（docs/regulations/vertical-compartment.md §3.6、§3.8）。這幾個欄位
+            // 是區劃的事實，與 zone.floorNumber 同一類，所以對所有類別開放；但**沒有任何規則讀它們**——
+            // 第 3 項是分類而不是要求，沒有可比較的 requiredValue，判定寫在 AtriumExemption.For 這個
+            // 純計算裡（決議 24）。它們仍要進白名單，因為組裝層會把整份 zone.* 輸入 ApplyTo 到每個
+            // 受檢主體，白名單外的欄位會在那裡例外。
+            //
+            // 只有 zone.linksRefugeFloor 是設計者宣告的參數。連跨樓層數、起始樓層序與連通區劃面積由
+            // ReviewInputAssembler 從各樓層的區劃推得（AtriumStackResolver，決議 35）：從挑空的所在
+            // 區劃往上下層找有挑空的區劃，起始樓層是最低開口的下一層，連通區劃面積加總各開口樓層的
+            // 所在區劃與起始樓層位於其正下方的區劃（依內政部106年9月27日內授營建管字第1060814830號函
+            // 合計，決議 31）。也因為 NeededBy 是規則驅動的，這些欄位不會變成前置檢查的阻擋項（決議 27）。
+            new RuleFieldDefinition("zone.linksRefugeFloor", boolean,
+                "第3項第一款：本挑空是否為避難層通達其直上層或直下層者", all),
+            new RuleFieldDefinition("zone.spannedFloors", number, "第3項第二款之連跨樓層數（由各樓層區劃推得）", all),
+            new RuleFieldDefinition("zone.connectedArea", RuleValueType.Quantity(ReviewUnit.SquareMeter),
+                "第3項第二款：挑空連通區劃之合計樓地板面積（由各樓層區劃推得）", all),
+            new RuleFieldDefinition("zone.atriumBaseFloor", number,
+                "挑空起始樓層序（最低開口的下一層，由各樓層區劃推得）", all),
+
+            // 併入挑空之連通區劃的使用類組：各樓層所在區劃（與起始樓層正下方區劃）的 zone.useGroup 合併，
+            // 合併規則同一區劃內各 Area（不同就是混合）。挑空 Area 本身不計，與連通區劃面積一致。
+            // 沒有輸入來源，由 ReviewInputAssembler 推得。
+            new RuleFieldDefinition("zone.connectedUseGroup", text,
+                "挑空連通區劃之使用類組（由各樓層區劃推得；混合時為「混合（…）」）", all),
+
+            // 第3項免除成立的挑空不再是第79條之2之垂直區劃，第83條本文的除外不再涵蓋它，其連通區劃
+            // 回到第79條、第83條的面積檢討（同函第4點；決議 32）。以下三個欄位**沒有輸入來源**，由
+            // CompartmentAreaCheck 依 AtriumExemptionFacts 推得，所以讀它們的兩條面積規則不會讓
+            // 任何挑空的事實變成全專案的必要參數；推不出來時欄位留空，引擎照常判資料不足。
+            new RuleFieldDefinition("zone.atriumMerged", boolean,
+                "挑空是否依第79條之2第3項免除單獨區劃而併入連通區劃（詳見挑空免除結果）", all),
+            new RuleFieldDefinition("zone.atriumTopFloor", number,
+                "挑空所跨之最高樓層序（起始樓層序＋連跨樓層數－1）", all),
+            new RuleFieldDefinition("zone.atriumCompartmentArea", RuleValueType.Quantity(ReviewUnit.SquareMeter),
+                "併入挑空之連通區劃合計樓地板面積（由各樓層區劃推得）", all),
+
+            // 第79條之1「無法區劃分隔部分」（docs/regulations/article-79-1-area-exemption.md §5.2）。
+            // 與上面兩個欄位完全同一類：Area 實體上、只有設計者能宣告的事實，沒有任何規則讀它
+            // （第79條之1 是分類而不是要求，判定寫在 Article79_1Exemption.For 這個純計算裡，決議 1），
+            // 但仍要進白名單，因為組裝層會把整份 zone.* 輸入 ApplyTo 到每個受檢主體。也因為
+            // NeededBy 是規則驅動的，它不會變成前置檢查的阻擋項——沒有觀眾席、生產線、教室、
+            // 體育館、零售市場、停車空間的專案不必綁（決議 9）。
+            new RuleFieldDefinition("zone.cannotBeSubdivided", boolean,
+                "第79條之1：本區劃是否為無法區劃分隔部分", all),
+
+            new RuleFieldDefinition("element.category", text, "構件類別（Walls／Columns／StructuralFraming／Floors）", element),
+            new RuleFieldDefinition("element.typeName", text, "構件 Type 名稱", element),
+            new RuleFieldDefinition("element.isCompartmentBoundary", boolean, "是否構成區劃邊界", element),
+
+            // 帷幕牆在 Revit 裡就是一片 Wall（WallKind.Curtain），所以它會跟一般牆一樣被收成
+            // MemberObservation，並且只要中心線沿區劃邊界走就會被判成 Boundary。但第79條第1項的
+            // 「區劃牆壁」是把區劃彼此分隔開的牆，帷幕牆分隔的是室內與室外——它在區劃邊界上該滿足
+            // 的是第79條第3項的交接處構造（突出 50cm 或交接處 90cm 以上且同等時效）與第79條之4 的
+            // 半小時外牆時效，兩者都由 junction.* 的規則檢討。這個欄位存在就是為了讓
+            // tw-bcr-79-wall-rating 把它排除，否則一片 2.5cm 厚的帷幕牆會被要求一小時防火時效
+            // （docs/regulations/curtain-wall-fire-compartment.md）。
+            new RuleFieldDefinition("element.isCurtainWall", boolean, "是否為帷幕牆（Revit WallKind.Curtain）", element),
+
+            // 上面那段推理只對**外牆**帷幕牆成立。使用者在建物內建的帷幕牆分隔的是兩個區劃，它就是
+            // 第79條第1項的區劃牆壁，排除它會讓那道牆的牆體時效沒有任何規則回答
+            // （docs/regulations/curtain-wall-fire-compartment.md §4.8）。所以排除條件改讀這個欄位：
+            // 每一片 Wall 都有值，不是帷幕牆就是 NotCurtainWall，帷幕牆則是 Exterior／Interior／Unknown。
+            // Unknown 不適用牆體時效，但它會在帷幕牆區劃交接拿到一列「室內外未定」的人工覆核，不是靜默略過。
+            new RuleFieldDefinition("element.curtainWallExposure", text,
+                "帷幕牆室內外（NotCurtainWall／Exterior／Interior／Unknown）", element),
+            new RuleFieldDefinition("element.isStructural", boolean, "是否為結構構件", element),
+            new RuleFieldDefinition("element.providedFireRating", RuleValueType.Quantity(ReviewUnit.Minute), "設計／認證防火時效", element),
+
+            new RuleFieldDefinition("opening.kind", text, "開口種類（Door／Window／CurtainPanel）", opening),
+            new RuleFieldDefinition("opening.isHosted", boolean, "是否為 Hosted 開口", opening),
+            new RuleFieldDefinition("opening.hostUniqueId", text, "Host 牆 UniqueId", opening),
+            new RuleFieldDefinition("opening.hostIsCompartmentBoundary", boolean, "Host 牆是否為區劃邊界", opening),
+            new RuleFieldDefinition("opening.area", RuleValueType.Quantity(ReviewUnit.SquareMeter), "開口面積", opening),
+            new RuleFieldDefinition("opening.providedFireProtection", text, "設計防火保護（是／否）", opening),
+
+            // 第79條第1項「防火設備並應具有一小時以上之阻熱性」（垂直區劃規格決議 38）。只對已是防火設備
+            // 的開口問，由 tw-bcr-79-opening-insulation 讀。
+            new RuleFieldDefinition("opening.providedInsulation", text, "防火設備是否具一小時以上阻熱性（是／否）", opening),
+
+            // 防火區劃與帷幕牆交接（docs/regulations/curtain-wall-fire-compartment.md §5.2）。
+            // 主體是「交接處」而非單一元素：一個交接處由區劃牆或區劃樓地板、帷幕牆與兩者相交
+            // 的那一段牆面共同構成，因此長度、高度、突出深度都是交接處自己的量測值。
+            new RuleFieldDefinition("junction.kind", text, "交接種類（WallToCurtainWall／FloorToCurtainWall／CurtainPanelOther）", junction),
+            new RuleFieldDefinition("junction.panelKind", text, "其他部分嵌板以哪一路作答（Solid 讀設計防火時效／Glazed 讀設計防火保護）", junction),
+            new RuleFieldDefinition("junction.minFireProtection", text, "其他部分玻璃嵌板與門窗之最不利設計防火保護（是／否）", junction),
+            new RuleFieldDefinition("junction.zoneId", text, "所屬區劃 Zone ID", junction),
+            new RuleFieldDefinition("junction.curtainWallUniqueId", text, "帷幕牆 UniqueId", junction),
+            new RuleFieldDefinition("junction.hostUniqueId", text, "區劃牆或區劃樓地板 UniqueId", junction),
+            new RuleFieldDefinition("junction.hostLegalReference", text, "區劃來源條文（第79條／第83條）", junction),
+            new RuleFieldDefinition("junction.hostRequiredFireRating", RuleValueType.Quantity(ReviewUnit.Minute), "區劃牆或樓地板之要求防火時效", junction),
+            new RuleFieldDefinition("junction.minFireRating", RuleValueType.Quantity(ReviewUnit.Minute), "交接帶內構造之最小設計防火時效（水平交接讀實體外牆，層間與其他部分讀嵌板）", junction),
+            new RuleFieldDefinition("junction.continuousFireRatedLength", RuleValueType.Quantity(ReviewUnit.Meter), "交點兩側連續具時效之外牆面長度總和", junction),
+            new RuleFieldDefinition("junction.continuousFireRatedHeight", RuleValueType.Quantity(ReviewUnit.Meter), "層間連續具時效之外牆面高度總和", junction),
+            new RuleFieldDefinition("junction.projectionDepth", RuleValueType.Quantity(ReviewUnit.Meter), "區劃牆或樓地板突出帷幕牆外牆面之深度", junction),
+            new RuleFieldDefinition("junction.hasUnprotectedOpening", boolean, "交接帶內是否有未受防護開口", junction),
+
+            // 第79條之2 垂直區劃（docs/regulations/vertical-compartment.md §5.2）。主體是「一項要求」
+            // 而非一個元素：管道間的同一扇維修門同時被要求一小時防火時效與遮煙性能，而規則的
+            // requiredValue 只能寫一個比較，所以受檢主體是（設備, 要求）這一對，由 shaft.requirement
+            // 指名是哪一項要求。這也是三條規則彼此互斥、不會落入引擎 Conflict 路徑的原因。
+            new RuleFieldDefinition("shaft.requirement", text,
+                "受檢要求（HoistwaySmokeSeal／ShaftDoorRating／ShaftDoorSmokeSeal）", shaft),
+            new RuleFieldDefinition("shaft.elementUniqueId", text, "受檢防火設備（門窗或嵌板）UniqueId", shaft),
+            new RuleFieldDefinition("shaft.providedFireRating", RuleValueType.Quantity(ReviewUnit.Minute),
+                "該防火設備之設計／認證防火時效", shaft),
+            new RuleFieldDefinition("shaft.providedSmokeProtection", text, "該防火設備是否具遮煙性能（是／否）", shaft),
+            new RuleFieldDefinition("shaft.elevatorLobbyProtected", boolean,
+                "第2項：昇降機道前是否設有併同區劃、且出入口具遮煙性能之昇降機間", shaft)
+        });
+    }
+}

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    MCP 協定層：JSON、JSON-RPC、工具註冊與本機 HTTP 傳輸。刻意不參考 Revit API、Domain 或
+    Application——它只認得「工具」這個抽象，所以能在沒有 Revit 的情況下由 Core.Tests 完整測試，
+    也不會在 Revit 程序裡多載入任何第三方 JSON 函式庫（docs/adr/0004）。
+  -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+</Project>

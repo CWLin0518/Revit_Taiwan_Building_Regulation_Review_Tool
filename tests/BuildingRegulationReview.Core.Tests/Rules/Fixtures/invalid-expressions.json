@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "1.0",
+  "ruleSetId": "tw-bcr-fire-broken",
+  "version": "2024.1",
+  "title": "運算式錯誤的規則集",
+  "rules": [
+    {
+      "ruleId": "bad-area",
+      "version": "1",
+      "category": "CompartmentArea",
+      "legalReference": "第79條",
+      "effectiveDate": "2024-01-01",
+      "jurisdiction": "TW",
+      "priority": 10,
+      "appliesWhen": "System.IO.File.Exists(\"C:/x\")",
+      "requiredValue": "zone.area <= 1500",
+      "exemptions": [ "zone.use = \"樓梯間\"" ],
+      "evidenceFields": [ "zone.height", "opening.hostUniqueId" ],
+      "severity": "Error"
+    },
+    {
+      "ruleId": "bad-wall",
+      "version": "1",
+      "category": "FireResistance",
+      "legalReference": "第79條",
+      "effectiveDate": "2024-01-01",
+      "jurisdiction": "TW",
+      "priority": 10,
+      "appliesWhen": "opening.isHosted == true",
+      "requiredValue": "60 min",
+      "exemptions": [],
+      "evidenceFields": [],
+      "severity": "Error"
+    }
+  ]
+}
