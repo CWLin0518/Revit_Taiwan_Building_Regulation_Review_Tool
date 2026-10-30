@@ -5,3 +5,4 @@
 *.suo
 TestResults/
 .gtoffice/
+.vscode/
