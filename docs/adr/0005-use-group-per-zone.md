@@ -2,7 +2,7 @@
 
 日期：2026-10-30
 狀態：已採納
-相關：`docs/regulations/building-use-groups.md` §6、`docs/regulations/article-79-1-area-exemption.md`
+相關：`docs/tools/fire-review/rules/building-use-groups.md` §6、`docs/tools/fire-review/rules/article-79-1-area-exemption.md`
 
 ## 脈絡
 

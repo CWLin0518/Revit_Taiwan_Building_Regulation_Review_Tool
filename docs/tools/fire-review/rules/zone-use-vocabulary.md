@@ -1,7 +1,7 @@
 # `zone.use`（防火檢討_區劃用途）用字表
 
 **功能 ID**：`zone-use-vocabulary`（不是獨立功能，是兩條區劃面積規則與第 79 條之 1 共用的輸入約定）
-**對應 spec**：`docs/fire-review-spec.md` §19 第 6 項（區劃面積規則所需的用途輸入）
+**對應 spec**：`docs/tools/fire-review/SPEC.md` §19 第 6 項（區劃面積規則所需的用途輸入）
 
 ## 1. 這份用字表要解決什麼
 

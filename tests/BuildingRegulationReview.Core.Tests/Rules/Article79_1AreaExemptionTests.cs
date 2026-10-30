@@ -12,7 +12,7 @@ namespace BuildingRegulationReview.Core.Tests.Rules;
 
 /// <summary>
 /// What 第79條之1 must <em>not</em> do to the shipped rule set
-/// (docs/regulations/article-79-1-area-exemption.md §3.6、§5).
+/// (docs/tools/fire-review/rules/article-79-1-area-exemption.md §3.6、§5).
 ///
 /// 第79條之1 lets six uses out of 第79條第1項's 一、五○○平方公尺 — but only when they 無法區劃分隔 and
 /// 自成一個區劃 with 一小時 防火時效 walls and 防火設備 whose 阻熱性 is also 一小時. The tool can see the

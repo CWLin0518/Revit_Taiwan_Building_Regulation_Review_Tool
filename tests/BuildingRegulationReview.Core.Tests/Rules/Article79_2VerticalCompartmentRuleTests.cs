@@ -13,7 +13,7 @@ namespace BuildingRegulationReview.Core.Tests.Rules;
 
 /// <summary>
 /// The shipped VerticalCompartment rules — 第79條之2第1項
-/// (docs/regulations/vertical-compartment.md).
+/// (docs/tools/fire-review/rules/vertical-compartment.md).
 ///
 /// 第79條之2 gives the five 垂直區劃 their own 區劃分隔, which is why both area rules exempt them
 /// (see <see cref="VerticalCompartmentExemptionTests"/>). What these rules add is only what the

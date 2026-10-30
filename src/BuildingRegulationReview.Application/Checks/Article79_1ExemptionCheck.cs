@@ -12,7 +12,7 @@ using BuildingRegulationReview.Domain.Rules;
 namespace BuildingRegulationReview.Application.Checks;
 
 /// <summary>
-/// The 第79條之1 answer for one 區劃 (docs/regulations/article-79-1-area-exemption.md §3.2).
+/// The 第79條之1 answer for one 區劃 (docs/tools/fire-review/rules/article-79-1-area-exemption.md §3.2).
 /// </summary>
 public sealed class Article79_1ExemptionFinding
 {
@@ -68,7 +68,7 @@ public sealed class Article79_1ExemptionReview
 
 /// <summary>
 /// 第79條之1 之無法區劃分隔部分得不受第79條第1項之面積限制
-/// (docs/regulations/article-79-1-area-exemption.md). A classification, not a requirement, so no rule
+/// (docs/tools/fire-review/rules/article-79-1-area-exemption.md). A classification, not a requirement, so no rule
 /// runs here — <see cref="Article79_1Exemption"/> decides and this turns its three states into a
 /// result:
 /// <list type="number">

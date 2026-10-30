@@ -11,7 +11,7 @@ namespace BuildingRegulationReview.Core.Tests.Rules;
 
 /// <summary>
 /// The shipped 第83條 區劃面積 rule — 十一層以上部分之區劃
-/// (docs/regulations/curtain-wall-fire-compartment.md §2.5、§5.3).
+/// (docs/tools/fire-review/rules/curtain-wall-fire-compartment.md §2.5、§5.3).
 ///
 /// 第83條 states three tiers of 區劃 area and reads them off the 室內裝修 grade: 一○○平方公尺 as the
 /// baseline (二○○ for Ｈ－２組), 二○○ once 自地板面起一‧二公尺以上之室內牆面及天花板 are 耐燃一級

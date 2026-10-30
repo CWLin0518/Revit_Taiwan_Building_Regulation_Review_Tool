@@ -119,7 +119,7 @@ foreach ($file in $dataFiles) {
     Copy-Item -LiteralPath $file.FullName -Destination $destination -Force
 }
 
-# The MCP bridge an agent launches over stdio (docs/mcp-server.md section 3). Claude Code keeps it running,
+# The MCP bridge an agent launches over stdio (docs/tools/mcp-server/ARCHITECTURE.md section 3). Claude Code keeps it running,
 # so its files may be locked even with Revit closed. Windows lets a running file be renamed though, so
 # a locked one is moved aside and the new one copied in; the running bridge keeps its old copy until
 # the agent restarts it, and the leftovers are swept on the next install.

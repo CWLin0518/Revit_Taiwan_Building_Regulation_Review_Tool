@@ -6,7 +6,7 @@ using Xunit;
 namespace BuildingRegulationReview.Core.Tests.Checks;
 
 /// <summary>
-/// 第79條之1's two 款 (docs/regulations/article-79-1-area-exemption.md §3.5).
+/// 第79條之1's two 款 (docs/tools/fire-review/rules/article-79-1-area-exemption.md §3.5).
 ///
 /// Like 第79條之2第3項, this is a classification and not a requirement: it says whether 第79條第1項's
 /// 一、五○○平方公尺 reaches a 區劃 at all. So there is no 符合 and no 未符合 here — only 免除成立

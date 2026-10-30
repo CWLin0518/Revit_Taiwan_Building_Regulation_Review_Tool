@@ -193,9 +193,9 @@ public sealed class MemberObservation
     public bool IsCurtainWall { get; }
 
     /// <summary>
-    /// 牆型別的 <c>Function</c>，就照讀到的樣子（docs/regulations/curtain-wall-fire-compartment.md
+    /// 牆型別的 <c>Function</c>，就照讀到的樣子（docs/tools/fire-review/rules/curtain-wall-fire-compartment.md
     /// §4.8）。帷幕牆的室內外判定要連同沿牆的區劃取樣一起交給 <see cref="CurtainWallExposureClassifier"/>；
-    /// 一般牆的 Exterior 是外牆門窗推定的必要條件（docs/regulations/boundary-edge-elements.md §3.4）。
+    /// 一般牆的 Exterior 是外牆門窗推定的必要條件（docs/tools/fire-review/rules/boundary-edge-elements.md §3.4）。
     /// </summary>
     public CurtainWallFunctionDeclaration CurtainWallFunction { get; }
 

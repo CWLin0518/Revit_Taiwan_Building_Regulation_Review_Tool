@@ -16,7 +16,7 @@ using static BuildingRegulationReview.Core.Tests.Candidates.CandidateModel;
 namespace BuildingRegulationReview.Core.Tests.Checks;
 
 /// <summary>
-/// The check layer of 第79條之1 (docs/regulations/article-79-1-area-exemption.md §3.2、§3.5、§7).
+/// The check layer of 第79條之1 (docs/tools/fire-review/rules/article-79-1-area-exemption.md §3.2、§3.5、§7).
 /// <see cref="Article79_1ExemptionTests"/> covers the judgement itself; what is asserted here is what
 /// the judgement is turned into — which 區劃 gets a subject at all, what the result says, and above
 /// all what the check must leave alone: the 區劃面積 row, the markup plan and the rule set.

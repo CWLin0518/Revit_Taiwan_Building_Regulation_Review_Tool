@@ -7,7 +7,7 @@ namespace BuildingRegulationReview.Application.Candidates;
 
 /// <summary>
 /// Whether a curtain wall is the building's 外牆 or stands inside it
-/// (docs/regulations/curtain-wall-fire-compartment.md §4.8).
+/// (docs/tools/fire-review/rules/curtain-wall-fire-compartment.md §4.8).
 /// </summary>
 /// <remarks>
 /// 第79條第3、4項、第79條之3第2項 and 第79條之4 all speak of 外牆; a curtain wall drawn inside the

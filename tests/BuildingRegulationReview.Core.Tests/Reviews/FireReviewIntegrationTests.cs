@@ -670,7 +670,7 @@ public sealed class FireReviewIntegrationTests
     /// <summary>
     /// 第83條第一款但書 raises the 區劃 limit to 二○○平方公尺 for Ｈ－２組, so the rules read the
     /// 用途類組 and the Areas have to carry it — per 區劃, since one building may hold several groups
-    /// (docs/regulations/building-use-groups.md §6).
+    /// (docs/tools/fire-review/rules/building-use-groups.md §6).
     /// </summary>
     [Fact]
     public void Use_group_is_a_required_area_parameter_now_that_a_rule_reads_it()

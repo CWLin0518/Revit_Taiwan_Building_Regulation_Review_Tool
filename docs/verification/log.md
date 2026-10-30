@@ -1,7 +1,7 @@
 # Revit 端驗證紀錄（2026-10-04 ～ 2026-10-27）
 
 > **這是封存的完整紀錄，不是待辦清單。** 2026-10-27 起，目前進度與還沒做的事改看
-> [revit-verification-checklist.md](revit-verification-checklist.md)。
+> [checklist.md](checklist.md)。
 > 這份檔案是原清單整理前的全文，內容一字未改（只換了這段開頭）：每一輪的操作、逐字證據、
 > B／C 缺陷的完整描述與修正內容都在這裡。內文裡「目前進度」「下一步」之類的段落反映的是**當時**的狀態，
 > 以新清單為準。
@@ -245,7 +245,7 @@ V-xx 第 n 項：通過／不通過
 
 ### ⬜ ⚠️ V-27 室內帷幕牆分流（決議 18）
 
-> **出處**：`docs/regulations/curtain-wall-fire-compartment.md` §4.8、§12 步驟 18（決議 18）｜**優先**：最高｜**需重新部署**｜**會改動模型**：是（要新建一片牆、改一個型別參數）
+> **出處**：`docs/tools/fire-review/rules/curtain-wall-fire-compartment.md` §4.8、§12 步驟 18（決議 18）｜**優先**：最高｜**需重新部署**｜**會改動模型**：是（要新建一片牆、改一個型別參數）
 
 **前置**：關 Revit → `scripts/install-revit-2024.ps1` → 重開。⚠️ **先另存備份**。
 規則集已升到 `2026.10-provisional`，既有工作包第一次按「開始檢討」會要求勾「改用目前規則版本」。
@@ -315,7 +315,7 @@ FL2 的 `boundaryRevision 10` 與 `lastReviewRunId 4dcc3962` 完好）。做法�
 
 ### ⬜ V-26 圓弧帷幕牆拆成平面段
 
-> **出處**：`docs/regulations/curtain-wall-fire-compartment.md` §4.7、§12 步驟 17（決議 17）｜**優先**：高｜**需重新部署**
+> **出處**：`docs/tools/fire-review/rules/curtain-wall-fire-compartment.md` §4.7、§12 步驟 17（決議 17）｜**優先**：高｜**需重新部署**
 
 **前置**：關 Revit → `scripts/install-revit-2024.ps1` → 重開；對帷幕牆 257977 所在（挑空）的工作包重跑檢討。
 
@@ -346,7 +346,7 @@ FL2 的 `boundaryRevision 10` 與 `lastReviewRunId 4dcc3962` 完好）。做法�
   （這正是 V-27 第 9 項的情形，只是本模型原本就有一道 Interior 的帷幕牆型別。）
 
 
-出處統一為 `docs/regulations/curtain-wall-fire-compartment.md` §12。
+出處統一為 `docs/tools/fire-review/rules/curtain-wall-fire-compartment.md` §12。
 **步驟 11、12 的「Revit 端待驗證」不在此列**——那兩步已被決議 13 取代並整段移除，驗證項一併作廢。
 
 **這一輪的模型準備**：現行模型的 CW-H／CW-V 都是「符合」（16e 逐字核對），**必須先製造未符合**才驗得到——
@@ -448,7 +448,7 @@ FL2 的 `boundaryRevision 10` 與 `lastReviewRunId 4dcc3962` 完好）。做法�
   `CurtainWallElevation` 只是多帶一個 `Subject`（帷幕牆 UniqueId），所以立面是
   **「一個套件 × 一片牆」一個**，不是「一片牆」一個。而一個套件 = 一個 Area Plan = 一個樓層，
   **套件內不可能出現兩個樓層的層間帶**——這一項於是永遠驗不到。
-  ⚠️ `docs/regulations/curtain-wall-fire-compartment.md:909` 那句「同一片帷幕牆在多個樓層的層間帶
+  ⚠️ `docs/tools/fire-review/rules/curtain-wall-fire-compartment.md:909` 那句「同一片帷幕牆在多個樓層的層間帶
   共用一個立面」會被讀成跨套件也共用，與實作不符，**規格文字與清單第 3 項都該修**（這是文件問題，
   不是程式錯誤；要跨樓層共用立面是設計變更，須先決策）。
 - **第 4、6 項**：仍未驗（要手改標註／縮裁剪範圍，都會改模型）。
@@ -693,7 +693,7 @@ FL2 的 `boundaryRevision 10` 與 `lastReviewRunId 4dcc3962` 完好）。做法�
 
 ### ✅ V-18 面板 P15–P22（2026-10-13 資料層補驗、2026-10-14 人工畫面結案）
 
-> **出處**：`docs/agent/phase-3-acceptance.md`「驗收項（未實機）」表｜**優先**：低
+> **出處**：`docs/tools/fire-review/history/phase-3-acceptance.md`「驗收項（未實機）」表｜**優先**：低
 
 Phase 3 收尾時列的，之後面板改了很多版，**很可能早已在日常使用中被覆蓋**。一次快速掃過，能確認的就標掉。
 
@@ -773,7 +773,7 @@ Area Plan 不在了，就重建一個並存回**同一個** `PackageId`——「
 
 ### 🟡 V-29 編輯器「用途」欄（2026-10-13 人工驗證，第 1～9、15 項通過）
 
-> **出處**：`docs/regulations/vertical-compartment.md` §11、`docs/adr/0003-region-editor-writes-zone-use.md`｜**優先**：最高｜**需重新部署**｜**會改動模型**：是（寫 `防火檢討_區劃用途`）
+> **出處**：`docs/tools/fire-review/rules/vertical-compartment.md` §11、`docs/adr/0003-region-editor-writes-zone-use.md`｜**優先**：最高｜**需重新部署**｜**會改動模型**：是（寫 `防火檢討_區劃用途`）
 
 **前置**：關 Revit → `scripts/install-revit-2024.ps1` → 重開。模型要**已執行過「防火檢討參數設定」**
 （否則 `防火檢討_區劃用途` 沒綁到面積，第 9 項才是驗沒綁的情形）。需要一個**已套用過區劃**的工作包。
@@ -820,7 +820,7 @@ Area Plan 不在了，就重建一個並存回**同一個** `PackageId`——「
 
 ## 第 12 輪：MCP 服務
 
-> **出處**：`docs/adr/0004-mcp-server-for-agent-verification.md`、`docs/mcp-server.md`｜**需重新部署**（多了 `BuildingRegulationReview.Mcp.dll`）
+> **出處**：`docs/adr/0004-mcp-server-for-agent-verification.md`、`docs/tools/mcp-server/ARCHITECTURE.md`｜**需重新部署**（多了 `BuildingRegulationReview.Mcp.dll`）
 
 **前置**：關 Revit → `scripts/install-revit-2024.ps1` → 重開。確認部署目錄有**五個** dll。需要一個已套用過區劃、
 可以開始檢討的工作包（第 11 輪用的模型即可）。協定層（JSON、JSON-RPC、HTTP、Host／Origin 檢查）有 43 條單元測試；
@@ -873,7 +873,7 @@ Area Plan 不在了，就重建一個並存回**同一個** `PackageId`——「
 
 ### ✅ V-31 MCP 服務自動啟動、bridge 自動連線與「Revit 忙碌中」
 
-> 2026-10-07 改版：改由 stdio bridge 連線、服務預設自動啟動（ADR 0004 修訂、`docs/mcp-server.md` §3）。
+> 2026-10-07 改版：改由 stdio bridge 連線、服務預設自動啟動（ADR 0004 修訂、`docs/tools/mcp-server/ARCHITECTURE.md` §3）。
 > 舊版「按按鈕 → 複製含權杖的 HTTP 指令」那一套已經取代，本項依新版改寫。
 > 安裝腳本已於 2026-10-07 執行：部署目錄多了 `McpBridge\`，`~/.claude.json` 的使用者層級設定已改成 stdio bridge，舊的 HTTP 權杖設定已移除。
 
@@ -1234,7 +1234,7 @@ FL3 的唯一差異：區劃 322274「13 區劃 1」的防火區劃面積由「�
 | C-05 | 🟢 低 | **`防火檢討_所在樓層序`（Integer）與 `防火檢討_自動滅火設備`（YESNO）清不掉，而失敗訊息怪到「值」身上。** 寫入端把「清除」表示成空字串的文字編輯，Integer 分支 `int.TryParse("")` 失敗就回 `Rejected`，訊息成了「參數 … 的資料型別（Integer）無法接受這個值。」真正的原因是 Revit API 沒有「取消設值」這個動作（`Parameter` 只有 `Set`），所以一個已寫入的 Integer／YesNo 參數**本來就回不到未填狀態**。面板走的是同一條路（`FireReviewInputViewModels.cs:357-363` 一樣用 `OfText` ＋ 空字串），所以使用者在面板把這兩格清空再按「寫入模型」，拿到的也是這句看不懂的話，而且不會事先被阻止 | `RevitFireReviewParameterWriter.cs:161-171`（`Write` 的 Text→Integer 分支）、`:117-123`（失敗訊息）；面板側 `FireReviewInputViewModels.cs:357-363`；MCP 工具說明仍寫「null=清除」 | 2026-10-13 驗 V-11 時實測：`fire_review_set_parameters` 對 316022 傳 `floorNumber: null`、對 316020 傳 `sprinklered: null`，兩筆都在 `failures` 裡，理由逐字為「參數 防火檢討_所在樓層序 的資料型別（Integer）無法接受這個值。」同一批的兩筆文字參數（`use`）正常寫入。**連帶**：V-11 的 `未填樓層序，無法判定上限` 因此在本模型湊不出來（只有從未寫入過的新 Area 才看得到）。修正方向：(a) 工具與面板都該在**送出前**就說「Revit 無法清除整數／是否參數，請改填一個值」，(b) 失敗訊息不要指向「值的型別」，(c) MCP 工具說明的「null=清除」要限定成只適用文字參數 。**✅ 2026-10-13 已修**，見下方「C-02／C-03／C-05／C-07／C-09 的修正內容」 |
 | C-06 | 🟡 中 | **一般區劃（用途依設計留空）超出面積上限時被判「資料不足」而不是「未符合」，未符合被藏起來。** 兩條面積規則的豁免都寫成 `zone.use == "挑空"` 這種比較，而 `ReviewParameterSnapshot.Convert` 對 `!reading.HasValue` 直接回 `null`——`Empty`（參數存在但空白）也在裡面——於是空白的 `區劃用途` **根本沒有進入事實集**，豁免條件變成 Unknown。規則引擎的設計是：要求值通過就忽略豁免缺口（判符合），要求值不通過才把缺口端出來改判資料不足。結果一個「用途照面板規定留空」的一般區劃，面積沒超就符合、**一超就變資料不足**。這同時違反專案自己訂的不變量——`ZoneAreaLimits.cs` 的類別註解明寫「what the panel calls 未填 is exactly what the engine would report as 資料不足」，而面板對同一個區劃顯示的是有數字的「第79條 上限 1500 m²」，沒有任何未填 | 根因 `ReviewParameterSnapshot.cs:336-340`（`Convert` 把 `Empty` 與 `Absent` 一視同仁）；引擎的刻意行為 `RuleEngine.cs:128-137`（有測試背書：`CompartmentAreaCheckTests.cs:311-321`）；對照先例 `ReviewParameterSnapshot.cs:378-384`（`ProvidedFireProtection` 明確把 `Empty` 當「未勾選＝否」）；規則定義 `fire-review-rules.json` 的 `tw-bcr-79-area`／`tw-bcr-83-area` | 2026-10-13 決定性實驗（FL3、322274、面積 423.594 ㎡、上限 400 ㎡）：`用途` 空白 → **資料不足**「zone.area = 423.594 m2 未達 <= 400 m2，但無法確認是否符合豁免條件：zone.use 未設定。」；同一個區劃把 `用途` 填成非豁免的 `辦公室` → **未符合**「zone.area = 423.594 m2，未符合 <= 400 m2。」兩次只差這一個欄位。第79條那一條是同一段程式，本模型的區劃面積都遠小於 1500 ㎡，湊不出超限，但 `appliesWhen`／豁免清單與第83條逐字相同。修正方向：讓「參數存在但空白」的 `zone.use` 成為一個**已知的空字串事實**（豁免因此確定不成立），而不是缺資料；務必**只針對 `zone.use`**（或以欄位層級的「空白有意義」宣告來做），不可讓 `Convert` 普遍把空白當已知值——`element.providedFireRating` 之類的欄位空白時必須維持資料不足。**✅ 2026-10-13 已修、已部署、已實機驗證通過**（同條件下由資料不足改判未符合），見下方「C-06 的修正內容」 |
 | C-07 | 🟢 低 | **批次面板「防火構造建築物」未勾時的紅字說錯了後果。** 紅字寫「整份檢討會判「資料不足」」，但四條規則的 `appliesWhen` 都是 `building.fireResistiveConstruction == true`：明確填**否**時這個條件是「已知為假」→ 全部**不適用**，不是資料不足；只有**未填**才是資料不足。而「不適用」在檢討表上讀起來像「沒有要檢討的事」，與紅字想傳達的「這份檢討作不了數」正好相反 | `FireReviewInputViewModels.cs:417-419`（`FireResistiveWarning`，條件是 `YesNoOf(...) == true` 以外一律顯示，不分「否」與「未填」） | 2026-10-13 實測：把專案的 `防火檢討_防火構造建築物` 寫成 `false` 後，`scan` 的 `project.fireResistiveWarning` 逐字出現那句話；同一狀態下跑 FL3 得到「檢討完成：待確認（符合 0／未符合 0／待確認 2／不適用 104）」，六節中四節是「不適用」、帷幕牆交接 2 列人工覆核，**一筆資料不足都沒有**。驗畢已還原為 `true`。修正方向：把訊息按三態分開寫——未填＝資料不足、填否＝四類規則都不適用（並點明「不適用不代表合格」）、填是＝無警語 。**✅ 2026-10-13 已修**，見下方「C-02／C-03／C-05／C-07／C-09 的修正內容」 |
-| C-08 | 🟡 中 | **室內外未定的帷幕牆，在「構件防火時效」那一列被靜默丟棄。** `CandidateResolver.cs:96-110` 刻意為這種牆產出一個 `CurtainWallExposureUndecided` 的 ambiguity，訊息就是規格要的那句「外牆不受第79條第1項區劃牆壁時效拘束、室內帷幕牆則受拘束，兩者相反，需人工覆核」，註解也明寫「這一列讓那個空缺出現在檢討表上」。但它掛在該牆的 **boundary** 關係上，而 `FireResistanceCheck` 消費 ambiguity 時用的 `AmbiguousMember` 只認 `IsAmbiguous` 的關係（`m.RelationTo(zoneId) is { IsAmbiguous: true }`），`ZoneRelationKind` 的 `IsBoundary` 與 `IsAmbiguous` 互斥，所以永遠比不到 → `continue` → **那一列從不產生**。牆體時效規則版本 3 又明文排除 `Unknown`（`element.curtainWallExposure != "Unknown"`），於是這道牆在構件防火時效只剩「不適用」或完全不列，第79條第1項的時效要求**無聲消失**——正是規格 §4.8「`Unknown` 不是靜默略過」要防的事 | `FireResistanceCheck.cs:244-247`（`AmbiguousMember` 比對不到就 `continue`）、`:511-518`（`AmbiguousMember`）；`CandidateSet.cs:185-186`（`IsAmbiguous`／`IsBoundary` 互斥）；產出端 `CandidateResolver.cs:96-110`；規則 `tw-bcr-79-wall-rating` 版本 3 的 `appliesWhen`；規格 `docs/regulations/curtain-wall-fire-compartment.md:824-828` | 2026-10-13 實測（V-27 第 9 項）：型別 334 的 `Function` 改成 `Interior` 後跑 FL1，「帷幕牆區劃交接」如期出現 4 列人工覆核（室內外判定，訊息逐字含兩種修法），但「構件防火時效」是 16 符合／**1 資料不足**（257783，那是判為室內的那道牆，照常列出後因沒填時效而資料不足——這一列是對的）／**2 不適用**，**沒有任何人工覆核列**。既有測試只覆蓋產出端（`CandidateResolverTests.cs:489-504`、`CurtainWallExposureTests.cs:325`），沒有一條測到它會不會出現在 `FireResistanceReview.Findings` 裡，所以漏掉了。驗畢已還原 `Function = Exterior`。**✅ 2026-10-13 已修、已部署、已實機驗證通過**；部署後在**未製造任何條件**的 FL1 上就抓到既有缺口（帷幕牆 257783 長期被靜默歸為不適用），見下方「C-08 在真實模型上抓到的既有缺口」 |
+| C-08 | 🟡 中 | **室內外未定的帷幕牆，在「構件防火時效」那一列被靜默丟棄。** `CandidateResolver.cs:96-110` 刻意為這種牆產出一個 `CurtainWallExposureUndecided` 的 ambiguity，訊息就是規格要的那句「外牆不受第79條第1項區劃牆壁時效拘束、室內帷幕牆則受拘束，兩者相反，需人工覆核」，註解也明寫「這一列讓那個空缺出現在檢討表上」。但它掛在該牆的 **boundary** 關係上，而 `FireResistanceCheck` 消費 ambiguity 時用的 `AmbiguousMember` 只認 `IsAmbiguous` 的關係（`m.RelationTo(zoneId) is { IsAmbiguous: true }`），`ZoneRelationKind` 的 `IsBoundary` 與 `IsAmbiguous` 互斥，所以永遠比不到 → `continue` → **那一列從不產生**。牆體時效規則版本 3 又明文排除 `Unknown`（`element.curtainWallExposure != "Unknown"`），於是這道牆在構件防火時效只剩「不適用」或完全不列，第79條第1項的時效要求**無聲消失**——正是規格 §4.8「`Unknown` 不是靜默略過」要防的事 | `FireResistanceCheck.cs:244-247`（`AmbiguousMember` 比對不到就 `continue`）、`:511-518`（`AmbiguousMember`）；`CandidateSet.cs:185-186`（`IsAmbiguous`／`IsBoundary` 互斥）；產出端 `CandidateResolver.cs:96-110`；規則 `tw-bcr-79-wall-rating` 版本 3 的 `appliesWhen`；規格 `docs/tools/fire-review/rules/curtain-wall-fire-compartment.md:824-828` | 2026-10-13 實測（V-27 第 9 項）：型別 334 的 `Function` 改成 `Interior` 後跑 FL1，「帷幕牆區劃交接」如期出現 4 列人工覆核（室內外判定，訊息逐字含兩種修法），但「構件防火時效」是 16 符合／**1 資料不足**（257783，那是判為室內的那道牆，照常列出後因沒填時效而資料不足——這一列是對的）／**2 不適用**，**沒有任何人工覆核列**。既有測試只覆蓋產出端（`CandidateResolverTests.cs:489-504`、`CurtainWallExposureTests.cs:325`），沒有一條測到它會不會出現在 `FireResistanceReview.Findings` 裡，所以漏掉了。驗畢已還原 `Function = Exterior`。**✅ 2026-10-13 已修、已部署、已實機驗證通過**；部署後在**未製造任何條件**的 FL1 上就抓到既有缺口（帷幕牆 257783 長期被靜默歸為不適用），見下方「C-08 在真實模型上抓到的既有缺口」 |
 | C-09 | 🟢 低 | **在區劃編輯器只設定一個「區劃用途」（元素本身一個都沒動），就會讓套件的 `boundaryRevision` +1，並把狀態從「已檢討」退回「可開始檢討」。** 成功寫入用途被記成 `ApplyOutcome.Updated`，於是 `ReviewPackageProgress.After` 算出的 `touched` 大於 0，略過了「什麼都沒動就別動狀態」那道閘，直接走 `WithNextBoundaryRevision`。但 spec 13.1 之所以在 `boundaryRevision` 變動時作廢既有成果，理由是「**邊界**變了」——這裡邊界一動也沒動。改用途**確實**該讓檢討變成「已失效」（它是檢討的輸入，`ReviewBaselineBuilder` 會算進簽章），但那是 `ReviewStaleness` 的工作；用 `boundaryRevision` 表達等於連單線圖與出圖都宣告失效。**同一個改動從批次設定面板走只會變成已失效，從編輯器走卻是重畫邊界等級的作廢——兩個入口代價不同** | 記成 Updated：`RevitZoneWriteBack.cs:507`；`touched` 的算法與閘門：`ReviewPackageProgress.cs:107`（`touched = Created + Updated + Deleted`）、`:108-114`（全無變更的早退）、`:124-126`（刻意不讓已檢討被白白降級的那一段，註解明寫「Nothing was invalidated, so 已檢討／已出圖 would be thrown away for no reason」）、`:128-130`（`touched > 0` 才 `WithNextBoundaryRevision`） | 2026-10-13 驗 V-29 時實測：FL2 的 `boundaryRevision` 由 **7 變 10**、狀態由 `Reviewed`／已檢討 變成 `Ready`／可開始檢討，而這段期間編輯器只做了三次套用，其中兩次只寫一個區劃用途、一次（第 7 項）**連一個元素都沒寫**（結果視窗：「已建立 0 個、更新 0 個、刪除 0 個元素。模型未變更」）。那一次沒寫的套用符合設計（不該 +1），所以 +3 之中至少有兩次來自「只改用途」。**未修**——本輪只授權修 C-06／C-08。修正方向：讓只影響參數的寫回不要走 `WithNextBoundaryRevision`（例如把用途的成功寫入與幾何的 Created/Updated/Deleted 分開計數，或在 `After` 判斷 touched 時排除純參數項），改由既有的 staleness 機制把結果標成已失效 。**✅ 2026-10-13 已修、2026-10-13 20:23 已部署、2026-10-14 實機驗證通過**（FL3 只改一個用途並套用：`boundaryRevision` 維持 1、`lastReviewRunId` 未動、狀態由已檢討轉為**已失效**而非可開始檢討），見下方「C-02／C-03／C-05／C-07／C-09 的修正內容」與「人工畫面驗證」 |
 | C-10 | 🟢 低 | **`DataGridComboBoxColumn` 欄的 tooltip 永遠看不到；停用的格子也看不到。** 兩個獨立原因：**(a)** `DataGridComboBoxColumn` 的非編輯態顯示元素不是普通 `ComboBox`，而是 WPF 內部型別 `TextBlockComboBox`（`GenerateElement` 建立，`DefaultStyleKey` 指向 theme 的 `TextBlockComboBoxStyleKey`，是一個只畫文字的樣板），滑鼠碰不到它，所以掛在 `ElementStyle` 上的 tooltip 永遠不會觸發——滑鼠實際落在 `DataGridCell` 上，而這兩欄的 CellStyle 沒掛 tooltip。**(b)** WPF 的 `ToolTipService.ShowOnDisabled` 預設 `false`，停用的元素不顯示 tooltip，而 `IsEnabled` 會往下傳給儲存格內的控制項；全專案 XAML **一處都沒設過** `ShowOnDisabled`。另有一個可用性缺口：**所有欄位標題都沒有掛 tooltip**，而使用者的直覺是停在標題上找說明——這正是本缺陷一開始被誤判成「面板 tooltip 整片失效」的原因 | (a)：`FireReviewParameterPanelWindow.xaml:448-467`（`避難層通達`，tooltip 在 `:453`）、`:469-490`（`無法區劃分隔`，tooltip 在 `:483`）。(b)：`:472-479`（`無法區劃分隔` 的 CellStyle 以 `CanEditCannotBeSubdivided` 停用整格）、`:243`／`:260`／`:267`（三個 CheckBox 欄的 `IsEnabled="{Binding CarriesProtection}"`，tooltip 在 `:244`／`:261`／`:278`）、`:106-133`（`嵌板種類`）、`:190-200`（`被覆厚度 cm`）、`:216-232`（`設計防火時效`）。WPF 側：`DataGridComboBoxColumn.GenerateElement`／`TextBlockComboBox`、`DataGridCheckBoxColumn.DefaultElementStyle` | 2026-10-14 逐項對照測試，詳見上方「人工畫面驗證」第 6 項。**原始記錄的「連可編輯的格子都一樣／整片失效」是誤報**，已撤：掛在 `DataGridCell`（CellStyle）、`DataGridTextColumn.ElementStyle`（TextBlock）、`DataGridCheckBoxColumn.ElementStyle`（啟用的列）上的 tooltip 全都正常顯示，同一批 Style 的視覺 Setter 也都生效。修正方向：**(a)** 把 `:453`、`:483` 的 tooltip 從 `ElementStyle` 搬到該欄的 `CellStyle`（`區劃用途` 與 `所在樓層序` 已證明 `DataGridCell` 上的 tooltip 有效）；**(b)** 對會停用的格子與元素補 `ToolTipService.ShowOnDisabled="True"`——注意 `無法區劃分隔` 同時中 (a) 與 (b)，搬到 CellStyle 之後**仍要**加 `ShowOnDisabled`；**(c)** 可考慮把說明一併掛到各欄的 `HeaderStyle`，接住「停在標題上」的直覺。**連帶注意（修改時不可破壞）**：三個 CheckBox 欄因為自訂 `ElementStyle` 取代了 `DataGridCheckBoxColumn.DefaultElementStyle`，一併失去了它的 `IsHitTestVisible=false`／`Focusable=false`，所以非編輯狀態下就能直接點勾（2026-10-14 實測確認）。這是目前的實際行為，修 tooltip 時**不可以**把那兩個屬性補回去，否則會同時打掉直接點勾與 tooltip。**2026-10-15 已修**（批次 D，詳見下方「C-10／C-12／C-13 的修正內容」）。⚠️ **兩欄只修了一半**：`結構材料` 在 `CarriesMaterial == false` 的列、`設計防火時效` 在 `CarriesRating == false` 的列，**格子上仍然沒有說明** —— 這兩欄的格子本來就沒有無條件 ToolTip（唯一的 tooltip 在 `IsEditable == false` 的觸發程序裡，是給保留型別那一列的 `SubstitutionNote`），所以 `ShowOnDisabled` 對它們無事可做。說明改掛在這兩欄的**欄位標題**上，人工驗證時不要把「格子上沒說明」當成缺陷回報。**2026-10-16 人工畫面驗證通過**（17 項，詳見下方「C-10／C-12 的人工畫面驗證結果」；紅線「非編輯狀態直接單擊勾選」仍然成立） |
 | C-11 | 🟡 中 | **清空「被覆厚度 cm」（或 MCP 送 `coverCm: null`）會靜默地 `Set(0.0)`：一次清除被回報成一次成功寫入（`written` 多算一筆），而模型裡被留下一個使用者沒有宣告過的 0。** ⚠️ **2026-10-15 更正：原描述的「判定端把 0 當成已宣告 0 公分 → 正面判定無防火時效」與「清空寫入後重掃，格子回來顯示 `0`」兩句都不成立**（驗證時只讀了 `FireRatingDerivation` 的程式碼，沒有往上追掃描層）。`RevitFireReviewTypeScanner` 的 `IsPositiveLength` 要求 `AsDouble() > 0`，所以存著 0 的被覆重掃後**讀回 null**：格子是**空白**不是 0，推定仍是 `CoverMissing`，檢討路徑更是完全不讀被覆厚度（`StructuralMaterialParameters.Cover` 全 repo 只有掃描器兩處讀取端）。**真正的實害是**：(a) Revit 的類型屬性、明細表與任何其他讀取端看到的都是「0」，而本工具因為讀不回它，使用者在面板上既看不到、也清不掉；(b) 一次清除被回報成一次成功寫入。**但防護只落在 `IsPositiveLength` 的 `> 0` 這一個條件上。** ⚠️ **2026-10-16 更正**：原本這裡寫「`FireRatingDeriver.Derive` 的第二個呼叫端餵 `RatingEdit()`，那條路會把推定時效寫進 `防火檢討_設計防火時效`，所以放寬 `> 0` 會從『只是改了模型』變成『改了判定』」—— **那個推論是錯的**（由 code review 抓出，主 agent 逐行查證）。`cover = 0` 推定出的是 `NotRated`，而 `HasRating => Kind == Derived` 為 false → `ParameterText` 為 null → `RatingEdit()` 回 **null**、`CanApplyDerived` 也回 false，**`防火檢討_設計防火時效` 一個字都不會被寫**。放寬 `> 0` 真正的危害是另一件：`Kind` 由 `CoverMissing` 變成 `NotRated`，於是 `FireRatingDerivationGaps.AwaitsCover`（要求 `Kind == CoverMissing`）回 false ——那一列**不再出現在面板的待填、也不再進 MCP 的 `onlyNeedingAttention`**，而「依據／提醒」欄把「SC 被覆 0.0cm，未達門檻 → 無防火時效」當成一個**已決的推定**端給審查者。**資料不足被換成一個有肯定語氣的答案，而且使用者再也不會被提示去填**（詳見 C-20）。 兩者在判定上是兩件事：`coverMeters == null` 走 `FireRatingDerivationKind.CoverMissing`（`None(...)`，推定不出、該列列為待填）；`== 0` 則落進第73條的門檻鏈，得到一個有效的推定「SC 被覆 0cm，未達第73條二(二) 的 4cm 門檻 → 無防火時效。」。使用者「把填錯的值清掉」的動作，因此被譯成了一個**他沒有做過的宣告**。面板自己的記憶體其實分得清（`Meters()` 的註解明寫 「blank or unreadable is no value, never zero」），是**寫入層把它塌成 0**。原記的「往返不一致」方向寫反了：真正的往返遺失是**使用者真的宣告 0** 之後，重掃讀回 null、格子變空白、推定退回 `CoverMissing`（→ C-20） | `RevitFireReviewParameterWriter.cs:163-172`（`IsLength` 分支，`:166-167` 無值時 `parameter.Set(0.0)` 並回 `Written`）；判定端 `FireRatingDerivation.cs:292-295`（`Steel`，`coverMeters is not double` → `CoverMissing`）、`:304-314`（有值則走門檻鏈）；面板側 `FireReviewTypeRowViewModel.cs:444-452`（`Meters`）、`:440-442`（`Centimetres`）、`:411-413`（產生 `OfLength` edit）；`FireReviewParameterDraft.cs:84` 的註解「被覆厚度是長度（可以退回 0）」就是這個錯誤假設，所以 `Blocked` 不收長度格；MCP schema 字串 `FireReviewMcpTools.cs:516`「null 歸零（長度參數寫不出未填）」| 2026-10-14 使用者在 V-18 批次中決定另開。專案目前 12 個類型的 `coverCm` 全為空（沒有 SC 材料的列，`NeedsCover` 全為 false），所以**本模型現狀碰不到**，是源碼層認定的缺陷；驗證要先把一列的結構材料改成 SC、填一個被覆厚度寫入，再清空寫入。**修正方向**：照 C-05 已有的機制，`IsLength` 分支在 `edit.LengthMeters` 無值、且 `parameter.HasValue` 為真時回 **`WriteOutcome.NotClearable`** 而不是寫 0（`:123-125` 已有現成的 `NotClearableReason` 路徑）；`parameter.HasValue` 為假時維持 `Unchanged`（本來就空，不是使用者在清除）；並讓 `FireReviewParameterDraft.CollectEdits` 把被清空的長度格收進 `Blocked`，確認視窗才會**在寫入前**就講。使用者自己打 `0` 仍要能宣告 0 公分（`Meters("0")` → 0，與空白分得開）。順手更正 `FireReviewParameterDraft.cs:84` 的註解與 `FireReviewMcpTools.cs:516` 的 schema 字串。**2026-10-15 已修**（批次 C，詳見下方「C-11 的修正內容」）。**2026-10-16 人工畫面驗證通過**（5 項全過，含紅線「打 0 仍寫得進去」；詳見下方「C-11 的人工畫面驗證結果」） |
@@ -2705,7 +2705,7 @@ FL1 正式重跑：257977 與 333904 的交接**只有一列** `CW-H-01`（`CW-H
 <details>
 <summary>✅ V-06 第 79 條之 1：檢討表新列與參數讀取（2026-10-05，第 5 輪）</summary>
 
-- **出處**：`docs/regulations/article-79-1-area-exemption.md` §12 步驟 3
+- **出處**：`docs/tools/fire-review/rules/article-79-1-area-exemption.md` §12 步驟 3
 - **驗了什麼**：檢討表出現第 79 條之 1 新列、`防火檢討_無法區劃分隔` 確實被讀到、結果只有人工覆核或資料不足、
   區劃面積列的數字與上限不因豁免成立而改變。
 - **缺**：整體確認（「第五輪沒有問題」），新列與證據的逐字原文未貼。
@@ -2727,10 +2727,10 @@ FL1 正式重跑：257977 與 333904 的交接**只有一列** `CW-H-01`（`CW-H
 
 #### V-06 第 79 條之 1：檢討表新列與參數讀取
 
-> **出處**：`docs/regulations/article-79-1-area-exemption.md` §12 步驟 3｜**優先**：高
+> **出處**：`docs/tools/fire-review/rules/article-79-1-area-exemption.md` §12 步驟 3｜**優先**：高
 
 **前置**：`防火檢討_無法區劃分隔` 已綁到 Areas（第 1 輪已綁）；Area 的區劃用途是條文列的**六個用字之一**
-（用字清單見該文件與 `docs/regulations/zone-use-vocabulary.md`，須逐字相同）。
+（用字清單見該文件與 `docs/tools/fire-review/rules/zone-use-vocabulary.md`，須逐字相同）。
 
 **步驟與預期**
 
@@ -2764,7 +2764,7 @@ FL1 正式重跑：257977 與 333904 的交接**只有一列** `CW-H-01`（`CW-H
 <details>
 <summary>✅ V-20 檢討視窗可讀性改版（2026-10-05，第 4 輪）</summary>
 
-- **出處**：`docs/fire-review-spec.md` §11.7.1
+- **出處**：`docs/tools/fire-review/SPEC.md` §11.7.1
 - **驗了什麼**：7 項皆如預期——元素以 ElementId 顯示、長列折行（第 2 項的 `ItemContainerStyle` 備案**不需要**）、
   CW-H 明細欄位、資料不足顯示中文欄位名、複製明細八段順序、超過 12 筆只列 12 筆並寫總數、前置檢查標題與 ToolTip。
 - **缺**：整體確認（「第四輪沒有問題」），明細與複製內容的逐字原文未貼。
@@ -2774,7 +2774,7 @@ FL1 正式重跑：257977 與 333904 的交接**只有一列** `CW-H-01`（`CW-H
 <details>
 <summary>✅ V-21 檢討表篩選列（2026-10-05，第 4 輪）</summary>
 
-- **出處**：`docs/fire-review-spec.md` §11.7.2
+- **出處**：`docs/tools/fire-review/SPEC.md` §11.7.2
 - **驗了什麼**：8 項皆如預期——計數文字、狀態篩選與群組自動展開、標題統計不變、元素編號（含第二個以後）可搜尋、
   多詞 AND、篩選後保留選取、篩空提示與清除篩選、篩選列自動折行。
 - **缺**：整體確認，計數與提示文字的逐字原文未貼。
@@ -2790,7 +2790,7 @@ FL1 正式重跑：257977 與 333904 的交接**只有一列** `CW-H-01`（`CW-H
 
 #### V-20 檢討視窗可讀性改版
 
-> **出處**：`docs/fire-review-spec.md` §11.7.1｜**優先**：高
+> **出處**：`docs/tools/fire-review/SPEC.md` §11.7.1｜**優先**：高
 
 開啟檢討視窗、按「開始檢討」後逐項對照，**貼逐字內容**：
 
@@ -2806,7 +2806,7 @@ FL1 正式重跑：257977 與 333904 的交接**只有一列** `CW-H-01`（`CW-H
 
 #### V-21 檢討表篩選列
 
-> **出處**：`docs/fire-review-spec.md` §11.7.2｜**優先**：高
+> **出處**：`docs/tools/fire-review/SPEC.md` §11.7.2｜**優先**：高
 
 篩選列在檢討表正上方，由左到右是：`篩選`、四個狀態方塊、`只看需更新`、檢討項目下拉、`搜尋` 輸入框、
 `清除篩選`、右邊的計數文字。
@@ -2827,7 +2827,7 @@ FL1 正式重跑：257977 與 333904 的交接**只有一列** `CW-H-01`（`CW-H
 <details>
 <summary>✅ V-24 區劃邊緣的柱、牆與帷幕牆開口判定（2026-10-05，第 3 輪）</summary>
 
-- **出處**：`docs/regulations/boundary-edge-elements.md`、commit `10e0001`
+- **出處**：`docs/tools/fire-review/rules/boundary-edge-elements.md`、commit `10e0001`
 - **驗了什麼**：7 個步驟皆如預期。逐字回報只有一項：防火門窗人工覆核 **74 → 0**（2026-10-04）。
   使用者確認 0 件不是誤判（第 5、6 步應維持人工覆核的帷幕嵌板沒有被判掉）後，回報「第三輪沒有問題」。
 - **缺**：構件防火時效的新人工覆核件數（原 4 件）、`【外牆推定】` 件數與 `BCR-CAND-003` 警告行、
@@ -2840,7 +2840,7 @@ FL1 正式重跑：257977 與 333904 的交接**只有一列** `CW-H-01`（`CW-H
 
 #### V-24 區劃邊緣的柱、牆與帷幕牆開口判定
 
-> **出處**：`docs/regulations/boundary-edge-elements.md`、commit `10e0001`｜**優先**：高
+> **出處**：`docs/tools/fire-review/rules/boundary-edge-elements.md`、commit `10e0001`｜**優先**：高
 
 **背景**：Area 邊界常貼著柱外緣、落在牆厚內但不在中心線上，或經過帷幕牆。以前這些一律變人工覆核
 （2026-10-04 的檢討日誌：構件防火時效 **4 件**、防火門窗 **74 件**人工覆核）。現在能由條文推出結論的就直接判定。
@@ -2881,7 +2881,7 @@ FL1 正式重跑：257977 與 333904 的交接**只有一列** `CW-H-01`（`CW-H
 <details>
 <summary>✅ V-25 建立區劃範圍讀取房間分隔線（2026-10-04，第 2 輪）</summary>
 
-- **出處**：`docs/fire-review-spec.md` §10.1、commit `98724d5`
+- **出處**：`docs/tools/fire-review/SPEC.md` §10.1、commit `98724d5`
 - **驗了什麼**：分隔線鎖在牆面時延伸接上牆中心線並記入修復紀錄、隱藏「<房間分隔>」子品類時出警告且不圍出挑空、
   端點超過 300 mm 不自動接上、雙牆不誤接第二道牆、以正確範圍重新寫入。
 - **缺**：整體確認（「第二輪測試沒問題」），修復紀錄與警告的逐字原文未貼。
@@ -2891,7 +2891,7 @@ FL1 正式重跑：257977 與 333904 的交接**只有一列** `CW-H-01`（`CW-H
 <details>
 <summary>✅ V-04 垂直區劃：挑空「避難層通達」欄與批次填入（2026-10-04，第 2 輪）</summary>
 
-- **出處**：`docs/regulations/vertical-compartment.md` §12 步驟 7c（連跨樓層數部分已因決議 35 作廢）
+- **出處**：`docs/tools/fire-review/rules/vertical-compartment.md` §12 步驟 7c（連跨樓層數部分已因決議 35 作廢）
 - **驗了什麼**：用途填 `挑空` 後避難層通達欄轉為可勾、無連跨樓層數欄、寫入後回讀正確、批次填入可一次設 `樓梯間`。
 - **缺**：整體確認。
 
@@ -2900,7 +2900,7 @@ FL1 正式重跑：257977 與 333904 的交接**只有一列** `CW-H-01`（`CW-H
 <details>
 <summary>✅ V-23 挑空依 106 年 9 月 27 日函：連通區劃由各樓層推得（2026-10-04，第 2 輪）</summary>
 
-- **出處**：`docs/regulations/vertical-compartment.md` §3.7～§3.9、§12 步驟 8（決議 31～39）
+- **出處**：`docs/tools/fire-review/rules/vertical-compartment.md` §3.7～§3.9、§12 步驟 8（決議 31～39）
 - **驗了什麼**：一鍵建立 16 個參數；單層開洞與錯位挑空的連跨樓層數與連通面積；其他樓層區劃改動使檢討需更新；
   各種無法推得的情形為資料不足並說明原因；第 83 條那一路；決議 37 內部線不算區劃邊界（含免除不成立時恢復）；
   決議 38 阻熱性四種情形與改勾後需更新。
@@ -2911,7 +2911,7 @@ FL1 正式重跑：257977 與 333904 的交接**只有一列** `CW-H-01`（`CW-H
 <details>
 <summary>✅ V-05 垂直區劃：第四條要求列「挑空免除（第3項）」（2026-10-04，第 2 輪）</summary>
 
-- **出處**：`docs/regulations/vertical-compartment.md` §12 步驟 7d、決議 39
+- **出處**：`docs/tools/fire-review/rules/vertical-compartment.md` §12 步驟 7d、決議 39
 - **驗了什麼**：第四條要求列出現、類別欄為「區劃」、定位指到挑空 Area、日誌寫出四列件數；免除成立時為符合，
   實際值為成立款次、要求值「第一款或第二款」。
 - **缺**：整體確認，日誌 `垂直區劃（第79條之2）：…` 那一行未貼。
@@ -2930,7 +2930,7 @@ FL1 正式重跑：257977 與 333904 的交接**只有一列** `CW-H-01`（`CW-H
 
 #### V-25 建立區劃範圍讀取房間分隔線
 
-> **出處**：`docs/fire-review-spec.md` §10.1、commit `98724d5`｜**優先**：高｜**會改動模型**：是（寫入 Area）
+> **出處**：`docs/tools/fire-review/SPEC.md` §10.1、commit `98724d5`｜**優先**：高｜**會改動模型**：是（寫入 Area）
 
 **背景**：挑空沒有牆圍著，邊界改由房間分隔線界定。分隔線多半鎖點在牆**面**而非牆中心線，所以懸空端點
 可沿原方向延伸**至多 300 mm** 接上**牆中心線**（只接牆，不接其他分隔線）。
@@ -2951,7 +2951,7 @@ FL1 正式重跑：257977 與 333904 的交接**只有一列** `CW-H-01`（`CW-H
 
 #### V-04 垂直區劃：挑空「避難層通達」欄與批次填入
 
-> **出處**：`docs/regulations/vertical-compartment.md` §12 步驟 7c｜**優先**：高
+> **出處**：`docs/tools/fire-review/rules/vertical-compartment.md` §12 步驟 7c｜**優先**：高
 >
 > **已部分作廢（決議 35）**：`防火檢討_連跨樓層數` 已取消，原本「連跨欄打 0 會被清成空白」那一項不用驗了；
 > 連跨樓層數改由 V-23 驗。
@@ -2968,7 +2968,7 @@ FL1 正式重跑：257977 與 333904 的交接**只有一列** `CW-H-01`（`CW-H
 
 #### V-23 挑空依 106 年 9 月 27 日函：連通區劃由各樓層推得
 
-> **出處**：`docs/regulations/vertical-compartment.md` §3.7～§3.9、§12 步驟 8（決議 31～39）｜**優先**：高
+> **出處**：`docs/tools/fire-review/rules/vertical-compartment.md` §3.7～§3.9、§12 步驟 8（決議 31～39）｜**優先**：高
 
 **步驟與預期**
 
@@ -3017,7 +3017,7 @@ FL1 正式重跑：257977 與 333904 的交接**只有一列** `CW-H-01`（`CW-H
 
 #### V-05 垂直區劃：第四條要求列「挑空免除（第3項）」
 
-> **出處**：`docs/regulations/vertical-compartment.md` §12 步驟 7d、決議 39｜**優先**：高
+> **出處**：`docs/tools/fire-review/rules/vertical-compartment.md` §12 步驟 7d、決議 39｜**優先**：高
 
 接在 V-23 之後，用同一份檢討結果看即可。
 
@@ -3038,7 +3038,7 @@ FL1 正式重跑：257977 與 333904 的交接**只有一列** `CW-H-01`（`CW-H
 <details>
 <summary>✅ V-22 防火參數一鍵建立：差異預覽、實際綁定、衝突不覆蓋（2026-10-04，第 1 輪）</summary>
 
-- **出處**：`docs/fire-review-spec.md` §8.2.1
+- **出處**：`docs/tools/fire-review/SPEC.md` §8.2.1
 - **驗了什麼**：第 1 輪全部 10 個步驟——16 列「將建立」→ 建立後全「已綁定」、回讀各類別綁定（含柱兩個內建類別）、
   中文名稱正常、補綁不清掉既有值、衝突不覆蓋、共用參數檔路徑還原、前置檢查不再阻擋、
   `結構材料` 未與內建參數撞名（文字欄位、結構柱／梁可寫入）、柱只綁一半判「將補綁類別」。
@@ -3061,7 +3061,7 @@ FL1 正式重跑：257977 與 333904 的交接**只有一列** `CW-H-01`（`CW-H
 
 #### V-22 一鍵建立：差異預覽、實際綁定、衝突不覆蓋
 
-> **出處**：`docs/fire-review-spec.md` §8.2.1｜**優先**：最高｜**會改動模型**：是
+> **出處**：`docs/tools/fire-review/SPEC.md` §8.2.1｜**優先**：最高｜**會改動模型**：是
 
 **為什麼風險最高**：`RevitFireReviewParameterInstaller` 碰的是 Revit 的 `ParameterBindings`
 （`Insert`／`ReInsert`）與共用參數檔的 `DefinitionFile`，這兩套 API **一行測試都沒有**，而且會改動模型。
@@ -3140,7 +3140,7 @@ FL1 正式重跑：257977 與 333904 的交接**只有一列** `CW-H-01`（`CW-H
 <details>
 <summary>✅ V-01 垂直區劃：兩個開口參數的綁定與面板欄位（2026-10-04）</summary>
 
-- **出處**：`docs/regulations/vertical-compartment.md` §12「步驟 3 的產出與驗證」
+- **出處**：`docs/tools/fire-review/rules/vertical-compartment.md` §12「步驟 3 的產出與驗證」
 - **驗了什麼**：遮煙性能可勾選、門的設計防火時效可輸入、寫入後回讀正確、「未綁定」與「已綁定但未勾選」分得開。
 - **逐字證據**：把 `防火檢討_遮煙性能` 自「窗」類別取消綁定後，窗列底色轉淡紅，「依據／提醒」欄為
   `缺少參數：防火檢討_遮煙性能`；未勾遮煙性能的門列維持正常底色、提醒欄無此參數。

@@ -2,9 +2,9 @@
 
 日期：2026-10-06
 狀態：已採納
-相關：`docs/regulations/vertical-compartment.md`、`docs/regulations/zone-use-vocabulary.md`、
-`docs/agent/review-request-task3-region-editor-zone-use.md`、
-`docs/agent/review-reply-task3-region-editor-zone-use.md`（codex fire protection 的影響審查）
+相關：`docs/tools/fire-review/rules/vertical-compartment.md`、`docs/tools/fire-review/rules/zone-use-vocabulary.md`、
+`docs/tools/fire-review/history/review-request-task3-region-editor-zone-use.md`、
+`docs/tools/fire-review/history/review-reply-task3-region-editor-zone-use.md`（codex fire protection 的影響審查）
 
 ## 脈絡
 
@@ -118,8 +118,8 @@ Undo 與同一套回滾策略，否則一個回滾了元素的 run 會把用途�
 
 ## 審查
 
-送 codex fire protection 做影響審查（`docs/agent/review-request-task3-region-editor-zone-use.md`），
-回覆在 `docs/agent/review-reply-task3-region-editor-zone-use.md`。它指出的兩項缺陷都已修正，並且
+送 codex fire protection 做影響審查（`docs/tools/fire-review/history/review-request-task3-region-editor-zone-use.md`），
+回覆在 `docs/tools/fire-review/history/review-reply-task3-region-editor-zone-use.md`。它指出的兩項缺陷都已修正，並且
 正是上面第 1 點與第 3 點的由來：
 
 1. **用途-only 漏寫**（第 3 點）。原方案只在 `SetName` 附近寫用途，會被 `plan.IsEmpty` 與

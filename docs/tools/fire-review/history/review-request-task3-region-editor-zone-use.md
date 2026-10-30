@@ -5,7 +5,7 @@
 受審人：fire protection（codex）
 Branch：`fire-protection`｜基線 commit：`014bdf0`
 
-**請把完整審查意見寫成 `docs/agent/review-reply-task3-region-editor-zone-use.md`**，寫完再用
+**請把完整審查意見寫成 `docs/tools/fire-review/history/review-reply-task3-region-editor-zone-use.md`**，寫完再用
 `reply-status` 回一句話說檔案已好（`reply-status` 的 payload 只帶一句話，長內容傳不過來）。
 
 ---
@@ -139,7 +139,7 @@ Branch：`fire-protection`｜基線 commit：`014bdf0`
    - `AtriumStackResolver`／`RevitStoreyZoneReader` 會不會因為用途現在有兩個寫入來源
      而讀到預期外的狀態？
    - `MergedAtriums`（第79條之2第3項免除成立的挑空與連通區劃之間不是區劃邊界，
-     `docs/regulations/vertical-compartment.md` §3.9）會不會因為編輯器現在能直接標挑空，
+     `docs/tools/fire-review/rules/vertical-compartment.md` §3.9）會不會因為編輯器現在能直接標挑空，
      而讓使用者在編輯器裡畫出「挑空與連通區劃之間有區劃線」卻預期它不是邊界？
    - `ReviewStaleness`／證據基線會不會多出誤報「需更新」？
 5. **寫入時機**：套用時機在 `RevitZoneWriteBack` 的 transaction group 裡，和既有的

@@ -1,7 +1,7 @@
 # P2-T09 — 整合 Phase 2 與驗收
 
 Phase 2 的最後一個任務。串接抽取、編輯、預覽、寫回、狀態失效與日誌，並補齊 spec 10.6 的驗收證
-據。逐條驗收對照寫在 `docs/agent/phase-2-acceptance.md`。
+據。逐條驗收對照寫在 `docs/tools/fire-review/history/phase-2-acceptance.md`。
 
 ## 完成範圍
 

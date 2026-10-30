@@ -544,7 +544,7 @@ public sealed class CandidateResolverTests
         Assert.Equal(ReviewStatus.NotApplicable, engine.Evaluate(RuleCategory.FireResistance, partition, context).Status);
     }
 
-    // --- 室內帷幕牆（docs/regulations/curtain-wall-fire-compartment.md §4.8）---------------------
+    // --- 室內帷幕牆（docs/tools/fire-review/rules/curtain-wall-fire-compartment.md §4.8）---------------------
     //
     // The fixture's CW-right at x = 20 has 區劃 B inside it and nothing beyond: the building's 外牆,
     // whose openings 第79條第1項 does not govern (row P1-panel above, Facade). A curtain wall on the
@@ -766,7 +766,7 @@ public sealed class CandidateResolverTests
 
     private static string Name(Guid zone) => zone == ZoneA ? "A" : zone == ZoneB ? "B" : zone == ZoneC ? "C" : zone.ToString("D");
 
-    // --- 一般外牆上的門窗（docs/regulations/boundary-edge-elements.md §3.4）-------------------------
+    // --- 一般外牆上的門窗（docs/tools/fire-review/rules/boundary-edge-elements.md §3.4）-------------------------
     //
     // W10-left 在 x = 0：A 區在它右側，左側沒有任何區劃。一般牆要「外側無區劃」加上「牆類型 Function
     // 為 Exterior」才推定為外牆；Function 是 Interior 或沒讀到，就照舊當區劃開口。

@@ -18,7 +18,7 @@ namespace BuildingRegulationReview.Revit.Geometry;
 /// P3 步驟 4: reads the curtain walls of one package's storey — their location line, outward face,
 /// panels and grid lines — plus the 區劃牆 and 區劃樓地板 the caller named and the solid exterior walls
 /// standing in those curtain walls' planes, and hands it all over as plain data
-/// (docs/regulations/curtain-wall-fire-compartment.md §4.1–§4.3). Read-only: no transaction, no change
+/// (docs/tools/fire-review/rules/curtain-wall-fire-compartment.md §4.1–§4.3). Read-only: no transaction, no change
 /// to the model.
 /// </summary>
 /// <remarks>

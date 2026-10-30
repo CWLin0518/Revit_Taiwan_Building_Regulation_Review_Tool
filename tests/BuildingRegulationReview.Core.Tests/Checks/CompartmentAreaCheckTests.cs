@@ -275,7 +275,7 @@ public sealed class CompartmentAreaCheckTests
     /// <summary>
     /// The engine's own message names the condition that held (<c>zone.use == "樓梯間"</c>), which on
     /// its own reads as if the 區劃 were simply not reviewed. A 垂直區劃 therefore also gets told who
-    /// does review it — 第79條之2第1項 (docs/regulations/vertical-compartment.md §3).
+    /// does review it — 第79條之2第1項 (docs/tools/fire-review/rules/vertical-compartment.md §3).
     /// </summary>
     [Fact]
     public void An_exempt_vertical_compartment_is_told_which_article_takes_over()

@@ -11,7 +11,7 @@ namespace BuildingRegulationReview.Core.Tests.Rules;
 
 /// <summary>
 /// The shipped CompartmentContinuity rules — 防火區劃與帷幕牆交接
-/// (docs/regulations/curtain-wall-fire-compartment.md).
+/// (docs/tools/fire-review/rules/curtain-wall-fire-compartment.md).
 ///
 /// These rules encode 第79條第3項 the way the statute is written: 「應突出建築物外牆面五十公分以上」
 /// is the requirement and 「但與其交接處之外牆面長度有九十公分以上……者，得免突出」is the exemption.

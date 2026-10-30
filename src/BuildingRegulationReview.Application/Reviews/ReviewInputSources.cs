@@ -119,7 +119,7 @@ public static class ReviewInputSources
     /// <summary>
     /// 每個區劃的建築物使用類組（第3條之3），填在 Area 上。同一區劃各 Area 可以填不同類組，此時
     /// 各類組的規定都要符合（內政部國土管理署115.05.15國署建管字第1150047679號函；
-    /// docs/regulations/building-use-groups.md §6）。
+    /// docs/tools/fire-review/rules/building-use-groups.md §6）。
     /// </summary>
     public const string UseGroup = "防火檢討_用途類組";
 

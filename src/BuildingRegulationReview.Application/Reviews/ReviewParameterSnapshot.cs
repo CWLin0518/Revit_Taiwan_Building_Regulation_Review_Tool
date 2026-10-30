@@ -512,7 +512,7 @@ public static class ReviewInputAssembler
     /// text names no 使用類組. 第83條第一款、第二款's Ｈ－２組 proviso compares one literal, and the
     /// code prints that group at least four ways, so the spelling is settled here — the one place a
     /// parameter becomes a rule input — rather than by piling <c>||</c> into the rule
-    /// (見 docs/regulations/building-use-groups.md). The respelling is never silent: the evidence
+    /// (見 docs/tools/fire-review/rules/building-use-groups.md). The respelling is never silent: the evidence
     /// records what was typed alongside what it was read as.
     /// </summary>
     private static ReviewInput? UseGroup(string field, ParameterReading reading, string source)
@@ -533,7 +533,7 @@ public static class ReviewInputAssembler
     /// gap: one 防火區劃 may hold several 使用類組, and then 「應同時符合各使用類組之規定」
     /// （內政部國土管理署115.05.15國署建管字第1150047679號函）, so the value is <c>混合（…）</c> — no
     /// single group, hence never the Ｈ－２組 of 第83條's proviso. Only some Areas left blank is a gap:
-    /// the groups of the blank parts are unknown (docs/regulations/building-use-groups.md §6).
+    /// the groups of the blank parts are unknown (docs/tools/fire-review/rules/building-use-groups.md §6).
     /// </summary>
     private static ReviewInput? UseGroupInput(string field, IReadOnlyList<ParameterReading> readings, string source)
     {

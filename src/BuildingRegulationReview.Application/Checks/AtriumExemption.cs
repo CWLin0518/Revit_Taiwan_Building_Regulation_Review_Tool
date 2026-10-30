@@ -9,7 +9,7 @@ namespace BuildingRegulationReview.Application.Checks;
 
 /// <summary>
 /// Which 款 of 第79條之2第3項 lets an 挑空 out of 第1項's 單獨區劃分隔
-/// (docs/regulations/vertical-compartment.md §3.6).
+/// (docs/tools/fire-review/rules/vertical-compartment.md §3.6).
 /// </summary>
 public enum AtriumExemptionClause
 {

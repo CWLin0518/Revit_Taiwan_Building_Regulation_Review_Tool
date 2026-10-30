@@ -7,7 +7,7 @@ namespace BuildingRegulationReview.Application.Checks;
 
 /// <summary>
 /// Which 款 of 第79條之1 lets a 區劃 out of 第79條第1項's area limit
-/// (docs/regulations/article-79-1-area-exemption.md §3.5).
+/// (docs/tools/fire-review/rules/article-79-1-area-exemption.md §3.5).
 /// </summary>
 public enum Article79_1Clause
 {

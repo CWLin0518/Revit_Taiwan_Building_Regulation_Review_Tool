@@ -135,7 +135,7 @@ public static class ReviewErrorCode
     // 構件防火時效（spec 11.5 第 5 點：複合構造無法判定）
     public const string FireRatingUndetermined = "BCR-RATE-001";
 
-    // 帷幕牆區劃交接（docs/regulations/curtain-wall-fire-compartment.md §3.4）
+    // 帷幕牆區劃交接（docs/tools/fire-review/rules/curtain-wall-fire-compartment.md §3.4）
     public const string CurtainWallNotPlanar = "BCR-CW-001";
     public const string CurtainWallJunctionUnresolved = "BCR-CW-002";
     public const string CurtainWallJunctionSplitByGridLine = "BCR-CW-003";

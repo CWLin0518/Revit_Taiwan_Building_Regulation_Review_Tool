@@ -90,7 +90,7 @@ public enum FireReviewStep
 
     /// <summary>
     /// 第79條之1 之免除, run straight after the area it is the exception to
-    /// (docs/regulations/article-79-1-area-exemption.md §7.1).
+    /// (docs/tools/fire-review/rules/article-79-1-area-exemption.md §7.1).
     /// </summary>
     AreaExemption,
 

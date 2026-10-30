@@ -29,7 +29,7 @@ public static class ReviewCheckTypes
     /// <summary>
     /// 區劃面積上限的免除（第79條之1之無法區劃分隔部分）。不是 <see cref="RuleCategory"/>：本檢討
     /// 不走規則引擎，零規則的類別會讓 <c>Evaluate</c> 回一句誤導的「規則集沒有這個類別的規則」
-    /// （docs/regulations/article-79-1-area-exemption.md §5.1、決議 8）。名稱取 AreaExemption 而非
+    /// （docs/tools/fire-review/rules/article-79-1-area-exemption.md §5.1、決議 8）。名稱取 AreaExemption 而非
     /// Article79_1，是為了讓第79條之2第3項的挑空免除將來能搬進同一個檢討類型（決議 8a）。
     /// </summary>
     public const string AreaExemption = "AreaExemption";
@@ -137,7 +137,7 @@ public sealed class CompartmentAreaReview
 /// exemptions and missing data.</item>
 /// <item>A 挑空 that 第79條之2第3項 exempts from 單獨區劃分隔 is no longer a 垂直區劃, so the use exemption
 /// no longer covers it: its 連通區劃 goes back to 第79條 and, when it reaches the eleventh storey, 第83條
-/// (docs/regulations/vertical-compartment.md 決議 32). The facts the two atrium rules read are
+/// (docs/tools/fire-review/rules/vertical-compartment.md 決議 32). The facts the two atrium rules read are
 /// derived here rather than supplied.</item>
 /// <item>The measured boundary cross-checks Revit's Area. When they differ beyond tolerance a Pass or Fail is
 /// withheld and becomes ManualReview: the comparison would be made on an area the geometry does not confirm.</item>

@@ -153,7 +153,7 @@ public sealed class VerticalCompartmentReview
 }
 
 /// <summary>
-/// 垂直區劃之遮煙性能與管道間維修門時效, 第79條之2第1項 (docs/regulations/vertical-compartment.md).
+/// 垂直區劃之遮煙性能與管道間維修門時效, 第79條之2第1項 (docs/tools/fire-review/rules/vertical-compartment.md).
 /// <list type="number">
 /// <item>The subjects are the candidate openings of a 區劃 whose <c>zone.use</c> is one 第79條之2
 /// names — the same batch 防火門窗 reviews — paired with the requirements that 用途 carries

@@ -3,7 +3,7 @@
 > 收件者：codex fire protection agent（GT Office）
 > 發件者：fire-prtection-claude（主 agent）
 > 日期：2026-10-06
-> 依據：`docs/fire-review-spec.md`、`docs/regulations/curtain-wall-fire-compartment.md`
+> 依據：`docs/tools/fire-review/SPEC.md`、`docs/tools/fire-review/rules/curtain-wall-fire-compartment.md`
 
 請審查以下**尚未實作**的變更方案，回答：這次改動會不會影響其他既有功能？
 每一項影響請明確標成下列其中一種，並說明理由與你認為正確的處理：
@@ -28,7 +28,7 @@
 | `RevitCurtainWallGeometryReader.Read`（`src/BuildingRegulationReview.Revit/Geometry/RevitCurtainWallGeometryReader.cs:74-80`） | `Collect<Wall>(OST_Walls).Where(w => w.CurtainGrid is not null)` 加上所有 `CurtainSystem`，**完全不問室內外**，一律讀進來。 |
 | `CurtainWallJunctionResolver.Oriented`（`…/Candidates/CurtainWallJunctionResolver.cs:1487-1502`） | 三站探測兩側區劃，只用來決定外側法線正負；**兩側都有區劃時平手、保留原法線**，牆照樣進 CW-H／CW-V／CW-O。 |
 | `CandidateResolver.RelateOpening`（`…/Candidates/CandidateResolver.cs:384-397`） | 帷幕牆上的開口：單側有區劃 → `ZoneRelationKind.Facade`（外牆，不檢討）；**兩側都有區劃 → `CandidateAmbiguityKind.CurtainWallOpening` 人工覆核**。 |
-| `docs/regulations/curtain-wall-fire-compartment.md` §9 | 已自己寫明這是已知限制：「第 79 條第 3 項的對象是**外牆**，室內帷幕牆本來就不在適用範圍，**但工具不會替使用者判斷哪一片是室內的**。」 |
+| `docs/tools/fire-review/rules/curtain-wall-fire-compartment.md` §9 | 已自己寫明這是已知限制：「第 79 條第 3 項的對象是**外牆**，室內帷幕牆本來就不在適用範圍，**但工具不會替使用者判斷哪一片是室內的**。」 |
 
 所以現狀是：室內帷幕牆在交接檢討裡被當外牆判（錯），在開口檢討裡被丟進人工覆核（保守但沒答案）。
 
@@ -90,7 +90,7 @@ enum CurtainWallExposure { Exterior, Interior, Unknown }
 
 ## 4. 我自己看到、需要你覆核的影響面
 
-1. **`docs/regulations/curtain-wall-fire-compartment.md` §9 兩條已知限制會被改掉**：
+1. **`docs/tools/fire-review/rules/curtain-wall-fire-compartment.md` §9 兩條已知限制會被改掉**：
    「兩側都有區劃的帷幕牆保留原本的法線正負」與「不屬於任何區劃的帷幕牆會整片從檢討中消失」。
    後者文件自己標成「**未決議**的擴充」。本方案把它改成人工覆核 → 需要你確認這算不算越權。
 2. **既有檢討結果會過期**：`ReviewBaselineBuilder`（`…/Reviews/ReviewBaselineBuilder.cs:174`）

@@ -109,7 +109,7 @@ public sealed class CurtainWallJunctionReview
 }
 
 /// <summary>
-/// 防火區劃與帷幕牆交接 (docs/regulations/curtain-wall-fire-compartment.md). For every junction the
+/// 防火區劃與帷幕牆交接 (docs/tools/fire-review/rules/curtain-wall-fire-compartment.md). For every junction the
 /// geometry layer resolved:
 /// <list type="number">
 /// <item>A junction of a zone whose extent is in doubt (未封閉、重疊) is 人工覆核; so is one the

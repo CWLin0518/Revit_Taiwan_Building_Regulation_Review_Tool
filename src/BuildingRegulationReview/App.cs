@@ -75,7 +75,7 @@ namespace BuildingRegulationReview
                 _mcpButton = (PushButton)panel.AddItem(data);
 
                 // The random token needs no one to see it: the server announces it to the bridge through
-                // the endpoint file in the user's profile (docs/mcp-server.md §3).
+                // the endpoint file in the user's profile (docs/tools/mcp-server/ARCHITECTURE.md §3).
                 if (RevitMcpHost.AutoStartRequested)
                 {
                     try
